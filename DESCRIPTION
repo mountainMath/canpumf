@@ -1,0 +1,29 @@
+Package: canpumf
+Type: Package
+Title: Parse StatCan PUMF files
+Version: 0.1.0
+Authors@R: c(
+    person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("cre"))
+    )
+Maintainer: Jens von Bergmann <jens@mountainmath.ca>
+Description: Facilitate working with StatCan Public Use Microdata Files (PUMF)
+    Parses the SPSS Command Files to infer the layout structure, variable labels and value labels as well as missing data values.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.1.1
+Depends: R (>= 3.0)
+Imports: 
+    dplyr (>= 1.0),
+    readr,
+    stringr,
+    rlang,
+    utils,
+    digest
+Suggests: 
+    rmarkdown,
+    knitr
+URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/canpumf/
+BugReports: https://github.com/mountainMath/canpumf/issues
+VignetteBuilder: knitr
+Language: en-CA
