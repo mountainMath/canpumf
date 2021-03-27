@@ -1,12 +1,12 @@
 
-#' Get PUMF variable labels
+#' Read PUMF variable labels
 #'
 #' @param pumf_base_path pumf base path
-#' @param val_path optional path or mask for the layout file in case there are several,
+#' @param var_path optional path or mask for the layout file in case there are several,
 #'
 #' @return tibble with variable labels
 #' @export
-get_pumf_var_labels <- function(pumf_base_path,var_path=NULL){
+read_pumf_var_labels <- function(pumf_base_path,var_path=NULL){
   tmp <- tmp_layout_path(pumf_base_path,var_path,"var")
   if (!file.exists(tmp)) {
     var_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"vare\\.sps",var_path)
@@ -25,14 +25,14 @@ get_pumf_var_labels <- function(pumf_base_path,var_path=NULL){
   var_labels
 }
 
-#' Get PUMF missing data information
+#' Read PUMF missing data information
 #'
 #' @param pumf_base_path pumf base path
 #' @param miss_path optional path or mask for the layout file in case there are several,
 #'
 #' @return tibble with missing data information
 #' @export
-get_pumf_miss_labels <- function(pumf_base_path,miss_path=NULL){
+read_pumf_miss_labels <- function(pumf_base_path,miss_path=NULL){
   tmp <- tmp_layout_path(pumf_base_path,miss_path,"miss")
   if (!file.exists(tmp)) {
     miss_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"miss\\.sps",miss_path)
@@ -60,7 +60,7 @@ get_pumf_miss_labels <- function(pumf_base_path,miss_path=NULL){
 #'
 #' @return tibble with value labels
 #' @export
-get_pumf_val_labels <- function(pumf_base_path,val_path=NULL){
+read_pumf_val_labels <- function(pumf_base_path,val_path=NULL){
   tmp <- tmp_layout_path(pumf_base_path,val_path,"val")
   if (!file.exists(tmp)) {
     val_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"vale\\.sps",val_path)
@@ -104,7 +104,7 @@ get_pumf_val_labels <- function(pumf_base_path,val_path=NULL){
   val_labels
 }
 
-get_pumf_layout <- function(pumf_base_path,i_path=NULL){
+read_pumf_layout <- function(pumf_base_path,i_path=NULL){
   i_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"_i\\.sps",i_path)
 
   rl <- read_lines(i_path, locale=locale(encoding = "Latin1")) %>%

@@ -6,7 +6,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Function reference • canpumf</title>
+<title>Parse PUMF data — read_pumf_data • canpumf</title>
 
 
 <!-- jquery -->
@@ -39,7 +39,8 @@
 
 
 
-<meta property="og:title" content="Function reference" />
+<meta property="og:title" content="Parse PUMF data — read_pumf_data" />
+<meta property="og:description" content="Parse PUMF data" />
 
 
 
@@ -58,7 +59,7 @@
   </head>
 
   <body data-spy="scroll" data-target="#toc">
-    <div class="container template-reference-index">
+    <div class="container template-reference-topic">
       <header>
       <div class="navbar navbar-default navbar-fixed-top" role="navigation">
   <div class="container">
@@ -105,78 +106,52 @@
       </header>
 
 <div class="row">
-  <div class="contents col-md-9">
+  <div class="col-md-9 contents">
     <div class="page-header">
-      <h1>Reference</h1>
+    <h1>Parse PUMF data</h1>
+    <small class="dont-index">Source: <a href='https://github.com/mountainMath/canpumf/blob/master/R/pumf.R'><code>R/pumf.R</code></a></small>
+    <div class="hidden name"><code>read_pumf_data.Rd</code></div>
     </div>
 
-    <table class="ref-index">
+    <div class="ref-description">
+    <p>Parse PUMF data</p>
+    </div>
 
-    <colgroup>
-      
-      <col class="alias" />
-      <col class="title" />
-    </colgroup>
+    <pre class="usage"><span class='fu'>read_pumf_data</span><span class='op'>(</span>
+  <span class='va'>pumf_base_path</span>,
+  layout_mask <span class='op'>=</span> <span class='cn'>NULL</span>,
+  file_mask <span class='op'>=</span> <span class='va'>layout_mask</span>,
+  guess_numeric <span class='op'>=</span> <span class='cn'>TRUE</span>
+<span class='op'>)</span></pre>
 
-    <tbody>
-      <tr>
-        <th colspan="2">
-          <h2 id="section-all-functions" class="hasAnchor"><a href="#section-all-functions" class="anchor"></a>All functions</h2>
-          <p class="section-desc"></p>
-        </th>
-      </tr>
-      
-      
-    </tbody><tbody>
-      
-      
-      <tr>
-        
-        <td>
-          <p><code><a href="convert_pumf_numeric_columns.html">convert_pumf_numeric_columns()</a></code> </p>
-        </td>
-        <td><p>Convert columns to numeric and convert all missing values to <code>NA</code></p></td>
-      </tr><tr>
-        
-        <td>
-          <p><code><a href="guess_numeric_pumf_columns.html">guess_numeric_pumf_columns()</a></code> </p>
-        </td>
-        <td><p>Guess which columns in pumf data are numeric</p></td>
-      </tr><tr>
-        
-        <td>
-          <p><code><a href="label_pumf_data.html">label_pumf_data()</a></code> </p>
-        </td>
-        <td><p>Add variable labels and rename to human readable column names</p></td>
-      </tr><tr>
-        
-        <td>
-          <p><code><a href="read_pumf_data.html">read_pumf_data()</a></code> </p>
-        </td>
-        <td><p>Parse PUMF data</p></td>
-      </tr><tr>
-        
-        <td>
-          <p><code><a href="read_pumf_miss_labels.html">read_pumf_miss_labels()</a></code> </p>
-        </td>
-        <td><p>Read PUMF missing data information</p></td>
-      </tr><tr>
-        
-        <td>
-          <p><code><a href="read_pumf_val_labels.html">read_pumf_val_labels()</a></code> </p>
-        </td>
-        <td><p>Get PUMF value labels</p></td>
-      </tr><tr>
-        
-        <td>
-          <p><code><a href="read_pumf_var_labels.html">read_pumf_var_labels()</a></code> </p>
-        </td>
-        <td><p>Read PUMF variable labels</p></td>
-      </tr>
-    </tbody>
+    <h2 class="hasAnchor" id="arguments"><a class="anchor" href="#arguments"></a>Arguments</h2>
+    <table class="ref-arguments">
+    <colgroup><col class="name" /><col class="desc" /></colgroup>
+    <tr>
+      <th>pumf_base_path</th>
+      <td><p>optional base path, guessed from attributes on <code>pumf_data</code></p></td>
+    </tr>
+    <tr>
+      <th>layout_mask</th>
+      <td><p>optional layout mask in case there are several layout files,
+guessed from attributes on <code>layout_mask</code></p></td>
+    </tr>
+    <tr>
+      <th>file_mask</th>
+      <td><p>optional additional mask to filter down to specific PUMF file if there are several</p></td>
+    </tr>
+    <tr>
+      <th>guess_numeric</th>
+      <td><p>logical, will guess numeric columns and covert to numeric and set missing values
+to <code>NA</code> if set to <code>TRUE</code> (default)</p></td>
+    </tr>
     </table>
-  </div>
 
+    <h2 class="hasAnchor" id="value"><a class="anchor" href="#value"></a>Value</h2>
+
+    <p>data frame with one row for each case in the PUMF data</p>
+
+  </div>
   <div class="col-md-3 hidden-xs hidden-sm" id="pkgdown-sidebar">
     <nav id="toc" data-toggle="toc" class="sticky-top">
       <h2 data-toc-skip>Contents</h2>

@@ -1,18 +1,28 @@
 pumf_data_dir <- function(pumf_base_path){
   data_dir <- dir(pumf_base_path,"*Data*")
   if (length(data_dir)==0) stop("Could not find data directory in PUMF base path, aborting.")
+  if (length(data_dir)>1) {
+    data_dir <- data_dir[!grepl("dictionary",data_dir)]
+    if (length(data_dir)>1) stop("Found multiple data directories in PUMF base path, aborting.")
+  }
   file.path(pumf_base_path,data_dir)
 }
 
 pumf_layout_dir <- function(pumf_base_path){
-  data_dir <- dir(pumf_base_path,"*Data*")
-  if (length(data_dir)==0) stop("Could not find data directory in PUMF base path, aborting.")
-  data_path <- file.path(pumf_base_path,data_dir)
-  layout_dir <- dir(data_path,"Layout|Syntax")
-  if (length(data_dir)==0) stop("Could not find layout in PUMF base path, aborting.")
-  spss_path <- dir(file.path(data_path,layout_dir),"SPSS")
+  layout_dir <- dir(pumf_base_path,"Layout|Syntax")
+  if (length(layout_dir)==0){
+    data_dir <- dir(pumf_base_path,"*Data*")
+    if (length(data_dir)==0) stop("Could not find layout or data in PUMF base path, aborting.")
+    data_path <- file.path(pumf_base_path,data_dir)
+    layout_dir <- dir(data_path,"Layout|Syntax")
+    if (length(layout_dir)==0) stop("Could not find layout in PUMF base path, aborting.")
+    layout_dir <- file.path(data_path,layout_dir)
+  } else {
+    layout_dir <- file.path(pumf_base_path,layout_dir)
+  }
+  spss_path <- dir(layout_dir,"SPSS")
   if (length(spss_path)==0) stop("Could not find layout in PUMF base path, aborting.")
-  file.path(data_path,layout_dir,spss_path)
+  file.path(layout_dir,spss_path)
 }
 
 

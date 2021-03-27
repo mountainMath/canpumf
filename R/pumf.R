@@ -11,7 +11,7 @@
 guess_numeric_pumf_columns <- function(pumf_base_path,
                                        layout_mask=NULL,
                                        numeric_pattern = "THRU 99"){
-  miss_data <- get_pumf_miss_labels(pumf_base_path,layout_mask)
+  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask)
 
   miss_data %>%
     filter(grepl(numeric_pattern,missing)) %>%
@@ -30,8 +30,8 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
 label_pumf_data <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
                             layout_mask=attr(pumf_data,"layout_mask")){
-  val_labels <- get_pumf_val_labels(pumf_base_path)
-  var_labels <- get_pumf_var_labels(pumf_base_path)
+  val_labels <- read_pumf_val_labels(pumf_base_path)
+  var_labels <- read_pumf_var_labels(pumf_base_path)
   vars <- pumf_data %>% names() %>% intersect(var_labels$name)
   for (var in vars) {
     vl <- val_labels %>% filter(.data$name==var)
@@ -74,7 +74,7 @@ convert_pumf_numeric_columns <- function(pumf_data,
   if (is.null(pumf_base_path)) stop("Could not find PUMF base path to access metadata.")
   if (is.null(numeric_columns))  numeric_columns <- guess_numeric_pumf_columns(pumf_base_path,layout_mask)
 
-  miss_data <- get_pumf_miss_labels(pumf_base_path,layout_mask)
+  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask)
   missing <- setdiff(numeric_columns,miss_data$name)
 
   if (length(missing)>0) {
@@ -82,9 +82,8 @@ convert_pumf_numeric_columns <- function(pumf_data,
   }
 
   convert_numeric_missing <- function(l,c) {
-    #print(c)
     miss <- miss_data %>% filter(.data$name==c)
-    integer_miss <- !grepl(miss$missing,"\\.")
+    integer_miss <- !grepl(miss$missing,"\\.") & max(nchar(l)) < 10
 
     if (integer_miss) {
       nv <- NA_integer_
@@ -96,7 +95,8 @@ convert_pumf_numeric_columns <- function(pumf_data,
 
     for (n in na.values) l[l==n] <- nv
     l <- nf(l)
-    if (nrow(miss)==1) l[l>=miss$missing_low & l<=miss$missing_high]<-nv
+    if (nrow(miss)==1) l[l>=miss$missing_low & l<=miss$missing_high] <- nv
+
     l
   }
 
@@ -121,11 +121,11 @@ convert_pumf_numeric_columns <- function(pumf_data,
 #'
 #' @return data frame with one row for each case in the PUMF data
 #' @export
-get_pumf_data <- function(pumf_base_path,
+read_pumf_data <- function(pumf_base_path,
                           layout_mask=NULL,
                           file_mask=layout_mask,
                           guess_numeric=TRUE){
-  layout<- get_pumf_layout(pumf_base_path,layout_mask)
+  layout<- read_pumf_layout(pumf_base_path,layout_mask)
   data_dir <- pumf_data_dir(pumf_base_path)
   data_path <- dir(data_dir,"\\.txt$")
   if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
