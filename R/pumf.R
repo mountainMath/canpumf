@@ -30,8 +30,8 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
 label_pumf_data <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
                             layout_mask=attr(pumf_data,"layout_mask")){
-  val_labels <- read_pumf_val_labels(pumf_base_path)
-  var_labels <- read_pumf_var_labels(pumf_base_path)
+  val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask)
+  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
   vars <- pumf_data %>% names() %>% intersect(var_labels$name)
   for (var in vars) {
     vl <- val_labels %>% filter(.data$name==var)

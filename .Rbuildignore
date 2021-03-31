@@ -3,3 +3,4 @@
 ^LICENSE\.md$
 ^docs
 ^docs/*
+^\.R/local_test.R

@@ -9,7 +9,7 @@ pumf_data_dir <- function(pumf_base_path){
 }
 
 pumf_layout_dir <- function(pumf_base_path){
-  layout_dir <- dir(pumf_base_path,"Layout|Syntax")
+  layout_dir <- dir(pumf_base_path,"Layout|Syntax|Command")
   if (length(layout_dir)==0){
     data_dir <- dir(pumf_base_path,"*Data*")
     if (length(data_dir)==0) stop("Could not find layout or data in PUMF base path, aborting.")
@@ -22,7 +22,8 @@ pumf_layout_dir <- function(pumf_base_path){
   }
   spss_path <- dir(layout_dir,"SPSS")
   if (length(spss_path)==0) stop("Could not find layout in PUMF base path, aborting.")
-  file.path(layout_dir,spss_path)
+  if (!grepl(spss_path,"\\.sps$")) layout_dir<-file.path(layout_dir,spss_path)
+  layout_dir
 }
 
 
