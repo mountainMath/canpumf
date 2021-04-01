@@ -2,6 +2,7 @@
 
 export(convert_pumf_numeric_columns)
 export(guess_numeric_pumf_columns)
+export(label_pumf_columns)
 export(label_pumf_data)
 export(read_pumf_data)
 export(read_pumf_miss_labels)

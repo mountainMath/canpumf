@@ -18,6 +18,26 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
     pull(.data$name)
 }
 
+
+#' Rename to human readable column names
+#'
+#' @param pumf_data pumf data file
+#' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
+#' @param layout_mask optional layout mask in case there are several layout files,
+#' guessed from attributes on \code{layout_mask}
+#'
+#' @return data frame with renamed columns
+#' @export
+label_pumf_columns <- function(pumf_data,
+                            pumf_base_path=attr(pumf_data,"pumf_base_path"),
+                            layout_mask=attr(pumf_data,"layout_mask")){
+  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
+  vars <- pumf_data %>% names() %>% intersect(var_labels$name)
+  vr <- var_labels %>% filter(.data$name %in% vars)
+  pumf_data %>% rename(!!!setNames(vr$name,vr$label))
+
+}
+
 #' Add variable labels and rename to human readable column names
 #'
 #' @param pumf_data pumf data file
@@ -49,8 +69,9 @@ label_pumf_data <- function(pumf_data,
     }
   }
 
-  vr <- var_labels %>% filter(.data$name %in% vars)
-  pumf_data %>% rename(!!!setNames(vr$name,vr$label))
+  label_pumf_columns(pumf_data=pumf_data,
+                     pumf_base_path=pumf_base_path,
+                     layout_mask=layout_mask)
 }
 
 #' Convert columns to numeric and convert all missing values to \code{NA}
