@@ -175,3 +175,18 @@ read_pumf_data <- function(pumf_base_path,
 
   pumf_data
 }
+
+#' Download PUMF data
+#'
+#' @param path download path for PUMF SPSS data
+#' @param destination_dir optional path where to store the extracted PUMF data
+#' @return pumf_base_dir that can be used in the other package functions
+#' @export
+download_pumf <- function(path,destination_dir=tempdir()){
+  #path <- paste0("https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip")
+  tmp <- tempfile()
+  utils::download.file(path,tmp)
+  ls <- utils::unzip(tmp,exdir = destination_dir)
+  paste0(destination_dir,"/SPSS")
+}
+

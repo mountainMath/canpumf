@@ -66,7 +66,6 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
 }
 
 
-
 #' @import dplyr
 #' @importFrom stats setNames
 #' @import stringr
