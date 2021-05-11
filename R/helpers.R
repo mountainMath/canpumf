@@ -10,7 +10,7 @@ pumf_data_dir <- function(pumf_base_path){
 
 pumf_layout_dir <- function(pumf_base_path){
   layout_dir <- dir(pumf_base_path,"Layout|Syntax|Command")
-  if (length(layout_dir)==0){
+  if (length(layout_dir)==0||!dir.exists(file.path(pumf_base_path,layout_dir))){
     data_dir <- dir(pumf_base_path,"*Data*")
     if (length(data_dir)==0) stop("Could not find layout or data in PUMF base path, aborting.")
     data_path <- file.path(pumf_base_path,data_dir)

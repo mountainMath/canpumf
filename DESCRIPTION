@@ -1,7 +1,7 @@
 Package: canpumf
 Type: Package
 Title: Parse StatCan PUMF files
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(
     person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("cre"))
     )
@@ -19,7 +19,9 @@ Imports:
     stringr,
     rlang,
     utils,
-    digest
+    digest,
+    tibble,
+    tidyr
 Suggests: 
     rmarkdown,
     knitr

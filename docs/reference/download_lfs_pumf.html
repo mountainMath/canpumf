@@ -6,7 +6,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Parse PUMF data — read_pumf_data • canpumf</title>
+<title>Download PUMF LFS data — download_lfs_pumf • canpumf</title>
 
 
 <!-- jquery -->
@@ -39,8 +39,8 @@
 
 
 
-<meta property="og:title" content="Parse PUMF data — read_pumf_data" />
-<meta property="og:description" content="Parse PUMF data" />
+<meta property="og:title" content="Download PUMF LFS data — download_lfs_pumf" />
+<meta property="og:description" content="Download PUMF LFS data" />
 
 
 
@@ -108,48 +108,41 @@
 <div class="row">
   <div class="col-md-9 contents">
     <div class="page-header">
-    <h1>Parse PUMF data</h1>
+    <h1>Download PUMF LFS data</h1>
     <small class="dont-index">Source: <a href='https://github.com/mountainMath/canpumf/blob/master/R/pumf.R'><code>R/pumf.R</code></a></small>
-    <div class="hidden name"><code>read_pumf_data.Rd</code></div>
+    <div class="hidden name"><code>download_lfs_pumf.Rd</code></div>
     </div>
 
     <div class="ref-description">
-    <p>Parse PUMF data</p>
+    <p>Download PUMF LFS data</p>
     </div>
 
-    <pre class="usage"><span class='fu'>read_pumf_data</span><span class='op'>(</span>
-  <span class='va'>pumf_base_path</span>,
-  layout_mask <span class='op'>=</span> <span class='cn'>NULL</span>,
-  file_mask <span class='op'>=</span> <span class='va'>layout_mask</span>,
-  guess_numeric <span class='op'>=</span> <span class='cn'>TRUE</span>
+    <pre class="usage"><span class='fu'>download_lfs_pumf</span><span class='op'>(</span>
+  version <span class='op'>=</span> <span class='st'>"2021-01"</span>,
+  destination_dir <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/tempfile.html'>tempdir</a></span><span class='op'>(</span><span class='op'>)</span>, <span class='fu'><a href='https://rdrr.io/r/base/paste.html'>paste0</a></span><span class='op'>(</span><span class='va'>version</span>, <span class='st'>"-CSV-eng"</span><span class='op'>)</span><span class='op'>)</span>,
+  timeout <span class='op'>=</span> <span class='fl'>3000</span>
 <span class='op'>)</span></pre>
 
     <h2 class="hasAnchor" id="arguments"><a class="anchor" href="#arguments"></a>Arguments</h2>
     <table class="ref-arguments">
     <colgroup><col class="name" /><col class="desc" /></colgroup>
     <tr>
-      <th>pumf_base_path</th>
-      <td><p>optional base path, guessed from attributes on <code>pumf_data</code></p></td>
+      <th>version</th>
+      <td><p>A version of the pumf data of fornat &lt;Year&gt;-&lt;Month&gt;, e.g. "2021-01"</p></td>
     </tr>
     <tr>
-      <th>layout_mask</th>
-      <td><p>optional layout mask in case there are several layout files,
-guessed from attributes on <code>layout_mask</code></p></td>
+      <th>destination_dir</th>
+      <td><p>Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`</p></td>
     </tr>
     <tr>
-      <th>file_mask</th>
-      <td><p>optional additional mask to filter down to specific PUMF file if there are several</p></td>
-    </tr>
-    <tr>
-      <th>guess_numeric</th>
-      <td><p>logical, will guess numeric columns and covert to numeric and set missing values
-to <code>NA</code> if set to <code>TRUE</code> (default)</p></td>
+      <th>timeout</th>
+      <td><p>Optional parameter to specify connection timout for download</p></td>
     </tr>
     </table>
 
     <h2 class="hasAnchor" id="value"><a class="anchor" href="#value"></a>Value</h2>
 
-    <p>data frame with one row for each case in the PUMF data</p>
+    <p>pumf_base_dir that can be used in the other package functions</p>
 
   </div>
   <div class="col-md-3 hidden-xs hidden-sm" id="pkgdown-sidebar">

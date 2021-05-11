@@ -10,11 +10,14 @@
 #' @export
 guess_numeric_pumf_columns <- function(pumf_base_path,
                                        layout_mask=NULL,
-                                       numeric_pattern = "THRU 99"){
+                                       numeric_pattern = "\\d+-\\d+|THRU 99"){
   miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask)
-
-  miss_data %>%
-    filter(grepl(numeric_pattern,missing)) %>%
+  if (nrow(miss_data)==0) {
+    val_labels <- read_pumf_val_labels(pumf_base_path)
+    val_labels %>% filter(grepl(numeric_pattern,.data$val)) %>% pull(.data$name)
+  }
+  else  miss_data %>%
+    filter(grepl(numeric_pattern,.data$missing)) %>%
     pull(.data$name)
 }
 
@@ -98,32 +101,36 @@ convert_pumf_numeric_columns <- function(pumf_data,
   miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask)
   missing <- setdiff(numeric_columns,miss_data$name)
 
-  if (length(missing)>0) {
+  if (length(missing)>0 & nrow(miss_data)>0) {
     warning(paste0("Don't have missing value information for column(s) ",paste0(missing,collapse = ", "),"."))
   }
 
   convert_numeric_missing <- function(l,c) {
-    miss <- miss_data %>% filter(.data$name==c)
-    integer_miss <- !grepl(miss$missing,"\\.") & max(nchar(l)) < 10
+      miss <- miss_data %>% filter(.data$name==c)
+      integer_miss <- !grepl(miss$missing,"\\.") & max(nchar(l)) < 10
 
-    if (integer_miss) {
-      nv <- NA_integer_
-      nf <- as.integer
-    } else {
-      nv <- NA_real_
-      nf <- as.numeric
-    }
+      if (integer_miss) {
+        nv <- NA_integer_
+        nf <- as.integer
+      } else {
+        nv <- NA_real_
+        nf <- as.numeric
+      }
 
-    for (n in na.values) l[l==n] <- nv
-    l <- nf(l)
-    if (nrow(miss)==1) l[l>=miss$missing_low & l<=miss$missing_high] <- nv
-
+      for (n in na.values) l[l==n] <- nv
+      l <- nf(l)
+      if (nrow(miss)==1) l[l>=miss$missing_low & l<=miss$missing_high] <- nv
     l
   }
 
   for (c in numeric_columns) {
-    pumf_data <- pumf_data %>%
-      mutate_at(c,~convert_numeric_missing(!!as.name(c),c))
+    if (nrow(miss_data)==0) {
+      pumf_data <- pumf_data %>%
+        mutate_at(c,as.numeric)
+    } else {
+      pumf_data <- pumf_data %>%
+        mutate_at(c,~convert_numeric_missing(!!as.name(c),c))
+    }
   }
   pumf_data
 }
@@ -146,28 +153,39 @@ read_pumf_data <- function(pumf_base_path,
                           layout_mask=NULL,
                           file_mask=layout_mask,
                           guess_numeric=TRUE){
-  layout<- read_pumf_layout(pumf_base_path,layout_mask)
-  data_dir <- pumf_data_dir(pumf_base_path)
-  data_path <- dir(data_dir,"\\.txt$")
-  if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
-  if (length(data_path)==0) stop("Could not find PUMF data file")
-  if (length(data_path)>1) {
-    message("Found multiple PUMF data files, reading all.")
-    pumf_data <- data_path %>%
-      lapply(function(path){
-        read_fwf(file.path(data_dir,path),
-                 col_positions = fwf_positions(layout$start,layout$end,col_names = layout$name),
-                 col_types=cols(.default = "c"),
-                 locale=locale(encoding = "Latin1")) %>%
-          mutate(path=!!path)
-      }) %>%
-      bind_rows()
+  ## cgeck if data is csv
+  vars <- dir(pumf_base_path,pattern="variables\\.csv")
+  if (length(vars)==1) {
+    data_path <- dir(pumf_base_path,pattern="\\.csv")
+    data_path <- file.path(pumf_base_path,data_path[data_path!=vars])
+    pumf_data <- readr::read_csv(data_path,
+                                 locale=readr::locale(encoding = "Latin1"),
+                                 col_types = readr::cols(.default = "c"))
   } else {
-    pumf_data <- read_fwf(file.path(data_dir,data_path),
-                          col_positions = fwf_positions(layout$start,layout$end,col_names = layout$name),
-                          col_types=cols(.default = "c"),
-                          locale=locale(encoding = "Latin1"))
+    layout<- read_pumf_layout(pumf_base_path,layout_mask)
+    data_dir <- pumf_data_dir(pumf_base_path)
+    data_path <- dir(data_dir,"\\.txt$")
+    if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
+    if (length(data_path)==0) stop("Could not find PUMF data file")
+    if (length(data_path)>1) {
+      message("Found multiple PUMF data files, reading all.")
+      pumf_data <- data_path %>%
+        lapply(function(path){
+          read_fwf(file.path(data_dir,path),
+                   col_positions = fwf_positions(layout$start,layout$end,col_names = layout$name),
+                   col_types=cols(.default = "c"),
+                   locale=locale(encoding = "Latin1")) %>%
+            mutate(path=!!path)
+        }) %>%
+        bind_rows()
+    } else {
+      pumf_data <- read_fwf(file.path(data_dir,data_path),
+                            col_positions = fwf_positions(layout$start,layout$end,col_names = layout$name),
+                            col_types=cols(.default = "c"),
+                            locale=locale(encoding = "Latin1"))
+    }
   }
+
   attr(pumf_data,"pumf_base_path") <- pumf_base_path
   attr(pumf_data,"layout_mask") <- layout_mask
 
@@ -178,15 +196,42 @@ read_pumf_data <- function(pumf_base_path,
 
 #' Download PUMF data
 #'
-#' @param path download path for PUMF SPSS data
-#' @param destination_dir optional path where to store the extracted PUMF data
+#' @param path Download path for PUMF SPSS data
+#' @param destination_dir Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`
+#' @param timeout Optional parameter to specify connection timout for download
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
-download_pumf <- function(path,destination_dir=tempdir()){
+download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
   #path <- paste0("https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip")
-  tmp <- tempfile()
+  tmp <- tempfile(fileext = '.zip')
+  old_tmp <- getOption("timeout")
+  options("timeout"=timeout)
+  unzip_option=getOption("unzip")
+  if (is.null(unzip_option)) unzip_option <- "internal"
   utils::download.file(path,tmp)
-  ls <- utils::unzip(tmp,exdir = destination_dir)
-  paste0(destination_dir,"/SPSS")
+  options("timeout"=old_tmp)
+  if (!dir.exists(destination_dir)) dir.create(destination_dir)
+  ls <- utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
+  if (dir.exists(paste0(destination_dir,"/SPSS"))) destination_dir<-paste0(destination_dir,"/SPSS")
+  destination_dir
+}
+
+#' Download PUMF LFS data
+#'
+#' @param version A version of the pumf data of fornat <Year>-<Month>, e.g. "2021-01"
+#' @param destination_dir Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`
+#' @param timeout Optional parameter to specify connection timout for download
+#' @return pumf_base_dir that can be used in the other package functions
+#' @export
+download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),paste0(version,"-CSV-eng")),timeout=3000){
+  version <- "2021-04"
+  tmp=tempfile(fileext = ".zip")
+  url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
+  old_tmp <- getOption("timeout")
+  options("timeout"=timeout)
+  utils::download.file(url,tmp)
+  options("timeout"=old_tmp)
+  utils::unzip(tmp,exdir = destination_dir)
+  destination_dir
 }
 

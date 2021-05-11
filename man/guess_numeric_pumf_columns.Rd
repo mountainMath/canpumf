@@ -7,7 +7,7 @@
 guess_numeric_pumf_columns(
   pumf_base_path,
   layout_mask = NULL,
-  numeric_pattern = "THRU 99"
+  numeric_pattern = "\\\\d+-\\\\d+|THRU 99"
 )
 }
 \arguments{
