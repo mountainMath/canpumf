@@ -6,7 +6,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Download PUMF LFS data — download_lfs_pumf • canpumf</title>
+<title>Add bootstrap weights to PUMF data — add_bootstrap_weights • canpumf</title>
 
 
 <!-- jquery -->
@@ -39,8 +39,8 @@
 
 
 
-<meta property="og:title" content="Download PUMF LFS data — download_lfs_pumf" />
-<meta property="og:description" content="Download PUMF LFS data" />
+<meta property="og:title" content="Add bootstrap weights to PUMF data — add_bootstrap_weights" />
+<meta property="og:description" content="Add bootstrap weights to PUMF data" />
 
 
 
@@ -108,35 +108,45 @@
 <div class="row">
   <div class="col-md-9 contents">
     <div class="page-header">
-    <h1>Download PUMF LFS data</h1>
+    <h1>Add bootstrap weights to PUMF data</h1>
     <small class="dont-index">Source: <a href='https://github.com/mountainMath/canpumf/blob/master/R/pumf.R'><code>R/pumf.R</code></a></small>
-    <div class="hidden name"><code>download_lfs_pumf.Rd</code></div>
+    <div class="hidden name"><code>add_bootstrap_weights.Rd</code></div>
     </div>
 
     <div class="ref-description">
-    <p>Download PUMF LFS data</p>
+    <p>Add bootstrap weights to PUMF data</p>
     </div>
 
-    <pre class="usage"><span class='fu'>download_lfs_pumf</span><span class='op'>(</span>
-  version <span class='op'>=</span> <span class='st'>"2021-01"</span>,
-  destination_dir <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/tempfile.html'>tempdir</a></span><span class='op'>(</span><span class='op'>)</span>, <span class='st'>"pumf"</span><span class='op'>)</span>,
-  timeout <span class='op'>=</span> <span class='fl'>3000</span>
+    <pre class="usage"><span class='fu'>add_bootstrap_weights</span><span class='op'>(</span>
+  <span class='va'>pumf_data</span>,
+  <span class='va'>weight_column</span>,
+  boostrap_fraction <span class='op'>=</span> <span class='fl'>0.8</span>,
+  bootstrap_weight_number <span class='op'>=</span> <span class='fl'>16</span>,
+  bootstrap_weight_prefix <span class='op'>=</span> <span class='st'>"WT"</span>
 <span class='op'>)</span></pre>
 
     <h2 class="hasAnchor" id="arguments"><a class="anchor" href="#arguments"></a>Arguments</h2>
     <table class="ref-arguments">
     <colgroup><col class="name" /><col class="desc" /></colgroup>
     <tr>
-      <th>version</th>
-      <td><p>A version of the pumf data of fornat &lt;Year&gt;-&lt;Month&gt;, e.g. "2021-01"</p></td>
+      <th>pumf_data</th>
+      <td><p>A dataframe with PUMF data</p></td>
     </tr>
     <tr>
-      <th>destination_dir</th>
-      <td><p>Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`</p></td>
+      <th>weight_column</th>
+      <td><p>Name of the column with the standard weights</p></td>
     </tr>
     <tr>
-      <th>timeout</th>
-      <td><p>Optional parameter to specify connection timout for download</p></td>
+      <th>boostrap_fraction</th>
+      <td><p>Fraction of samples to use for bootstrap</p></td>
+    </tr>
+    <tr>
+      <th>bootstrap_weight_number</th>
+      <td><p>Number of boostrap weights to generate</p></td>
+    </tr>
+    <tr>
+      <th>bootstrap_weight_prefix</th>
+      <td><p>Name prefix for the bootstrap weight columns</p></td>
     </tr>
     </table>
 

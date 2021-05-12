@@ -6,7 +6,7 @@
 \usage{
 download_lfs_pumf(
   version = "2021-01",
-  destination_dir = file.path(tempdir(), paste0(version, "-CSV-eng")),
+  destination_dir = file.path(tempdir(), "pumf"),
   timeout = 3000
 )
 }

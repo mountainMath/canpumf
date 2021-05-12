@@ -57,18 +57,25 @@ label_pumf_data <- function(pumf_data,
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
   vars <- pumf_data %>% names() %>% intersect(var_labels$name)
   for (var in vars) {
-    vl <- val_labels %>% filter(.data$name==var)
+    vl <- val_labels %>%
+      filter(.data$name==var) %>%
+      filter(!grepl("^\\d+-\\d+$|^\\d+-$",val))
+    if (nrow(vl)==1 && vl$val[1]=="blank") vl <- vl %>% filter(val!="blank")
     lookup <- setNames(vl$label,vl$val)
-    missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
-    if (length(missed)==0) {
-      pumf_data <- pumf_data %>%
-        mutate(!!as.name(var):=factor(as.character(lookup[!!as.name(var)]),
-                                      levels=vl$label))
-    } else {
-      pumf_data <- pumf_data %>%
-        mutate(!!as.name(var):=ifelse(!!as.name(var) %in% names(lookup),
-                                      as.character(lookup[!!as.name(var)]),
-                                      !!as.name(var)))
+    if (length(lookup)>0) {
+      missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
+      if (any(is.na(missed)) && 'blank' %in% names(lookup)) {
+        pumf_data <- pumf_data %>%
+          mutate_at(var,function(d)coalesce(d,"blank"))
+        missed <- setdiff(missed,NA)
+      }
+      if (length(missed)==0) {
+        pumf_data <- pumf_data %>%
+          mutate_at(var,function(d)factor(recode(d,!!!lookup),levels=vl$label))
+      } else {
+        pumf_data <- pumf_data %>%
+          mutate_at(var,function(d)recode(d,!!!lookup))
+      }
     }
   }
 
@@ -202,17 +209,22 @@ read_pumf_data <- function(pumf_base_path,
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
 download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
-  #path <- paste0("https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip")
-  tmp <- tempfile(fileext = '.zip')
-  old_tmp <- getOption("timeout")
-  options("timeout"=timeout)
-  unzip_option=getOption("unzip")
-  if (is.null(unzip_option)) unzip_option <- "internal"
-  utils::download.file(path,tmp)
-  options("timeout"=old_tmp)
-  if (!dir.exists(destination_dir)) dir.create(destination_dir)
-  ls <- utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
-  if (dir.exists(paste0(destination_dir,"/SPSS"))) destination_dir<-paste0(destination_dir,"/SPSS")
+  if (!dir.exists(destination_dir)||length(dir(destination_dir))==0) {
+    message("Downloading PUMF data.")
+    if (!dir.exists(destination_dir)) dir.create(destination_dir)
+    tmp <- tempfile(fileext = '.zip')
+    old_tmp <- getOption("timeout")
+    options("timeout"=timeout)
+    unzip_option=getOption("unzip")
+    if (is.null(unzip_option)) unzip_option <- "internal"
+    utils::download.file(path,tmp)
+    options("timeout"=old_tmp)
+    ls <- utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
+  } else {
+    message("Path already exists, using cached data.")
+  }
+  new_dir <- file.path(destination_dir,"/SPSS")
+  if (dir.exists(new_dir)) destination_dir<-new_dir
   destination_dir
 }
 
@@ -223,15 +235,49 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
 #' @param timeout Optional parameter to specify connection timout for download
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
-download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),paste0(version,"-CSV-eng")),timeout=3000){
-  version <- "2021-04"
-  tmp=tempfile(fileext = ".zip")
-  url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
-  old_tmp <- getOption("timeout")
-  options("timeout"=timeout)
-  utils::download.file(url,tmp)
-  options("timeout"=old_tmp)
-  utils::unzip(tmp,exdir = destination_dir)
+download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
+  if (!dir.exists(destination_dir)) dir.create(destination_dir)
+  destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV-eng"))
+  if (!dir.exists(destination_dir)) {
+    tmp=tempfile(fileext = ".zip")
+    url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
+    old_tmp <- getOption("timeout")
+    options("timeout"=timeout)
+    utils::download.file(url,tmp)
+    options("timeout"=old_tmp)
+    utils::unzip(tmp,exdir = destination_dir)
+  } else {
+    message("Accessing cached version.")
+  }
   destination_dir
 }
 
+
+#' Add bootstrap weights to PUMF data
+#'
+#' @param pumf_data A dataframe with PUMF data
+#' @param weight_column Name of the column with the standard weights
+#' @param boostrap_fraction Fraction of samples to use for bootstrap
+#' @param bootstrap_weight_number Number of boostrap weights to generate
+#' @param bootstrap_weight_prefix Name prefix for the bootstrap weight columns
+#' @return pumf_base_dir that can be used in the other package functions
+#' @export
+add_bootstrap_weights <- function(pumf_data,
+                                  weight_column,
+                                  boostrap_fraction=0.8,
+                                  bootstrap_weight_number = 16,
+                                  bootstrap_weight_prefix="WT"){
+  n <- nrow(pumf_data)
+  total <- sum(pumf_data[,weight_column])
+  nn <- round(n*0.8,0)
+  for (i in seq(1,bootstrap_weight_number)) {
+    bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
+    indices <- sample(seq(1,n),nn)
+    pumf_data[,bootstrap_weight_column] <- 0
+    pumf_data[indices,bootstrap_weight_column] <- pumf_data[indices,weight_column]
+    wt_total <- sum(pumf_data[indices,bootstrap_weight_column])
+    scale <- total/wt_total
+    pumf_data[indices,bootstrap_weight_column] <- pumf_data[indices,bootstrap_weight_column] * scale
+  }
+  pumf_data
+}
