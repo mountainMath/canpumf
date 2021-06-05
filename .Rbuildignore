@@ -4,3 +4,5 @@
 ^docs
 ^docs/*
 ^R/local_test\.R$
+^doc$
+^Meta$

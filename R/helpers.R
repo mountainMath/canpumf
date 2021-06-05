@@ -1,4 +1,15 @@
+robust_pumf_base_dir <- function(pumf_base_path){
+  d<-dir(pumf_base_path)
+  while (length(d)==1) {
+    pumf_base_path <- file.path(pumf_base_path,d)
+    d<-dir(pumf_base_path)
+  }
+  pumf_base_path
+}
+
+
 pumf_data_dir <- function(pumf_base_path){
+  pumf_base_path <- robust_pumf_base_dir(pumf_base_path)
   data_dir <- dir(pumf_base_path,"*Data*")
   if (length(data_dir)==0) stop("Could not find data directory in PUMF base path, aborting.")
   if (length(data_dir)>1) {
@@ -9,6 +20,7 @@ pumf_data_dir <- function(pumf_base_path){
 }
 
 pumf_layout_dir <- function(pumf_base_path){
+  pumf_base_path <- robust_pumf_base_dir(pumf_base_path)
   layout_dir <- dir(pumf_base_path,"Layout|Syntax|Command")
   if (length(layout_dir)==0||!dir.exists(file.path(pumf_base_path,layout_dir))){
     data_dir <- dir(pumf_base_path,"*Data*")
@@ -22,7 +34,7 @@ pumf_layout_dir <- function(pumf_base_path){
   }
   spss_path <- dir(layout_dir,"SPSS")
   if (length(spss_path)==0) stop("Could not find layout in PUMF base path, aborting.")
-  if (!grepl(spss_path,"\\.sps$")) layout_dir<-file.path(layout_dir,spss_path)
+  if (!grepl("\\.sps$",spss_path)) layout_dir<-file.path(layout_dir,spss_path)
   layout_dir
 }
 
@@ -49,7 +61,10 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
 
   path <- path_or_pattern
   if (is.null(path)) {
-    path <- dir(layout_path,pattern=pattern)
+    path <- dir(layout_path,pattern="\\.sps$")
+    if (length(path)>1) {
+      path <- dir(layout_path,pattern=pattern)
+    }
     validate_path(path)
     path<-file.path(layout_path,path)
   } else {

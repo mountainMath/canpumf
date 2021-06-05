@@ -9,7 +9,8 @@ add_bootstrap_weights(
   weight_column,
   boostrap_fraction = 0.8,
   bootstrap_weight_number = 16,
-  bootstrap_weight_prefix = "WT"
+  bootstrap_weight_prefix = "WT",
+  seed = NULL
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ add_bootstrap_weights(
 \item{bootstrap_weight_number}{Number of boostrap weights to generate}
 
 \item{bootstrap_weight_prefix}{Name prefix for the bootstrap weight columns}
+
+\item{seed}{Random see to be used for bootstrap sample for reproducibility}
 }
 \value{
 pumf_base_dir that can be used in the other package functions

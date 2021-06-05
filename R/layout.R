@@ -158,20 +158,56 @@ read_pumf_val_labels <- function(pumf_base_path,val_path=NULL){
 read_pumf_layout <- function(pumf_base_path,i_path=NULL){
   i_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"_i\\.sps",i_path)
 
-  rl <- read_lines(i_path, locale=locale(encoding = "Latin1")) %>%
-    as_tibble()
+  rl <- readr::read_lines(i_path, locale=readr::locale(encoding = "Latin1")) %>%
+    dplyr::as_tibble()
 
   start_index <- which(grepl("^DATA ",rl$value))
-  end_index <- which(grepl(" *\\.$",rl$value))
+  end_index <- which(grepl(" *\\.$|^ *$",rl$value))
+  end_index <- end_index[end_index>start_index] %>% first
 
-  layout <- rl %>%
-    slice(seq(start_index+1,end_index-1)) %>%
-    mutate(note=str_match(.data$value," +\\((.+)\\)$")[,2] %>% unlist) %>%
-    cbind(str_match(.$value," +(\\d+) - +(\\d+)")[,c(2,3)] %>%
-            as.data.frame() %>%
-            as_tibble(.name_repair = "unique") %>%
-            setNames(c("start","end"))) %>%
-    mutate(name=str_match(.data$value,"^ +([A-Z,0-9,_]+) +")[,2]) %>%
-    select(-.data$value) %>%
-    mutate_at(c("start","end"),as.integer)
+  if (grepl("Individuals|Hierarchical",i_path)) {
+    rows <- rl %>%
+      slice(seq(start_index+1,end_index-1)) %>%
+      summarise(value=paste0(.data$value,collapse="")) %>%
+      pull(.data$value) %>%
+      gsub(" +\\. *$","",.) %>%
+      strsplit("  +") %>%
+      unlist()
+    layout <- tibble(value=rows) %>%
+      filter(.data$value!="") %>%
+      mutate(name=stringr::str_extract(.data$value,"^[A-Za-z0-9_]+")) %>%
+      mutate(start=stringr::str_extract(.data$value," \\d+")) %>%
+      mutate(end=stringr::str_extract(.data$value,"\\d+$")) %>%
+      mutate(note="") %>%
+      select(-.data$value) %>%
+      mutate_at(c("start","end"),as.integer)
+  } else {
+    layout <- rl %>%
+      slice(seq(start_index+1,end_index-1)) %>%
+      mutate(note=stringr::str_match(.data$value," +\\((.+)\\)$")[,2] %>% unlist) %>%
+      cbind(stringr::str_match(.$value," +(\\d+) - +(\\d+)")[,c(2,3)] %>%
+              as.data.frame() %>%
+              dplyr::as_tibble(.name_repair = "unique") %>%
+              setNames(c("start","end"))) %>%
+      mutate(name=stringr::str_match(.data$value,"^ +([A-Z,0-9,_]+) +")[,2]) %>%
+      select(-.data$value) %>%
+      mutate_at(c("start","end"),as.integer)
+  }
+  layout
 }
+
+# in progress ....
+
+layout_cache_path <- function(pumf_base_path){
+  file.path(tempdir(),"canpumf_layout_cache_",digest::digest(pumf_base_path))
+}
+
+parse_all_layout_data <- function(pumf_base_path){
+  cache_path <- layout_cache_path(pumf_base_path)
+  if (!dir.exists(cache_path)) {
+    dir.create(cache_path)
+
+  }
+}
+
+

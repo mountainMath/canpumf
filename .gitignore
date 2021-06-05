@@ -4,3 +4,6 @@
 .Ruserdata
 canpumf.Rproj
 R/local_test.R
+inst/doc
+/doc/
+/Meta/

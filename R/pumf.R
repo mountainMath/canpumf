@@ -55,12 +55,12 @@ label_pumf_data <- function(pumf_data,
                             layout_mask=attr(pumf_data,"layout_mask")){
   val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask)
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
-  vars <- pumf_data %>% names() %>% intersect(var_labels$name)
+  vars <- pumf_data %>% select_if(function(d)!is.numeric(d)) %>% names() %>% intersect(var_labels$name)
   for (var in vars) {
     vl <- val_labels %>%
       filter(.data$name==var) %>%
-      filter(!grepl("^\\d+-\\d+$|^\\d+-$",val))
-    if (nrow(vl)==1 && vl$val[1]=="blank") vl <- vl %>% filter(val!="blank")
+      filter(!grepl("^\\d+-\\d+$|^\\d+-$",.data$val))
+    if (nrow(vl)==1 && vl$val[1]=="blank") vl <- vl %>% filter(.data$val!="blank")
     lookup <- setNames(vl$label,vl$val)
     if (length(lookup)>0) {
       missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
@@ -70,8 +70,8 @@ label_pumf_data <- function(pumf_data,
         missed <- setdiff(missed,NA)
       }
       if (length(missed)==0) {
-        pumf_data <- pumf_data %>%
-          mutate_at(var,function(d)factor(recode(d,!!!lookup),levels=vl$label))
+       pumf_data <- pumf_data %>%
+          mutate_at(var,function(d)factor(recode(d,!!!lookup),levels=unique(vl$label)))
       } else {
         pumf_data <- pumf_data %>%
           mutate_at(var,function(d)recode(d,!!!lookup))
@@ -173,6 +173,10 @@ read_pumf_data <- function(pumf_base_path,
     data_dir <- pumf_data_dir(pumf_base_path)
     data_path <- dir(data_dir,"\\.txt$")
     if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
+    if (length(data_path)==0) {
+      data_path <- dir(data_dir,"\\.dat$")
+      if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
+    }
     if (length(data_path)==0) stop("Could not find PUMF data file")
     if (length(data_path)>1) {
       message("Found multiple PUMF data files, reading all.")
@@ -186,8 +190,8 @@ read_pumf_data <- function(pumf_base_path,
         }) %>%
         bind_rows()
     } else {
-      pumf_data <- read_fwf(file.path(data_dir,data_path),
-                            col_positions = fwf_positions(layout$start,layout$end,col_names = layout$name),
+      pumf_data <- readr::read_fwf(file.path(data_dir,data_path),
+                            col_positions = readr::fwf_positions(layout$start,layout$end,col_names = layout$name),
                             col_types=cols(.default = "c"),
                             locale=locale(encoding = "Latin1"))
     }
@@ -238,18 +242,8 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
 download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
   if (!dir.exists(destination_dir)) dir.create(destination_dir)
   destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV-eng"))
-  if (!dir.exists(destination_dir)) {
-    tmp=tempfile(fileext = ".zip")
-    url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
-    old_tmp <- getOption("timeout")
-    options("timeout"=timeout)
-    utils::download.file(url,tmp)
-    options("timeout"=old_tmp)
-    utils::unzip(tmp,exdir = destination_dir)
-  } else {
-    message("Accessing cached version.")
-  }
-  destination_dir
+  url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
+  download_pumf(url,destination_dir = destination_dir,timeout = timeout)
 }
 
 
@@ -260,16 +254,19 @@ download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdi
 #' @param boostrap_fraction Fraction of samples to use for bootstrap
 #' @param bootstrap_weight_number Number of boostrap weights to generate
 #' @param bootstrap_weight_prefix Name prefix for the bootstrap weight columns
+#' @param seed Random see to be used for bootstrap sample for reproducibility
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
 add_bootstrap_weights <- function(pumf_data,
                                   weight_column,
                                   boostrap_fraction=0.8,
                                   bootstrap_weight_number = 16,
-                                  bootstrap_weight_prefix="WT"){
+                                  bootstrap_weight_prefix="WT",
+                                  seed=NULL){
   n <- nrow(pumf_data)
   total <- sum(pumf_data[,weight_column])
   nn <- round(n*0.8,0)
+  set.seed(seed)
   for (i in seq(1,bootstrap_weight_number)) {
     bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
     indices <- sample(seq(1,n),nn)

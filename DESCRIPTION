@@ -24,7 +24,9 @@ Imports:
     tidyr
 Suggests: 
     rmarkdown,
-    knitr
+    knitr,
+    scales,
+    ggplot2
 URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/canpumf/
 BugReports: https://github.com/mountainMath/canpumf/issues
 VignetteBuilder: knitr
