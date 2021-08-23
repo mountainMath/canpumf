@@ -241,8 +241,8 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
 #' @export
 download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
   if (!dir.exists(destination_dir)) dir.create(destination_dir)
-  destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV-eng"))
-  url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
+  destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV"))
+  url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV.zip")
   download_pumf(url,destination_dir = destination_dir,timeout = timeout)
 }
 
