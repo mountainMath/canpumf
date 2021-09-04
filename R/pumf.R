@@ -251,30 +251,29 @@ download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdi
 #'
 #' @param pumf_data A dataframe with PUMF data
 #' @param weight_column Name of the column with the standard weights
-#' @param boostrap_fraction Fraction of samples to use for bootstrap
-#' @param bootstrap_weight_number Number of boostrap weights to generate
+#' @param bootstrap_weight_count Number of boostrap weights to generate
 #' @param bootstrap_weight_prefix Name prefix for the bootstrap weight columns
 #' @param seed Random see to be used for bootstrap sample for reproducibility
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
 add_bootstrap_weights <- function(pumf_data,
                                   weight_column,
-                                  boostrap_fraction=0.8,
-                                  bootstrap_weight_number = 16,
+                                  bootstrap_weight_count = 16,
                                   bootstrap_weight_prefix="WT",
                                   seed=NULL){
   n <- nrow(pumf_data)
-  total <- sum(pumf_data[,weight_column])
-  nn <- round(n*0.8,0)
   set.seed(seed)
-  for (i in seq(1,bootstrap_weight_number)) {
+  for (i in seq(1,bootstrap_weight_count)) {
     bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
-    indices <- sample(seq(1,n),nn)
-    pumf_data[,bootstrap_weight_column] <- 0
-    pumf_data[indices,bootstrap_weight_column] <- pumf_data[indices,weight_column]
-    wt_total <- sum(pumf_data[indices,bootstrap_weight_column])
-    scale <- total/wt_total
-    pumf_data[indices,bootstrap_weight_column] <- pumf_data[indices,bootstrap_weight_column] * scale
+    wt <- dplyr::tibble(!!bootstrap_weight_column:=pull(pumf_data,weight_column)) %>%
+      dplyr::mutate(rn=row_number()) %>%
+      dplyr::left_join(tibble(rn=sample(seq(1,n),n,replace=TRUE)) %>%
+                  dplyr::count(.data$rn), by="rn") %>%
+      dplyr::mutate(n=coalesce(.data$n,0)) %>%
+      dplyr::mutate(!!bootstrap_weight_column:=!!as.name(bootstrap_weight_column)*.data$n) %>%
+      dplyr::select(bootstrap_weight_column)
+    pumf_data <- pumf_data %>%
+      dplyr::bind_cols(wt)
   }
   pumf_data
 }

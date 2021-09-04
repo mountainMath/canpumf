@@ -72,7 +72,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">0.1.1</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">0.1.2</span>
       </span>
     </div>
 
@@ -132,8 +132,7 @@
     <pre class="usage"><span class='fu'>add_bootstrap_weights</span><span class='op'>(</span>
   <span class='va'>pumf_data</span>,
   <span class='va'>weight_column</span>,
-  boostrap_fraction <span class='op'>=</span> <span class='fl'>0.8</span>,
-  bootstrap_weight_number <span class='op'>=</span> <span class='fl'>16</span>,
+  bootstrap_weight_count <span class='op'>=</span> <span class='fl'>16</span>,
   bootstrap_weight_prefix <span class='op'>=</span> <span class='st'>"WT"</span>,
   seed <span class='op'>=</span> <span class='cn'>NULL</span>
 <span class='op'>)</span></pre>
@@ -150,11 +149,7 @@
       <td><p>Name of the column with the standard weights</p></td>
     </tr>
     <tr>
-      <th>boostrap_fraction</th>
-      <td><p>Fraction of samples to use for bootstrap</p></td>
-    </tr>
-    <tr>
-      <th>bootstrap_weight_number</th>
+      <th>bootstrap_weight_count</th>
       <td><p>Number of boostrap weights to generate</p></td>
     </tr>
     <tr>

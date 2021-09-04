@@ -7,8 +7,7 @@
 add_bootstrap_weights(
   pumf_data,
   weight_column,
-  boostrap_fraction = 0.8,
-  bootstrap_weight_number = 16,
+  bootstrap_weight_count = 16,
   bootstrap_weight_prefix = "WT",
   seed = NULL
 )
@@ -18,9 +17,7 @@ add_bootstrap_weights(
 
 \item{weight_column}{Name of the column with the standard weights}
 
-\item{boostrap_fraction}{Fraction of samples to use for bootstrap}
-
-\item{bootstrap_weight_number}{Number of boostrap weights to generate}
+\item{bootstrap_weight_count}{Number of boostrap weights to generate}
 
 \item{bootstrap_weight_prefix}{Name prefix for the bootstrap weight columns}
 
