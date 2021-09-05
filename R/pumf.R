@@ -302,6 +302,9 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
 
   if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
     pumf_cache_path<- file.path(tempdir(),"pumf")
+    message(paste0("PUMF cache path is not set, consider setting the PUMF cache path via","\n",
+            'options(canpumf.cache_path="<path to permanently cache PUMF data>")',"\n",
+            "Data will be cached for the duration of the current session only."))
   }
   if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
   destination_dir <- file.path(pumf_cache_path,pumf_series)
