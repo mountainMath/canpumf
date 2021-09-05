@@ -4,12 +4,12 @@
 \alias{read_pumf_var_labels}
 \title{Read PUMF variable labels}
 \usage{
-read_pumf_var_labels(pumf_base_path, var_path = NULL)
+read_pumf_var_labels(pumf_base_path, layout_mask = NULL)
 }
 \arguments{
 \item{pumf_base_path}{pumf base path}
 
-\item{var_path}{optional path or mask for the layout file in case there are several,}
+\item{layout_mask}{optional path or mask for the layout file in case there are several,}
 }
 \value{
 tibble with variable labels

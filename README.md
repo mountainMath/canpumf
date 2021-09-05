@@ -37,5 +37,6 @@ The code may need further refinements to work with all StatCan PUMF files. It ha
 * TSRC 2017
 * Covid Series 3
 * LFS 2021-01 and later
+* SFS 2019
 
 

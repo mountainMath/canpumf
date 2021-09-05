@@ -4,12 +4,12 @@
 \alias{read_pumf_val_labels}
 \title{Get PUMF value labels}
 \usage{
-read_pumf_val_labels(pumf_base_path, val_path = NULL)
+read_pumf_val_labels(pumf_base_path, layout_mask = NULL)
 }
 \arguments{
 \item{pumf_base_path}{pumf base path}
 
-\item{val_path}{optional path or mask for the layout file in case there are several,}
+\item{layout_mask}{optional path or mask for the layout file in case there are several,}
 }
 \value{
 tibble with value labels

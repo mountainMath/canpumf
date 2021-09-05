@@ -1,3 +1,69 @@
+#' List StatCan PUMF collection
+#'
+#' @description While all of these PUMF files are in principle available,
+#' not all are available through this package, mostly because there is no public download link.
+#'
+#' @return a tibble with a list of the StatCan PUMF collection
+#' @export
+list_pumf_collection <- function(){
+  url <- "https://www150.statcan.gc.ca/n1/pub/11-625-x/11-625-x2010000-eng.htm"
+  d<-rvest::read_html(url) %>%
+    rvest::html_table() %>%
+    lapply(function(e){
+      if (length(names(e))!=3 || length(setdiff(names(e),c("Title","Acronym", "Survey Number")))>0) e<-NULL
+      e
+    }) %>%
+    dplyr::bind_rows()
+}
+
+#' List StatCan PUMF collection with canpumf wrappers
+#'
+#' @description A list of pumf collections and versions with convenience wrappers in canpumf.
+#'
+#' @return a tibble with a list of the PUMF files with canpumf convenience wrappers
+#' @export
+list_canpumf_collection <- function(){
+  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS")
+  pumf_surveys<-list_pumf_collection() %>%
+    filter(.data$Acronym %in% canpumf_conveninence_series)
+
+  cpss <- tibble(Title="Canadian Perspectives Survey Series",
+         Acronym="CPSS",
+         Version=c("1","2","3","4","5","6"),
+         `Survey Number`="5311",
+         url=c("https://www150.statcan.gc.ca/n1/en/pub/45-25-0002/2020001/CSV.zip",
+               "https://www150.statcan.gc.ca/n1/en/pub/45-25-0004/2020001/CSV.zip",
+               "https://www150.statcan.gc.ca/n1/en/pub/45-25-0007/2020001/CSV.zip",
+               "https://www150.statcan.gc.ca/n1/en/pub/45-25-0009/2020001/CSV.zip",
+               "https://www150.statcan.gc.ca/n1/pub/45-25-0010/2021001/CSV-eng.zip",
+               "https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip"))
+  chs <- tibble(Title="Canadian Housing Survey",
+                Acronym="CHS",
+                Version=c("2018"),
+                `Survey Number`="5269",
+                url=c("https://www150.statcan.gc.ca/n1/pub/46-25-0001/2021001/2018-eng.zip"))
+
+  its_versions <- tibble("Acronym"="ITS",
+                         Version=c("2019","2018"),
+                         url=c("https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2019/SPSS.zip",
+                               "https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2018/SPSS.zip"))
+
+  lfs_version_url<- "https://www150.statcan.gc.ca/n1/pub/71m0001x/71m0001x2021001-eng.htm"
+  d<-rvest::read_html(lfs_version_url) %>%
+    rvest::html_nodes(xpath="//a")
+  d<-d[rvest::html_text(d)=="CSV"]
+  lfs_versions <- tibble(Acronym="LFS",url=rvest::html_attr(d,"href")) %>%
+    dplyr::mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist)
+
+  sfs_versions <- tibble(Acronym="SFS",
+                         Version=c("2019"),
+                         url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip"))
+
+  pumf_surveys %>%
+    left_join(bind_rows(lfs_versions,its_versions,sfs_versions),
+              by="Acronym") %>%
+    bind_rows(chs,cpss)
+}
 
 
 #' Guess which columns in pumf data are numeric
@@ -169,7 +235,7 @@ read_pumf_data <- function(pumf_base_path,
                                  locale=readr::locale(encoding = "Latin1"),
                                  col_types = readr::cols(.default = "c"))
   } else {
-    layout<- read_pumf_layout(pumf_base_path,layout_mask)
+    layout<- read_pumf_layout_spss(pumf_base_path,layout_mask)
     data_dir <- pumf_data_dir(pumf_base_path)
     data_path <- dir(data_dir,"\\.txt$")
     if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
@@ -192,8 +258,8 @@ read_pumf_data <- function(pumf_base_path,
     } else {
       pumf_data <- readr::read_fwf(file.path(data_dir,data_path),
                             col_positions = readr::fwf_positions(layout$start,layout$end,col_names = layout$name),
-                            col_types=cols(.default = "c"),
-                            locale=locale(encoding = "Latin1"))
+                            col_types=readr::cols(.default = "c"),
+                            locale=readr::locale(encoding = "Latin1"))
     }
   }
 
@@ -203,6 +269,52 @@ read_pumf_data <- function(pumf_base_path,
   if (guess_numeric) pumf_data <- pumf_data %>% convert_pumf_numeric_columns()
 
   pumf_data
+}
+
+
+
+#' Get select pumf data files
+#'
+#' @description This is a convenience function that downloads and accesses pumf data for
+#' a curated set of pumf datasets.
+#'
+#' @param pumf_series sereis for the pumf data, like LSF, or CHS
+#' @param pumf_version In case there are several versions of a given series, like for LFS, the version
+#' @param layout_mask optional layout mask in case there are several files.
+#' identifiers. For LFS this is the month/year.
+#' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
+#' @param pumf_cache_path A path to a permanent cache. If none is fould the data is stored in the temporary
+#' directory for the duration of the session.
+#'
+#' @return A tibble with the pumf data.
+#' @export
+get_pumf <- function(pumf_series,pumf_version = NULL,
+                     layout_mask=NULL,
+                     file_mask=layout_mask,
+                     pumf_cache_path = getOption("canpumf.cache_path")){
+  d<- list_canpumf_collection() %>%
+    filter(.data$Acronym==pumf_series)
+  if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
+  if (nrow(d)!=1) {
+    stop("Could not find PUMF version.")
+  }
+  pumf_version <- d$Version
+
+  if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
+    pumf_cache_path<- file.path(tempdir(),"pumf")
+  }
+  if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
+  destination_dir <- file.path(pumf_cache_path,pumf_series)
+  if (!dir.exists(destination_dir)) dir.create(destination_dir)
+  if (!is.null(pumf_version)) {
+    destination_dir <- file.path(destination_dir,pumf_version)
+    if (!dir.exists(destination_dir)) dir.create(destination_dir)
+  }
+  if (length(dir(destination_dir))==0) {
+    dd<-download_pumf(d$url,destination_dir = destination_dir)
+  }
+
+  read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask)
 }
 
 #' Download PUMF data
@@ -242,7 +354,10 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
 download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
   if (!dir.exists(destination_dir)) dir.create(destination_dir)
   destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV"))
-  url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV.zip")
+  if (as.integer(substr(version,6,7))<=4)
+    url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
+  else
+    url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV.zip")
   download_pumf(url,destination_dir = destination_dir,timeout = timeout)
 }
 
