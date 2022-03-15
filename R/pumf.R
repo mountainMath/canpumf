@@ -292,13 +292,15 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
                      pumf_cache_path = getOption("canpumf.cache_path")){
-  d<- list_canpumf_collection() %>%
-    filter(.data$Acronym==pumf_series)
-  if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
-  if (nrow(d)!=1) {
-    stop("Could not find PUMF version.")
+  if (is.null(pumf_version)) {
+    d<- list_canpumf_collection() %>%
+      filter(.data$Acronym==pumf_series)
+    if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
+    if (nrow(d)!=1) {
+      stop("Could not find PUMF version.")
+    }
+    pumf_version <- d$Version
   }
-  pumf_version <- d$Version
 
   if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
     pumf_cache_path<- file.path(tempdir(),"pumf")
@@ -336,7 +338,7 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
     options("timeout"=timeout)
     unzip_option=getOption("unzip")
     if (is.null(unzip_option)) unzip_option <- "internal"
-    utils::download.file(path,tmp)
+    utils::download.file(path,tmp,mode="wb")
     options("timeout"=old_tmp)
     ls <- utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
   } else {
@@ -347,6 +349,26 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
   destination_dir
 }
 
+
+#' List available PUMF LFS versions
+#'
+#' @return A tibble with versions and urls to available LFS PUMF data
+#' @export
+available_lfs_pumf_versions <- function(){
+  url <- "https://www150.statcan.gc.ca/n1/en/catalogue/71M0001X"
+  ts<-rvest::read_html(url) %>%
+    rvest::html_element("table") %>%
+    rvest::html_elements("td") %>%
+    lapply(function(t){
+      tibble(text=rvest::html_text(t),url=rvest::html_element(t,"a") %>% rvest::html_attr("href"))
+    }) %>%
+    bind_rows() %>%
+    filter(!is.na(.data$url), .data$text!="More information") %>%
+    mutate(Date=gsub("Labour Force Survey: Public Use Microdata File, ","",.data$text)) %>%
+    mutate(version=strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m")) %>%
+    select(.data$version,.data$url)
+}
+
 #' Download PUMF LFS data
 #'
 #' @param version A version of the pumf data of fornat <Year>-<Month>, e.g. "2021-01"
@@ -355,12 +377,25 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
 download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
+  pumf_url <- available_lfs_pumf_versions() %>% filter(version==!!version) %>% pull(url)
+  if (length(pumf_url)==0) stop(paste0("LFS version ",version," is not available, check available LFS PUMF versions via `available_lfs_pumf_versions()`"))
+
+  url <- rvest::read_html(pumf_url) %>%
+    rvest::html_elements("a") %>%
+    lapply(function(t){
+      tibble(text=rvest::html_text(t),url=rvest::html_attr(t,"href"))
+    }) %>%
+    bind_rows() %>%
+    filter(.data$text=="CSV") %>%
+    pull(.data$url) %>%
+    first() %>%
+    paste0(dirname(pumf_url),"/",.)
   if (!dir.exists(destination_dir)) dir.create(destination_dir)
   destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV"))
-  if (as.integer(substr(version,6,7))<=4)
-    url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
-  else
-    url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV.zip")
+  # if (as.integer(substr(version,6,7))<=4)
+  #   url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
+  # else
+  #   url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV.zip")
   download_pumf(url,destination_dir = destination_dir,timeout = timeout)
 }
 
