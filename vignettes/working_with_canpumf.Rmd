@@ -24,7 +24,11 @@ library(canpumf)
 The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from [work done by Nathan Lauster and Jens von Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/).
 
 ```{r}
-chs_base_path <- download_pumf("https://www150.statcan.gc.ca/n1/pub/46-25-0001/2021001/2018-eng.zip")
+chs_base_path <- list_canpumf_collection() %>% 
+  filter(Acronym=="CHS") %>%
+  pull(url) %>%
+  download_pumf(destination_dir=file.path(tempdir(),"pumf","CHS"))
+  
 chs_pumf <- read_pumf_data(chs_base_path,guess_numeric = FALSE) %>%
   convert_pumf_numeric_columns(numeric_columns = "PFWEIGHT") %>%
   label_pumf_data() 
@@ -129,7 +133,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
 
 Here we see the frequency of forced moves is slightly elevated for people moving within the same city. It will take more digging through the data to see what might cause this.
 
-One way to contexualize this is to compare it to other Canadian CMAs.
+One way to contextualize this is to compare it to other Canadian CMAs.
 
 ```{r}
 plot_data <- renter_chs_pumf %>%
