@@ -343,7 +343,11 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
     #httr::GET(path, httr::write_disk(tmp),timeout=timeout)
     utils::download.file(path,tmp,mode="wb")
     options("timeout"=old_timeout)
-    ls <- utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
+    if (Sys.info()['sysname']=="Darwin") {
+      system(paste0("ditto -V -x -k --sequesterRsrc --rsrc ",tmp," ",destination_dir))
+    } else {
+      utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
+    }
   } else {
     message("Path already exists, using cached data.")
   }

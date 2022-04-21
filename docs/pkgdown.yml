@@ -1,8 +1,8 @@
-pandoc: 2.14.0.3
-pkgdown: 2.0.1
+pandoc: 2.17.1.1
+pkgdown: 2.0.2
 pkgdown_sha: ~
 articles:
   LFS: LFS.html
   working_with_canpumf: working_with_canpumf.html
-last_built: 2022-03-26T01:27Z
+last_built: 2022-04-21T22:36Z
 

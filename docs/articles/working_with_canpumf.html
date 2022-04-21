@@ -43,7 +43,7 @@
   <a href="../reference/index.html">Reference</a>
 </li>
 <li class="dropdown">
-  <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">
+  <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
     Articles
      
     <span class="caret"></span>
@@ -101,7 +101,9 @@
 <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://tidyr.tidyverse.org" class="external-link">tidyr</a></span><span class="op">)</span>
 <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span>
 <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></code></pre></div>
-<p>The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from <a href="https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/" class="external-link">work done by Nathan Lauster and Jens von Bergmann</a>.</p>
+<p>The Canadian Housing Survey PUMF data is a rich dataset on Canadian
+housing preferences and needs. This vignette is adapted from <a href="https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/" class="external-link">work
+done by Nathan Lauster and Jens von Bergmann</a>.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">chs_base_path</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/list_canpumf_collection.html">list_canpumf_collection</a></span><span class="op">(</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span> 
   <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">Acronym</span><span class="op">==</span><span class="st">"CHS"</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
@@ -115,14 +117,22 @@
 <div class="section level2">
 <h2 id="forced-moves">Forced moves<a class="anchor" aria-label="anchor" href="#forced-moves"></a>
 </h2>
-<p>We take a simple look at the share of current renters that were forced to move on their most recent move, keyed by when the most revent move occured. To estimate risk of being forced to move we look at all current renters that did not move in the five years prior to the CHS, or those that moved in the prior five years and were reners in their old accommodation, as a base and ask what share of these were forced to move in a given timeframe.</p>
+<p>We take a simple look at the share of current renters that were
+forced to move on their most recent move, keyed by when the most revent
+move occured. To estimate risk of being forced to move we look at all
+current renters that did not move in the five years prior to the CHS, or
+those that moved in the prior five years and were reners in their old
+accommodation, as a base and ask what share of these were forced to move
+in a given timeframe.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">renter_chs_pumf</span> <span class="op">&lt;-</span> <span class="va">chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span> 
   <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="op">(</span><span class="va">Tenure</span> <span class="op">==</span> <span class="st">"No"</span> <span class="op">&amp;</span> 
             <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepl</a></span><span class="op">(</span><span class="st">"10"</span>,<span class="va">`Previous accommodations - when move to current dwelling occurred`</span><span class="op">)</span><span class="op">)</span> <span class="op">|</span> 
            <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepl</a></span><span class="op">(</span><span class="st">"10"</span>,<span class="va">`Previous accommodations - when move to current dwelling occurred`</span><span class="op">)</span> <span class="op">&amp;</span>
               <span class="va">`Previous accommodations - tenure`</span><span class="op">==</span><span class="st">"Rent it"</span><span class="op">)</span><span class="op">)</span></code></pre></div>
-<p>We will also focus on people that did move in the past 5 years, as recall bias might make data from longer timeframes less reliable and the reproted time windows get large.</p>
+<p>We will also focus on people that did move in the past 5 years, as
+recall bias might make data from longer timeframes less reliable and the
+reproted time windows get large.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span> 
   <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">`Geographic grouping`</span><span class="op">==</span><span class="st">"Vancouver"</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
@@ -137,14 +147,22 @@
 <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="va">plot_data</span>,<span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x<span class="op">=</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span>,y<span class="op">=</span><span class="va">share</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_bar.html" class="external-link">geom_bar</a></span><span class="op">(</span>stat<span class="op">=</span><span class="st">"identity"</span>,fill<span class="op">=</span><span class="st">"brown"</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/coord_flip.html" class="external-link">coord_flip</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Vancouver renters forced to move"</span>,
        x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,
        y<span class="op">=</span><span class="st">"Share of current renters"</span>,
        caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></code></pre></div>
 <p><img src="working_with_canpumf_files/figure-html/unnamed-chunk-4-1.png" width="700"></p>
-<p>This looks interesting in that there seem to be distinct periods when the frequency of being forced to move changed, recognizing that longer ago breackets are conditional on not having moved after.</p>
-<p>With PUMF data we need to be aware that we are dealing with a synthetic sample that has been altered from the original survey repsonses for privacy reasons. With that, and the general unvertainty when dealing with survey data, it is important to assess how good these estimates are. A simple way to do this is to add bootstrap weights, which is facilitated via the <code>add_bootstrap_weights</code> function.</p>
+<p>This looks interesting in that there seem to be distinct periods when
+the frequency of being forced to move changed, recognizing that longer
+ago breackets are conditional on not having moved after.</p>
+<p>With PUMF data we need to be aware that we are dealing with a
+synthetic sample that has been altered from the original survey
+repsonses for privacy reasons. With that, and the general unvertainty
+when dealing with survey data, it is important to assess how good these
+estimates are. A simple way to do this is to add bootstrap weights,
+which is facilitated via the <code>add_bootstrap_weights</code>
+function.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span>weight_column <span class="op">=</span> <span class="st">"Household weight"</span>, seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
@@ -162,14 +180,23 @@
 <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="va">plot_data</span>,<span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x<span class="op">=</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span>,y<span class="op">=</span><span class="va">share</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_boxplot.html" class="external-link">geom_boxplot</a></span><span class="op">(</span>fill<span class="op">=</span><span class="st">"brown"</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/coord_flip.html" class="external-link">coord_flip</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Vancouver renters forced to move"</span>,
        x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,
        y<span class="op">=</span><span class="st">"Share of current renters"</span>,
        caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></code></pre></div>
 <p><img src="working_with_canpumf_files/figure-html/unnamed-chunk-5-1.png" width="700"></p>
-<p>This shows that the changes in frequency of forced moves are fairly robust to sampling issues. The initial jump and then final reduction in risk of being forced to move are interesting, the final reduction may be due to the strengthening of the residential tenancy act in that timeframe.</p>
-<p>Another complication when interpreting the data is that the previous accommodation where current renters were forced to move from may have been in a different metro are. The CHS does have some data on the location of the previous residence, but only note if it was in the same or a different city, not metro area. We can add this variable in to see what effect it has.</p>
+<p>This shows that the changes in frequency of forced moves are fairly
+robust to sampling issues. The initial jump and then final reduction in
+risk of being forced to move are interesting, the final reduction may be
+due to the strengthening of the residential tenancy act in that
+timeframe.</p>
+<p>Another complication when interpreting the data is that the previous
+accommodation where current renters were forced to move from may have
+been in a different metro are. The CHS does have some data on the
+location of the previous residence, but only note if it was in the same
+or a different city, not metro area. We can add this variable in to see
+what effect it has.</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span>weight_column <span class="op">=</span> <span class="st">"Household weight"</span>, seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
@@ -192,14 +219,17 @@
                      y<span class="op">=</span><span class="va">share</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_boxplot.html" class="external-link">geom_boxplot</a></span><span class="op">(</span>position<span class="op">=</span><span class="st">"dodge"</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/coord_flip.html" class="external-link">coord_flip</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Vancouver renters forced to move"</span>,
        x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,
        y<span class="op">=</span><span class="st">"Share of current renters"</span>,
        caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></code></pre></div>
 <p><img src="working_with_canpumf_files/figure-html/unnamed-chunk-6-1.png" width="700"></p>
-<p>Here we see the frequency of forced moves is slightly elevated for people moving within the same city. It will take more digging through the data to see what might cause this.</p>
-<p>One way to contextualize this is to compare it to other Canadian CMAs.</p>
+<p>Here we see the frequency of forced moves is slightly elevated for
+people moving within the same city. It will take more digging through
+the data to see what might cause this.</p>
+<p>One way to contextualize this is to compare it to other Canadian
+CMAs.</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span>weight_column <span class="op">=</span> <span class="st">"Household weight"</span>, seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
@@ -226,15 +256,19 @@
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/coord_flip.html" class="external-link">coord_flip</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/facet_wrap.html" class="external-link">facet_wrap</a></span><span class="op">(</span><span class="st">"`Geographic grouping`"</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/theme.html" class="external-link">theme</a></span><span class="op">(</span>legend.position <span class="op">=</span> <span class="st">"bottom"</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Renters forced to move"</span>,
        subtitle<span class="op">=</span><span class="st">"(based on households currently renting that did not move in past 5 years or\nhouseholds that moved in past 5 years that rented their previous dweling)"</span>,
        x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,
        y<span class="op">=</span><span class="st">"Share of current renters"</span>,
        caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></code></pre></div>
 <p><img src="working_with_canpumf_files/figure-html/unnamed-chunk-7-1.png" width="700"></p>
-<p>This shows that patterns vary across cities, Calgary’s elevated rate of forced moves in four to five year timeframe may be due to the heated up of the rental market during the boom phase at that time, where rent hikes and lack of rent control may have forced people to move.</p>
-<p>This data is worth exploring further, but for the example vignette this will have to do.</p>
+<p>This shows that patterns vary across cities, Calgary’s elevated rate
+of forced moves in four to five year timeframe may be due to the heated
+up of the rental market during the boom phase at that time, where rent
+hikes and lack of rent control may have forced people to move.</p>
+<p>This data is worth exploring further, but for the example vignette
+this will have to do.</p>
 </div>
   </div>
 
@@ -255,7 +289,8 @@
 
 <div class="pkgdown">
   <p></p>
-<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.1.</p>
+<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a>
+2.0.2.</p>
 </div>
 
       </footer>

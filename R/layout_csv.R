@@ -41,7 +41,8 @@ parse_pumf_metadata_csv <- function(pumf_base_path){
     tidyr::fill(.data$name,.direction="down") %>%
     tidyr::fill(.data$label,.direction="down") %>%
     filter(!is.na(.data$val)) %>%
-    mutate_at("name",toupper)
+    mutate_at("name",toupper) %>%
+    mutate(val=ifelse(.data$name=="SURVMNTH",stringr::str_pad(.data$val,width=2,side="left",pad="0"),.data$val)) # manual fix for bad LFS coding
 
   saveRDS(val_labels,file.path(pumf_clean_layout_dir(pumf_base_path),"val.Rds"))
 

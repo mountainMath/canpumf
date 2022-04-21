@@ -43,7 +43,7 @@
   <a href="../reference/index.html">Reference</a>
 </li>
 <li class="dropdown">
-  <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">
+  <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
     Articles
      
     <span class="caret"></span>
@@ -101,42 +101,56 @@
 <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://tidyr.tidyverse.org" class="external-link">tidyr</a></span><span class="op">)</span>
 <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span>
 <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></code></pre></div>
-<p>The LFS is one of the most-used PUMF series, since January 2021 the LFS PUMF is now easily available for direct download instead of needing to request it via EFT. This makes it very easy to integrate the LFS into reproducible workflows.</p>
-<p>The <code>canpumf</code> package has two functions to facilitate access to the LFS PUMF. The first lists all LFS pumf versions that are available for direct download.</p>
+<p>The LFS is one of the most-used PUMF series, since January 2021 the
+LFS PUMF is now easily available for direct download instead of needing
+to request it via EFT. This makes it very easy to integrate the LFS into
+reproducible workflows.</p>
+<p>The <code>canpumf</code> package has two functions to facilitate
+access to the LFS PUMF. The first lists all LFS pumf versions that are
+available for direct download.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="fu"><a href="../reference/list_available_lfs_pumf_versions.html">list_available_lfs_pumf_versions</a></span><span class="op">(</span><span class="op">)</span>
-<span class="co">#&gt; <span style="color: #949494;"># A tibble: 14 × 3</span></span>
+<span class="co">#&gt; <span style="color: #949494;"># A tibble: 15 × 3</span></span>
 <span class="co">#&gt;    Date           version url                                                   </span>
 <span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>          <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                                                 </span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> February 2022  2022-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> January 2022   2022-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> December 2021  2021-12 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> November 2021  2021-11 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> October 2021   2021-10 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> September 2021 2021-09 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> August 2021    2021-08 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> July 2021      2021-07 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> June 2021      2021-06 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">10</span> May 2021       2021-05 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">11</span> April 2021     2021-04 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">12</span> March 2021     2021-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">13</span> February 2021  2021-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">14</span> January 2021   2021-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></code></pre></div>
-<p>The second one facilitates the download. For example, to download the LFS pumf for February 2022 we use</p>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> March 2022     2022-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> February 2022  2022-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> January 2022   2022-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> December 2021  2021-12 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> November 2021  2021-11 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> October 2021   2021-10 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> September 2021 2021-09 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> August 2021    2021-08 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> July 2021      2021-07 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">10</span> June 2021      2021-06 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">11</span> May 2021       2021-05 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">12</span> April 2021     2021-04 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">13</span> March 2021     2021-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">14</span> February 2021  2021-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">15</span> January 2021   2021-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></code></pre></div>
+<p>The second one facilitates the download. For example, to download the
+LFS pumf for February 2022 we use</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">lfs_2022_02_path</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/download_lfs_pumf.html">download_lfs_pumf</a></span><span class="op">(</span><span class="st">"2022-02"</span>, destination_dir<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>,<span class="st">"pumf"</span>,<span class="st">"LFS"</span><span class="op">)</span><span class="op">)</span>
 <span class="co">#&gt; Downloading PUMF data.</span></code></pre></div>
-<p>By default the data is stored in the temporary session path, optionally we can set the <code>destination_dir</code> option to a path to permanently cache the data.</p>
-<p>With this we can do some simple descriptive analysis. We add boostrap weights to better understand the uncertainty in the estimates, for more serious analysis we should probably go with a higher number of bootstrap weights.</p>
+<p>By default the data is stored in the temporary session path,
+optionally we can set the <code>destination_dir</code> option to a path
+to permanently cache the data.</p>
+<p>With this we can do some simple descriptive analysis. We add boostrap
+weights to better understand the uncertainty in the estimates, for more
+serious analysis we should probably go with a higher number of bootstrap
+weights.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">lfs_2022_02_data</span> <span class="op">&lt;-</span> <span class="va">lfs_2022_02_path</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="../reference/read_pumf_data.html">read_pumf_data</a></span><span class="op">(</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="../reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span><span class="st">"Standard final weight"</span>,<span class="fl">100</span>,seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span>
 <span class="co">#&gt; New names:</span>
-<span class="co">#&gt; * `` -&gt; ...15</span>
-<span class="co">#&gt; * `` -&gt; ...16</span></code></pre></div>
-<p>For this vignette we look at gender-specific labour fource status statistics for the 20 to 64 year old population, computing age-adjusted rates to even out age-specific effects.</p>
+<span class="co">#&gt; <span style="color: #00BBBB;">•</span> `` -&gt; `...15`</span>
+<span class="co">#&gt; <span style="color: #00BBBB;">•</span> `` -&gt; `...16`</span></code></pre></div>
+<p>For this vignette we look at gender-specific labour fource status
+statistics for the 20 to 64 year old population, computing age-adjusted
+rates to even out age-specific effects.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">data</span> <span class="op">&lt;-</span> <span class="va">lfs_2022_02_data</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
   <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/substr.html" class="external-link">substr</a></span><span class="op">(</span><span class="va">`Five-year age group of respondent`</span>,<span class="fl">0</span>,<span class="fl">2</span><span class="op">)</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">20</span>,<span class="fl">60</span>,<span class="fl">5</span><span class="op">)</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span>
@@ -167,7 +181,7 @@
 <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x<span class="op">=</span><span class="va">age_adjusted</span>, y<span class="op">=</span><span class="va">`Marital status of respondent`</span>, fill<span class="op">=</span><span class="va">`Sex of respondent`</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_boxplot.html" class="external-link">geom_boxplot</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_point.html" class="external-link">geom_point</a></span><span class="op">(</span>shape<span class="op">=</span><span class="fl">21</span>,data<span class="op">=</span><span class="op">~</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">.</span>,<span class="va">Weight</span><span class="op">==</span><span class="st">"Standard final weight"</span><span class="op">)</span>,position<span class="op">=</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/position_dodge.html" class="external-link">position_dodge</a></span><span class="op">(</span>width<span class="op">=</span><span class="fl">0.75</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_x_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_x_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Unemployment rates of 20 to 64 year olds in February 2022"</span>,
        x<span class="op">=</span><span class="st">"Age-adjusted unemployment rate"</span>,
        caption<span class="op">=</span><span class="st">"StatCan LFS PUMF 2022-02"</span><span class="op">)</span></code></pre></div>
@@ -201,7 +215,7 @@
 <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x<span class="op">=</span><span class="fl">1</span><span class="op">-</span><span class="va">age_adjusted</span>, y<span class="op">=</span><span class="va">`Marital status of respondent`</span>, fill<span class="op">=</span><span class="va">`Sex of respondent`</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_boxplot.html" class="external-link">geom_boxplot</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_point.html" class="external-link">geom_point</a></span><span class="op">(</span>shape<span class="op">=</span><span class="fl">21</span>,data<span class="op">=</span><span class="op">~</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">.</span>,<span class="va">Weight</span><span class="op">==</span><span class="st">"Standard final weight"</span><span class="op">)</span>,position<span class="op">=</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/position_dodge.html" class="external-link">position_dodge</a></span><span class="op">(</span>width<span class="op">=</span><span class="fl">0.75</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_x_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_x_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Labour force participation rates of 20 to 64 year olds in February 2022"</span>,
        x<span class="op">=</span><span class="st">"Age-adjusted participation rate"</span>,
        caption<span class="op">=</span><span class="st">"StatCan LFS PUMF 2022-02"</span><span class="op">)</span></code></pre></div>
@@ -212,7 +226,7 @@
 <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x<span class="op">=</span><span class="va">age_adjusted</span>, y<span class="op">=</span><span class="va">`Marital status of respondent`</span>, fill<span class="op">=</span><span class="va">`Sex of respondent`</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_boxplot.html" class="external-link">geom_boxplot</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_point.html" class="external-link">geom_point</a></span><span class="op">(</span>shape<span class="op">=</span><span class="fl">21</span>,data<span class="op">=</span><span class="op">~</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">.</span>,<span class="va">Weight</span><span class="op">==</span><span class="st">"Standard final weight"</span><span class="op">)</span>,position<span class="op">=</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/position_dodge.html" class="external-link">position_dodge</a></span><span class="op">(</span>width<span class="op">=</span><span class="fl">0.75</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span>
-  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_x_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/label_percent.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
+  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_x_continuous</a></span><span class="op">(</span>labels<span class="op">=</span><span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span>
   <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Share of 20 to 64 year olds working in February 2022"</span>,
        x<span class="op">=</span><span class="st">"Age-adjusted share at work"</span>,
        caption<span class="op">=</span><span class="st">"StatCan LFS PUMF 2022-02"</span><span class="op">)</span></code></pre></div>
@@ -234,7 +248,8 @@
 
 <div class="pkgdown">
   <p></p>
-<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.1.</p>
+<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a>
+2.0.2.</p>
 </div>
 
       </footer>
