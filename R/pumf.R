@@ -369,10 +369,27 @@ list_available_lfs_pumf_versions <- function(){
     rvest::html_elements("a")
   ts <- ts[rvest::html_text(ts)=="CSV"]
 
-  tibble(url=paste0(base_url,rvest::html_attr(ts,"href")),
+  d<-tibble(url=paste0(base_url,rvest::html_attr(ts,"href")),
          Date=gsub(" \\| PUMF: CSV","",rvest::html_attr(ts,"title"))) %>%
     mutate(version=strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m")) %>%
-    select(.data$Date,.data$version,.data$url)
+    select(.data$Date,.data$version,.data$url) %>%
+    mutate(version2=basename(.data$url) %>% substr(1,7)) %>%
+    mutate(date=paste0(.data$version2,"-01") %>% as.Date() %>% strftime("%B %Y"))
+
+  dd <- d %>% filter(.data$version!=.data$version2)
+  if (nrow(dd) >0) {
+    dupe_versions <- d %>% filter(duplicated(.data$version)) %>% pull(.data$version) %>% unique
+    dupe_versions2 <- d %>% filter(duplicated(.data$version2)) %>% pull(.data$version2) %>% unique
+
+    if (length(dupe_versions)>0 && length(dupe_versions2)==0) {
+      d<- d %>% mutate(Date=.data$date,version=.data$version2)
+    } else {
+      warning("Inconsistencies in statcan LFS PUMF overview data, unable to resolve.")
+    }
+  }
+  d <- d %>% select(-.data$date,-.data$version2)
+
+  d
 }
 
 #' Download PUMF LFS data
