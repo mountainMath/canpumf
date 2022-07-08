@@ -6,6 +6,11 @@
 #' @return a tibble with a list of the StatCan PUMF collection
 #' @export
 list_pumf_collection <- function(){
+  tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
+    stats::na.omit()
+}
+
+list_pumf_collection_old <- function(){
   url <- "https://www150.statcan.gc.ca/n1/pub/11-625-x/11-625-x2010000-eng.htm"
   d<-rvest::read_html(url) %>%
     rvest::html_table() %>%
@@ -15,6 +20,9 @@ list_pumf_collection <- function(){
     }) %>%
     dplyr::bind_rows()
 }
+
+
+
 
 #' List StatCan PUMF collection with canpumf wrappers
 #'
@@ -60,10 +68,17 @@ list_canpumf_collection <- function(){
                          Version=c("2019"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip"))
 
-  pumf_surveys %>%
+  if (nrow(pumf_surveys)>0) {
+  result <- pumf_surveys %>%
     left_join(bind_rows(lfs_versions,its_versions,sfs_versions),
               by="Acronym") %>%
     bind_rows(chs,cpss)
+  } else {
+    result <- bind_rows(chs,cpss) |>
+      bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Surevey Number`="3701"),
+                its_versions |> mutate(Title="International Travel Survey",`Surevey Number`='3152'),
+                sfs_versions |> mutate(Title="Survey of Financial Securities",`Surevey Number`='2620'))
+  }
 }
 
 

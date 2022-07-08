@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.5</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.6</span>
       </span>
     </div>
 
@@ -110,24 +110,27 @@ access to the LFS PUMF. The first lists all LFS pumf versions that are
 available for direct download.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="fu"><a href="../reference/list_available_lfs_pumf_versions.html">list_available_lfs_pumf_versions</a></span><span class="op">(</span><span class="op">)</span>
-<span class="co">#&gt; <span style="color: #949494;"># A tibble: 15 × 3</span></span>
+<span class="co">#&gt; <span style="color: #949494;"># A tibble: 18 × 3</span></span>
 <span class="co">#&gt;    Date           version url                                                   </span>
 <span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>          <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                                                 </span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> March 2022     2022-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> February 2022  2022-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> January 2022   2022-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> December 2021  2021-12 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> November 2021  2021-11 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> October 2021   2021-10 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> September 2021 2021-09 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> August 2021    2021-08 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> July 2021      2021-07 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">10</span> June 2021      2021-06 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">11</span> May 2021       2021-05 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">12</span> April 2021     2021-04 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">13</span> March 2021     2021-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">14</span> February 2021  2021-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
-<span class="co">#&gt; <span style="color: #BCBCBC;">15</span> January 2021   2021-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></code></pre></div>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> June 2022      2022-06 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> May 2022       2022-05 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> April 2022     2022-04 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> March 2022     2022-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> February 2022  2022-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> January 2022   2022-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> December 2021  2021-12 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> November 2021  2021-11 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> October 2021   2021-10 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">10</span> September 2021 2021-09 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">11</span> August 2021    2021-08 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">12</span> July 2021      2021-07 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">13</span> June 2021      2021-06 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">14</span> May 2021       2021-05 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">15</span> April 2021     2021-04 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">16</span> March 2021     2021-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">17</span> February 2021  2021-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span>
+<span class="co">#&gt; <span style="color: #BCBCBC;">18</span> January 2021   2021-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></code></pre></div>
 <p>The second one facilitates the download. For example, to download the
 LFS pumf for February 2022 we use</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
@@ -248,8 +251,7 @@ rates to even out age-specific effects.</p>
 
 <div class="pkgdown">
   <p></p>
-<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a>
-2.0.2.</p>
+<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.3.</p>
 </div>
 
       </footer>
