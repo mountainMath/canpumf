@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.6</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.7</span>
       </span>
     </div>
 
@@ -63,26 +63,33 @@
     </div>
 
     <div id="ref-usage">
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="fu">label_pumf_columns</span><span class="op">(</span>
-  <span class="va">pumf_data</span>,
-  pumf_base_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"pumf_base_path"</span><span class="op">)</span>,
-  layout_mask <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"layout_mask"</span><span class="op">)</span>
-<span class="op">)</span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">label_pumf_columns</span><span class="op">(</span></span>
+<span>  <span class="va">pumf_data</span>,</span>
+<span>  pumf_base_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"pumf_base_path"</span><span class="op">)</span>,</span>
+<span>  layout_mask <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"layout_mask"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
     <h2>Arguments</h2>
     <dl><dt>pumf_data</dt>
 <dd><p>pumf data file</p></dd>
+
+
 <dt>pumf_base_path</dt>
 <dd><p>optional base path, guessed from attributes on <code>pumf_data</code></p></dd>
+
+
 <dt>layout_mask</dt>
 <dd><p>optional layout mask in case there are several layout files,
 guessed from attributes on <code>layout_mask</code></p></dd>
+
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>data frame with renamed columns</p>
+    
+
+<p>data frame with renamed columns</p>
     </div>
 
   </div>
@@ -97,7 +104,7 @@ guessed from attributes on <code>layout_mask</code></p></dd>
 </div>
 
 <div class="pkgdown">
-  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.3.</p>
+  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.6.</p>
 </div>
 
       </footer></div>

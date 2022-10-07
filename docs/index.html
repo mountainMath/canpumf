@@ -34,7 +34,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.6</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.7</span>
       </span>
     </div>
 
@@ -89,7 +89,7 @@
 </h2>
 <p>You can install the current development version of canpumf from <a href="https://github.com/mountainMath/canpumf" class="external-link">GitHub</a> with:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"mountainmath/canpumf"</span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"mountainmath/canpumf"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
@@ -101,11 +101,11 @@
 </h2>
 <p>This is a basic example how to read a StatCan PUMF file in R. It assume that the variable <code>pumf_base_path</code> points to the base directory of the PUMF data. The base directory hold the data as well as the syntax or layour files are subdirectories. Sometimes the layout or syntax file can also be subdirectories of the data directory.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span>
-
-<span class="va">pumf_base_path</span> <span class="op">&lt;-</span> <span class="st">"&lt;path to base directory of pumf data&gt;"</span>
-
-<span class="va">pumf_data</span> <span class="op">&lt;-</span> <span class="fu">canpumf</span><span class="fu">::</span><span class="fu"><a href="reference/read_pumf_data.html">read_pumf_data</a></span><span class="op">(</span><span class="va">pumf_base_path</span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">pumf_base_path</span> <span class="op">&lt;-</span> <span class="st">"&lt;path to base directory of pumf data&gt;"</span></span>
+<span></span>
+<span><span class="va">pumf_data</span> <span class="op">&lt;-</span> <span class="fu">canpumf</span><span class="fu">::</span><span class="fu"><a href="reference/read_pumf_data.html">read_pumf_data</a></span><span class="op">(</span><span class="va">pumf_base_path</span><span class="op">)</span></span></code></pre></div>
 <p>The code may need further refinements to work with all StatCan PUMF files. It has been successfully tried with the following PUMF files:</p>
 <ul>
 <li>CHS 2018</li>
@@ -165,7 +165,7 @@
 
 <div class="pkgdown">
   <p></p>
-<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.3.</p>
+<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.6.</p>
 </div>
 
       </footer>

@@ -384,12 +384,17 @@ list_available_lfs_pumf_versions <- function(){
     rvest::html_elements("a")
   ts <- ts[rvest::html_text(ts)=="CSV"]
 
+  lct <- Sys.getlocale("LC_TIME")
+  Sys.setlocale("LC_TIME", "C")
+
   d<-tibble(url=paste0(base_url,rvest::html_attr(ts,"href")),
          Date=gsub(" \\| PUMF: CSV","",rvest::html_attr(ts,"title"))) %>%
     mutate(version=strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m")) %>%
     select(.data$Date,.data$version,.data$url) %>%
     mutate(version2=basename(.data$url) %>% substr(1,7)) %>%
     mutate(date=paste0(.data$version2,"-01") %>% as.Date() %>% strftime("%B %Y"))
+
+  Sys.setlocale("LC_TIME", lct)
 
   dd <- d %>% filter(.data$version!=.data$version2)
   if (nrow(dd) >0) {

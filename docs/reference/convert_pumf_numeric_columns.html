@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.6</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.7</span>
       </span>
     </div>
 
@@ -63,35 +63,48 @@
     </div>
 
     <div id="ref-usage">
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="fu">convert_pumf_numeric_columns</span><span class="op">(</span>
-  <span class="va">pumf_data</span>,
-  pumf_base_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"pumf_base_path"</span><span class="op">)</span>,
-  layout_mask <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"layout_mask"</span><span class="op">)</span>,
-  numeric_columns <span class="op">=</span> <span class="cn">NULL</span>,
-  set_missing <span class="op">=</span> <span class="cn">TRUE</span>,
-  na.values <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"."</span><span class="op">)</span>
-<span class="op">)</span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">convert_pumf_numeric_columns</span><span class="op">(</span></span>
+<span>  <span class="va">pumf_data</span>,</span>
+<span>  pumf_base_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"pumf_base_path"</span><span class="op">)</span>,</span>
+<span>  layout_mask <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"layout_mask"</span><span class="op">)</span>,</span>
+<span>  numeric_columns <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  set_missing <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  na.values <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"."</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
     <h2>Arguments</h2>
     <dl><dt>pumf_data</dt>
 <dd><p>pumf data file</p></dd>
+
+
 <dt>pumf_base_path</dt>
 <dd><p>optional base path, guessed from attributes on <code>pumf_data</code></p></dd>
+
+
 <dt>layout_mask</dt>
 <dd><p>optional layout mask in case there are several layout files,
 guessed from attributes on <code>layout_mask</code></p></dd>
+
+
 <dt>numeric_columns</dt>
 <dd><p>optional list of columns to conver, guessed from data if none provided</p></dd>
+
+
 <dt>set_missing</dt>
 <dd><p>logical, will set missing values to <code>NA</code> if set to <code>TRUE</code> (default)</p></dd>
+
+
 <dt>na.values</dt>
 <dd><p>optional vectors of values to convert to <code>NA</code></p></dd>
+
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>data frame with converted values</p>
+    
+
+<p>data frame with converted values</p>
     </div>
 
   </div>
@@ -106,7 +119,7 @@ guessed from attributes on <code>layout_mask</code></p></dd>
 </div>
 
 <div class="pkgdown">
-  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.3.</p>
+  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.6.</p>
 </div>
 
       </footer></div>
