@@ -101,7 +101,7 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
         paths <- paths[grepl(pp,paths)]
       }
       validate_path(paths)
-      if (grepl("\\.sps$",path)) path<-file.path(layout_path,paths) else path <- layout_path
+      if (grepl("\\.sps$",paths)) path<-file.path(layout_path,paths) else path <- layout_path
     }
   }
   path
