@@ -31,7 +31,7 @@ list_pumf_collection_old <- function(){
 #' @return a tibble with a list of the PUMF files with canpumf convenience wrappers
 #' @export
 list_canpumf_collection <- function(){
-  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS")
+  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS","SHS")
   pumf_surveys<-list_pumf_collection() %>%
     filter(.data$Acronym %in% canpumf_conveninence_series)
 
@@ -51,6 +51,12 @@ list_canpumf_collection <- function(){
                 `Survey Number`="5269",
                 url=c("https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2018-eng.zip"))
 
+  shs <- tibble(Title="Survey of hHousehold Spending",
+                Acronym="SHS",
+                Version=c("2017","2019"),
+                `Survey Number`="3508",
+                url=c("https://www150.statcan.gc.ca/n1/en/pub/62m0004x/2017001/SHS_EDM_2017-eng.zip?st=LVOzS5ri",
+                      "https://www150.statcan.gc.ca/n1/en/pub/62m0004x/2017001/SHS_EDM_2019.zip?st=KxKAqlFL"))
 
   its_versions <- tibble("Acronym"="ITS",
                          Version=c("2019","2018"),
@@ -72,9 +78,9 @@ list_canpumf_collection <- function(){
   result <- pumf_surveys %>%
     left_join(bind_rows(lfs_versions,its_versions,sfs_versions),
               by="Acronym") %>%
-    bind_rows(chs,cpss)
+    bind_rows(chs,cpss,shs)
   } else {
-    result <- bind_rows(chs,cpss) |>
+    result <- bind_rows(chs,cpss,shs) |>
       bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Surevey Number`="3701"),
                 its_versions |> mutate(Title="International Travel Survey",`Surevey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Surevey Number`='2620'))
@@ -137,6 +143,14 @@ label_pumf_data <- function(pumf_data,
                             layout_mask=attr(pumf_data,"layout_mask")){
   val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask)
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
+  n1 <- val_labels$name |> unique()
+  n2 <- var_labels$name |> unique()
+  if (length(setdiff(n1,n2))>0) {
+    if(length(setdiff(toupper(n1),toupper(n2)))==0) {
+      val_labels <- val_labels |> mutate(name=toupper(.data$name))
+      var_labels <- var_labels |> mutate(name=toupper(.data$name))
+    }
+  }
   vars <- pumf_data %>% select_if(function(d)!is.numeric(d)) %>% names() %>% intersect(var_labels$name)
   for (var in vars) {
     vl <- val_labels %>%
@@ -243,13 +257,22 @@ read_pumf_data <- function(pumf_base_path,
                           file_mask=layout_mask,
                           guess_numeric=TRUE){
   ## cgeck if data is csv
+  d <- dir(pumf_base_path,full.names = TRUE)
+  if (length(d)==1) pumf_base_path <- d
   vars <- dir(pumf_base_path,pattern="variables\\.csv")
+  reading_cards <- dir(pumf_base_path,pattern="Reading cards")
+  if (length(reading_cards)==0) {
+    d <- dir(pumf_base_path,pattern="Data",full.names = TRUE)
+    if (length(d)==1) reading_cards <- dir(d,pattern="Reading cards")
+  }
   if (length(vars)==1) {
     data_path <- dir(pumf_base_path,pattern="\\.csv")
     data_path <- file.path(pumf_base_path,data_path[data_path!=vars])
     pumf_data <- readr::read_csv(data_path,
                                  locale=readr::locale(encoding = "Latin1"),
                                  col_types = readr::cols(.default = "c"))
+  } else if (length(reading_cards)>0){
+    pumf_data <- parse_pumf_data_cards(pumf_base_path,layout_mask)
   } else {
     layout<- read_pumf_layout_spss(pumf_base_path,layout_mask)
     data_dir <- pumf_data_dir(pumf_base_path)
@@ -308,10 +331,10 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
                      pumf_cache_path = getOption("canpumf.cache_path")){
-  if (is.null(pumf_version)) {
-    d<- list_canpumf_collection() %>%
-      filter(.data$Acronym==pumf_series)
-    if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
+  d<- list_canpumf_collection() %>%
+    filter(.data$Acronym==pumf_series)
+  if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
+  else if (is.null(pumf_version)) {
     if (nrow(d)!=1) {
       stop("Could not find PUMF version.")
     }

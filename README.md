@@ -16,6 +16,8 @@ remotes::install_github("mountainmath/canpumf")
 ## Documentation
 Please consult the [documentation and example articles](https://mountainmath.github.io/canpumf/) for further information.
 
+StatCan publishes an [official guide to the Labour Force Surve](https://www150.statcan.gc.ca/n1/en/catalogue/71-543-G) for different vintages of the [LFS](https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&SDDS=3701).
+
 
 ## Example
 

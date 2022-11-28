@@ -40,11 +40,11 @@ pumf_layout_dir <- function(pumf_base_path){
   layout_dir<-pumf_base_path
   spss_path <- dir(layout_dir,"SPSS",full.names = TRUE)
   if (length(spss_path)==0){
-    layout_dir <- dir(pumf_base_path,"Layout|Syntax|Command|SpssCard",full.names = TRUE)
+    layout_dir <- dir(pumf_base_path,"Layout|Syntax|Command|SpssCard|Reading cards",full.names = TRUE)
     if (length(layout_dir)==0||!dir.exists(file.path(layout_dir))){
       data_path <- dir(pumf_base_path,"*Data*",full.names = TRUE)
       if (length(data_path)==0) stop("Could not find layout or data in PUMF base path, aborting.")
-      layout_dir <- dir(data_path,"Layout|Syntax",full.names = TRUE)
+      layout_dir <- dir(data_path,"Layout|Syntax|Reading cards",full.names = TRUE)
       if (length(layout_dir)==0) stop("Could not find layout in PUMF base path, aborting.")
     } else {
     }
@@ -83,7 +83,7 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
 
   path <- path_or_pattern
   if (is.null(path)) {
-    path <- dir(layout_path,pattern="\\.sps$")
+    path <- dir(layout_path,pattern="\\.sps$|\\.lay$")
     if (length(path)>1) {
       path <- dir(layout_path,pattern=pattern)
     }
@@ -92,7 +92,7 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
   } else {
     if (file.exists(file.path(layout_path,path))) path <- file.path(layout_path,path)
     if (!file.exists(path)) {
-      paths <- dir(layout_path)
+      paths <- dir(layout_path,pattern="\\.sps$|\\.lay$")
       paths <- paths[grepl(path,paths)]
       if (length(paths)>1) paths <- paths[grepl(pattern,paths)]
       if (length(paths)>1) {
@@ -101,7 +101,7 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
         paths <- paths[grepl(pp,paths)]
       }
       validate_path(paths)
-      path<-file.path(layout_path,paths)
+      if (grepl("\\.sps$",path)) path<-file.path(layout_path,paths) else path <- layout_path
     }
   }
   path

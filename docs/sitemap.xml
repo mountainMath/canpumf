@@ -28,9 +28,6 @@
     <loc>/reference/add_bootstrap_weights.html</loc>
   </url>
   <url>
-    <loc>/reference/available_lfs_pumf_versions.html</loc>
-  </url>
-  <url>
     <loc>/reference/convert_pumf_numeric_columns.html</loc>
   </url>
   <url>
@@ -41,18 +38,6 @@
   </url>
   <url>
     <loc>/reference/get_pumf.html</loc>
-  </url>
-  <url>
-    <loc>/reference/get_pumf_data.html</loc>
-  </url>
-  <url>
-    <loc>/reference/get_pumf_miss_labels.html</loc>
-  </url>
-  <url>
-    <loc>/reference/get_pumf_val_labels.html</loc>
-  </url>
-  <url>
-    <loc>/reference/get_pumf_var_labels.html</loc>
   </url>
   <url>
     <loc>/reference/guess_numeric_pumf_columns.html</loc>
@@ -76,7 +61,13 @@
     <loc>/reference/list_pumf_collection.html</loc>
   </url>
   <url>
+    <loc>/reference/parse_pumf_data_cards.html</loc>
+  </url>
+  <url>
     <loc>/reference/parse_pumf_data_csv.html</loc>
+  </url>
+  <url>
+    <loc>/reference/parse_pumf_metadata_cards.html</loc>
   </url>
   <url>
     <loc>/reference/parse_pumf_metadata_csv.html</loc>
