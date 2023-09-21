@@ -35,6 +35,12 @@ list_canpumf_collection <- function(){
   pumf_surveys<-list_pumf_collection() %>%
     filter(.data$Acronym %in% canpumf_conveninence_series)
 
+  ccahs <- tibble(Title = "Canadian COVID-19 Antibody and Health Survey",
+                  Acronym = "CCAHS",
+                  Version=c("1"),
+                  `Survey Number`="5339",
+                  url="https://www150.statcan.gc.ca/n1/en/pub/13-25-0007/2022001/CCAHS_ECSAC.zip?st=BPMowORM")
+
   cpss <- tibble(Title="Canadian Perspectives Survey Series",
          Acronym="CPSS",
          Version=c("1","2","3","4","5","6"),
@@ -47,11 +53,12 @@ list_canpumf_collection <- function(){
                "https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip"))
   chs <- tibble(Title="Canadian Housing Survey",
                 Acronym="CHS",
-                Version=c("2018"),
+                Version=c("2018","2021"),
                 `Survey Number`="5269",
-                url=c("https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2018-eng.zip"))
+                url=c("https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2018-eng.zip",
+                      "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2021.zip"))
 
-  shs <- tibble(Title="Survey of hHousehold Spending",
+  shs <- tibble(Title="Survey of Household Spending",
                 Acronym="SHS",
                 Version=c("2017","2019"),
                 `Survey Number`="3508",
@@ -68,7 +75,9 @@ list_canpumf_collection <- function(){
     rvest::html_nodes(xpath="//a")
   d<-d[rvest::html_text(d)=="CSV"]
   lfs_versions <- tibble(Acronym="LFS",url=rvest::html_attr(d,"href")) %>%
-    dplyr::mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist)
+    dplyr::mutate(url=ifelse(substr(.data$url,1,4)=="http",url,paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/",.data$url))) %>%
+    dplyr::mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist) %>%
+    dplyr::mutate(Version=coalesce(Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
 
   sfs_versions <- tibble(Acronym="SFS",
                          Version=c("2019"),
@@ -80,11 +89,12 @@ list_canpumf_collection <- function(){
               by="Acronym") %>%
     bind_rows(chs,cpss,shs)
   } else {
-    result <- bind_rows(chs,cpss,shs) |>
+    result <- bind_rows(chs,cpss,shs,ccahs) |>
       bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Surevey Number`="3701"),
                 its_versions |> mutate(Title="International Travel Survey",`Surevey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Surevey Number`='2620'))
   }
+  result
 }
 
 
@@ -122,7 +132,8 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
 label_pumf_columns <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
                             layout_mask=attr(pumf_data,"layout_mask")){
-  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
+  names(pumf_data) <- toupper(names(pumf_data))
+  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)  |> mutate(name=toupper(.data$name))
   vars <- pumf_data %>% names() %>% intersect(var_labels$name)
   vr <- var_labels %>% filter(.data$name %in% vars)
   pumf_data %>% rename(!!!setNames(vr$name,vr$label))
@@ -135,14 +146,19 @@ label_pumf_columns <- function(pumf_data,
 #' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
 #' @param layout_mask optional layout mask in case there are several layout files,
 #' guessed from attributes on \code{layout_mask}
+#' @param infer_missing_numeric optional character, infer variables that aren't labelled to be numeric
 #'
 #' @return relabeled data frame
 #' @export
 label_pumf_data <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
-                            layout_mask=attr(pumf_data,"layout_mask")){
-  val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask)
-  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)
+                            layout_mask=attr(pumf_data,"layout_mask"),
+                            infer_missing_numeric=FALSE){
+  if (grepl("98M0001X",pumf_base_path)&&grepl("2021",pumf_base_path)) {
+    infer_missing_numeric <- TRUE
+  }
+  val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask) |> mutate(name=toupper(.data$name))
+  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask) |> mutate(name=toupper(.data$name))
   n1 <- val_labels$name |> unique()
   n2 <- var_labels$name |> unique()
   if (length(setdiff(n1,n2))>0) {
@@ -151,7 +167,9 @@ label_pumf_data <- function(pumf_data,
       var_labels <- var_labels |> mutate(name=toupper(.data$name))
     }
   }
+  names(pumf_data) <- toupper(names(pumf_data))
   vars <- pumf_data %>% select_if(function(d)!is.numeric(d)) %>% names() %>% intersect(var_labels$name)
+  missing_vars <- setdiff(n2,n1)
   for (var in vars) {
     vl <- val_labels %>%
       filter(.data$name==var) %>%
@@ -173,6 +191,11 @@ label_pumf_data <- function(pumf_data,
           mutate_at(var,function(d)recode(d,!!!lookup))
       }
     }
+  }
+
+  if (infer_missing_numeric) {
+    pumf_data <- pumf_data |>
+      mutate(across(setdiff(missing_vars,"PPSORT"),\(d)ifelse(d==88888888|d==99999999,NA_real_,as.numeric(d))))
   }
 
   label_pumf_columns(pumf_data=pumf_data,
@@ -331,34 +354,59 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
                      pumf_cache_path = getOption("canpumf.cache_path")){
-  d<- list_canpumf_collection() %>%
-    filter(.data$Acronym==pumf_series)
-  if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
-  else if (is.null(pumf_version)) {
-    if (nrow(d)!=1) {
-      stop("Could not find PUMF version.")
+  cached_pumf <- dir(pumf_cache_path)
+  pumf_data <- NULL
+
+  if (pumf_series=="Census" && (pumf_version=="2021 (individuals)"|pumf_version=="2021")) {
+    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2021",cached_pumf)]
+    if (length(path)==1) {
+      pumf_base_path <- file.path(pumf_cache_path,path)
+      pumf_data_file <- dir(pumf_base_path,".csv",full.names = TRUE)
+      pumf_data <- readr::read_csv(pumf_data_file,
+                            col_types = readr::cols(.default="c"),
+                            locale = readr::locale(encoding = "CP1252")) |>
+        mutate(across(matches("^WEIGHT$|^WT\\d+$"),as.numeric)) |>
+        rename(RELIG=.data$RELIGION_DER)
+      attr(pumf_data,"pumf_base_path") <- pumf_base_path
+
+      ensure_2021_pumfi_metadata(pumf_base_path)
+
+    } else {
+      stop("2021 PUMF data is not avaialble")
     }
-    pumf_version <- d$Version
   }
 
-  if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
-    pumf_cache_path<- file.path(tempdir(),"pumf")
-    message(paste0("PUMF cache path is not set, consider setting the PUMF cache path via","\n",
-            'options(canpumf.cache_path="<path to permanently cache PUMF data>")',"\n",
-            "Data will be cached for the duration of the current session only."))
-  }
-  if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
-  destination_dir <- file.path(pumf_cache_path,pumf_series)
-  if (!dir.exists(destination_dir)) dir.create(destination_dir)
-  if (!is.null(pumf_version)) {
-    destination_dir <- file.path(destination_dir,pumf_version)
+  if (is.null(pumf_data)) {
+    d<- list_canpumf_collection() %>%
+      filter(.data$Acronym==pumf_series)
+    if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
+    else if (is.null(pumf_version)) {
+      if (nrow(d)!=1) {
+        stop("Could not find PUMF version.")
+      }
+      pumf_version <- d$Version
+    }
+
+    if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
+      pumf_cache_path<- file.path(tempdir(),"pumf")
+      message(paste0("PUMF cache path is not set, consider setting the PUMF cache path via","\n",
+                     'options(canpumf.cache_path="<path to permanently cache PUMF data>")',"\n",
+                     "Data will be cached for the duration of the current session only."))
+    }
+    if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
+    destination_dir <- file.path(pumf_cache_path,pumf_series)
     if (!dir.exists(destination_dir)) dir.create(destination_dir)
-  }
-  if (length(dir(destination_dir))==0) {
-    dd<-download_pumf(d$url,destination_dir = destination_dir)
-  }
+    if (!is.null(pumf_version)) {
+      destination_dir <- file.path(destination_dir,pumf_version)
+      if (!dir.exists(destination_dir)) dir.create(destination_dir)
+    }
+    if (length(dir(destination_dir))==0) {
+      dd<-download_pumf(d$url,destination_dir = destination_dir)
+    }
 
-  read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask)
+    pumf_data <- read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask)
+  }
+  pumf_data
 }
 
 #' Download PUMF data
