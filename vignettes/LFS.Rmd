@@ -32,7 +32,7 @@ list_available_lfs_pumf_versions()
 The second one facilitates the download. For example, to download the LFS pumf for February 2022 we use
 
 ```{r}
-lfs_2022_02_path <- download_lfs_pumf("2022-02", destination_dir=file.path(tempdir(),"pumf","LFS"))
+lfs_2022_02_path <- download_lfs_pumf("2023-02", destination_dir=file.path(tempdir(),"pumf","LFS"))
 ```
 
 

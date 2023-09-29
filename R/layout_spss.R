@@ -114,10 +114,10 @@ read_pumf_layout_spss <- function(pumf_base_path,layout_mask=NULL){
 
 
 ensure_2021_pumfi_metadata <- function(pumf_base_path){
-  canpumf_dir <- dir(pumf_base_path,"canpumf",full.names = TRUE)
+  canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
   if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
-    dir.create(canpumf_dir)
+    if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
 
@@ -148,8 +148,8 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
       gsub("^ +| +$","",x=_) |>
       as_tibble() |>
       mutate(p=strsplit(value," +")) |>
-      mutate(name=map(.data$p,first) |> unlist(),
-             value=map(.data$p,last) |> unlist()) |>
+      mutate(name=lapply(.data$p,first) |> unlist(),
+             value=lapply(.data$p,last) |> unlist()) |>
       select(.data$name,.data$value)
 
 
@@ -173,7 +173,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
     var_starts <- which(grepl("^\\/",var_labels_raw$value))
 
     val_labels <- 1:length(var_starts) |>
-      map_df(\(r){
+      purrr::map_df(\(r){
         s=var_starts[r]
         n<-var_labels_raw$value[s] |> gsub("^\\/","",x=_)
         s=s+1
@@ -186,7 +186,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
           slice(s:e) |>
           mutate(val=gsub(' *".+',"",.data$value),
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
-          mutate(name=.data$n) |>
+          mutate(name=n) |>
           select(.data$name,.data$val,.data$label)
 
       })

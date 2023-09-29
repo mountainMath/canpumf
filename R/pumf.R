@@ -358,7 +358,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
   pumf_data <- NULL
 
   if (pumf_series=="Census" && (pumf_version=="2021 (individuals)"|pumf_version=="2021")) {
-    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2021",cached_pumf)]
+    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2021",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       pumf_data_file <- dir(pumf_base_path,".csv",full.names = TRUE)
