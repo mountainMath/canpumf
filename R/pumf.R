@@ -365,8 +365,13 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
       pumf_data <- readr::read_csv(pumf_data_file,
                             col_types = readr::cols(.default="c"),
                             locale = readr::locale(encoding = "CP1252")) |>
-        mutate(across(matches("^WEIGHT$|^WT\\d+$"),as.numeric)) |>
-        rename(RELIG=.data$RELIGION_DER)
+        mutate(across(matches("^WEIGHT$|^WT\\d+$"),as.numeric))
+
+      if ("RELIGION_DER" %in% names(pumf_data)) { # coding error in older version of pumf data
+        pumf_data <- pumf_data |>
+          rename(RELIG=.data$RELIGION_DER)
+      }
+
       attr(pumf_data,"pumf_base_path") <- pumf_base_path
 
       ensure_2021_pumfi_metadata(pumf_base_path)
@@ -524,27 +529,63 @@ download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdi
 #' @param weight_column Name of the column with the standard weights
 #' @param bootstrap_weight_count Number of boostrap weights to generate
 #' @param bootstrap_weight_prefix Name prefix for the bootstrap weight columns
+#' @param algorithm Algorithm to calculate bootstrap weights, either of "iterative" or "experimental"
 #' @param seed Random see to be used for bootstrap sample for reproducibility
 #' @return pumf_base_dir that can be used in the other package functions
 #' @export
 add_bootstrap_weights <- function(pumf_data,
                                   weight_column,
                                   bootstrap_weight_count = 16,
-                                  bootstrap_weight_prefix="WT",
+                                  bootstrap_weight_prefix="BSW",
+                                  algorithm="iterative",
                                   seed=NULL){
   n <- nrow(pumf_data)
-  set.seed(seed)
-  for (i in seq(1,bootstrap_weight_count)) {
-    bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
-    wt <- dplyr::tibble(!!bootstrap_weight_column:=pull(pumf_data,weight_column)) %>%
-      dplyr::mutate(rn=row_number()) %>%
-      dplyr::left_join(tibble(rn=sample(seq(1,n),n,replace=TRUE)) %>%
-                  dplyr::count(.data$rn), by="rn") %>%
-      dplyr::mutate(n=coalesce(.data$n,0)) %>%
-      dplyr::mutate(!!bootstrap_weight_column:=!!as.name(bootstrap_weight_column)*.data$n) %>%
-      dplyr::select(bootstrap_weight_column)
-    pumf_data <- pumf_data %>%
-      dplyr::bind_cols(wt)
+
+  if (algorithm=="experimental") {
+    rows <- 1:n
+    wts <- 1:bootstrap_weight_count
+    wt_names <- paste0(bootstrap_weight_prefix,wts)
+    set.seed(seed)
+    chunk_length <- 10
+    split_weights <- split(wt_names, ceiling(seq_along(wt_names) / chunk_length))
+
+    bsw <- lapply(split_weights,\(wt_batch){
+      bwc <- length(wt_batch)
+      perm <-  as.data.frame(replicate(bwc, sample(rows,replace = TRUE))) |>
+        dplyr::as_tibble() |>
+        setNames(wt_batch)
+      draw <- perm |>
+        pivot_longer(everything()) |>
+        count(name,value)
+      bsw_counts <- draw |>
+        complete(name=wt_batch,value=rows,fill=list(n=0)) |>
+        pivot_wider(names_from=name,values_from = n) |>
+        arrange(value)
+      bsw <- bsw_counts |>
+        select(-value)
+    }) |>
+      bind_cols()
+
+    weights <- pumf_data |> pull(!!weight_column)
+    bsw_final <-  as.data.frame(weights * bsw) |>
+      setNames(wt_names) |>
+      as_tibble()
+
+    pumf_data <- pumf_data |> bind_cols(bsw_final)
+  } else {
+
+    for (i in seq(1,bootstrap_weight_count)) {
+      bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
+      wt <- dplyr::tibble(!!bootstrap_weight_column:=pull(pumf_data,weight_column)) %>%
+        dplyr::mutate(rn=row_number()) %>%
+        dplyr::left_join(tibble(rn=sample(seq(1,n),n,replace=TRUE)) %>%
+                           dplyr::count(.data$rn), by="rn") %>%
+        dplyr::mutate(n=coalesce(.data$n,0)) %>%
+        dplyr::mutate(!!bootstrap_weight_column:=!!as.name(bootstrap_weight_column)*.data$n) %>%
+        dplyr::select(bootstrap_weight_column)
+      pumf_data <- pumf_data %>%
+        dplyr::bind_cols(wt)
+    }
   }
   pumf_data
 }
