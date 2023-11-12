@@ -1,0 +1,95 @@
+#' List available PUMF LFS versions
+#'
+#' @return A tibble with versions and urls to available LFS PUMF data
+#' @export
+list_available_lfs_pumf_versions <- function(){
+  #base_url <- "https://www150.statcan.gc.ca/n1/en/catalogue/71M0001X/"
+  base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
+  url <- paste0(base_url,"71m0001x2021001-eng.htm")
+  ts<-rvest::read_html(url) %>%
+    rvest::html_elements("a")
+  ts <- ts[rvest::html_text(ts)=="CSV"]
+
+  lct <- Sys.getlocale("LC_TIME")
+  Sys.setlocale("LC_TIME", "C")
+
+  d<-tibble(url=paste0(base_url,rvest::html_attr(ts,"href")),
+            Date=gsub(" \\| PUMF: CSV","",rvest::html_attr(ts,"title"))) |>
+    mutate(version=case_when(grepl("^\\d{4}$",Date) ~ Date,
+                             TRUE ~ strftime(as.Date(paste0("01 ",Date),format="%d %B %Y"),"%Y-%m"))) |>
+    select(.data$Date,.data$version,.data$url) |>
+    select(Date,version,url)
+
+  Sys.setlocale("LC_TIME", lct)
+
+  d
+}
+
+
+ensure_lfs_metadata <- function(lfs_path){
+  canpumf_dir <- file.path(lfs_path,"canpumf")
+  if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
+  codebook_path <- dir(lfs_path,"codebook\\.csv",full.names = TRUE)
+  codebook <- readr::read_csv(codebook_path,locale = readr::locale(encoding = "CP1252"),
+                              col_types=readr::cols(.default = "c"))
+
+  name_labels <- codebook |>
+    filter(!is.na(Field_Champ)) |>
+    select(Field_Champ,name=Variable_Variable,label=EnglishLabel_EtiquetteAnglais) |>
+    mutate(n=n(),.by=label) |>
+    mutate(label=case_when(n==1 ~ label,
+                           TRUE ~ paste0(label," (",name,")"))) |>
+    select(-n)
+
+  val_labels <- codebook |>
+    mutate(skip=!is.na(Field_Champ)) |>
+    tidyr::fill(Field_Champ) |>
+    filter(!skip) |>
+    inner_join(name_labels,by=c("Field_Champ")) |>
+    select(name,val=Variable_Variable,label=EnglishLabel_EtiquetteAnglais) |>
+    mutate(n=n(),.by=c(label,name)) |>
+    mutate(label=case_when(n==1 ~ label,
+                           TRUE ~ paste0(label," (",val,")"))) |>
+    select(-n)
+
+  saveRDS(val_labels,file.path(canpumf_dir,"val.rds"))
+  saveRDS(name_labels |> select(name,label),file.path(canpumf_dir,"var.rds"))
+}
+
+#' Download PUMF LFS data
+#'
+#' @param version A version of the pumf data of fornat <Year>-<Month>, e.g. "2021-01"
+#' @param pumf_cache_path Optional path where to store the extracted PUMF data, default is `getOption("canpumf.cache_path")`
+#' @param timeout Optional parameter to specify connection timout for download
+#' @return pumf_base_dir that can be used in the other package functions
+download_lfs_pumf <- function(version="2021",pumf_cache_path = getOption("canpumf.cache_path"),timeout=3000){
+
+}
+
+
+
+get_lfs_pumf <- function(pumf_version,pumf_cache_path){
+  pumf_path <- file.path(pumf_cache_path,paste0("lfs_",pumf_version,"-CSV"))
+  if (!dir.exists(pumf_path)||length(dir(pumf_path))==0) {
+    pumf_url <- list_available_lfs_pumf_versions() %>% filter(version==!!pumf_version) %>% pull(url)
+    if (length(pumf_url)==0) stop("LFS version ",pumf_version," is not available, check available LFS PUMF versions via `list_available_lfs_pumf_versions()`")
+
+    pp<-download_pumf(pumf_url,destination_dir = pumf_path,timeout = timeout)
+  }
+  if (pp!=pumf_path) stop("Something went wrong, downloaded PUMF path ",pp," is not the same as expected ",pumf_path)
+  ensure_lfs_metadata(pumf_path)
+
+  numerics <- c("wksaway",  "uhrsmain", "ahrsmain", "utothrs",  "atothrs",  "hrsaway",  "paidot",   "unpaidot",
+                "xtrahrs", "tenure",   "prevten",  "hrlyearn", "durunemp", "durjless", "finalwt") |>
+    toupper()
+
+  pumf_file_path <- dir(pumf_path,"pub\\d+\\.csv",full.names = TRUE)
+  pumf_data <- readr::read_csv(pumf_file_path,locale = readr::locale(encoding = "CP1252"),
+                               col_types=readr::cols(.default = "c")) %>%
+    setNames(toupper(names(.))) |>
+    mutate(across(any_of(numerics),as.numeric))
+
+  attr(pumf_data,"pumf_base_path") <- pumf_path
+  pumf_data
+}
+

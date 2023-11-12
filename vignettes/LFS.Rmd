@@ -29,22 +29,26 @@ The `canpumf` package has two functions to facilitate access to the LFS PUMF. Th
 list_available_lfs_pumf_versions()
 ```
 
-The second one facilitates the download. For example, to download the LFS pumf for February 2022 we use
+The second one fetches and loads the LFS data. For example, to download the LFS pumf for 2022 we use
 
 ```{r}
-lfs_2022_02_path <- download_lfs_pumf("2023-02", destination_dir=file.path(tempdir(),"pumf","LFS"))
+lfs_2022 <- get_pumf("LFS","2022")
 ```
 
 
-By default the data is stored in the temporary session path, optionally we can set the `destination_dir` option to a path to permanently cache the data.
+By default the data is stored in the temporary session path, optionally we can set the `canpumf.cache_path` option to a path to permanently cache the data.
 
-With this we can do some simple descriptive analysis. We add boostrap weights to better understand the uncertainty in the estimates, for more serious analysis we should probably go with a higher number of bootstrap weights.
-
+To convert to human readable column lables and column names we use the `label_pumf_data` function.
 
 ```{r}
-lfs_2022_02_data <- lfs_2022_02_path %>%
-  read_pumf_data() %>%
-  label_pumf_data() %>%
+lfs_2022 <- lfs_2022 %>% label_pumf_data() 
+```
+
+With this we can do some simple descriptive analysis. We could use the `add_bootstrap_weights` function to add boostrap wegihts if desired. We focus in on February 2022 and add 100 boodstrap weights.
+
+```{r}
+lfs_2022_02_data <- lfs_2022 |> 
+  filter(`Survey month`=="February") |>
   add_bootstrap_weights("Standard final weight",100,seed=42)
 ```
 
@@ -56,8 +60,8 @@ data <- lfs_2022_02_data %>%
   filter(`Labour force status`!="Not in labour force") %>%
   group_by(`Labour force status`,`Five-year age group of respondent`,`Sex of respondent`,
            `Marital status of respondent`) %>%
-  summarise(across(matches("Standard final weight|WT\\d+"),sum),.groups="drop") %>%
-  pivot_longer(matches("Standard final weight|WT\\d+"),names_to="Weight",values_to="Count") %>%
+  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") %>%
+  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") %>%
   group_by(`Five-year age group of respondent`,`Sex of respondent`,
            `Marital status of respondent`, Weight) %>%
   mutate(Share=ifelse(Count==0,0,Count/sum(Count))) %>%
@@ -93,8 +97,8 @@ data2 <- lfs_2022_02_data %>%
   filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) %>%
   group_by(`Labour force status`,`Five-year age group of respondent`,`Sex of respondent`,
            `Marital status of respondent`) %>%
-  summarise(across(matches("Standard final weight|WT\\d+"),sum),.groups="drop") %>%
-  pivot_longer(matches("Standard final weight|WT\\d+"),names_to="Weight",values_to="Count") %>%
+  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") %>%
+  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") %>%
   group_by(`Five-year age group of respondent`,`Sex of respondent`,
            `Marital status of respondent`, Weight) %>%
   mutate(Share=ifelse(Count==0,0,Count/sum(Count))) %>%

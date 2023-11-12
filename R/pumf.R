@@ -146,6 +146,7 @@ label_pumf_columns <- function(pumf_data,
 #' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
 #' @param layout_mask optional layout mask in case there are several layout files,
 #' guessed from attributes on \code{layout_mask}
+#' @param rename_columns rename PUMF columns to human readable names, default is `TRUE`
 #' @param infer_missing_numeric optional character, infer variables that aren't labelled to be numeric
 #'
 #' @return relabeled data frame
@@ -153,6 +154,7 @@ label_pumf_columns <- function(pumf_data,
 label_pumf_data <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
                             layout_mask=attr(pumf_data,"layout_mask"),
+                            rename_columns=TRUE,
                             infer_missing_numeric=FALSE){
   if (grepl("98M0001X",pumf_base_path)&&grepl("2021",pumf_base_path)) {
     infer_missing_numeric <- TRUE
@@ -198,9 +200,12 @@ label_pumf_data <- function(pumf_data,
       mutate(across(setdiff(missing_vars,"PPSORT"),\(d)ifelse(d==88888888|d==99999999,NA_real_,as.numeric(d))))
   }
 
-  label_pumf_columns(pumf_data=pumf_data,
-                     pumf_base_path=pumf_base_path,
-                     layout_mask=layout_mask)
+  if (rename_columns) {
+    pumf_data <- label_pumf_columns(pumf_data=pumf_data,
+                                    pumf_base_path=pumf_base_path,
+                                    layout_mask=layout_mask)
+  }
+  pumf_data
 }
 
 #' Convert columns to numeric and convert all missing values to \code{NA}
@@ -354,31 +359,18 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
                      pumf_cache_path = getOption("canpumf.cache_path")){
-  cached_pumf <- dir(pumf_cache_path)
   pumf_data <- NULL
+  if (is.null(pumf_cache_path)) {
+    warning("No cache path specified, storing pumf data in temporary directory.")
+    pumf_cache_path <- file.path(tempdir(),"pumf")
+    if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
+  }
+  if (!dir.exists(pumf_cache_path)) stop("Invalid cache path: ",pumf_cache_path)
 
-  if (pumf_series=="Census" && (pumf_version=="2021 (individuals)"|pumf_version=="2021")) {
-    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2021",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
-    if (length(path)==1) {
-      pumf_base_path <- file.path(pumf_cache_path,path)
-      pumf_data_file <- dir(pumf_base_path,".csv",full.names = TRUE)
-      pumf_data <- readr::read_csv(pumf_data_file,
-                            col_types = readr::cols(.default="c"),
-                            locale = readr::locale(encoding = "CP1252")) |>
-        mutate(across(matches("^WEIGHT$|^WT\\d+$"),as.numeric))
-
-      if ("RELIGION_DER" %in% names(pumf_data)) { # coding error in older version of pumf data
-        pumf_data <- pumf_data |>
-          rename(RELIG=.data$RELIGION_DER)
-      }
-
-      attr(pumf_data,"pumf_base_path") <- pumf_base_path
-
-      ensure_2021_pumfi_metadata(pumf_base_path)
-
-    } else {
-      stop("2021 PUMF data is not avaialble")
-    }
+  if (pumf_series=="Census") {
+    pumf_data <- get_census_pumf(pumf_version,pumf_cache_path)
+  } else if (pumf_series=="LFS") {
+    pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path)
   }
 
   if (is.null(pumf_data)) {
@@ -447,80 +439,6 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeo
   destination_dir
 }
 
-
-#' List available PUMF LFS versions
-#'
-#' @return A tibble with versions and urls to available LFS PUMF data
-#' @export
-list_available_lfs_pumf_versions <- function(){
-  #base_url <- "https://www150.statcan.gc.ca/n1/en/catalogue/71M0001X/"
-  base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
-  url <- paste0(base_url,"71m0001x2021001-eng.htm")
-  ts<-rvest::read_html(url) %>%
-    rvest::html_elements("a")
-  ts <- ts[rvest::html_text(ts)=="CSV"]
-
-  lct <- Sys.getlocale("LC_TIME")
-  Sys.setlocale("LC_TIME", "C")
-
-  d<-tibble(url=paste0(base_url,rvest::html_attr(ts,"href")),
-         Date=gsub(" \\| PUMF: CSV","",rvest::html_attr(ts,"title"))) %>%
-    mutate(version=strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m")) %>%
-    select(.data$Date,.data$version,.data$url) %>%
-    mutate(version2=basename(.data$url) %>% substr(1,7)) %>%
-    mutate(date=paste0(.data$version2,"-01") %>% as.Date() %>% strftime("%B %Y"))
-
-  Sys.setlocale("LC_TIME", lct)
-
-  dd <- d %>% filter(.data$version!=.data$version2)
-  if (nrow(dd) >0) {
-    dupe_versions <- d %>% filter(duplicated(.data$version)) %>% pull(.data$version) %>% unique
-    dupe_versions2 <- d %>% filter(duplicated(.data$version2)) %>% pull(.data$version2) %>% unique
-
-    if (length(dupe_versions)>0 && length(dupe_versions2)==0) {
-      d<- d %>% mutate(Date=.data$date,version=.data$version2)
-    } else {
-      warning("Inconsistencies in statcan LFS PUMF overview data, unable to resolve.")
-    }
-  }
-  d <- d %>% select(-.data$date,-.data$version2)
-
-  d
-}
-
-#' Download PUMF LFS data
-#'
-#' @param version A version of the pumf data of fornat <Year>-<Month>, e.g. "2021-01"
-#' @param destination_dir Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`
-#' @param timeout Optional parameter to specify connection timout for download
-#' @return pumf_base_dir that can be used in the other package functions
-#' @export
-download_lfs_pumf <- function(version="2021-01",destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
-  pumf_url <- list_available_lfs_pumf_versions() %>% filter(version==!!version) %>% pull(url)
-  if (length(pumf_url)==0) stop(paste0("LFS version ",version," is not available, check available LFS PUMF versions via `list_available_lfs_pumf_versions()`"))
-
-  # url <- rvest::read_html(pumf_url) %>%
-  #   rvest::html_elements("a") %>%
-  #   lapply(function(t){
-  #     tibble(text=rvest::html_text(t),url=rvest::html_attr(t,"href"))
-  #   }) %>%
-  #   bind_rows() %>%
-  #   filter(.data$text=="CSV") %>%
-  #   pull(.data$url) %>%
-  #   first() %>%
-  #   paste0(dirname(pumf_url),"/",.)
-  if (!dir.exists(destination_dir)) {
-    if (!dir.exists(dirname(destination_dir))) dir.create(dirname(destination_dir))
-    dir.create(destination_dir)
-  }
-  destination_dir <- file.path(destination_dir,paste0("lfs_",version,"-CSV"))
-  # if (as.integer(substr(version,6,7))<=4)
-  #   url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV-eng.zip")
-  # else
-  #   url <- paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/",version,"-CSV.zip")
-  download_pumf(pumf_url,destination_dir = destination_dir,timeout = timeout)
-  destination_dir
-}
 
 
 #' Add bootstrap weights to PUMF data
