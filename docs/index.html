@@ -34,7 +34,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.7</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.8</span>
       </span>
     </div>
 
@@ -101,15 +101,38 @@
 <p>StatCan publishes an <a href="https://www150.statcan.gc.ca/n1/en/catalogue/71-543-G" class="external-link">official guide to the Labour Force Surve</a> for different vintages of the <a href="https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&amp;SDDS=3701" class="external-link">LFS</a>.</p>
 </div>
 <div class="section level2">
-<h2 id="example">Example<a class="anchor" aria-label="anchor" href="#example"></a>
+<h2 id="cache-path">Cache path<a class="anchor" aria-label="anchor" href="#cache-path"></a>
 </h2>
-<p>This is a basic example how to read a StatCan PUMF file in R. It assume that the variable <code>pumf_base_path</code> points to the base directory of the PUMF data. The base directory hold the data as well as the syntax or layour files are subdirectories. Sometimes the layout or syntax file can also be subdirectories of the data directory.</p>
-<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">pumf_base_path</span> <span class="op">&lt;-</span> <span class="st">"&lt;path to base directory of pumf data&gt;"</span></span>
-<span></span>
-<span><span class="va">pumf_data</span> <span class="op">&lt;-</span> <span class="fu">canpumf</span><span class="fu">::</span><span class="fu"><a href="reference/read_pumf_data.html">read_pumf_data</a></span><span class="op">(</span><span class="va">pumf_base_path</span><span class="op">)</span></span></code></pre></div>
+<p>PUMF data can be large and should be cached locally. For this purpose users should set the options variable canpumf.cache_path to a directory where the data can be stored via <code>options(canpumf.cache_path="&lt;your local path&gt;")</code> in your <code>.Rprofile</code>, alternatively the path can be specified with every call.</p>
+</div>
+<div class="section level2">
+<h2 id="basic-usage">Basic usage<a class="anchor" aria-label="anchor" href="#basic-usage"></a>
+</h2>
+<p>Some PUMF data is available from StatCan via direct download, this data can be directly accessed via the <code><a href="reference/get_pumf.html">get_pumf()</a></code> function. In other cases, PUMF data has to be ordered via EFT and shuold be deposited in the cache directory so <code><a href="reference/get_pumf.html">get_pumf()</a></code> function can find it. The <code><a href="reference/label_pumf_data.html">label_pumf_data()</a></code> function parses metadata and labels the data with human-readable labels.</p>
+</div>
+<div class="section level2">
+<h2 id="lfs-data">LFS data<a class="anchor" aria-label="anchor" href="#lfs-data"></a>
+</h2>
+<p>For LFS data, the data is orgnaized by year except for the current year where it’s organized by month. To access the data for 2022 you would use:</p>
+<pre><code>lfs_2022 &lt;- get_pumf("LFS","2022")
+This will download the 2022 LFS pumf data if needed and load it.</code></pre>
+<p>StatCan unfortunately does not provide standardized metadata for PUMF files, but the canpumf package also parses the SPSS Command Files in order to allow for automated labelling of the data. To label the data with human-readable labels use</p>
+<pre><code><span><span class="va">lfs_2022_labelled</span> <span class="op">&lt;-</span> <span class="va">lfs_2022</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span><span class="op">)</span></span></code></pre>
+<p>Sometimes for people familiar with the data the standard column names the PUMF data comes with are more convenient to work with than the long human-readable names, in this case you can use <code>label_pumf_data(rename_columns=FALSE)</code> to only label the column categories.</p>
+<p>Care should be taken with identifying codes for unavailable or unapplicable data in numeric columns, these aren’t provided in machine readable format for most PUMF data and have to be handled manually. Always refer to the PUMF data dictionaries.</p>
+</div>
+<div class="section level2">
+<h2 id="census-data">Census data<a class="anchor" aria-label="anchor" href="#census-data"></a>
+</h2>
+<p>The canpumf package can currently handle the Census individuals PUMF for the 1996 through 2021 censuses. These have to be ordered via EFT and places into the canpumf cache path, with a directory name equal to the original filename that data came with via EFT that contains the product identifier and census year so the package can find the data. It can then be accessed via:</p>
+<pre><code><span><span class="va">pumf_2021</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>,<span class="st">"2021"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span><span class="op">)</span></span></code></pre>
+</div>
+<div class="section level2">
+<h2 id="other-pumf">Other PUMF<a class="anchor" aria-label="anchor" href="#other-pumf"></a>
+</h2>
+<p>The package makes an attempt to parse other PUMF files.</p>
 <p>The code may need further refinements to work with all StatCan PUMF files. It has been successfully tried with the following PUMF files:</p>
 <ul>
 <li>CHS 2018</li>
@@ -117,7 +140,6 @@
 <li>VTS 2018</li>
 <li>TSRC 2017</li>
 <li>Covid Series 3</li>
-<li>LFS 2021-01 and later</li>
 <li>SFS 2019</li>
 </ul>
 </div>
