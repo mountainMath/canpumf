@@ -32,6 +32,9 @@
     <span class="caret"></span>
   </a>
   <ul class="dropdown-menu" role="menu"><li>
+      <a href="../articles/Census.html">Census</a>
+    </li>
+    <li>
       <a href="../articles/LFS.html">LFS</a>
     </li>
     <li>
@@ -67,7 +70,8 @@
 <span>  <span class="va">pumf_data</span>,</span>
 <span>  <span class="va">weight_column</span>,</span>
 <span>  bootstrap_weight_count <span class="op">=</span> <span class="fl">16</span>,</span>
-<span>  bootstrap_weight_prefix <span class="op">=</span> <span class="st">"WT"</span>,</span>
+<span>  bootstrap_weight_prefix <span class="op">=</span> <span class="st">"BSW"</span>,</span>
+<span>  algorithm <span class="op">=</span> <span class="st">"iterative"</span>,</span>
 <span>  seed <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -88,6 +92,10 @@
 
 <dt>bootstrap_weight_prefix</dt>
 <dd><p>Name prefix for the bootstrap weight columns</p></dd>
+
+
+<dt>algorithm</dt>
+<dd><p>Algorithm to calculate bootstrap weights, either of "iterative" or "experimental"</p></dd>
 
 
 <dt>seed</dt>

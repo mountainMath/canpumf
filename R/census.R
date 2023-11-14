@@ -24,7 +24,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
 
     format_data <- spss |>
       slice(seq(formats+1,blanks[blanks>formats][1]-1)) |>
-      pull(value) |>
+      pull(.data$value) |>
       paste0(collapse = " ") |>
       gsub(" *\\. *$","",x=_) |>
       gsub("/$","",x=_) |>
@@ -32,7 +32,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
       unlist() |>
       gsub("^ +| +$","",x=_) |>
       as_tibble() |>
-      mutate(p=strsplit(value," +")) |>
+      mutate(p=strsplit(.data$value," +")) |>
       mutate(name=lapply(.data$p,first) |> unlist(),
              value=lapply(.data$p,last) |> unlist()) |>
       select(.data$name,.data$value)
@@ -42,7 +42,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
       slice(seq(starts[1]+1,starts[2]-1)) |>
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
-      mutate(label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_) |> gsub("â€“","-",x=_)) |>
+      mutate(label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_) |> gsub("\u00E2\u20AC","-",x=_)) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name))
 
@@ -110,7 +110,7 @@ ensure_2016_pumfi_metadata <- function(pumf_base_path){
 
     format_data <- spss |>
       slice(seq(formats+1,blanks[blanks>formats][1]-1)) |>
-      pull(value) |>
+      pull(.data$value) |>
       paste0(collapse = " ") |>
       gsub(" *\\. *$","",x=_) |>
       gsub("/$","",x=_) |>
@@ -118,7 +118,7 @@ ensure_2016_pumfi_metadata <- function(pumf_base_path){
       unlist() |>
       gsub("^ +| +$","",x=_) |>
       as_tibble() |>
-      mutate(p=strsplit(value," +")) |>
+      mutate(p=strsplit(.data$value," +")) |>
       mutate(name=lapply(.data$p,first) |> unlist(),
              value=lapply(.data$p,last) |> unlist()) |>
       select(.data$name,.data$value)
@@ -131,7 +131,7 @@ ensure_2016_pumfi_metadata <- function(pumf_base_path){
       mutate(label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name)) |>
-      filter(name!="")
+      filter(.data$name!="")
 
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
 
@@ -164,7 +164,7 @@ ensure_2016_pumfi_metadata <- function(pumf_base_path){
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
           mutate(name=n)
       }) |>
-      filter(value!="/")
+      filter(.data$value!="/")
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
@@ -200,7 +200,7 @@ ensure_2011_pumfi_metadata <- function(pumf_base_path){
 
     format_data <- spss |>
       slice(seq(formats+1,blanks[blanks>formats][1]-1)) |>
-      pull(value) |>
+      pull(.data$value) |>
       paste0(collapse = " ") |>
       gsub(" *\\. *$","",x=_) |>
       gsub("/$","",x=_) |>
@@ -208,24 +208,12 @@ ensure_2011_pumfi_metadata <- function(pumf_base_path){
       unlist() |>
       gsub("^ +| +$","",x=_) |>
       as_tibble() |>
-      mutate(p=strsplit(value," +")) |>
+      mutate(p=strsplit(.data$value," +")) |>
       mutate(name=lapply(.data$p,first) |> unlist(),
              value=lapply(.data$p,last) |> unlist()) |>
       select(.data$name,.data$value)
 
-
-    # name_labels <- spss |>
-    #   slice(seq(starts[1]+1,ends[1]-1)) |>
-    #   mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
-    #   mutate(name=gsub(" .+$","",.data$value)) |>
-    #   mutate(label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
-    #   select(.data$name,.data$label) |>
-    #   filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name)) |>
-    #   filter(name!="")
-    #
-    # saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
-
-    var_labels_raw <- spss |>
+      var_labels_raw <- spss |>
       slice(seq(starts[1]+1,last(ends)-1)) |>
       mutate(value=gsub("^ +| *\\.$| *$","",.data$value))
 
@@ -254,14 +242,14 @@ ensure_2011_pumfi_metadata <- function(pumf_base_path){
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
           mutate(name=gsub("_$","",n))
       }) |>
-      filter(value!="/")
+      filter(.data$value!="/")
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
 
     name_labels <- val_labels |>
-      select(name) |>
+      select(.data$name) |>
       distinct() |>
-      mutate(label=name)
+      mutate(label=.data$name)
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
   }
 }
@@ -297,7 +285,7 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
 
     format_data <- spss |>
       slice(seq(formats+1,blanks[blanks>formats][1]-1)) |>
-      pull(value) |>
+      pull(.data$value) |>
       paste0(collapse = " ") |>
       gsub(" *\\. *$","",x=_) |>
       gsub("/$","",x=_) |>
@@ -305,7 +293,7 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
       unlist() |>
       gsub("^ +| +$","",x=_) |>
       as_tibble() |>
-      mutate(p=strsplit(value," +")) |>
+      mutate(p=strsplit(.data$value," +")) |>
       mutate(name=lapply(.data$p,first) |> unlist(),
              value=lapply(.data$p,last) |> unlist()) |>
       select(.data$name,.data$value)
@@ -313,20 +301,20 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
 
     name_labels <- spss |>
       slice(seq(starts[1]+1,ends[1]-1)) |>
-      mutate(value=gsub("\\t"," ",value)) |>
+      mutate(value=gsub("\\t"," ",.data$value)) |>
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
       mutate(label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name)) |>
-      filter(name!="")
+      filter(.data$name!="")
 
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
 
     var_labels_raw <- spss |>
       slice(seq(starts[1]+1,last(ends)-1)) |>
       mutate(value=gsub("^ +| *\\.$| *$","",.data$value)) |>
-      mutate(value=gsub("\\t"," ",value))
+      mutate(value=gsub("\\t"," ",.data$value))
 
     single_quotes <- which(grepl("'$|' *\\+ *$",var_labels_raw$value))
     var_labels_raw$value[single_quotes] <- gsub("'",'"',var_labels_raw$value[single_quotes])
@@ -353,7 +341,7 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
           mutate(name=gsub("_$","",n))
       }) |>
-      filter(value!="/")
+      filter(.data$value!="/")
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
@@ -372,7 +360,7 @@ ensure_2001_pumfi_metadata <- function(pumf_base_path){
                               locale = readr::locale(encoding = "CP1252")) |>
       as_tibble() |>
       mutate(value=gsub("^ +| *$","",.data$value)) |>
-      mutate(value=gsub("\\t"," ",value))
+      mutate(value=gsub("\\t"," ",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
     if (!file.exists(campumf_layout_path)) {
@@ -390,24 +378,24 @@ ensure_2001_pumfi_metadata <- function(pumf_base_path){
 
     name_labels <- spss |>
       slice(seq(starts[1]+1,ends[ends>starts[1]][1]-1)) |>
-      mutate(value=gsub("\\t"," ",value)) |>
+      mutate(value=gsub("\\t"," ",.data$value)) |>
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
       mutate(label=str_extract(.data$value," '.+' *") |> gsub("^ '|' *$","",x=_)) |>
-      mutate(label=coalesce(label,str_extract(.data$value,'".+"') |> gsub('"',"",x=_))) |>
+      mutate(label=coalesce(.data$label,str_extract(.data$value,'".+"') |> gsub('"',"",x=_))) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|WEIGHTP$|^WT\\d+$",.data$name)) |>
-      filter(name!="") |>
+      filter(.data$name!="") |>
       mutate(n=n(),.by=.data$label) |>
-      mutate(label=ifelse(n==1,label,paste0(label," (",name,")"))) |>
-      select(-n)
+      mutate(label=ifelse(.data$n==1,.data$label,paste0(.data$label," (",.data$name,")"))) |>
+      select(-.data$n)
 
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
 
     var_labels_raw <- spss |>
       slice(seq(starts[2]+1,ends[ends>starts[2]][1]-1)) |>
       mutate(value=gsub("^ +| *\\.$| *$","",.data$value)) |>
-      mutate(value=gsub("\\t"," ",value))
+      mutate(value=gsub("\\t"," ",.data$value))
 
     var_ends <- which(grepl("\\/$",var_labels_raw$value))
     var_starts <- c(1,var_ends+1)[1:length(var_ends)]
@@ -428,7 +416,7 @@ ensure_2001_pumfi_metadata <- function(pumf_base_path){
                  label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_)) |>
           mutate(name=gsub("_$","",n))
       }) |>
-      filter(value!="/")
+      filter(.data$value!="/")
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
@@ -446,7 +434,7 @@ ensure_1996_pumfi_metadata <- function(pumf_base_path){
                               locale = readr::locale(encoding = "CP1252")) |>
       as_tibble() |>
       mutate(value=gsub("^ +| *$","",.data$value)) |>
-      mutate(value=gsub("\\t"," ",value))
+      mutate(value=gsub("\\t"," ",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
     if (!file.exists(campumf_layout_path)) {
@@ -464,24 +452,24 @@ ensure_1996_pumfi_metadata <- function(pumf_base_path){
 
     name_labels <- spss |>
       slice(seq(starts[1]+1,ends[ends>starts[1]][1]-1)) |>
-      mutate(value=gsub("\\t"," ",value)) |>
+      mutate(value=gsub("\\t"," ",.data$value)) |>
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
       mutate(label=str_extract(.data$value," '.+' *") |> gsub("^ '|' *$","",x=_)) |>
-      mutate(label=coalesce(label,str_extract(.data$value,'".+"') |> gsub('"',"",x=_))) |>
+      mutate(label=coalesce(.data$label,str_extract(.data$value,'".+"') |> gsub('"',"",x=_))) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|WEIGHTP$|^WT\\d+$",.data$name)) |>
-      filter(name!="") |>
+      filter(.data$name!="") |>
       mutate(n=n(),.by=.data$label) |>
-      mutate(label=ifelse(n==1,label,paste0(label," (",name,")"))) |>
-      select(-n)
+      mutate(label=ifelse(.data$n==1,.data$label,paste0(.data$label," (",.data$name,")"))) |>
+      select(-.data$n)
 
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
 
     var_labels_raw <- spss |>
       slice(seq(starts[2]+1,ends[ends>starts[2]][1]-1)) |>
       mutate(value=gsub("^ +| *\\.$| *$","",.data$value)) |>
-      mutate(value=gsub("\\t"," ",value))
+      mutate(value=gsub("\\t"," ",.data$value))
 
     var_ends <- which(grepl("\\/$",var_labels_raw$value))
     var_starts <- c(1,var_ends+1)[1:length(var_ends)]
@@ -502,7 +490,7 @@ ensure_1996_pumfi_metadata <- function(pumf_base_path){
                  label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_)) |>
           mutate(name=gsub("_$","",n))
       }) |>
-      filter(value!="/")
+      filter(.data$value!="/")
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
@@ -539,7 +527,7 @@ get_census_dat_layout_alt <- function(spss) {
 
   rows <- spss %>%
     slice(seq(start_index+1,end_index)) %>%
-    mutate(value=gsub("^/|\\.$","",value))
+    mutate(value=gsub("^/|\\.$","",.data$value))
   layout <- rows %>%
     filter(.data$value!="") %>%
     mutate(name=stringr::str_extract(.data$value,"^[A-Za-z0-9_]+")) %>%

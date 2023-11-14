@@ -18,7 +18,7 @@ parse_pumf_metadata_csv <- function(pumf_base_path){
       mutate_at("name",toupper) %>%
       mutate(dup = .data$label %in% .data$label[duplicated(.data$label)]) %>%
       group_by(.data$label,.data$dup) %>%
-      mutate(label=iflse(.data$dup,paste0(.data$label," (",.data$name,")"),.data$label)) %>%
+      mutate(label=ifelse(.data$dup,paste0(.data$label," (",.data$name,")"),.data$label)) %>%
       ungroup() %>%
       select(-.data$dup)
   } else {

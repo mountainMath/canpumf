@@ -32,6 +32,9 @@
     <span class="caret"></span>
   </a>
   <ul class="dropdown-menu" role="menu"><li>
+      <a href="../articles/Census.html">Census</a>
+    </li>
+    <li>
       <a href="../articles/LFS.html">LFS</a>
     </li>
     <li>
@@ -66,7 +69,9 @@
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">label_pumf_data</span><span class="op">(</span></span>
 <span>  <span class="va">pumf_data</span>,</span>
 <span>  pumf_base_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"pumf_base_path"</span><span class="op">)</span>,</span>
-<span>  layout_mask <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"layout_mask"</span><span class="op">)</span></span>
+<span>  layout_mask <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">pumf_data</span>, <span class="st">"layout_mask"</span><span class="op">)</span>,</span>
+<span>  rename_columns <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  infer_missing_numeric <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -83,6 +88,14 @@
 <dt>layout_mask</dt>
 <dd><p>optional layout mask in case there are several layout files,
 guessed from attributes on <code>layout_mask</code></p></dd>
+
+
+<dt>rename_columns</dt>
+<dd><p>rename PUMF columns to human readable names, default is `TRUE`</p></dd>
+
+
+<dt>infer_missing_numeric</dt>
+<dd><p>optional character, infer variables that aren't labelled to be numeric</p></dd>
 
 </dl></div>
     <div id="value">

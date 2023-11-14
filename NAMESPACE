@@ -2,7 +2,6 @@
 
 export(add_bootstrap_weights)
 export(convert_pumf_numeric_columns)
-export(download_lfs_pumf)
 export(download_pumf)
 export(get_pumf)
 export(guess_numeric_pumf_columns)

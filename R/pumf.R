@@ -77,7 +77,7 @@ list_canpumf_collection <- function(){
   lfs_versions <- tibble(Acronym="LFS",url=rvest::html_attr(d,"href")) %>%
     dplyr::mutate(url=ifelse(substr(.data$url,1,4)=="http",url,paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/",.data$url))) %>%
     dplyr::mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist) %>%
-    dplyr::mutate(Version=coalesce(Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
+    dplyr::mutate(Version=coalesce(.data$Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
 
   sfs_versions <- tibble(Acronym="SFS",
                          Version=c("2019"),
@@ -352,13 +352,15 @@ read_pumf_data <- function(pumf_base_path,
 #' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
 #' @param pumf_cache_path A path to a permanent cache. If none is fould the data is stored in the temporary
 #' directory for the duration of the session.
+#' @param timeout Optional parameter to specify connection timeout for download
 #'
 #' @return A tibble with the pumf data.
 #' @export
 get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
-                     pumf_cache_path = getOption("canpumf.cache_path")){
+                     pumf_cache_path = getOption("canpumf.cache_path"),
+                     timeout=3000){
   pumf_data <- NULL
   if (is.null(pumf_cache_path)) {
     warning("No cache path specified, storing pumf data in temporary directory.")
@@ -473,14 +475,14 @@ add_bootstrap_weights <- function(pumf_data,
         dplyr::as_tibble() |>
         setNames(wt_batch)
       draw <- perm |>
-        pivot_longer(everything()) |>
-        count(name,value)
+        tidyr::pivot_longer(everything()) |>
+        count(.data$name,.data$value)
       bsw_counts <- draw |>
-        complete(name=wt_batch,value=rows,fill=list(n=0)) |>
-        pivot_wider(names_from=name,values_from = n) |>
-        arrange(value)
+        tidyr::complete(name=.data$wt_batch,value=.data$rows,fill=list(n=0)) |>
+        tidyr::pivot_wider(names_from=.data$name,values_from = .data$n) |>
+        arrange(.data$value)
       bsw <- bsw_counts |>
-        select(-value)
+        select(-.data$value)
     }) |>
       bind_cols()
 

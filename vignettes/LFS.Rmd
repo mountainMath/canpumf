@@ -10,7 +10,8 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  eval = nzchar(Sys.getenv("COMPILE_VIG_CANPUMF"))
 )
 ```
 
@@ -19,6 +20,7 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(canpumf)
+options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
 The LFS is one of the most-used PUMF series, since January 2021 the LFS PUMF is now easily available for direct download instead of needing to request it via EFT. This makes it very easy to integrate the LFS into reproducible workflows.
@@ -41,15 +43,15 @@ By default the data is stored in the temporary session path, optionally we can s
 To convert to human readable column lables and column names we use the `label_pumf_data` function.
 
 ```{r}
-lfs_2022 <- lfs_2022 %>% label_pumf_data() 
+lfs_2022 <- lfs_2022 |> label_pumf_data() 
 ```
 
-With this we can do some simple descriptive analysis. We could use the `add_bootstrap_weights` function to add boostrap wegihts if desired. We focus in on February 2022 and add 100 boodstrap weights.
+With this we can do some simple descriptive analysis. We could use the `add_bootstrap_weights` function to add bootstrap wegihts if desired. We focus in on February 2022 and add boodstrap weights. By default this only adds 16 weights, for more serious applications we would want to add more weights.
 
 ```{r}
 lfs_2022_02_data <- lfs_2022 |> 
   filter(`Survey month`=="February") |>
-  add_bootstrap_weights("Standard final weight",100,seed=42)
+  add_bootstrap_weights("Standard final weight",seed=42)
 ```
 
 For this vignette we look at gender-specific labour fource status statistics for the 20 to 64 year old population, computing age-adjusted rates to even out age-specific effects.

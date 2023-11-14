@@ -22,7 +22,8 @@ Imports:
     digest,
     tibble,
     tidyr,
-    rvest
+    rvest,
+    purrr
 Suggests: 
     rmarkdown,
     knitr,

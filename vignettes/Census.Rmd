@@ -10,12 +10,16 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  eval = nzchar(Sys.getenv("COMPILE_VIG_CANPUMF"))
 )
 ```
 
 ```{r setup}
 library(canpumf)
+library(dplyr)
+library(ggplot2)
+options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
 For Census data the package currently supports the 2021, 2016, and 2011NHS individuals pumf. These can be ordered from Statisticas Canada via EFT and should be stored in the cache path pointed to in the `canpumf.cache_path` option for the package to find the data.
@@ -23,8 +27,12 @@ For Census data the package currently supports the 2021, 2016, and 2011NHS indiv
 ```{r}
 census_2021 <- get_pumf("Census",pumf_version="2021") |>
   label_pumf_data(rename_columns = FALSE)
+```
 
 
+As a simple applicartion we look at household maintainer rates by age group for select metro areas, using standard weights.
+
+```{r}
 census_2021 |>
   filter(CMA %in% c("Vancouver","Toronto","Montréal","Québec")) |>
   filter(PRIHM!="Not applicable") |>
