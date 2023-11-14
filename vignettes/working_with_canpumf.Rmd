@@ -24,12 +24,7 @@ library(canpumf)
 The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from [work done by Nathan Lauster and Jens von Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/).
 
 ```{r}
-chs_base_path <- list_canpumf_collection() %>% 
-  filter(Acronym=="CHS") %>%
-  pull(url) %>%
-  download_pumf(destination_dir=file.path(tempdir(),"pumf","CHS"))
-  
-chs_pumf <- read_pumf_data(chs_base_path,guess_numeric = FALSE) %>%
+chs_pumf <- get_pumf("CHS","2018") %>%
   convert_pumf_numeric_columns(numeric_columns = "PFWEIGHT") %>%
   label_pumf_data() 
 ```
@@ -41,6 +36,7 @@ We take a simple look at the share of current renters that were forced to move o
 
 ```{r}
 renter_chs_pumf <- chs_pumf %>% 
+  mutate(`Previous accommodations - when move to current dwelling occurred`=as.character(`Previous accommodations - when move to current dwelling occurred`)) %>%
   filter((Tenure == "No" & 
             grepl("10",`Previous accommodations - when move to current dwelling occurred`)) | 
            (!grepl("10",`Previous accommodations - when move to current dwelling occurred`) &
@@ -80,8 +76,8 @@ plot_data <- renter_chs_pumf %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - forced to move`) %>%
-  summarise(across(matches("WT\\d+|Household weight"),sum),.groups="drop") %>%
-  pivot_longer(matches("WT\\d+|Household weight"),names_to="weights") %>%
+  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") %>%
+  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") %>%
   group_by(weights) %>%
   mutate(share=value/sum(value)) %>%
   filter(`Previous accommodations - forced to move`=="Yes",
@@ -109,8 +105,8 @@ plot_data <- renter_chs_pumf %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,
            `Previous accommodations - forced to move`) %>%
-  summarise(across(matches("WT\\d+|Household weight"),sum),.groups="drop") %>%
-  pivot_longer(matches("WT\\d+|Household weight"),names_to="weights") %>%
+  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") %>%
+  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") %>%
   group_by(`Previous accommodations - location of previous dwelling`,
            weights) %>%
   mutate(share=value/sum(value)) %>%
@@ -143,8 +139,8 @@ plot_data <- renter_chs_pumf %>%
            `Previous accommodations - location of previous dwelling`,
            `Geographic grouping`,
            `Previous accommodations - forced to move`) %>%
-  summarise(across(matches("WT\\d+|Household weight"),sum),.groups="drop") %>%
-  pivot_longer(matches("WT\\d+|Household weight"),names_to="weights") %>%
+  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") %>%
+  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") %>%
   group_by(`Previous accommodations - location of previous dwelling`,
            `Geographic grouping`,
            weights) %>%
