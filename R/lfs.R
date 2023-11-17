@@ -56,16 +56,6 @@ ensure_lfs_metadata <- function(lfs_path){
   saveRDS(name_labels |> select(.data$name,.data$label),file.path(canpumf_dir,"var.rds"))
 }
 
-#' Download PUMF LFS data
-#'
-#' @param version A version of the pumf data of fornat <Year>-<Month>, e.g. "2021-01"
-#' @param pumf_cache_path Optional path where to store the extracted PUMF data, default is `getOption("canpumf.cache_path")`
-#' @param timeout Optional parameter to specify connection timeout for download
-#' @return pumf_base_dir that can be used in the other package functions
-download_lfs_pumf <- function(version="2021",pumf_cache_path = getOption("canpumf.cache_path"),timeout=3000){
-
-}
-
 
 
 get_lfs_pumf <- function(pumf_version,pumf_cache_path, timeout=3000){

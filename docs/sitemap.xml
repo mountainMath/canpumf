@@ -34,9 +34,6 @@
     <loc>/reference/convert_pumf_numeric_columns.html</loc>
   </url>
   <url>
-    <loc>/reference/download_lfs_pumf.html</loc>
-  </url>
-  <url>
     <loc>/reference/download_pumf.html</loc>
   </url>
   <url>
@@ -59,9 +56,6 @@
   </url>
   <url>
     <loc>/reference/list_canpumf_collection.html</loc>
-  </url>
-  <url>
-    <loc>/reference/list_pumf_collection.html</loc>
   </url>
   <url>
     <loc>/reference/parse_pumf_data_cards.html</loc>

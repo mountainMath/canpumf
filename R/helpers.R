@@ -117,4 +117,4 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
 NULL
 
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
-if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
+if(getRversion() >= "4.1")  utils::globalVariables(c("."))

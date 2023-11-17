@@ -14,3 +14,4 @@ parse_pumf_metadata_cards(pumf_base_path, layout_mask = NULL)
 \description{
 Parse PUMF medatadata
 }
+\keyword{internal}

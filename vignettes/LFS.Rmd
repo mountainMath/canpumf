@@ -28,7 +28,8 @@ The LFS is one of the most-used PUMF series, since January 2021 the LFS PUMF is 
 The `canpumf` package has two functions to facilitate access to the LFS PUMF. The first lists all LFS pumf versions that are available for direct download.
 
 ```{r}
-list_available_lfs_pumf_versions()
+list_canpumf_collection() |> 
+  filter(Acronym=="LFS")
 ```
 
 The second one fetches and loads the LFS data. For example, to download the LFS pumf for 2022 we use

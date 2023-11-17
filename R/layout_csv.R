@@ -3,7 +3,7 @@
 #' @param pumf_base_path path for pumf data
 #'
 #' @return NULL
-#' @export
+#' @keywords internal
 parse_pumf_metadata_csv <- function(pumf_base_path){
   vars <- dir(pumf_base_path,pattern="variables\\.csv")
   if (length(vars)==1) {
@@ -56,7 +56,7 @@ parse_pumf_metadata_csv <- function(pumf_base_path){
 #' @param pumf_path path for ourput pumf data
 #'
 #' @return tibble with variable labels
-#' @export
+#' @keywords internal
 parse_pumf_data_csv <- function(data_base_path,pumf_path){
   data_path <- dir(data_base_path,pattern="\\.csv")
   data_path <- file.path(data_base_path,data_path[data_path!=vars])

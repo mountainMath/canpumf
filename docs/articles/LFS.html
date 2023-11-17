@@ -113,20 +113,21 @@ reproducible workflows.</p>
 access to the LFS PUMF. The first lists all LFS pumf versions that are
 available for direct download.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/list_available_lfs_pumf_versions.html">list_available_lfs_pumf_versions</a></span><span class="op">(</span><span class="op">)</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 27 × 3</span></span></span>
-<span><span class="co">#&gt;    Date           version url                                                   </span></span>
-<span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>          <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                                                 </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> October 2023   2023-10 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> September 2023 2023-09 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> August 2023    2023-08 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> July 2023      2023-07 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> June 2023      2023-06 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> May 2023       2023-05 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> April 2023     2023-04 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> March 2023     2023-03 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> February 2023  2023-02 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> January 2023   2023-01 https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/…</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/list_canpumf_collection.html">list_canpumf_collection</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">Acronym</span><span class="op">==</span><span class="st">"LFS"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 27 × 6</span></span></span>
+<span><span class="co">#&gt;    Title               Acronym Version `Survey Number` url                 title</span></span>
+<span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>           <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> Labour Force Survey LFS     2023-10 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> Labour Force Survey LFS     2023-09 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> Labour Force Survey LFS     2023-08 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> Labour Force Survey LFS     2023-07 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> Labour Force Survey LFS     2023-06 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> Labour Force Survey LFS     2023-05 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> Labour Force Survey LFS     2023-04 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> Labour Force Survey LFS     2023-03 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> Labour Force Survey LFS     2023-02 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> Labour Force Survey LFS     2023-01 3701            https://www150.sta… <span style="color: #BB0000;">NA</span>   </span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># ℹ 17 more rows</span></span></span></code></pre></div>
 <p>The second one fetches and loads the LFS data. For example, to
 download the LFS pumf for 2022 we use</p>

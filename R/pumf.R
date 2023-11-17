@@ -1,27 +1,7 @@
-#' List StatCan PUMF collection
-#'
-#' @description While all of these PUMF files are in principle available,
-#' not all are available through this package, mostly because there is no public download link.
-#'
-#' @return a tibble with a list of the StatCan PUMF collection
-#' @export
 list_pumf_collection <- function(){
   tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
     stats::na.omit()
 }
-
-list_pumf_collection_old <- function(){
-  url <- "https://www150.statcan.gc.ca/n1/pub/11-625-x/11-625-x2010000-eng.htm"
-  d<-rvest::read_html(url) %>%
-    rvest::html_table() %>%
-    lapply(function(e){
-      if (length(names(e))!=3 || length(setdiff(names(e),c("Title","Acronym", "Survey Number")))>0) e<-NULL
-      e
-    }) %>%
-    dplyr::bind_rows()
-}
-
-
 
 
 #' List StatCan PUMF collection with canpumf wrappers
@@ -90,9 +70,12 @@ list_canpumf_collection <- function(){
     bind_rows(chs,cpss,shs)
   } else {
     result <- bind_rows(chs,cpss,shs,ccahs) |>
-      bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Surevey Number`="3701"),
-                its_versions |> mutate(Title="International Travel Survey",`Surevey Number`='3152'),
-                sfs_versions |> mutate(Title="Survey of Financial Securities",`Surevey Number`='2620'))
+      bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
+                its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
+                sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
+                tibble(title="Census of population",Acronym="Census",`Survey Number`="3901",
+                       Version=paste0(seq(1996,2021,5)," (individuals)"),
+                       url="(EFT)"))
   }
   result
 }
@@ -279,7 +262,7 @@ convert_pumf_numeric_columns <- function(pumf_data,
 #' to \code{NA} if set to \code{TRUE} (default)
 #'
 #' @return data frame with one row for each case in the PUMF data
-#' @export
+#' @keywords internal
 read_pumf_data <- function(pumf_base_path,
                           layout_mask=NULL,
                           file_mask=layout_mask,
@@ -414,7 +397,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
 #' @param destination_dir Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`
 #' @param timeout Optional parameter to specify connection timout for download
 #' @return pumf_base_dir that can be used in the other package functions
-#' @export
+#' @keywords internal
 download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
   if (!dir.exists(destination_dir)||length(dir(destination_dir))==0) {
     if (!dir.exists(dirname(destination_dir))) dir.create(dirname(destination_dir))

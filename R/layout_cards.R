@@ -3,7 +3,7 @@
 #' @param pumf_base_path path for pumf data
 #' @param layout_mask optional parameter to identify layour files if there are many
 #' @return NULL
-#' @export
+#' @keywords internal
 parse_pumf_metadata_cards <- function(pumf_base_path,layout_mask=NULL){
   cpld <- pumf_clean_layout_dir(pumf_base_path,layout_mask)
   cards_base_path <- dir(pumf_base_path,pattern="Reading cards",full.names = TRUE)
@@ -101,7 +101,7 @@ parse_pumf_metadata_cards <- function(pumf_base_path,layout_mask=NULL){
 #' @param layout_mask layout mask
 #'
 #' @return tibble with variable labels
-#' @export
+#' @keywords internal
 parse_pumf_data_cards <- function(pumf_base_path,layout_mask=NULL){
   cpld <- pumf_clean_layout_dir(pumf_base_path,layout_mask)
   if (!dir.exists(cpld) || length(dir(cpld))<4) {

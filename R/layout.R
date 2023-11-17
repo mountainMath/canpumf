@@ -19,7 +19,11 @@ ensure_layout_data_parsed <- function(pumf_base_path,layout_mask=NULL){
 #' @return tibble with variable labels
 #' @export
 read_pumf_var_labels <- function(pumf_base_path,layout_mask=NULL){
-  ensure_layout_data_parsed(pumf_base_path,layout_mask)
+  if (is.data.frame(pumf_base_path)) {
+    pumf_base_path <- attr(pumf_base_path,"pumf_base_path")
+    if (is.null(layout_mask)) layout_mask <- attr(pumf_base_path,"layout_mask")
+  }
+  #ensure_layout_data_parsed(pumf_base_path,layout_mask)
   path <- file.path(pumf_clean_layout_dir(pumf_base_path,layout_mask),"var.Rds")
   readRDS(path)
 }
@@ -32,7 +36,11 @@ read_pumf_var_labels <- function(pumf_base_path,layout_mask=NULL){
 #' @return tibble with missing data information
 #' @export
 read_pumf_miss_labels <- function(pumf_base_path,layout_mask=NULL){
-  ensure_layout_data_parsed(pumf_base_path,layout_mask)
+  if (is.data.frame(pumf_base_path)) {
+    pumf_base_path <- attr(pumf_base_path,"pumf_base_path")
+    if (is.null(layout_mask)) layout_mask <- attr(pumf_base_path,"layout_mask")
+  }
+  #ensure_layout_data_parsed(pumf_base_path,layout_mask)
   path <- file.path(pumf_clean_layout_dir(pumf_base_path,layout_mask),"miss.Rds")
   readRDS(path)
 }
@@ -46,7 +54,11 @@ read_pumf_miss_labels <- function(pumf_base_path,layout_mask=NULL){
 #' @return tibble with value labels
 #' @export
 read_pumf_val_labels <- function(pumf_base_path,layout_mask=NULL){
-  ensure_layout_data_parsed(pumf_base_path,layout_mask)
+  if (is.data.frame(pumf_base_path)) {
+    pumf_base_path <- attr(pumf_base_path,"pumf_base_path")
+    if (is.null(layout_mask)) layout_mask <- attr(pumf_base_path,"layout_mask")
+  }
+  #ensure_layout_data_parsed(pumf_base_path,layout_mask)
   path <- file.path(pumf_clean_layout_dir(pumf_base_path,layout_mask),"val.Rds")
   read_rds(path)
 }

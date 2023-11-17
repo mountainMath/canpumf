@@ -42,7 +42,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
       slice(seq(starts[1]+1,starts[2]-1)) |>
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
-      mutate(label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_) |> gsub("\u00E2\u20AC","-",x=_)) |>
+      mutate(label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_) |> gsub("\u00E2\u20AC\u201C","-",x=_)) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name))
 
@@ -67,14 +67,23 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
         } else {
           e=var_starts[r+1]-1
         }
-        var_labels_raw |>
+        vv<-var_labels_raw |>
           slice(s:e) |>
           mutate(val=gsub(' *".+',"",.data$value),
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
           mutate(name=n) |>
           select(.data$name,.data$val,.data$label)
-
-      })
+        if (n=="LFACT" && !("1" %in% vv$val)) { # fix missing level in some version of the SPSS command files
+          vv <- rbind(vv,tibble(name=n,val="1",label="Employed - Worked in reference week")) |>
+            arrange(as.integer(.data$val))
+        }
+        if (n=="CMA") { # fix extra spaces and inconsistent dashes in SPSS command files
+          vv <- vv |> mutate(label=gsub(" +"," ",.data$label) |>
+                               gsub(" - "," \u2013 ",x=_))
+        }
+        vv
+      }) |>
+      mutate(label=gsub(" +$","",.data$label))
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }

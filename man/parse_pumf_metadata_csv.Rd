@@ -12,3 +12,4 @@ parse_pumf_metadata_csv(pumf_base_path)
 \description{
 Parse PUMF medatadata
 }
+\keyword{internal}

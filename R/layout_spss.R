@@ -3,7 +3,7 @@
 #' @param pumf_base_path path for pumf data
 #' @param layout_mask optional parameter to identify layour files if there are many
 #' @return NULL
-#' @export
+#' @keywords internal
 parse_pumf_metadata_spss <- function(pumf_base_path,layout_mask=NULL){
   cpld <- pumf_clean_layout_dir(pumf_base_path,layout_mask)
   var_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"vare\\.sps",layout_mask)
