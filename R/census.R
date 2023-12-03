@@ -691,6 +691,20 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- pumf_base_path
       pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
+      pumf_data_file <- pumf_data_file[!grepl("testind",pumf_data_file)]
+      if (length(pumf_data_file)!=1) {
+        zip_file <- dir(individuals_path,"\\.zip",full.names = TRUE)
+        if (length(zip_file)==1) {
+            utils::unzip(zip_file,exdir = individuals_path)
+        }
+      }
+
+      pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
+      pumf_data_file <- pumf_data_file[!grepl("testind",pumf_data_file)]
+
+      if (length(pumf_data_file)!=1) {
+        stop("1996 PUMF data is not avaialble")
+      }
 
       ensure_1996_pumfi_metadata(pumf_base_path)
 
