@@ -335,6 +335,7 @@ read_pumf_data <- function(pumf_base_path,
 #' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
 #' @param pumf_cache_path A path to a permanent cache. If none is fould the data is stored in the temporary
 #' directory for the duration of the session.
+#' @param refresh_layout (optional) regenerate the layout and metadata
 #' @param timeout Optional parameter to specify connection timeout for download
 #'
 #' @return A tibble with the pumf data.
@@ -343,6 +344,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
                      pumf_cache_path = getOption("canpumf.cache_path"),
+                     refresh_layout=FALSE,
                      timeout=3000){
   pumf_data <- NULL
   if (is.null(pumf_cache_path)) {
@@ -353,7 +355,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
   if (!dir.exists(pumf_cache_path)) stop("Invalid cache path: ",pumf_cache_path)
 
   if (pumf_series=="Census") {
-    pumf_data <- get_census_pumf(pumf_version,pumf_cache_path)
+    pumf_data <- get_census_pumf(pumf_version,pumf_cache_path,refresh_layout=refresh_layout)
   } else if (pumf_series=="LFS") {
     pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path)
   }

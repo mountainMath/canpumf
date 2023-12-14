@@ -1,7 +1,7 @@
-ensure_2021_pumfi_metadata <- function(pumf_base_path){
+ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
-  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
@@ -90,10 +90,10 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path){
 }
 
 
-ensure_2016_pumfi_metadata <- function(pumf_base_path){
+ensure_2016_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
-  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
@@ -104,12 +104,11 @@ ensure_2016_pumfi_metadata <- function(pumf_base_path){
       mutate(value=gsub("^ +| *$","",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
-    if (!file.exists(campumf_layout_path)) {
+    if (!file.exists(campumf_layout_path)|refresh_layout) {
       layout <- get_census_dat_layout(spss)
 
       saveRDS(layout,campumf_layout_path)
     }
-
 
 
     formats <- which(grepl("FORMATS$",spss$value))
@@ -179,12 +178,14 @@ ensure_2016_pumfi_metadata <- function(pumf_base_path){
   }
 }
 
-ensure_2011_pumfi_metadata <- function(pumf_base_path){
+
+ensure_2011_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
-  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"Individual file",full.names = TRUE)
+    if (length(layout_path)==0) layout_path <- pumf_base_path
     layout_path <- dir(layout_path,"English",full.names = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
 
@@ -194,12 +195,11 @@ ensure_2011_pumfi_metadata <- function(pumf_base_path){
       mutate(value=gsub("^ +| *$","",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
-    if (!file.exists(campumf_layout_path)) {
+    if (!file.exists(campumf_layout_path)|refresh_layout) {
       layout <- get_census_dat_layout(spss)
 
       saveRDS(layout,campumf_layout_path)
     }
-
 
 
     formats <- which(grepl("FORMATS$",spss$value))
@@ -222,7 +222,7 @@ ensure_2011_pumfi_metadata <- function(pumf_base_path){
              value=lapply(.data$p,last) |> unlist()) |>
       select(.data$name,.data$value)
 
-      var_labels_raw <- spss |>
+    var_labels_raw <- spss |>
       slice(seq(starts[1]+1,last(ends)-1)) |>
       mutate(value=gsub("^ +| *\\.$| *$","",.data$value))
 
@@ -265,10 +265,10 @@ ensure_2011_pumfi_metadata <- function(pumf_base_path){
 
 
 
-ensure_2006_pumfi_metadata <- function(pumf_base_path){
+ensure_2006_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
-  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
@@ -279,7 +279,7 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
       mutate(value=gsub("^ +| *$","",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
-    if (!file.exists(campumf_layout_path)) {
+    if (!file.exists(campumf_layout_path)|refresh_layout) {
       layout <- get_census_dat_layout(spss)
 
       saveRDS(layout,campumf_layout_path)
@@ -290,7 +290,11 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
     formats <- which(grepl("FORMATS$",spss$value))
     blanks <- which(""==spss$value)
     starts <- which(grepl("LABELS$",spss$value))
-    ends <- which(grepl("^ *\\.$",spss$value))
+    # ends <- which(grepl("^ *\\.$",spss$value))
+    ends_raw <- which(grepl("\\.$",spss$value))
+    ends=c(0,0)
+    ends[1]=ends_raw[ends_raw>starts[1]][1]
+    ends[2]=ends_raw[ends_raw>starts[2]][1]
 
     format_data <- spss |>
       slice(seq(formats+1,blanks[blanks>formats][1]-1)) |>
@@ -309,26 +313,38 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
 
 
     name_labels <- spss |>
-      slice(seq(starts[1]+1,ends[1]-1)) |>
-      mutate(value=gsub("\\t"," ",.data$value)) |>
-      mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
-      mutate(name=gsub(" .+$","",.data$value)) |>
-      mutate(label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
+      slice(seq(starts[1]+1,ends[1]-1))
+
+    if (sum(grepl("\\t",name_labels$value))==0) {
+      name_labels <- name_labels |>
+        mutate(name=strsplit(.data$value," ") |> lapply(first) |> unlist()) |>
+        mutate(label=strsplit(.data$value," ") |> lapply(\(x)paste0(x[2:length(x)],collapse = " ")) |> unlist())
+    } else {
+      name_labels <- name_labels |>
+        mutate(name=strsplit(value,"\\t") |> lapply(first) |> unlist(),
+               label=strsplit(value,"\\t") |> lapply(last) |> unlist())
+    }
+
+    name_labels <- name_labels |>
+      mutate(label=gsub("^'|'$","",.data$label)) |>
+      mutate(label=gsub('^"|"$',"",.data$label)) |>
       select(.data$name,.data$label) |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name)) |>
       filter(.data$name!="")
 
+
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
 
     var_labels_raw <- spss |>
-      slice(seq(starts[1]+1,last(ends)-1)) |>
-      mutate(value=gsub("^ +| *\\.$| *$","",.data$value)) |>
-      mutate(value=gsub("\\t"," ",.data$value))
+      slice(seq(starts[2]+1,last(ends)-1)) |>
+      filter(.data$value!="/") |>
+      mutate(value=gsub(" */$","",.data$value))
+    var_starts <- which(!grepl("\\t",var_labels_raw$value))
 
-    single_quotes <- which(grepl("'$|' *\\+ *$",var_labels_raw$value))
-    var_labels_raw$value[single_quotes] <- gsub("'",'"',var_labels_raw$value[single_quotes])
+    if (length(var_starts)==nrow(var_labels_raw)) {
+      var_starts <- which(strsplit(var_labels_raw$value," ") |> lapply(length) |> unlist()==1)
+    }
 
-    var_starts <- which(grepl("^\\/",var_labels_raw$value))
 
     val_labels <- 1:length(var_starts) |>
       purrr::map_df(\(r){
@@ -345,10 +361,21 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
           e=var_starts[r+1]-1
         }
         vr <- var_labels_raw |>
-          slice(s:e) |>
-          mutate(val=gsub(' *".+',"",.data$value),
-                 label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
+          slice(s:e)
+        if (sum(grepl("\\t",vr$value))==0) {
+          vr <- vr |>
+            mutate(val=strsplit(.data$value," ") |> lapply(first) |> unlist()) |>
+            mutate(label=strsplit(.data$value," ") |> lapply(\(x)paste0(x[2:length(x)],collapse = " ")) |> unlist())
+        } else {
+          vr <- vr |>
+            mutate(val=strsplit(.data$value,"\t") |> lapply(first) |> unlist(),
+                   label=strsplit(.data$value,"\t") |> lapply(last) |> unlist())
+        }
+        vr <- vr |>
+          mutate(label=gsub("^'|'$","",label)) |>
+          mutate(label=gsub('^"|"$',"",label)) |>
           mutate(name=gsub("_$","",n))
+        vr
       }) |>
       filter(.data$value!="/")
 
@@ -357,10 +384,10 @@ ensure_2006_pumfi_metadata <- function(pumf_base_path){
 }
 
 
-ensure_2001_pumfi_metadata <- function(pumf_base_path){
+ensure_2001_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
-  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE,ignore.case = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
@@ -372,7 +399,7 @@ ensure_2001_pumfi_metadata <- function(pumf_base_path){
       mutate(value=gsub("\\t"," ",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
-    if (!file.exists(campumf_layout_path)) {
+    if (!file.exists(campumf_layout_path)|refresh_layout) {
       layout <- get_census_dat_layout_alt(spss)
 
       saveRDS(layout,campumf_layout_path)
@@ -431,10 +458,10 @@ ensure_2001_pumfi_metadata <- function(pumf_base_path){
   }
 }
 
-ensure_1996_pumfi_metadata <- function(pumf_base_path){
+ensure_1996_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   canpumf_dir <- file.path(pumf_base_path,"canpumf")
 
-  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2) {
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE,ignore.case = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE,ignore.case = TRUE)
@@ -446,7 +473,7 @@ ensure_1996_pumfi_metadata <- function(pumf_base_path){
       mutate(value=gsub("\\t"," ",.data$value))
 
     campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
-    if (!file.exists(campumf_layout_path)) {
+    if (!file.exists(campumf_layout_path)|refresh_layout) {
       layout <- get_census_dat_layout_alt(spss)
 
       saveRDS(layout,campumf_layout_path)
@@ -487,14 +514,24 @@ ensure_1996_pumfi_metadata <- function(pumf_base_path){
       purrr::map_df(\(r){
         s=var_starts[r]
         e=var_ends[r]
-        n<-var_labels_raw$value[s] |> gsub("\\/$","",x=_)
+        vr <- var_labels_raw |>
+          slice(s:e)
+        s=1
+        e=nrow(vr)
+        n<-vr$value[s] |> gsub("\\/$","",x=_)
         if (n=="") {
           s=s+1
-          n<-var_labels_raw$value[s] |> gsub("^\\/","",x=_)
+          n<-vr$value[s] |> gsub("^\\/","",x=_)
+        }
+        if (length(unlist(str_split(n," ")))>1) {
+          nn <- n
+          n <- str_split(nn," +") |> unlist() |> first()
+          x<-str_split(vr$value[1]," +") |> unlist()
+          vr$value[s] <- paste0(x[2:length(x)],collapse = " ")
+          s=s-1
         }
         s=s+1
-        vr <- var_labels_raw |>
-          slice(s:e) |>
+        vr <- vr |>
           mutate(val=gsub(" *'.+","",.data$value),
                  label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_)) |>
           mutate(name=gsub("_$","",n))
@@ -550,7 +587,7 @@ get_census_dat_layout_alt <- function(spss) {
 
 
 
-get_census_pumf <- function(pumf_version,pumf_cache_path){
+get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
   cached_pumf <- dir(pumf_cache_path)
   if (pumf_version=="2021 (individuals)"|pumf_version=="2021") {
     path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2021",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
@@ -569,18 +606,22 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
 
       attr(pumf_data,"pumf_base_path") <- pumf_base_path
 
-      ensure_2021_pumfi_metadata(pumf_base_path)
+      ensure_2021_pumfi_metadata(pumf_base_path,refresh_layout=refresh_layout)
 
     } else {
       stop("2021 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="2016 (individuals)"|pumf_version=="2016"){
-    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2016 (individuals)"|pumf_version=="2016 (hierarchical)"|pumf_version=="2016"){
+    if (pumf_version=="2016 (hierarchical)") {
+      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       pumf_data_file <- dir(pumf_base_path,"\\.dat",full.names = TRUE)
 
-      ensure_2016_pumfi_metadata(pumf_base_path)
+      ensure_2016_pumf_metadata(pumf_base_path,refresh_layout=refresh_layout)
 
       canpumf_dir <- file.path(pumf_base_path,"canpumf")
       layout_path <- file.path(canpumf_dir,"layout.Rds")
@@ -602,14 +643,21 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
     } else {
       stop("2016 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="2011 (individuals)"|pumf_version=="2011"){
-    path <- cached_pumf[grepl("99M0001X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2011 (individuals)"|pumf_version=="2011 (hierarchical)"|pumf_version=="2011"){
+    if (pumf_version=="2011 (hierarchical)") {
+      path <- cached_pumf[grepl("99M0002X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("99M0001X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- dir(pumf_base_path,"Individual",full.names = TRUE)
       pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
+      if (length(pumf_data_file)==0) {
+        pumf_data_file <- dir(pumf_base_path,"\\.dat",full.names = TRUE)
+      }
 
-      ensure_2011_pumfi_metadata(pumf_base_path)
+      ensure_2011_pumf_metadata(pumf_base_path,refresh_layout=refresh_layout)
 
       canpumf_dir <- file.path(pumf_base_path,"canpumf")
       layout_path <- file.path(canpumf_dir,"layout.Rds")
@@ -631,14 +679,18 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
       stop("2011 PUMF data is not avaialble")
     }
 
-  } else if (pumf_version=="2006 (individuals)"|pumf_version=="2006"){
-    path <- cached_pumf[grepl("95M0028X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2006 (individuals)"|pumf_version=="2006 (hierarchical)"|pumf_version=="2006"){
+    if (pumf_version=="2006 (hierarchical)") {
+      path <- cached_pumf[grepl("95M0029X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("95M0028X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- pumf_base_path
       pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
 
-      ensure_2006_pumfi_metadata(pumf_base_path)
+      ensure_2006_pumf_metadata(pumf_base_path,refresh_layout=refresh_layout)
 
       canpumf_dir <- file.path(pumf_base_path,"canpumf")
       layout_path <- file.path(canpumf_dir,"layout.Rds")
@@ -658,14 +710,20 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
     } else {
       stop("2001 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="2001 (individuals)"|pumf_version=="2001"){
-    path <- cached_pumf[grepl("95M0016X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2001 (individuals)"|pumf_version=="2001 (households)"|pumf_version=="2001 (families)"|pumf_version=="2001"){
+    if (pumf_version=="2001 (households)") {
+      path <- cached_pumf[grepl("95M0020X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else if (pumf_version=="2001 (families)") {
+      path <- cached_pumf[grepl("95M0018X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("95M0016X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- pumf_base_path
       pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
 
-      ensure_2001_pumfi_metadata(pumf_base_path)
+      ensure_2001_pumf_metadata(pumf_base_path,refresh_layout=refresh_layout)
 
       canpumf_dir <- file.path(pumf_base_path,"canpumf")
       layout_path <- file.path(canpumf_dir,"layout.Rds")
@@ -685,8 +743,14 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
     } else {
       stop("1996 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="1996 (individuals)"|pumf_version=="1996"){
-    path <- cached_pumf[grepl("95M0010X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="1996 (individuals)"|pumf_version=="1996 (families)"|pumf_version=="1996 (households)"|pumf_version=="1996"){
+    if (pumf_version=="1996 (households)") {
+      path <- cached_pumf[grepl("95M0011X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else if (pumf_version=="1996 (families)") {
+      path <- cached_pumf[grepl("95M0012X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("95M0010X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- pumf_base_path
@@ -706,7 +770,7 @@ get_census_pumf <- function(pumf_version,pumf_cache_path){
         stop("1996 PUMF data is not avaialble")
       }
 
-      ensure_1996_pumfi_metadata(pumf_base_path)
+      ensure_1996_pumf_metadata(pumf_base_path,refresh_layout=refresh_layout)
 
       canpumf_dir <- file.path(pumf_base_path,"canpumf")
       layout_path <- file.path(canpumf_dir,"layout.Rds")

@@ -52,6 +52,14 @@ pumf_2021 <- get_pumf("Census","2021") |>
   label_pumf_data()
 ```
 
+By default the package will load the *individuals* file, 
+the *hierarchical* is availabel for the 2006, 2011, 2016 censuses, the *families* or *households* versions are available for the 1996, and 2001 censues.
+
+```
+pumf_h_2016 <- get_pumf("Census","2016 (hierarchical)") |>
+  label_pumf_data()
+```
+
 ## Other PUMF
 The package makes an attempt to parse other PUMF files.
 

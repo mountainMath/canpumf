@@ -63,8 +63,12 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
         url <- dir(path,full.names=TRUE,"\\.pdf",ignore.case=TRUE)
       }
     }
-  } else if (pumf_version=="2016 (individuals)"|pumf_version=="2016"){
-    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2016 (individuals)"|pumf_version=="2016 (hierarchical)"|pumf_version=="2016"){
+    if (pumf_version=="2016 (hierarchical)") {
+      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       path <- dir(path,full.names=TRUE,"english",ignore.case=TRUE)
       path <- dir(path,full.names=TRUE,"Documentation$",ignore.case=TRUE)
