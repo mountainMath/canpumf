@@ -17,15 +17,27 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
                       pumf_cache_path = getOption("canpumf.cache_path")){
   cached_pumf <- dir(pumf_cache_path,full.names=TRUE)
   url <- NULL
-  if (pumf_version=="1996 (individuals)"|pumf_version=="1996") {
-    path <- cached_pumf[grepl("95M0010X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  if (pumf_version=="1996 (individuals)"|pumf_version=="1996 (families)"|pumf_version=="1996 (households)"|pumf_version=="1996"){
+    if (pumf_version=="1996 (households)") {
+      path <- cached_pumf[grepl("95M0011X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else if (pumf_version=="1996 (families)") {
+      path <- cached_pumf[grepl("95M0012X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("95M0010X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       path <- dir(path,full.names=TRUE,"english",ignore.case=TRUE)
       path <- dir(path,full.names=TRUE,"doc",ignore.case=TRUE)
       url <- dir(path,full.names=TRUE,"\\.pdf")
     }
-  } else if (pumf_version=="2001 (individuals)"|pumf_version=="2001"){
-    path <- cached_pumf[grepl("95M0016X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2001 (individuals)"|pumf_version=="2001 (households)"|pumf_version=="2001 (families)"|pumf_version=="2001"){
+    if (pumf_version=="2001 (households)") {
+      path <- cached_pumf[grepl("95M0020X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else if (pumf_version=="2001 (families)") {
+      path <- cached_pumf[grepl("95M0018X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("95M0016X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       path <- dir(path,full.names=TRUE,"english",ignore.case=TRUE)
       path <- dir(path,full.names=TRUE,"doc",ignore.case=TRUE)
@@ -39,8 +51,12 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
       }
       url <- dir(path,full.names=TRUE,"\\.pdf")
     }
-  } else if (pumf_version=="2006 (individuals)"|pumf_version=="2006"){
-    path <- cached_pumf[grepl("95M0028X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2006 (individuals)"|pumf_version=="2006 (hierarchical)"|pumf_version=="2006"){
+    if (pumf_version=="2006 (hierarchical)") {
+      path <- cached_pumf[grepl("95M0029X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("95M0028X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       path <- dir(path,full.names=TRUE,"english",ignore.case=TRUE)
       path <- dir(path,full.names=TRUE,"doc",ignore.case=TRUE)
@@ -50,8 +66,12 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
         url <- dir(path,full.names=TRUE,"questionnaire",ignore.case=TRUE)
       }
     }
-  } else if (pumf_version=="2011 (individuals)"|pumf_version=="2011"){
-    path <- cached_pumf[grepl("99M0001X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (pumf_version=="2011 (individuals)"|pumf_version=="2011 (hierarchical)"|pumf_version=="2011"){
+    if (pumf_version=="2011 (hierarchical)") {
+      path <- cached_pumf[grepl("99M0002X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    } else {
+      path <- cached_pumf[grepl("99M0001X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+    }
     if (length(path)==1) {
       path <- dir(path,full.names=TRUE,"Individual file",ignore.case=TRUE)
       path <- dir(path,full.names=TRUE,"english",ignore.case=TRUE)
