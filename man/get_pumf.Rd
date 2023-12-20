@@ -10,6 +10,7 @@ get_pumf(
   layout_mask = NULL,
   file_mask = layout_mask,
   pumf_cache_path = getOption("canpumf.cache_path"),
+  refresh_layout = FALSE,
   timeout = 3000
 )
 }
@@ -25,6 +26,8 @@ identifiers. For LFS this is the month/year.}
 
 \item{pumf_cache_path}{A path to a permanent cache. If none is fould the data is stored in the temporary
 directory for the duration of the session.}
+
+\item{refresh_layout}{(optional) regenerate the layout and metadata}
 
 \item{timeout}{Optional parameter to specify connection timeout for download}
 }

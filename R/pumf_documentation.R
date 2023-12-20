@@ -119,7 +119,7 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
     }  }
 
   if (!is.null(url)) {
-    lapply(url,browseURL)
+    lapply(url,utils::browseURL)
   } else {
     stop("Could not find documentation for ",pumf_series," ",pumf_version)
   }

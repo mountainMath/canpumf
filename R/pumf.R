@@ -163,6 +163,15 @@ label_pumf_data <- function(pumf_data,
     lookup <- setNames(vl$label,vl$val)
     if (length(lookup)>0) {
       missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
+      if (length(missed)>0) {
+        missed_i <- as.integer(missed) |> as.character()
+        for (m in intersect(missed_i,names(lookup))) {
+          mi <- which(m==missed_i)
+          mo <- missed[mi]
+          lookup <- c(lookup,setNames(lookup[m],mo))
+        }
+      }
+      missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
       if (any(is.na(missed)) && 'blank' %in% names(lookup)) {
         pumf_data <- pumf_data %>%
           mutate_at(var,function(d)coalesce(d,"blank"))
