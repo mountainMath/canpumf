@@ -73,8 +73,17 @@ list_canpumf_collection <- function(){
       bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
                 its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
-                tibble(title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(1996,2021,5)," (individuals)"),
+                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
+                       Version=paste0(seq(1971,2021,5)," (individuals)"),
+                       url="(EFT)"),
+                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
+                       Version=paste0(seq(2006,2016,5)," (hierarchical)"),
+                       url="(EFT)"),
+                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
+                       Version=paste0(seq(1971,2001,5)," (households)"),
+                       url="(EFT)"),
+                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
+                       Version=paste0(seq(1971,1996,5)," (families)"),
                        url="(EFT)"))
   }
   result

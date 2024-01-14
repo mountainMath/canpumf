@@ -374,7 +374,7 @@ ensure_2006_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
         vr <- vr |>
           mutate(label=gsub("^'|'$","",.data$label)) |>
           mutate(label=gsub('^"|"$',"",.data$label)) |>
-          mutate(name=gsub("_$","",.data$n))
+          mutate(name=gsub("_$","",n))
         vr
       }) |>
       filter(.data$value!="/")
