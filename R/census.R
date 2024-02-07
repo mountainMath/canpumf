@@ -542,6 +542,99 @@ ensure_1996_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   }
 }
 
+# Testing
+ensure_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout=FALSE){
+  if (pumf_version=="1991 (households)") {
+    canpumf_dir <- file.path(pumf_base_path,"hhld91","canpumf")
+    layout_path <- file.path(pumf_base_path,"HHLDF91.XMF")
+    var_path <- file.path(pumf_base_path,"HHLDF91.SMF")
+  } else if (pumf_version=="1991 (families)") {
+    canpumf_dir <- file.path(pumf_base_path,"fam91","canpumf")
+    layout_path <- file.path(pumf_base_path,"CNCF91.XMF")
+    var_path <- file.path(pumf_base_path,"CNCF91.SMF")
+  } else {
+    canpumf_dir <- file.path(pumf_base_path,"indiv91","canpumf")
+    layout_path <- file.path(pumf_base_path,"IND91.XMF")
+    var_path <- file.path(pumf_base_path,"IND91.SMF")
+  }
+
+  if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
+    if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
+
+    data1 <- readr::read_lines(layout_path,
+                               locale = readr::locale(encoding = "CP1252")) |>
+      as_tibble()
+    data2 <- readr::read_lines(var_path,
+                               locale = readr::locale(encoding = "CP1252")) |>
+      as_tibble()
+
+    campumf_layout_path <- file.path(canpumf_dir,"layout.Rds")
+    if (!file.exists(campumf_layout_path)|refresh_layout) {
+
+      start <- which(grepl("^DATA LIST",data1$value)) + 1
+      end <- which(grepl("^VARIABLE LABELS",data1$value)) -1
+      layout <-  data1 |>
+        slice(start:end) |>
+        mutate(value=gsub("^ +| *$","",.data$value)) |>
+        mutate(name=strsplit(.data$value," +") |> lapply(first) |> unlist(),
+               start=str_extract(.data$value,"\\d+ *-") |> gsub(" *-","",x=_),
+               end=str_extract(.data$value,"- *\\d+") |> gsub("- *","",x=_)) |>
+        mutate(note="") |>
+        mutate(across(c(start,end),as.integer)) |>
+        select(-.data$value)
+      saveRDS(layout,campumf_layout_path)
+    }
+
+    start <- which(grepl("^VARIABLE LABELS",data1$value)) +1
+    end <- which(grepl("^VALUE LABELS",data1$value)) -1
+
+    name_labels <- data1 |>
+      slice(start:end) |>
+      mutate(value=gsub("^ +| *$","",.data$value)) |>
+      mutate(name=strsplit(.data$value," +") |> lapply(first) |> unlist(),
+             label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_)) |>
+      select(-.data$value)
+    saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
+
+    # missing values
+    start <- which(grepl("^MISSING VALUES",data1$value)) +1
+    end <- which(grepl("^SAVE OUTFILE",data1$value)) -1
+
+    # variable labels
+    start <- which(grepl("^VALUE LABELS",data1$value)) +1
+    end <- which(grepl("^MISSING VALUES",data1$value)) -1
+
+    var_labels_raw <- data1 |> slice(start:end) |>
+      mutate(indent=str_extract(.data$value,"^ +") |> nchar())
+
+
+    var_starts <- which(var_labels_raw$indent==4)
+    var_ends <- which(var_labels_raw$indent==9)-1
+
+    val_labels <- 1:length(var_starts) |>
+      purrr::map_df(\(r){
+        s=var_starts[r]
+        e=var_ends[r]
+        vr <- var_labels_raw |>
+          slice(s:e)
+        s=1
+        e=nrow(vr)
+        n<-vr$value[s] |> gsub("^ +","",x=_) |> str_extract("[A-Za-z_]+")
+        vr$value[1] <- vr$value[1] |> gsub(n,"",x=_)
+        vr <- vr |>
+          mutate(value=gsub("^ +| +$","",x=.data$value)) |>
+          mutate(name=n,
+                 val=str_extract(.data$value,"^\\d+"),
+          label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_))
+        vr |>
+          select(-.data$indent)
+      }) |>
+      filter(.data$value!="/")
+
+    saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
+  }
+}
+
 get_year_level_version<-function(pumf_version){
   year <- substr(pumf_version,1,4)
   level <- NULL
@@ -563,7 +656,7 @@ get_year_level_version<-function(pumf_version){
 
 }
 
-ensure_1971_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout=FALSE){
+ensure_1971_1986_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout=FALSE){
   ylv <- get_year_level_version(pumf_version)
   pumf_version_path <- file.path(pumf_base_path,paste0(ylv,collapse = "_"))
   canpumf_dir_base <- file.path(pumf_base_path,paste0(ylv,collapse = "_"))
@@ -884,7 +977,7 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
       if (length(pumf_data_file)!=1) {
         zip_file <- dir(individuals_path,"\\.zip",full.names = TRUE)
         if (length(zip_file)==1) {
-            utils::unzip(zip_file,exdir = individuals_path)
+          utils::unzip(zip_file,exdir = individuals_path)
         }
       }
 
@@ -916,7 +1009,51 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     } else {
       stop("1996 PUMF data is not avaialble")
     }
-  } else if (ylv$year %in% seq(1971,1991,5)){
+  } else if (pumf_version=="1991 (individuals)"|pumf_version=="1991 (families)"|pumf_version=="1991 (households)"|pumf_version=="1991"){
+    path <- cached_pumf[grepl(ylv$year,cached_pumf)]
+    path <- path[grepl("_FMGD",path)]
+    pumf_base_path <- file.path(pumf_cache_path,path)
+    if (pumf_version=="1991 (households)") {
+      path.zip <- dir(pumf_base_path,"hhld91\\.zip",full.names = TRUE)
+      path <- file.path(pumf_base_path,"hhld91")
+    } else if (pumf_version=="1991 (families)") {
+      path.zip <- dir(pumf_base_path,"fam91\\.zip",full.names = TRUE)
+      path <- file.path(pumf_base_path,"fam91")
+    } else {
+      path.zip <- dir(pumf_base_path,"indiv91\\.zip",full.names = TRUE)
+      path <- file.path(pumf_base_path,"indiv91")
+    }
+    if (!dir.exists(path)) {
+      utils::unzip(path.zip,exdir = path)
+    }
+    pumf_data_file <- dir(path,full.names = TRUE)
+    pumf_data_file <- pumf_data_file[!grepl("canpumf",pumf_data_file)]
+    canpumf_dir <- file.path(path,"canpumf")
+
+
+    if (length(pumf_data_file)==1 && file.exists(pumf_data_file)) {
+
+      ensure_1991_pumf_metadata(pumf_base_path,pumf_version=pumf_version,refresh_layout=refresh_layout)
+
+      layout_path <- file.path(canpumf_dir,"layout.Rds")
+      layout <- readRDS(layout_path)
+
+      pumf_data <- readr::read_fwf(pumf_data_file,
+                                   col_types = readr::cols(.default="c"),
+                                   trim_ws=TRUE,
+                                   col_positions = readr::fwf_positions(layout$start,
+                                                                        layout$end,
+                                                                        col_names = layout$name),
+                                   locale = readr::locale(encoding = "CP1252")) |>
+        #mutate(across(everything(),\(x)gsub(" *","",x))) |> # remove spaces
+        mutate(across(matches("^WEIGHT$|WEIGHTP$|^WT\\d+$"),\(x)gsub(" *","",x) |> as.numeric()))
+
+      attr(pumf_data,"pumf_base_path") <- path
+
+    } else {
+      stop("1991 PUMF data is not avaialble")
+    }
+  } else if (ylv$year %in% seq(1971,1986,5)){
     path <- cached_pumf[grepl(ylv$year,cached_pumf)]
     path <- path[grepl("_FMGD",path)]
     if (length(path)==1) {
@@ -953,7 +1090,7 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
 
 
 
-      ensure_1971_1991_pumf_metadata(pumf_base_path,pumf_version,refresh_layout=refresh_layout)
+      ensure_1971_1986_pumf_metadata(pumf_base_path,pumf_version,refresh_layout=refresh_layout)
 
       canpumf_dir <- file.path(pumf_version_path,"canpumf")
       layout_path <- file.path(canpumf_dir,"layout.Rds")

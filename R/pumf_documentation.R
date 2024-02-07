@@ -17,7 +17,17 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
                       pumf_cache_path = getOption("canpumf.cache_path")){
   cached_pumf <- dir(pumf_cache_path,full.names=TRUE)
   url <- NULL
-  if (pumf_version=="1986 (individuals)"|pumf_version=="1986 (families)"|pumf_version=="1986 (households)"|pumf_version=="1986"){
+  if (pumf_version=="1991 (individuals)"|pumf_version=="1991 (families)"|pumf_version=="1991 (households)"|pumf_version=="1991"){
+    pumf_base_path <- cached_pumf[grepl("1991PUMF_FMGD",cached_pumf)]
+    pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
+    if (pumf_version=="1986 (households)") {
+      url <- pdfs[grepl("hh-and-housin",pdfs)]
+    } else if (pumf_version=="1996 (families)") {
+      url <- pdfs[grepl("Families",pdfs)]
+    } else {
+      url <- pdfs[grepl("individuals-final",pdfs)]
+    }
+  } else if (pumf_version=="1986 (individuals)"|pumf_version=="1986 (families)"|pumf_version=="1986 (households)"|pumf_version=="1986"){
     pumf_base_path <- cached_pumf[grepl("1986PUMF_FMGD",cached_pumf)]
     pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
     if (pumf_version=="1986 (households)") {
