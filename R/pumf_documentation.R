@@ -17,7 +17,17 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
                       pumf_cache_path = getOption("canpumf.cache_path")){
   cached_pumf <- dir(pumf_cache_path,full.names=TRUE)
   url <- NULL
-  if (pumf_version=="1996 (individuals)"|pumf_version=="1996 (families)"|pumf_version=="1996 (households)"|pumf_version=="1996"){
+  if (pumf_version=="1986 (individuals)"|pumf_version=="1986 (families)"|pumf_version=="1986 (households)"|pumf_version=="1986"){
+    pumf_base_path <- cached_pumf[grepl("1986PUMF_FMGD",cached_pumf)]
+    pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
+    if (pumf_version=="1986 (households)") {
+      url <- pdfs[grepl("Households|hhldhsg",pdfs)]
+    } else if (pumf_version=="1996 (families)") {
+      url <- pdfs[grepl("Families|fmgdp",pdfs)]
+    } else {
+      url <- pdfs[grepl("Individuals|indvls",pdfs)]
+    }
+  } else if (pumf_version=="1996 (individuals)"|pumf_version=="1996 (families)"|pumf_version=="1996 (households)"|pumf_version=="1996"){
     if (pumf_version=="1996 (households)") {
       path <- cached_pumf[grepl("95M0011X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
     } else if (pumf_version=="1996 (families)") {

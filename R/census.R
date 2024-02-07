@@ -565,6 +565,7 @@ get_year_level_version<-function(pumf_version){
 
 ensure_1971_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout=FALSE){
   ylv <- get_year_level_version(pumf_version)
+  pumf_version_path <- file.path(pumf_base_path,paste0(ylv,collapse = "_"))
   canpumf_dir_base <- file.path(pumf_base_path,paste0(ylv,collapse = "_"))
   canpumf_dir <- file.path(canpumf_dir_base,"canpumf")
 
@@ -656,7 +657,7 @@ ensure_1971_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_l
           mutate(label=strsplit(.data$value," +") |> lapply(\(x)paste0(x[2:length(x)],collapse = " ")) |> unlist()) |>
           mutate(label=gsub("^'|'$","",.data$label)) |>
           mutate(label=gsub('^"|"$',"",.data$label)) |>
-          mutate(name=gsub("_$","",.data$n))
+          mutate(name=gsub("_$","",n))
         vr
       }) |>
       filter(.data$value!="/")
