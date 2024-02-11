@@ -619,7 +619,7 @@ ensure_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout
           slice(s:e)
         s=1
         e=nrow(vr)
-        n<-vr$value[s] |> gsub("^ +","",x=_) |> str_extract("[A-Za-z_]+")
+        n<-vr$value[s] |> gsub("^ +","",x=_) |> strsplit(" +|\t+") |> unlist() |> first()
         vr$value[1] <- vr$value[1] |> gsub(n,"",x=_)
         vr <- vr |>
           mutate(value=gsub("^ +| +$","",x=.data$value)) |>

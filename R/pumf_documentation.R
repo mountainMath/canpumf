@@ -81,7 +81,7 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
       path <- dir(path,full.names=TRUE,"english",ignore.case=TRUE)
       path <- dir(path,full.names=TRUE,"doc",ignore.case=TRUE)
       if (documentation_type=="user_guide") {
-        url <- dir(path,full.names=TRUE,"Documentation",ignore.case=TRUE)
+        url <- dir(path,full.names=TRUE,"Documentation|User Guide",ignore.case=TRUE)
       } else  if (documentation_type=="questionnaire") {
         url <- dir(path,full.names=TRUE,"questionnaire",ignore.case=TRUE)
       }
