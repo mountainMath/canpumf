@@ -150,7 +150,7 @@ ensure_2016_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
     single_quotes <- which(grepl("'$|' *\\+ *$",var_labels_raw$value))
     var_labels_raw$value[single_quotes] <- gsub("'",'"',var_labels_raw$value[single_quotes])
 
-    var_starts <- which(grepl("^\\/",var_labels_raw$value))
+    var_starts <- c(1,which(grepl("^\\/",var_labels_raw$value)))
 
     val_labels <- 1:length(var_starts) |>
       purrr::map_df(\(r){
@@ -229,13 +229,13 @@ ensure_2011_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
     single_quotes <- which(grepl("'$|' *\\+ *$",var_labels_raw$value))
     var_labels_raw$value[single_quotes] <- gsub("'",'"',var_labels_raw$value[single_quotes])
 
-    var_starts <- which(grepl("^\\/",var_labels_raw$value))
+    var_starts <- c(1,which(grepl("^\\/",var_labels_raw$value)))
 
     val_labels <- 1:length(var_starts) |>
       purrr::map_df(\(r){
         s=var_starts[r]
         n<-var_labels_raw$value[s] |> gsub("^\\/","",x=_)
-        if (n=="") {
+        while (n=="") {
           s=s+1
           n<-var_labels_raw$value[s] |> gsub("^\\/","",x=_)
         }
