@@ -165,9 +165,6 @@ label_pumf_data <- function(pumf_data,
   vars <- pumf_data %>% select_if(function(d)!is.numeric(d)) %>% names() %>% intersect(var_labels$name)
   missing_vars <- setdiff(n2,n1)
   for (var in vars) {
-    if (var=="WKACTFA") {
-      print(var)
-    }
     vl <- val_labels %>%
       filter(.data$name==var) %>%
       filter(!grepl("^\\d+-\\d+$|^\\d+-$",.data$val))
