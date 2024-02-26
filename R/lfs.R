@@ -20,14 +20,6 @@ list_available_lfs_pumf_versions <- function(){
     select(.data$Date,.data$version,.data$url) |>
     select(.data$Date,.data$version,.data$url)
 
-  # workaround for StatCan coding error
-  c0 <- which(d$version=="2023")
-  c1 <- which(d$version=="2023-01")
-  if (length(c1)==1&&length(c0)==1&&d$Date[c1]=="January 2023"){
-    d$version[c1] <- "2024-01"
-    d$Date[c1] <- "Januray 2024"
-  }
-
   Sys.setlocale("LC_TIME", lct)
 
   d

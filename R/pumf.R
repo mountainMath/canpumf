@@ -165,6 +165,9 @@ label_pumf_data <- function(pumf_data,
   vars <- pumf_data %>% select_if(function(d)!is.numeric(d)) %>% names() %>% intersect(var_labels$name)
   missing_vars <- setdiff(n2,n1)
   for (var in vars) {
+    if (var=="WKACTFA") {
+      print(var)
+    }
     vl <- val_labels %>%
       filter(.data$name==var) %>%
       filter(!grepl("^\\d+-\\d+$|^\\d+-$",.data$val))
@@ -177,7 +180,9 @@ label_pumf_data <- function(pumf_data,
         for (m in intersect(missed_i,names(lookup))) {
           mi <- which(m==missed_i)
           mo <- missed[mi]
-          lookup <- c(lookup,setNames(lookup[m],mo))
+          if (length(lookup[m])==length(mo)) {
+            lookup <- c(lookup,setNames(lookup[m],mo))
+          }
         }
       }
       missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)

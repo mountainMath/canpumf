@@ -17,7 +17,15 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
                       pumf_cache_path = getOption("canpumf.cache_path")){
   cached_pumf <- dir(pumf_cache_path,full.names=TRUE)
   url <- NULL
-  if (pumf_version=="1991 (individuals)"|pumf_version=="1991 (families)"|pumf_version=="1991 (households)"|pumf_version=="1991"){
+  if (pumf_version=="1971 (individuals)"|pumf_version=="1971 (families)"|pumf_version=="1971 (households)"|pumf_version=="1971"){
+    pumf_base_path <- cached_pumf[grepl("1971PUMF_FMGD",cached_pumf)]
+    pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
+    url <- pdfs[grepl("_e\\.pdf",pdfs)]
+  } else if (pumf_version=="1976 (individuals)"|pumf_version=="1976 (families)"|pumf_version=="1976 (households)"|pumf_version=="1976"){
+    pumf_base_path <- cached_pumf[grepl("1976PUMF_FMGD",cached_pumf)]
+    pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
+    url <- pdfs[grepl("_e\\.pdf",pdfs)]
+  } else if (pumf_version=="1991 (individuals)"|pumf_version=="1991 (families)"|pumf_version=="1991 (households)"|pumf_version=="1991"){
     pumf_base_path <- cached_pumf[grepl("1991PUMF_FMGD",cached_pumf)]
     pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
     if (pumf_version=="1986 (households)") {
@@ -27,6 +35,10 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
     } else {
       url <- pdfs[grepl("individuals-final",pdfs)]
     }
+  } else if (pumf_version=="1981 (individuals)"|pumf_version=="1981 (households)"|pumf_version=="1981"){
+    pumf_base_path <- cached_pumf[grepl("1981PUMF_FMGD",cached_pumf)]
+    pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)
+    url <- pdfs[grepl("rcl_e",pdfs)]
   } else if (pumf_version=="1986 (individuals)"|pumf_version=="1986 (families)"|pumf_version=="1986 (households)"|pumf_version=="1986"){
     pumf_base_path <- cached_pumf[grepl("1986PUMF_FMGD",cached_pumf)]
     pdfs <- dir(pumf_base_path,"\\.pdf",full.names=TRUE)

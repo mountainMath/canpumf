@@ -635,6 +635,8 @@ ensure_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout
   }
 }
 
+
+
 get_year_level_version<-function(pumf_version){
   year <- substr(pumf_version,1,4)
   level <- NULL
@@ -668,6 +670,10 @@ ensure_1971_1986_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_l
     layout_path <- dir(pumf_base_path,"eng\\.sps",full.names = TRUE,ignore.case = TRUE)
     if (ylv$version=="individuals") {
       layout_path <- layout_path[grepl("ind",layout_path)]
+    } else if (ylv$version=="households") {
+      layout_path <- layout_path[grepl("hh",layout_path)]
+    } else if (ylv$version=="families") {
+      layout_path <- layout_path[grepl("fam",layout_path)]
     }
     if (length(layout_path)>1) {
       if (ylv$level=="CMA") {
@@ -1062,6 +1068,17 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
       pumf_version_path <- file.path(pumf_base_path,paste0(ylv,collapse = "_"))
       pumf_data_file <- dir(pumf_version_path,"\\.txt",full.names = TRUE)
 
+      if (ylv$year=="1981"&&length(pumf_data_file)==0) {
+        candidates<-dir(pumf_base_path,"\\.DAT",full.names = TRUE)
+        if (ylv$version=="individuals") {
+          candidates <- candidates[grepl("IND",candidates)]
+        } else {
+          candidates <- candidates[grepl("HH",candidates)]
+        }
+        pumf_data_file <- candidates
+      }
+
+
       if (length(pumf_data_file)==0) {
         candidates <- dir(pumf_base_path,"\\.zip")
         if (ylv$version=="households") {
@@ -1072,7 +1089,7 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
           candidates <- candidates[grepl("^indiv",candidates)]
         }
         if (ylv$year=="1971") {
-          if (ylv$version=="PR") {
+          if (ylv$level=="PR") {
             candidates <- candidates[grepl("_prov",candidates)]
           } else {
             candidates <- candidates[grepl("_cma",candidates)]
@@ -1087,7 +1104,6 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
         utils::unzip(file.path(pumf_base_path,candidates),exdir = pumf_version_path)
         pumf_data_file <- dir(pumf_version_path,"\\.txt|\\.DAT",full.names = TRUE)
       }
-
 
 
       ensure_1971_1986_pumf_metadata(pumf_base_path,pumf_version,refresh_layout=refresh_layout)
@@ -1105,6 +1121,11 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
                                    locale = readr::locale(encoding = "CP1252")) |>
         #mutate(across(everything(),\(x)gsub(" *","",x))) |> # remove spaces
         mutate(across(matches("^WEIGHT$|WEIGHTP$|^WT\\d+$"),\(x)gsub(" *","",x) |> as.numeric()))
+
+      if (ylv$year=="1981") {
+        pumf_data <- pumf_data |>
+          dplyr::filter(.data$PROV!="\032")
+      }
 
       attr(pumf_data,"pumf_base_path") <- pumf_version_path
 
