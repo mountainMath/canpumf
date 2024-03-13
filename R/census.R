@@ -546,8 +546,8 @@ ensure_1996_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
 ensure_1991_pumf_metadata <- function(pumf_base_path,pumf_version,refresh_layout=FALSE){
   if (pumf_version=="1991 (households)") {
     canpumf_dir <- file.path(pumf_base_path,"hhld91","canpumf")
-    layout_path <- file.path(pumf_base_path,"HHLDF91.XMF")
-    var_path <- file.path(pumf_base_path,"HHLDF91.SMF")
+    layout_path <- file.path(pumf_base_path,"HHOLD91.XMF")
+    var_path <- file.path(pumf_base_path,"HHOLD91.SMF")
   } else if (pumf_version=="1991 (families)") {
     canpumf_dir <- file.path(pumf_base_path,"fam91","canpumf")
     layout_path <- file.path(pumf_base_path,"CNCF91.XMF")

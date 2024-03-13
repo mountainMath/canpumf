@@ -72,4 +72,21 @@ The code may need further refinements to work with all StatCan PUMF files. It ha
 * Covid Series 3
 * SFS 2019
 
+### Cite **canpumf**
+
+If you wish to cite the `canpumf` package in your work:
+
+  von Bergmann, J. (2024), canpumf: Import StatCan PUMF data into R. v0.2.0.
+
+A BibTeX entry for LaTeX users is
+```
+  @Manual{,
+    author = {Jens {von Bergmann}},
+    title = {canpumf: Import StatCan PUMF data into R},
+    year = {2024},
+    note = {R package version 0.2.0},
+    url = {https://mountainmath.github.io/canpumf/},
+  }
+```
+
 

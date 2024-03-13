@@ -1,7 +1,7 @@
 Package: canpumf
 Type: Package
 Title: Parse StatCan PUMF files
-Version: 0.1.8
+Version: 0.2.0
 Authors@R: c(
     person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("cre"))
     )

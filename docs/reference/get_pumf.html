@@ -18,7 +18,7 @@ a curated set of pumf datasets."><!-- mathjax --><script src="https://cdnjs.clou
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">canpumf</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.8</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.2.0</span>
       </span>
     </div>
 
@@ -74,6 +74,7 @@ a curated set of pumf datasets.</p>
 <span>  layout_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  file_mask <span class="op">=</span> <span class="va">layout_mask</span>,</span>
 <span>  pumf_cache_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"canpumf.cache_path"</span><span class="op">)</span>,</span>
+<span>  refresh_layout <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  timeout <span class="op">=</span> <span class="fl">3000</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -100,6 +101,10 @@ identifiers. For LFS this is the month/year.</p></dd>
 <dt>pumf_cache_path</dt>
 <dd><p>A path to a permanent cache. If none is fould the data is stored in the temporary
 directory for the duration of the session.</p></dd>
+
+
+<dt>refresh_layout</dt>
+<dd><p>(optional) regenerate the layout and metadata</p></dd>
 
 
 <dt>timeout</dt>
