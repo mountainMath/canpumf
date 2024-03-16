@@ -30,8 +30,8 @@ For LFS data, the data is orgnaized by year except for the current year where it
 
 ```
 lfs_2022 <- get_pumf("LFS","2022")
-This will download the 2022 LFS pumf data if needed and load it.
 ```
+This will download the 2022 LFS pumf data if needed and load it.
 
 StatCan unfortunately does not provide standardized metadata for PUMF files, but the canpumf package also parses the SPSS Command Files in order to allow for automated labelling of the data. To label the data with human-readable labels use
 
