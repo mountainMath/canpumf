@@ -77,7 +77,7 @@ list_canpumf_collection <- function(){
                        Version=paste0(seq(1971,2021,5)," (individuals)"),
                        url="(EFT)"),
                 tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(2006,2016,5)," (hierarchical)"),
+                       Version=paste0(seq(2006,2021,5)," (hierarchical)"),
                        url="(EFT)"),
                 tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
                        Version=paste0(seq(1971,2001,5)," (households)"),
