@@ -821,20 +821,12 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     if (pumf_version=="2021 (hierarchical)") {
       path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("cen21_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
       if (length(path)==0) {
-        tmp <- tempfile()
-        path <- "cen21_hier_98M0001X_rec21_hier"
-        download.file("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip",tmp)
-        robust_unzip(tmp,exdir=file.path(pumf_cache_path,path))
-        unlink(tmp)
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip")
       }
     } else {
       path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("2021|cen21_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
       if (length(path)==0) {
-        tmp <- tempfile()
-        path <- "cen21_ind_98m0001x_part_rec21"
-        download.file("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_ind_98m0001x_part_rec21.zip",tmp)
-        robust_unzip(tmp,exdir=file.path(pumf_cache_path,path))
-        unlink(tmp)
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_ind_98m0001x_part_rec21.zip")
       }
     }
 
@@ -860,9 +852,15 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     }
   } else if (pumf_version=="2016 (individuals)"|pumf_version=="2016 (hierarchical)"|pumf_version=="2016"){
     if (pumf_version=="2016 (hierarchical)") {
-      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("98M0002X",cached_pumf,ignore.case = TRUE)&grepl("2016|cen16_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen16_hier_98m0002x_rec16_hier.zip")
+      }
     } else {
-      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("2016|cen16_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen16_ind_98m0001x_part_rec16.zip")
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -885,16 +883,20 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
         mutate(across(matches("^WEIGHT$|^WT\\d+$"),\(x)gsub(" *","",x) |> as.numeric()))
 
       attr(pumf_data,"pumf_base_path") <- pumf_base_path
-
-
     } else {
       stop("2016 PUMF data is not avaialble")
     }
   } else if (pumf_version=="2011 (individuals)"|pumf_version=="2011 (hierarchical)"|pumf_version=="2011"){
     if (pumf_version=="2011 (hierarchical)") {
-      path <- cached_pumf[grepl("99M0002X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("99M0002X",cached_pumf,ignore.case = TRUE)&grepl("2011|nhs11_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/nhs11_hier_99m0002x_enm11_hier.zip")
+      }
     } else {
-      path <- cached_pumf[grepl("99M0001X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("99M0001X",cached_pumf,ignore.case = TRUE)&grepl("2011|nhs11_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/nhs11_ind_99m0001x_part_enm11.zip")
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -928,9 +930,15 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
 
   } else if (pumf_version=="2006 (individuals)"|pumf_version=="2006 (hierarchical)"|pumf_version=="2006"){
     if (pumf_version=="2006 (hierarchical)") {
-      path <- cached_pumf[grepl("95M0029X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0029X",cached_pumf,ignore.case = TRUE)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen06_hier_95m0029x_part_rec06.zip")
+      }
     } else {
-      path <- cached_pumf[grepl("95M0028X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0028X",cached_pumf,ignore.case = TRUE)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen06_ind_95m0028x_part_rec06.zip")
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -960,10 +968,19 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
   } else if (pumf_version=="2001 (individuals)"|pumf_version=="2001 (households)"|pumf_version=="2001 (families)"|pumf_version=="2001"){
     if (pumf_version=="2001 (households)") {
       path <- cached_pumf[grepl("95M0020X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen01_hous_95m0020x_mena_rec01.zip")
+      }
     } else if (pumf_version=="2001 (families)") {
       path <- cached_pumf[grepl("95M0018X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen01_fam_95m0018x_fam_rec01.zip")
+      }
     } else {
       path <- cached_pumf[grepl("95M0016X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen01_ind_95m0016x_part_rec01.zip")
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -992,11 +1009,20 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     }
   } else if (pumf_version=="1996 (individuals)"|pumf_version=="1996 (families)"|pumf_version=="1996 (households)"|pumf_version=="1996"){
     if (pumf_version=="1996 (households)") {
-      path <- cached_pumf[grepl("95M0011X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0011X",cached_pumf,ignore.case = TRUE)&grepl("1996|cen96_hous",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen96_hous_95m0011x_mena_rec96_v2.zip")
+      }
     } else if (pumf_version=="1996 (families)") {
-      path <- cached_pumf[grepl("95M0012X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0012X",cached_pumf,ignore.case = TRUE)&grepl("1996|cen96_fam",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen96_fam_95m0012x_fam_rec96_v2.zip")
+      }
     } else {
-      path <- cached_pumf[grepl("95M0010X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0010X",cached_pumf,ignore.case = TRUE)&grepl("1996|cen96_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen96_ind_95m0010X_part_rec96_v2.zip")
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -1045,14 +1071,35 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     if (pumf_version=="1991 (households)") {
       path.zip <- dir(pumf_base_path,"hhld91\\.zip",full.names = TRUE)
       path <- file.path(pumf_base_path,"hhld91")
+      if (!file.exists(path.zip)&&!dir.exists(path)) {
+        path <- cached_pumf[grepl("cen91_hous")]
+        if (length(path)==0) {
+          path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen91_hous_95m0008X_mena_rec91.zip")
+        }
+        path <- file.path(pumf_base_path,path)
+      }
     } else if (pumf_version=="1991 (families)") {
       path.zip <- dir(pumf_base_path,"fam91\\.zip",full.names = TRUE)
       path <- file.path(pumf_base_path,"fam91")
+      if (!file.exists(path.zip)&&!dir.exists(path)) {
+        path <- cached_pumf[grepl("cen91_fam")]
+        if (length(path)==0) {
+          path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen91_fam_95m0009x_fam_rec91.zip")
+        }
+        path <- file.path(pumf_base_path,path)
+      }
     } else {
       path.zip <- dir(pumf_base_path,"indiv91\\.zip",full.names = TRUE)
       path <- file.path(pumf_base_path,"indiv91")
+      if (!file.exists(path.zip)&&!dir.exists(path)) {
+        path <- cached_pumf[grepl("cen91_ind")]
+        if (length(path)==0) {
+          path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen91_ind_95m0007x_ind_rec91.zip")
+        }
+        path <- file.path(pumf_base_path,path)
+      }
     }
-    if (!dir.exists(path)) {
+    if (file.exists(path.zip)&&!dir.exists(path)) {
       utils::unzip(path.zip,exdir = path)
     }
     pumf_data_file <- dir(path,full.names = TRUE)
