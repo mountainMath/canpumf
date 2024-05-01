@@ -30,42 +30,48 @@ parse_pumf_metadata_spss <- function(pumf_base_path,layout_mask=NULL){
 
   saveRDS(miss,file.path(cpld,"miss.Rds"))
 
+  tryCatch({
+    val_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"vale\\.sps",layout_mask)
 
-  val_path <- find_unique_layout_file(pumf_layout_dir(pumf_base_path),"vale\\.sps",layout_mask)
+    r <- readr::read_lines(val_path, locale=readr::locale(encoding = "Latin1")) %>%
+      as_tibble() %>%
+      slice_raw_layout_data()
 
-  r <- readr::read_lines(val_path, locale=readr::locale(encoding = "Latin1")) %>%
-    as_tibble() %>%
-    slice_raw_layout_data()
+    starts <- which(grepl("^ +/",r$value))
 
-  starts <- which(grepl("^ +/",r$value))
+    val_labels <- seq(1,length(starts)) %>%
+      lapply(function(i){
+        s=starts[i]
+        if (i==length(starts)) e=nrow(r) else e=starts[i+1]-1
+        rr <- r %>% slice(seq(s,e))
+        h <- str_match(r[1,],"(^ +/)")[,2]
+        match_string <- rep_len(" ",nchar(h)+1) %>% paste0(collapse = "")
+        values <- rr %>% filter(grepl(match_string,rr$value)) %>%
+          mutate(value=gsub("^ +","",.data$value)) %>%
+          mutate(val=strsplit(.data$value,"   +") %>% lapply(first) %>% unlist) %>%
+          mutate(label=strsplit(.data$value,"   +") %>% lapply(last) %>% unlist) %>%
+          mutate_all(~gsub('"',"",.))  %>%
+          select(-.data$value)
+        vars <- rr %>% filter(!grepl(match_string,rr$value)) %>%
+          mutate(value=gsub("^ +/","",.data$value) %>% gsub("^ +","",.)) %>%
+          pull(.data$value) %>%
+          paste0(collapse = " ") %>%
+          str_split(" ") %>%
+          unlist
+        vars %>%
+          lapply(function(var){
+            values %>% mutate(name=var)
+          }) %>% bind_rows()
+      }) %>%
+      bind_rows()
 
-  val_labels <- seq(1,length(starts)) %>%
-    lapply(function(i){
-      s=starts[i]
-      if (i==length(starts)) e=nrow(r) else e=starts[i+1]-1
-      rr <- r %>% slice(seq(s,e))
-      h <- str_match(r[1,],"(^ +/)")[,2]
-      match_string <- rep_len(" ",nchar(h)+1) %>% paste0(collapse = "")
-      values <- rr %>% filter(grepl(match_string,rr$value)) %>%
-        mutate(value=gsub("^ +","",.data$value)) %>%
-        mutate(val=strsplit(.data$value,"   +") %>% lapply(first) %>% unlist) %>%
-        mutate(label=strsplit(.data$value,"   +") %>% lapply(last) %>% unlist) %>%
-        mutate_all(~gsub('"',"",.))  %>%
-        select(-.data$value)
-      vars <- rr %>% filter(!grepl(match_string,rr$value)) %>%
-        mutate(value=gsub("^ +/","",.data$value) %>% gsub("^ +","",.)) %>%
-        pull(.data$value) %>%
-        paste0(collapse = " ") %>%
-        str_split(" ") %>%
-        unlist
-      vars %>%
-        lapply(function(var){
-          values %>% mutate(name=var)
-        }) %>% bind_rows()
-    }) %>%
-    bind_rows()
-
-  saveRDS(val_labels,file.path(cpld,"val.Rds"))
+    saveRDS(val_labels,file.path(cpld,"val.Rds"))
+  },
+  error=function(e){
+    if (!grepl("_bsw",layout_mask)) {
+      stop("No value labels found")
+    }
+  })
 
   NULL
 }
