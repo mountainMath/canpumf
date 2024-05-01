@@ -55,11 +55,14 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
     single_quotes <- which(grepl("'$|' *\\+ *$",var_labels_raw$value))
     var_labels_raw$value[single_quotes] <- gsub("'",'"',var_labels_raw$value[single_quotes])
 
-    var_starts <- which(grepl("^\\/",var_labels_raw$value))
+    var_starts <- c(1,which(grepl("^\\/",var_labels_raw$value)))
 
     val_labels <- 1:length(var_starts) |>
       purrr::map_df(\(r){
         s=var_starts[r]
+        while (var_labels_raw$value[s]=="/"&&s<nrow(var_labels_raw)) {
+          s=s+1
+        }
         n<-var_labels_raw$value[s] |> gsub("^\\/","",x=_)
         s=s+1
         if (r==length(var_starts)) {
@@ -83,7 +86,8 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
         }
         vv
       }) |>
-      mutate(label=gsub(" +$","",.data$label))
+      mutate(label=gsub(" +$","",.data$label)) |>
+      filter(!(name==""&val=="/"&is.na(label)))
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
@@ -813,8 +817,27 @@ get_census_dat_layout_alt <- function(spss) {
 get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
   cached_pumf <- dir(pumf_cache_path)
   ylv <- get_year_level_version(pumf_version)
-  if (pumf_version=="2021 (individuals)"|pumf_version=="2021") {
-    path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2021",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  if (pumf_version=="2021 (individuals)"|pumf_version=="2021"|pumf_version=="2021 (hierarchical)") {
+    if (pumf_version=="2021 (hierarchical)") {
+      path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("cen21_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        tmp <- tempfile()
+        path <- "cen21_hier_98M0001X_rec21_hier"
+        download.file("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip",tmp)
+        robust_unzip(tmp,exdir=file.path(pumf_cache_path,path))
+        unlink(tmp)
+      }
+    } else {
+      path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("2021|cen21_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        tmp <- tempfile()
+        path <- "cen21_ind_98m0001x_part_rec21"
+        download.file("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_ind_98m0001x_part_rec21.zip",tmp)
+        robust_unzip(tmp,exdir=file.path(pumf_cache_path,path))
+        unlink(tmp)
+      }
+    }
+
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       pumf_data_file <- dir(pumf_base_path,"\\.csv",full.names = TRUE)

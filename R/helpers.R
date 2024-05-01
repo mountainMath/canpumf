@@ -108,6 +108,16 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
 }
 
 
+robust_unzip <- function(path,exdir) {
+  if (Sys.info()[['sysname']]=="Darwin") {
+    system(paste0("ditto -V -x -k --sequesterRsrc --rsrc '",path,"' '",exdir,"'"))
+  } else {
+    utils::unzip(path,exdir = exdir)
+  }
+
+}
+
+
 #' @import dplyr
 #' @importFrom stats setNames
 #' @import stringr
