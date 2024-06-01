@@ -37,8 +37,7 @@ get_chs_pumf <- function(pumf_version,pumf_cache_path) {
   bsw_data <- readr::read_csv(bsw_data_path,locale = readr::locale(encoding = "CP1252"),
                               col_types=readr::cols(PUMFID="c",.default = "n"))
 
-  pumf_data <- readr::read_csv(pumf_data_path,locale = readr::locale(encoding = "CP1252"),
-                               col_types=readr::cols(.default = "c")) |>
+  pumf_data <- pumf_data |>
     left_join(bsw_data,by="PUMFID")
 
 
