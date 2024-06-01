@@ -29,7 +29,7 @@ get_chs_pumf <- function(pumf_version,pumf_cache_path) {
   pumf_data_path <- dir(file.path(pumf_base_path,"Data"),"CHS2021ECL_PUMF\\.csv",full.names = TRUE)
 
   pumf_data <- readr::read_csv(pumf_data_path,locale = readr::locale(encoding = "CP1252"),
-                               col_types=readr::cols(.default = "c"))
+                               col_types=readr::cols(PFWEIGHT="n",.default = "c"))
 
   bsw_data_path <- dir(file.path(pumf_base_path,"Data"),"chs2021ecl_PUMF_bsw\\.csv",
                        ignore.case = TRUE,full.names = TRUE)
