@@ -382,6 +382,8 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      refresh_layout=FALSE,
                      timeout=3000){
   pumf_data <- NULL
+  old_timeout <- getOption("timeout")
+  options(timeout=timeout)
   if (is.null(pumf_cache_path)) {
     warning("No cache path specified, storing pumf data in temporary directory.")
     pumf_cache_path <- file.path(tempdir(),"pumf")
@@ -427,6 +429,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
 
     pumf_data <- read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask)
   }
+  options(timeout=old_timeout)
   pumf_data
 }
 
