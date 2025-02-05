@@ -126,6 +126,13 @@ label_pumf_columns <- function(pumf_data,
                             layout_mask=attr(pumf_data,"layout_mask")){
   names(pumf_data) <- toupper(names(pumf_data))
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)  |> mutate(name=toupper(.data$name))
+  if (sum(duplicated(var_labels$label))>0) {
+    var_labels <- var_labels |>
+      mutate(n=n(),.by=label) |>
+      mutate(label=case_when(n>1~paste0(label," (",.data$name,")"),TRUE~label)) |>
+      select(-n)
+  }
+
   vars <- pumf_data %>% names() %>% intersect(var_labels$name)
   vr <- var_labels %>% filter(.data$name %in% vars)
   pumf_data %>% rename(!!!setNames(vr$name,vr$label))
@@ -153,6 +160,14 @@ label_pumf_data <- function(pumf_data,
   }
   val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask) |> mutate(name=toupper(.data$name))
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask) |> mutate(name=toupper(.data$name))
+
+  if (sum(duplicated(var_labels$label))>0) {
+    var_labels <- var_labels |>
+      mutate(n=n(),.by=label) |>
+      mutate(label=case_when(n>1~paste0(label," (",.data$name,")"),TRUE~label)) |>
+      select(-n)
+  }
+
   n1 <- val_labels$name |> unique()
   n2 <- var_labels$name |> unique()
   if (length(setdiff(n1,n2))>0) {
@@ -367,6 +382,8 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      refresh_layout=FALSE,
                      timeout=3000){
   pumf_data <- NULL
+  old_timeout <- getOption("timeout")
+  options(timeout=timeout)
   if (is.null(pumf_cache_path)) {
     warning("No cache path specified, storing pumf data in temporary directory.")
     pumf_cache_path <- file.path(tempdir(),"pumf")
@@ -378,6 +395,8 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
     pumf_data <- get_census_pumf(pumf_version,pumf_cache_path,refresh_layout=refresh_layout)
   } else if (pumf_series=="LFS") {
     pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path)
+  } else if (pumf_series=="CHS" && pumf_version!="2018") {
+    pumf_data <- get_chs_pumf(pumf_version,pumf_cache_path)
   }
 
   if (is.null(pumf_data)) {
@@ -410,6 +429,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
 
     pumf_data <- read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask)
   }
+  options(timeout=old_timeout)
   pumf_data
 }
 

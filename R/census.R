@@ -651,6 +651,8 @@ get_year_level_version<-function(pumf_version){
     version <- "households"
   } else if (grepl("families",pumf_version)) {
     version <- "families"
+  } else if (grepl("hierarchical",pumf_version)) {
+    version <- "hierarchical"
   }
 
   if (!grepl("PR",pumf_version)) {
@@ -817,8 +819,8 @@ get_census_dat_layout_alt <- function(spss) {
 get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
   cached_pumf <- dir(pumf_cache_path)
   ylv <- get_year_level_version(pumf_version)
-  if (pumf_version=="2021 (individuals)"|pumf_version=="2021"|pumf_version=="2021 (hierarchical)") {
-    if (pumf_version=="2021 (hierarchical)") {
+  if (ylv$year=="2021") {
+    if (ylv$version=="hierarchical") {
       path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("cen21_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
       if (length(path)==0) {
         path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip")
