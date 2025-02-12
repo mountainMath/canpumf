@@ -29,7 +29,11 @@ list_available_lfs_pumf_versions <- function(){
 ensure_lfs_metadata <- function(lfs_path){
   canpumf_dir <- file.path(lfs_path,"canpumf")
   if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
-  codebook_path <- dir(lfs_path,"codebook\\.csv",full.names = TRUE)
+  metadata_path <- lfs_path
+  if (dir.exists(file.path(lfs_path,"Documents"))) {
+    metadata_path <- file.path(lfs_path,"Documents")
+  }
+  codebook_path <- dir(metadata_path,"codebook\\.csv",full.names = TRUE)
   codebook <- readr::read_csv(codebook_path,locale = readr::locale(encoding = "CP1252"),
                               col_types=readr::cols(.default = "c"))
 
