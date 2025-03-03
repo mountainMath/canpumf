@@ -128,9 +128,9 @@ label_pumf_columns <- function(pumf_data,
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)  |> mutate(name=toupper(.data$name))
   if (sum(duplicated(var_labels$label))>0) {
     var_labels <- var_labels |>
-      mutate(n=n(),.by=label) |>
-      mutate(label=case_when(n>1~paste0(label," (",.data$name,")"),TRUE~label)) |>
-      select(-n)
+      mutate(n=n(),.by=.data$label) |>
+      mutate(label=case_when(.data$n>1~paste0(.data$label," (",.data$name,")"),TRUE~.data$label)) |>
+      select(-"n")
   }
 
   vars <- pumf_data %>% names() %>% intersect(var_labels$name)
@@ -163,9 +163,9 @@ label_pumf_data <- function(pumf_data,
 
   if (sum(duplicated(var_labels$label))>0) {
     var_labels <- var_labels |>
-      mutate(n=n(),.by=label) |>
-      mutate(label=case_when(n>1~paste0(label," (",.data$name,")"),TRUE~label)) |>
-      select(-n)
+      mutate(n=n(),.by=.data$label) |>
+      mutate(label=case_when(.data$n>1~paste0(.data$label," (",.data$name,")"),TRUE~.data$label)) |>
+      select(-"n")
   }
 
   n1 <- val_labels$name |> unique()

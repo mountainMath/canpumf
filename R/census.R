@@ -43,7 +43,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
       mutate(label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_) |> gsub("\u00E2\u20AC\u201C","-",x=_)) |>
-      select(.data$name,.data$label) |>
+      select("name","label") |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name))
 
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
@@ -75,7 +75,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
           mutate(val=gsub(' *".+',"",.data$value),
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
           mutate(name=n) |>
-          select(.data$name,.data$val,.data$label)
+          select("name","val","label")
         if (n=="LFACT" && !("1" %in% vv$val)) { # fix missing level in some version of the SPSS command files
           vv <- rbind(vv,tibble(name=n,val="1",label="Employed - Worked in reference week")) |>
             arrange(as.integer(.data$val))
@@ -87,7 +87,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
         vv
       }) |>
       mutate(label=gsub(" +$","",.data$label)) |>
-      filter(!(name==""&val=="/"&is.na(label)))
+      filter(!(.data$name=="" & .data$val=="/" & is.na(.data$label)))
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
