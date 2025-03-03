@@ -370,6 +370,7 @@ read_pumf_data <- function(pumf_base_path,
 #' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
 #' @param pumf_cache_path A path to a permanent cache. If none is fould the data is stored in the temporary
 #' directory for the duration of the session.
+#' @param refresh optionall re-downlad pumf data, only for series that can be downloaded directly from StatCan
 #' @param refresh_layout (optional) regenerate the layout and metadata
 #' @param timeout Optional parameter to specify connection timeout for download
 #'
@@ -379,6 +380,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
                      pumf_cache_path = getOption("canpumf.cache_path"),
+                     refresh=FALSE,
                      refresh_layout=FALSE,
                      timeout=3000){
   pumf_data <- NULL
@@ -394,7 +396,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
   if (pumf_series=="Census") {
     pumf_data <- get_census_pumf(pumf_version,pumf_cache_path,refresh_layout=refresh_layout)
   } else if (pumf_series=="LFS") {
-    pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path)
+    pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path,refresh=refresh,timeout=timeout)
   } else if (pumf_series=="CHS" && pumf_version!="2018") {
     pumf_data <- get_chs_pumf(pumf_version,pumf_cache_path)
   }
@@ -437,11 +439,12 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
 #'
 #' @param path Download path for PUMF SPSS data
 #' @param destination_dir Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`
-#' @param timeout Optional parameter to specify connection timout for download
+#' @param refresh Optional parameter to force re-download of PUMF data
+#' @param timeout Optional parameter to specify connection timeout for download
 #' @return pumf_base_dir that can be used in the other package functions
 #' @keywords internal
-download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),timeout=3000){
-  if (!dir.exists(destination_dir)||length(dir(destination_dir))==0) {
+download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),refresh=FALSE,timeout=3000){
+  if (refresh || !dir.exists(destination_dir) || length(dir(destination_dir))==0) {
     if (!dir.exists(dirname(destination_dir))) dir.create(dirname(destination_dir))
     message("Downloading PUMF data.")
     if (!dir.exists(destination_dir)) dir.create(destination_dir)

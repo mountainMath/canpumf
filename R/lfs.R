@@ -62,13 +62,13 @@ ensure_lfs_metadata <- function(lfs_path){
 
 
 
-get_lfs_pumf <- function(pumf_version,pumf_cache_path, timeout=3000){
+get_lfs_pumf <- function(pumf_version,pumf_cache_path, refresh=FALSE, timeout=3000){
   pumf_path <- file.path(pumf_cache_path,paste0("lfs_",pumf_version,"-CSV"))
-  if (!dir.exists(pumf_path)||length(dir(pumf_path))==0) {
+  if (refresh || !dir.exists(pumf_path) || length(dir(pumf_path))==0) {
     pumf_url <- list_available_lfs_pumf_versions() %>% filter(version==!!pumf_version) %>% pull(url)
     if (length(pumf_url)==0) stop("LFS version ",pumf_version," is not available, check available LFS PUMF versions via `list_available_lfs_pumf_versions()`")
 
-    download_pumf(pumf_url,destination_dir = pumf_path,timeout = timeout)
+    download_pumf(pumf_url,destination_dir = pumf_path, refresh = refresh, timeout = timeout)
   }
   ensure_lfs_metadata(pumf_path)
 
