@@ -6,3 +6,4 @@
 ^R/local_test\.R$
 ^doc$
 ^Meta$
+test_data/*
