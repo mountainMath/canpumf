@@ -50,7 +50,12 @@ read_pumf_miss_labels <- function(pumf_base_path,layout_mask=NULL){
   }
   #ensure_layout_data_parsed(pumf_base_path,layout_mask)
   path <- file.path(pumf_clean_layout_dir(pumf_base_path,layout_mask),"miss.Rds")
-  readRDS(path)
+  if (file.exists(path)) {
+    miss <- readRDS(path)
+  } else {
+    miss <- tibble::tibble()
+  }
+  miss
 }
 
 

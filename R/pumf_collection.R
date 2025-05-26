@@ -77,8 +77,13 @@ list_canpumf_collection <- function(){
     dplyr::mutate(Version=coalesce(.data$Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
 
   sfs_versions <- tibble(Acronym="SFS",
-                         Version=c("2019"),
-                         url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip"))
+                         Version=c("1999","2005","2012","2016","2019","2023"),
+                         url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS1999-eng.zip",
+                               "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2005-eng.zip",
+                               "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2012-eng.zip",
+                               "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2016-eng.zip",
+                               "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip",
+                               "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2023-eng.zip"))
 
   census_download <- list_census_collection()
 

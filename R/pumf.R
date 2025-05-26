@@ -316,6 +316,8 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
     pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path,refresh=refresh,timeout=timeout)
   } else if (pumf_series=="CHS" && pumf_version!="2018") {
     pumf_data <- get_chs_pumf(pumf_version,pumf_cache_path)
+  } else if (pumf_series=="SFS" && pumf_version=="2023") {
+    pumf_data <- get_sfs_pumf(pumf_version,pumf_cache_path)
   }
 
   if (is.null(pumf_data)) {
