@@ -890,15 +890,29 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
       layout_path <- file.path(canpumf_dir,"layout.Rds")
       layout <- readRDS(layout_path)
 
+
+      numeric_vars_2016 <- c("CAPGN", "CHDBN", "CHLDC", "CQPPB", "EICBN", "EMPIN",  "GOVTI",  "GTRFS",  "INCTAX", "INVST",
+                        "MRKINC",  "OASGI",  "OTINC", "RETIR", "SEMPI", "SHELCO", "TOTINC", "TOTINC_AT", "VALUE", "WAGES")
+
       pumf_data <- readr::read_fwf(pumf_data_file,
                                    col_types = readr::cols(.default="c"),
                                    trim_ws=TRUE,
                                    col_positions = readr::fwf_positions(layout$start,
                                                                         layout$end,
                                                                         col_names = layout$name),
-                                   locale = readr::locale(encoding = "CP1252")) |>
-        #mutate(across(everything(),\(x)gsub(" *","",x))) |> # remove spaces
-        mutate(across(matches("^WEIGHT$|^WT\\d+$"),\(x)gsub(" *","",x) |> as.numeric()))
+                                   locale = readr::locale(encoding = "CP1252"),
+                                   n_max = 1)
+
+      numeric_vars_2016 <- names(pumf_data)[(toupper(names(pumf_data)) %in% numeric_vars_2016) | grepl("^WEIGHT$|^WT\\d+$",toupper(names(pumf_data)))]
+
+      pumf_data <- readr::read_fwf(pumf_data_file,
+                                   col_types = readr::cols(.default="c",
+                                                           !!!setNames(rep_len("n",length(numeric_vars_2016)),numeric_vars_2016)),
+                                   trim_ws=TRUE,
+                                   col_positions = readr::fwf_positions(layout$start,
+                                                                        layout$end,
+                                                                        col_names = layout$name),
+                                   locale = readr::locale(encoding = "CP1252"))
 
       attr(pumf_data,"pumf_base_path") <- pumf_base_path
     } else {
