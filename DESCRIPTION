@@ -7,7 +7,7 @@ Authors@R: c(
     )
 Maintainer: Jens von Bergmann <jens@mountainmath.ca>
 Description: Facilitate working with StatCan Public Use Microdata Files (PUMF)
-    Parses the SPSS Command Files to infer the layout structure, variable labels and value labels as well as missing data values.
+    Parses the SPSS Command Files or other metadata to infer the layout structure, variable labels and value labels as well as missing data values.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
