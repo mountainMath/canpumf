@@ -314,7 +314,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
     pumf_data <- get_census_pumf(pumf_version,pumf_cache_path,refresh_layout=refresh_layout)
   } else if (pumf_series=="LFS") {
     pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path,refresh=refresh,timeout=timeout)
-  } else if (pumf_series=="CHS" && pumf_version!="2018") {
+  } else if (pumf_series=="CHS") {
     pumf_data <- get_chs_pumf(pumf_version,pumf_cache_path)
   } else if (pumf_series=="SFS" && pumf_version %in% c("2012","2016","2019","2023")) {
     pumf_data <- get_sfs_pumf(pumf_version,pumf_cache_path)

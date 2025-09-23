@@ -13,7 +13,10 @@ get_chs_pumf <- function(pumf_version,pumf_cache_path) {
     }
 
     if (!dir.exists(pumf_base_path)) dir.create(pumf_base_path)
+    uzo <- getOption("unzip")
+    options("unzip"="unzip")
     download_pumf(available_chs_versions$url,pumf_base_path)
+    options("unzip"=uzo)
   }
 
 
@@ -32,28 +35,31 @@ get_chs_pumf <- function(pumf_version,pumf_cache_path) {
     bsw_layout_mask <- "chs2022ecl_pumf_bsw"
     pumf_data_path <- file.path(pumf_base_path,"Chs2022ecl_pumf.csv")
     bsw_data_path <- file.path(pumf_base_path,"Chs2022ecl_pumf_bsw.csv")
-  } else {
-    warning("Untested pumf version")
-    layout_mask <- "CHS2018ECL_PUMF"
+  } else if (pumf_version=="2018") {
+    layout_mask <- "chs2018ecl_pumf"
     bsw_layout_mask <- "chs2018ecl_PUMF_bsw"
     pumf_data_path <- dir(file.path(pumf_base_path,"Data"),"CHS2018ECL_PUMF\\.csv",full.names = TRUE)
     bsw_data_path <- dir(file.path(pumf_base_path,"Data"),"chs2018ecl_PUMF_bsw\\.csv",
                          ignore.case = TRUE,full.names = TRUE)
+  } else {
+      stop("Untested pumf version")
   }
 
   parse_pumf_metadata_spss(pumf_base_path,layout_mask)
-  parse_pumf_metadata_spss(pumf_base_path,bsw_layout_mask)
 
   pumf_data <- readr::read_csv(pumf_data_path,locale = readr::locale(encoding = "CP1252"),
                                col_types=readr::cols(PFWEIGHT="n",.default = "c"))
 
 
-  bsw_data <- readr::read_csv(bsw_data_path,locale = readr::locale(encoding = "CP1252"),
-                              col_types=readr::cols(PUMFID="c",.default = "n"))
+  if (length(bsw_data_path)>0) {
+    parse_pumf_metadata_spss(pumf_base_path,bsw_layout_mask)
 
-  pumf_data <- pumf_data |>
-    left_join(bsw_data,by="PUMFID")
+    bsw_data <- readr::read_csv(bsw_data_path,locale = readr::locale(encoding = "CP1252"),
+                                col_types=readr::cols(PUMFID="c",.default = "n"))
 
+    pumf_data <- pumf_data |>
+      left_join(bsw_data,by="PUMFID")
+  }
 
   attr(pumf_data,"pumf_base_path") <- pumf_base_path
   attr(pumf_data,"layout_mask") <- layout_mask

@@ -52,7 +52,7 @@ list_canpumf_collection <- function(){
                 Acronym="CHS",
                 Version=c("2018","2021","2022"),
                 `Survey Number`="5269",
-                url=c("https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2018-eng.zip",
+                url=c("https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2018.zip",
                       "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2021.zip",
                       "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2022.zip"))
 
