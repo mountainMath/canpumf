@@ -6,3 +6,7 @@
 ^R/local_test\.R$
 ^doc$
 ^Meta$
+test_data/*
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

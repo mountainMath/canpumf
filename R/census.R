@@ -43,7 +43,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
       mutate(value=gsub("^ +| *\\.$","",.data$value)) |>
       mutate(name=gsub(" .+$","",.data$value)) |>
       mutate(label=str_extract(.data$value,"'.+'") |> gsub("'","",x=_) |> gsub("\u00E2\u20AC\u201C","-",x=_)) |>
-      select(.data$name,.data$label) |>
+      select("name","label") |>
       filter(!grepl("^WEIGHT$|^WT\\d+$",.data$name))
 
     saveRDS(name_labels,file.path(canpumf_dir,"var.Rds"))
@@ -75,7 +75,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
           mutate(val=gsub(' *".+',"",.data$value),
                  label=str_extract(.data$value,'".+"') |> gsub('"',"",x=_)) |>
           mutate(name=n) |>
-          select(.data$name,.data$val,.data$label)
+          select("name","val","label")
         if (n=="LFACT" && !("1" %in% vv$val)) { # fix missing level in some version of the SPSS command files
           vv <- rbind(vv,tibble(name=n,val="1",label="Employed - Worked in reference week")) |>
             arrange(as.integer(.data$val))
@@ -87,7 +87,7 @@ ensure_2021_pumfi_metadata <- function(pumf_base_path,refresh_layout=FALSE){
         vv
       }) |>
       mutate(label=gsub(" +$","",.data$label)) |>
-      filter(!(name==""&val=="/"&is.na(label)))
+      filter(!(.data$name=="" & .data$val=="/" & is.na(.data$label)))
 
     saveRDS(val_labels,file.path(canpumf_dir,"val.Rds"))
   }
@@ -275,6 +275,10 @@ ensure_2006_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
   if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE)
+    if (length(layout_path)==0) {
+      layout_path <- dir(pumf_base_path,"Indiv",full.names = TRUE) |>
+        dir("English",full.names = TRUE)
+    }
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE)
 
     spss <- readr::read_lines(file.path(layout_path,dir(layout_path,"\\.sps|\\.SPS$")),
@@ -467,6 +471,14 @@ ensure_1996_pumf_metadata <- function(pumf_base_path,refresh_layout=FALSE){
 
   if (!dir.exists(canpumf_dir)||length(dir(canpumf_dir))<2|refresh_layout) {
     if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
+    files <- dir(pumf_base_path)
+    files <- files[files!="canpumf"]
+    if (length(files)==1 && dir.exists(file.path(pumf_base_path,files))) {
+      pumf_base_path <- file.path(pumf_base_path,files)
+    } else {
+      pumf_base_path <- pumf_base_path
+    }
+
     layout_path <- dir(pumf_base_path,"English",full.names = TRUE,ignore.case = TRUE)
     layout_path <- dir(layout_path,"SPSS",full.names = TRUE,ignore.case = TRUE)
 
@@ -823,20 +835,14 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     if (ylv$version=="hierarchical") {
       path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("cen21_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
       if (length(path)==0) {
-        tmp <- tempfile()
-        path <- "cen21_hier_98M0001X_rec21_hier"
-        download.file("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip",tmp)
-        robust_unzip(tmp,exdir=file.path(pumf_cache_path,path))
-        unlink(tmp)
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip",
+                                  pumf_cache_path=pumf_cache_path)
       }
     } else {
       path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("2021|cen21_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
       if (length(path)==0) {
-        tmp <- tempfile()
-        path <- "cen21_ind_98m0001x_part_rec21"
-        download.file("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_ind_98m0001x_part_rec21.zip",tmp)
-        robust_unzip(tmp,exdir=file.path(pumf_cache_path,path))
-        unlink(tmp)
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_ind_98m0001x_part_rec21.zip",
+                                  pumf_cache_path=pumf_cache_path)
       }
     }
 
@@ -860,11 +866,19 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     } else {
       stop("2021 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="2016 (individuals)"|pumf_version=="2016 (hierarchical)"|pumf_version=="2016"){
-    if (pumf_version=="2016 (hierarchical)") {
-      path <- cached_pumf[grepl("98M0002X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (ylv$year=="2016"){
+    if (ylv$version=="hierarchical") {
+      path <- cached_pumf[grepl("98M0002X",cached_pumf,ignore.case = TRUE)&grepl("2016|cen16_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen16_hier_98m0002x_rec16_hier.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     } else {
-      path <- cached_pumf[grepl("98M0001X",cached_pumf)&grepl("2016",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("98M0001X",cached_pumf,ignore.case = TRUE)&grepl("2016|cen16_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen16_ind_98m0001x_part_rec16.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -876,27 +890,47 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
       layout_path <- file.path(canpumf_dir,"layout.Rds")
       layout <- readRDS(layout_path)
 
+
+      numeric_vars_2016 <- c("CAPGN", "CHDBN", "CHLDC", "CQPPB", "EICBN", "EMPIN",  "GOVTI",  "GTRFS",  "INCTAX", "INVST",
+                        "MRKINC",  "OASGI",  "OTINC", "RETIR", "SEMPI", "SHELCO", "TOTINC", "TOTINC_AT", "VALUE", "WAGES")
+
       pumf_data <- readr::read_fwf(pumf_data_file,
                                    col_types = readr::cols(.default="c"),
                                    trim_ws=TRUE,
                                    col_positions = readr::fwf_positions(layout$start,
                                                                         layout$end,
                                                                         col_names = layout$name),
-                                   locale = readr::locale(encoding = "CP1252")) |>
-        #mutate(across(everything(),\(x)gsub(" *","",x))) |> # remove spaces
-        mutate(across(matches("^WEIGHT$|^WT\\d+$"),\(x)gsub(" *","",x) |> as.numeric()))
+                                   locale = readr::locale(encoding = "CP1252"),
+                                   n_max = 1)
+
+      numeric_vars_2016 <- names(pumf_data)[(toupper(names(pumf_data)) %in% numeric_vars_2016) | grepl("^WEIGHT$|^WT\\d+$",toupper(names(pumf_data)))]
+
+      pumf_data <- readr::read_fwf(pumf_data_file,
+                                   col_types = readr::cols(.default="c",
+                                                           !!!setNames(rep_len("n",length(numeric_vars_2016)),numeric_vars_2016)),
+                                   trim_ws=TRUE,
+                                   col_positions = readr::fwf_positions(layout$start,
+                                                                        layout$end,
+                                                                        col_names = layout$name),
+                                   locale = readr::locale(encoding = "CP1252"))
 
       attr(pumf_data,"pumf_base_path") <- pumf_base_path
-
-
     } else {
       stop("2016 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="2011 (individuals)"|pumf_version=="2011 (hierarchical)"|pumf_version=="2011"){
-    if (pumf_version=="2011 (hierarchical)") {
-      path <- cached_pumf[grepl("99M0002X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (ylv$year=="2011"){
+    if (ylv$version=="hierarchical") {
+      path <- cached_pumf[grepl("99M0002X",cached_pumf,ignore.case = TRUE)&grepl("2011|nhs11_hier",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/nhs11_hier_99m0002x_enm11_hier.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     } else {
-      path <- cached_pumf[grepl("99M0001X",cached_pumf)&grepl("2011",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("99M0001X",cached_pumf,ignore.case = TRUE)&grepl("2011|nhs11_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/nhs11_ind_99m0001x_part_enm11.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -928,15 +962,26 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
       stop("2011 PUMF data is not avaialble")
     }
 
-  } else if (pumf_version=="2006 (individuals)"|pumf_version=="2006 (hierarchical)"|pumf_version=="2006"){
-    if (pumf_version=="2006 (hierarchical)") {
-      path <- cached_pumf[grepl("95M0029X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (ylv$year=="2006"){
+    if (ylv$version=="hierarchical") {
+      path <- cached_pumf[grepl("95M0029X",cached_pumf,ignore.case = TRUE)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen06_hier_95m0029x_part_rec06.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     } else {
-      path <- cached_pumf[grepl("95M0028X",cached_pumf)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0028X",cached_pumf,ignore.case = TRUE)&grepl("2006",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen06_ind_95m0028x_part_rec06.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- pumf_base_path
+      if ("Individual file" %in% dir(individuals_path)) {
+        individuals_path <- file.path(individuals_path,"Individual file")
+      }
       pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
 
       ensure_2006_pumf_metadata(pumf_base_path,refresh_layout=refresh_layout)
@@ -959,13 +1004,25 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     } else {
       stop("2006 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="2001 (individuals)"|pumf_version=="2001 (households)"|pumf_version=="2001 (families)"|pumf_version=="2001"){
-    if (pumf_version=="2001 (households)") {
+  } else if (ylv$year=="2001"){
+    if (ylv$version=="households") {
       path <- cached_pumf[grepl("95M0020X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
-    } else if (pumf_version=="2001 (families)") {
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen01_hous_95m0020x_mena_rec01.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
+    } else if (ylv$version=="families") {
       path <- cached_pumf[grepl("95M0018X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen01_fam_95m0018x_fam_rec01.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     } else {
       path <- cached_pumf[grepl("95M0016X",cached_pumf)&grepl("2001",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen01_ind_95m0016x_part_rec01.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
@@ -992,28 +1049,44 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     } else {
       stop("2001 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="1996 (individuals)"|pumf_version=="1996 (families)"|pumf_version=="1996 (households)"|pumf_version=="1996"){
-    if (pumf_version=="1996 (households)") {
-      path <- cached_pumf[grepl("95M0011X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
-    } else if (pumf_version=="1996 (families)") {
-      path <- cached_pumf[grepl("95M0012X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+  } else if (ylv$year=="1996"){
+    if (ylv$version=="households") {
+      path <- cached_pumf[grepl("95M0011X",cached_pumf,ignore.case = TRUE)&grepl("1996|cen96_hous",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen96_hous_95m0011x_mena_rec96_v2.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
+    } else if (ylv$version=="families") {
+      path <- cached_pumf[grepl("95M0012X",cached_pumf,ignore.case = TRUE)&grepl("1996|cen96_fam",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen96_fam_95m0012x_fam_rec96_v2.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     } else {
-      path <- cached_pumf[grepl("95M0010X",cached_pumf)&grepl("1996",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      path <- cached_pumf[grepl("95M0010X",cached_pumf,ignore.case = TRUE)&grepl("1996|cen96_ind",cached_pumf)&!grepl("\\.zip$",cached_pumf)]
+      if (length(path)==0) {
+        path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen96_ind_95m0010X_part_rec96_v2.zip",
+                                  pumf_cache_path=pumf_cache_path)
+      }
     }
     if (length(path)==1) {
       pumf_base_path <- file.path(pumf_cache_path,path)
       individuals_path <- pumf_base_path
+      if ("indiv" %in%  dir(individuals_path)) {
+        individuals_path <- file.path(individuals_path,"indiv")
+      }
       pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
       pumf_data_file <- pumf_data_file[!grepl("testind",pumf_data_file)]
       if (length(pumf_data_file)!=1) {
-        zip_file <- dir(individuals_path,"\\.zip",full.names = TRUE)
-        if (length(zip_file)==1) {
-          utils::unzip(zip_file,exdir = individuals_path)
-        }
+        # zip_file <- dir(individuals_path,"\\.zip",full.names = TRUE)
+        # if (length(zip_file)==1) {
+        #   utils::unzip(zip_file,exdir = individuals_path)
+        # }
+        pumf_data_file <- dir(individuals_path,"\\.zip",full.names = TRUE)
       }
 
-      pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
-      pumf_data_file <- pumf_data_file[!grepl("testind",pumf_data_file)]
+      # pumf_data_file <- dir(individuals_path,"\\.dat",full.names = TRUE)
+      # pumf_data_file <- pumf_data_file[!grepl("testind",pumf_data_file)]
 
       if (length(pumf_data_file)!=1) {
         stop("1996 PUMF data is not avaialble")
@@ -1040,21 +1113,45 @@ get_census_pumf <- function(pumf_version,pumf_cache_path,refresh_layout=FALSE){
     } else {
       stop("1996 PUMF data is not avaialble")
     }
-  } else if (pumf_version=="1991 (individuals)"|pumf_version=="1991 (families)"|pumf_version=="1991 (households)"|pumf_version=="1991"){
+  } else if (ylv$year=="1991"){
     path <- cached_pumf[grepl(ylv$year,cached_pumf)]
     path <- path[grepl("_FMGD",path)]
     pumf_base_path <- file.path(pumf_cache_path,path)
-    if (pumf_version=="1991 (households)") {
+    if (ylv$version=="households") {
       path.zip <- dir(pumf_base_path,"hhld91\\.zip",full.names = TRUE)
       path <- file.path(pumf_base_path,"hhld91")
-    } else if (pumf_version=="1991 (families)") {
+      if (((length(path.zip)==0)||!file.exists(path.zip))&&(length(path)==0||!dir.exists(path))) {
+        path <- cached_pumf[grepl("cen91_hous",cached_pumf)]
+        if (length(path)==0) {
+          path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen91_hous_95m0008X_mena_rec91.zip",
+                                    pumf_cache_path=pumf_cache_path)
+        }
+        path <- file.path(pumf_base_path,path)
+      }
+    } else if (ylv$version=="families") {
       path.zip <- dir(pumf_base_path,"fam91\\.zip",full.names = TRUE)
       path <- file.path(pumf_base_path,"fam91")
+      if (((length(path.zip)==0)||!file.exists(path.zip))&&(length(path)==0||!dir.exists(path))) {
+        path <- cached_pumf[grepl("cen91_fam",cached_pumf)]
+        if (length(path)==0) {
+          path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen91_fam_95m0009x_fam_rec91.zip",
+                                    pumf_cache_path=pumf_cache_path)
+        }
+        path <- file.path(pumf_base_path,path)
+      }
     } else {
       path.zip <- dir(pumf_base_path,"indiv91\\.zip",full.names = TRUE)
       path <- file.path(pumf_base_path,"indiv91")
+      if (((length(path.zip)==0)||!file.exists(path.zip))&&(length(path)==0||!dir.exists(path))) {
+        path <- cached_pumf[grepl("cen91_ind",cached_pumf)]
+        if (length(path)==0) {
+          path <- get_pumf_from_url("https://www150.statcan.gc.ca/n1/en/pub/98m0001x/2023001/cen91_ind_95m0007x_ind_rec91.zip",
+                                    pumf_cache_path=pumf_cache_path)
+        }
+        path <- file.path(pumf_base_path,path)
+      }
     }
-    if (!dir.exists(path)) {
+    if (length(path.zip)>0&&file.exists(path.zip)&&!dir.exists(path)) {
       utils::unzip(path.zip,exdir = path)
     }
     pumf_data_file <- dir(path,full.names = TRUE)

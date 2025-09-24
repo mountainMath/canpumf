@@ -7,6 +7,7 @@
 download_pumf(
   path,
   destination_dir = file.path(tempdir(), "pumf"),
+  refresh = FALSE,
   timeout = 3000
 )
 }
@@ -15,7 +16,9 @@ download_pumf(
 
 \item{destination_dir}{Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`}
 
-\item{timeout}{Optional parameter to specify connection timout for download}
+\item{refresh}{Optional parameter to force re-download of PUMF data}
+
+\item{timeout}{Optional parameter to specify connection timeout for download}
 }
 \value{
 pumf_base_dir that can be used in the other package functions

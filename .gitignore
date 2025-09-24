@@ -8,3 +8,5 @@ inst/doc
 /doc/
 /Meta/
 .DS_Store
+test_data/*
+docs

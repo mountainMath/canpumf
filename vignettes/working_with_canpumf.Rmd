@@ -26,8 +26,7 @@ options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from [work done by Nathan Lauster and Jens von Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/).
 
 ```{r}
-chs_pumf <- get_pumf("CHS","2018") %>%
-  convert_pumf_numeric_columns(numeric_columns = "PFWEIGHT") %>%
+chs_pumf <- get_pumf("CHS","2018") |>
   label_pumf_data() 
 ```
 

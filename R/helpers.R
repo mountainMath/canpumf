@@ -114,7 +114,17 @@ robust_unzip <- function(path,exdir) {
   } else {
     utils::unzip(path,exdir = exdir)
   }
+}
 
+get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
+    tmp <- tempfile()
+    if (is.null(key)) {
+      key <- basename(url) |> gsub("\\.zip$","",x=_)
+    }
+    utils::download.file(url,tmp)
+    robust_unzip(tmp,exdir=file.path(pumf_cache_path,key))
+    unlink(tmp)
+    key
 }
 
 
