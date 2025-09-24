@@ -65,12 +65,13 @@ The package makes an attempt to parse other PUMF files.
 
 The code may need further refinements to work with all StatCan PUMF files. It has been successfully tried with the following PUMF files:
 
-* CHS 2018
+* CHS 2018, 2021, 2022
 * ITS 2017
 * VTS 2018
 * TSRC 2017
 * Covid Series 3
 * SFS 2019
+* SHS 2019
 
 ### Cite **canpumf**
 
