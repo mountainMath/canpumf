@@ -7,3 +7,6 @@
 ^doc$
 ^Meta$
 test_data/*
+^_pkgdown\.yml$
+^docs$
+^pkgdown$
