@@ -371,12 +371,14 @@ download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),refre
     old_timeout <- getOption("timeout")
     options("timeout"=timeout)
     unzip_option=getOption("unzip")
-    if (is.null(unzip_option)) unzip_option <- "internal"
+    if (is.null(unzip_option)) unzip_option <- "unzip"
     #httr::GET(path, httr::write_disk(tmp),timeout=timeout)
     utils::download.file(path,tmp,mode="wb")
     options("timeout"=old_timeout)
     if (Sys.info()['sysname']=="Darwin") {
       system(paste0("ditto -V -x -k --sequesterRsrc --rsrc ",tmp," ",destination_dir))
+    } else if (Sys.info()['sysname']=="Windows") {
+      utils::unzip(tmp,exdir = destination_dir, unzip="unzip")
     } else {
       utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
     }

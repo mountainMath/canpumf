@@ -19,7 +19,6 @@ knitr::opts_chunk$set(
 library(canpumf)
 library(dplyr)
 library(ggplot2)
-options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
 For Census data the package currently supports the 2021, 2016, and 2011NHS individuals pumf. These can be ordered from Statisticas Canada via EFT and should be stored in the cache path pointed to in the `canpumf.cache_path` option for the package to find the data.
