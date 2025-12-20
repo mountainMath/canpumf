@@ -1,14 +1,17 @@
 # supporting the SFS pumf
 
-get_sfs_pumf <- function(pumf_version,pumf_cache_path) {
+get_sfs_pumf <- function(pumf_version,pumf_cache_path, refresh=FALSE) {
   sfs_base_path <- file.path(pumf_cache_path,"SFS")
   pumf_base_path <- file.path(sfs_base_path,pumf_version)
+  if (refresh&&dir.exists(pumf_base_path)) {
+    unlink(pumf_base_path,recursive=TRUE)
+  }
   if (!dir.exists(pumf_base_path)) {
     available_sfs_versions <- list_canpumf_collection() |>
       dplyr::filter(.data$Acronym=="SFS",.data$Version==pumf_version)
 
     if (nrow(available_sfs_versions)==0) {
-      stop("SFS version ",pumf_version," is not available, check available CHS PUMF versions via `list_canpumf_collection()`")
+      stop("SFS version ",pumf_version," is not available, check available SFS PUMF versions via `list_canpumf_collection()`")
     }
 
     dir.create(pumf_base_path)

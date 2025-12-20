@@ -1,9 +1,12 @@
 # parsing CHS pumf
 
-get_chs_pumf <- function(pumf_version,pumf_cache_path) {
+get_chs_pumf <- function(pumf_version,pumf_cache_path, refresh=FALSE) {
   chs_base_path <- file.path(pumf_cache_path,"CHS")
   if (!dir.exists(chs_base_path)) dir.create(chs_base_path)
   pumf_base_path <- file.path(chs_base_path,pumf_version)
+  if (refresh&&dir.exists(pumf_base_path)) {
+    unlink(pumf_base_path,recursive=TRUE)
+  }
   if (!dir.exists(pumf_base_path) || length(dir(pumf_base_path))==0) {
     available_chs_versions <- list_canpumf_collection() |>
       dplyr::filter(.data$Acronym=="CHS",.data$Version==pumf_version)

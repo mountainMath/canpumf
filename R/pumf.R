@@ -62,7 +62,7 @@ label_pumf_columns <- function(pumf_data,
 #' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
 #' @param layout_mask optional layout mask in case there are several layout files,
 #' guessed from attributes on \code{layout_mask}
-#' @param rename_columns rename PUMF columns to human readable names, default is `TRUE`
+#' @param rename_columns rename PUMF columns to human readable names, default is `FALSE`
 #' @param infer_missing_numeric optional character, infer variables that aren't labelled to be numeric
 #'
 #' @return relabeled data frame
@@ -70,7 +70,7 @@ label_pumf_columns <- function(pumf_data,
 label_pumf_data <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
                             layout_mask=attr(pumf_data,"layout_mask"),
-                            rename_columns=TRUE,
+                            rename_columns=FALSE,
                             infer_missing_numeric=FALSE){
   if (grepl("98M0001X",pumf_base_path)&&grepl("2021",pumf_base_path)) {
     infer_missing_numeric <- TRUE
@@ -318,6 +318,8 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
     pumf_data <- get_chs_pumf(pumf_version,pumf_cache_path)
   } else if (pumf_series=="SFS" && pumf_version %in% c("2012","2016","2019","2023")) {
     pumf_data <- get_sfs_pumf(pumf_version,pumf_cache_path)
+  } else if (FALSE && pumf_series=="SHS") {
+    pumf_data <- get_shs_pumf(pumf_version,pumf_cache_path,refresh=refresh)
   }
 
   if (is.null(pumf_data)) {

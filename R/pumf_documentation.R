@@ -162,7 +162,14 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
       if (length(pbd)==1) pumf_base_path <- pbd
     }
     url <- dir(pumf_base_path,full.names=TRUE,"\\.pdf",ignore.case=TRUE)
+  } else if (pumf_series=="SHS") {
+    pumf_base_path <- cached_pumf[grepl("SHS",cached_pumf)]
+    pumf_base_path <- dir(pumf_base_path,pattern=pumf_version,full.names = TRUE)
+
+    url <- dir(pumf_base_path,full.names=TRUE,"\\.pdf",ignore.case=TRUE, recursive = TRUE)
+
   }
+
 
   if (!is.null(url)) {
     lapply(url,utils::browseURL)

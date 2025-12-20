@@ -119,18 +119,23 @@ parse_pumf_data_cards <- function(pumf_base_path,layout_mask=NULL){
 
   layout <- readr::read_lines(data_file_layout,locale=readr::locale(encoding = "Latin1")) |>
     as_tibble() |>
-    filter(grepl("^@\\d+ ([A-Z,a-z,0-9,_]+) +\\$\\d+\\.$",.data$value)) |>
-    mutate(name=stringr::str_match(.data$value,"^@\\d+ ([A-Z,a-z,0-9,_]+) +\\$\\d+\\.$")[,2],
-           start=stringr::str_match(.data$value,"^@(\\d+) [A-Z,a-z,0-9,_]+ +\\$\\d+\\.$")[,2],
-           size=stringr::str_match(.data$value,"^@\\d+ [A-Z,a-z,0-9,_]+ +\\$(\\d+)\\.$")[,2]) |>
+    filter(grepl("^@\\d+ ([A-Z,a-z,0-9,_]+) +\\$*\\d+\\.\\d*$",.data$value)) |>
+    mutate(name=stringr::str_match(.data$value,"^@\\d+ ([A-Z,a-z,0-9,_]+) +\\$*\\d+\\.\\d*$")[,2],
+           start=stringr::str_match(.data$value,"^@(\\d+) [A-Z,a-z,0-9,_]+ +\\$*\\d+\\.\\d*$")[,2],
+           size=stringr::str_match(.data$value,"^@\\d+ [A-Z,a-z,0-9,_]+ +\\$*(\\d+)\\.\\d*$")[,2]) |>
+    mutate(numeric=stringr::str_match(.data$value,"^@\\d+ [A-Z,a-z,0-9,_]+ +\\$*\\d+\\.(\\d*)$")[,2]) |>
     select(-.data$value) |>
     mutate(across(c(.data$start,.data$size),as.integer)) |>
-    mutate(end=.data$start+.data$size-1)
+    mutate(end=.data$start+.data$size-1) |>
+    mutate(numeric=numeric!="")
 
   data <- readr::read_fwf(data_file_data,
                    col_positions = readr::fwf_positions(layout$start,layout$end,col_names = layout$name),
                    col_types=readr::cols(.default = "c"),
                    locale=readr::locale(encoding = "Latin1"))
+
+  data <- data |>
+    mutate(across(any_of(layout$name[layout$numeric]),as.numeric))
 
   if (length(weight_file_layout)==1) {
     layoutw <- readr::read_lines(weight_file_layout,locale=readr::locale(encoding = "Latin1")) |>
