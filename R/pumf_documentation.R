@@ -167,7 +167,11 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
     pumf_base_path <- dir(pumf_base_path,pattern=pumf_version,full.names = TRUE)
 
     url <- dir(pumf_base_path,full.names=TRUE,"\\.pdf",ignore.case=TRUE, recursive = TRUE)
+  } else if (pumf_series=="CIS") {
+    pumf_base_path <- cached_pumf[grepl("CIS",cached_pumf)]
+    pumf_base_path <- dir(pumf_base_path,pattern=pumf_version,full.names = TRUE)
 
+    url <- dir(pumf_base_path,full.names=TRUE,"\\.pdf",ignore.case=TRUE, recursive = TRUE)
   }
 
 

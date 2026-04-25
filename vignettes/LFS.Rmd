@@ -44,7 +44,7 @@ By default the data is stored in the temporary session path, optionally we can s
 To convert to human readable column lables and column names we use the `label_pumf_data` function.
 
 ```{r}
-lfs_2022 <- lfs_2022 |> label_pumf_data() 
+lfs_2022 <- lfs_2022 |> label_pumf_data(rename_columns = TRUE) 
 ```
 
 With this we can do some simple descriptive analysis. We could use the `add_bootstrap_weights` function to add bootstrap wegihts if desired. We focus in on February 2022 and add boodstrap weights. By default this only adds 16 weights, for more serious applications we would want to add more weights.

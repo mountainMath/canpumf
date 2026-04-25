@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -85,7 +85,7 @@ housing preferences and needs. This vignette is adapted from <a href="https://do
 done by Nathan Lauster and Jens von Bergmann</a>.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">chs_pumf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"CHS"</span>,<span class="st">"2018"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu"><a href="../reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span><span class="op">)</span> </span></code></pre></div>
+<span>  <span class="fu"><a href="../reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span>rename_columns <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> </span></code></pre></div>
 <div class="section level2">
 <h2 id="forced-moves">Forced moves<a class="anchor" aria-label="anchor" href="#forced-moves"></a>
 </h2>
@@ -125,7 +125,7 @@ reproted time windows get large.</p>
 <span>       x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,</span>
 <span>       y<span class="op">=</span><span class="st">"Share of current renters"</span>,</span>
 <span>       caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></span></code></pre></div>
-<p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-1.png" alt="Vancouver renters forced to move" width="700"></p>
+<p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-1.png" class="r-plt" alt="Vancouver renters forced to move" width="700"></p>
 <p>This looks interesting in that there seem to be distinct periods when
 the frequency of being forced to move changed, recognizing that longer
 ago breackets are conditional on not having moved after.</p>
@@ -158,7 +158,7 @@ function.</p>
 <span>       x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,</span>
 <span>       y<span class="op">=</span><span class="st">"Share of current renters"</span>,</span>
 <span>       caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></span></code></pre></div>
-<p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-bootstrap-1.png" alt="Vancouver renters forced to move with bootstrap weights" width="700"></p>
+<p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-bootstrap-1.png" class="r-plt" alt="Vancouver renters forced to move with bootstrap weights" width="700"></p>
 <p>This shows that the changes in frequency of forced moves are fairly
 robust to sampling issues. The initial jump and then final reduction in
 risk of being forced to move are interesting, the final reduction may be
@@ -197,7 +197,7 @@ what effect it has.</p>
 <span>       x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,</span>
 <span>       y<span class="op">=</span><span class="st">"Share of current renters"</span>,</span>
 <span>       caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></span></code></pre></div>
-<p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-previous-location-1.png" alt="Vancouver renters forced to move by previous location" width="700"></p>
+<p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-previous-location-1.png" class="r-plt" alt="Vancouver renters forced to move by previous location" width="700"></p>
 <p>Here we see the frequency of forced moves is slightly elevated for
 people moving within the same city. It will take more digging through
 the data to see what might cause this.</p>
@@ -235,7 +235,7 @@ CMAs.</p>
 <span>       x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,</span>
 <span>       y<span class="op">=</span><span class="st">"Share of current renters"</span>,</span>
 <span>       caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></span></code></pre></div>
-<p><img src="working_with_canpumf_files/figure-html/fig-renters-forced-moves-1.png" alt="Renters forced to move" width="700"></p>
+<p><img src="working_with_canpumf_files/figure-html/fig-renters-forced-moves-1.png" class="r-plt" alt="Renters forced to move" width="700"></p>
 <p>This shows that patterns vary across cities, Calgary’s elevated rate
 of forced moves in four to five year timeframe may be due to the heated
 up of the rental market during the boom phase at that time, where rent
@@ -253,7 +253,7 @@ this will have to do.</p>
 </div>
 
 <div class="pkgdown-footer-right">
-  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.1.3.</p>
+  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.0.</p>
 </div>
 
     </footer>

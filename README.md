@@ -77,7 +77,7 @@ The code may need further refinements to work with all StatCan PUMF files. It ha
 
 If you wish to cite the `canpumf` package in your work:
 
-  von Bergmann, J. (2025), canpumf: Import StatCan PUMF data into R. v0.3.0.
+  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.3.1.
 
 A BibTeX entry for LaTeX users is
 ```
@@ -85,7 +85,7 @@ A BibTeX entry for LaTeX users is
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2024},
-    note = {R package version 0.3.0},
+    note = {R package version 0.3.1},
     url = {https://mountainmath.github.io/canpumf/},
   }
 ```

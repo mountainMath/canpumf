@@ -30,8 +30,13 @@ ensure_lfs_metadata <- function(lfs_path){
   canpumf_dir <- file.path(lfs_path,"canpumf")
   if (!dir.exists(canpumf_dir)) dir.create(canpumf_dir)
   metadata_path <- lfs_path
-  if (dir.exists(file.path(lfs_path,"Documents"))) {
-    metadata_path <- file.path(lfs_path,"Documents")
+  dd <- dir(metadata_path)
+  dd <- dd[dd!="canpumf"]
+  if (length(dd)==1 && dir.exists(file.path(metadata_path,dd))) {
+    metadata_path <- file.path(metadata_path,dd)
+  }
+  if (dir.exists(file.path(metadata_path,"Documents"))) {
+    metadata_path <- file.path(metadata_path,"Documents")
   }
   codebook_path <- dir(metadata_path,"codebook\\.csv",full.names = TRUE)
   codebook <- readr::read_csv(codebook_path,locale = readr::locale(encoding = "CP1252"),
@@ -76,7 +81,15 @@ get_lfs_pumf <- function(pumf_version,pumf_cache_path, refresh=FALSE, timeout=30
                 "xtrahrs", "tenure",   "prevten",  "hrlyearn", "durunemp", "durjless", "finalwt") |>
     toupper()
 
-  pumf_file_path <- dir(pumf_path,"pub\\d+\\.csv",full.names = TRUE)
+  pumf_data_path <- pumf_path
+  dd <- dir(pumf_data_path)
+  dd <- dd[dd!="canpumf"]
+  if (length(dd)==1 && dir.exists(file.path(pumf_data_path,dd))) {
+    pumf_data_path <- file.path(pumf_data_path,dd)
+  }
+
+
+  pumf_file_path <- dir(pumf_data_path,"pub\\d+\\.csv",full.names = TRUE)
   pumf_data <- readr::read_csv(pumf_file_path,locale = readr::locale(encoding = "CP1252"),
                                col_types=readr::cols(.default = "c")) %>%
     setNames(toupper(names(.))) |>

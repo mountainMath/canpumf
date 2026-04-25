@@ -27,7 +27,7 @@ The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing pref
 
 ```{r}
 chs_pumf <- get_pumf("CHS","2018") |>
-  label_pumf_data() 
+  label_pumf_data(rename_columns = TRUE) 
 ```
 
 

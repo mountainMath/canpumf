@@ -21,6 +21,13 @@ list_census_collection <- function() {
     dplyr::select(-"Year",-"type")
 }
 
+list_pumf_collection <- function(){
+  tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
+    stats::na.omit()
+}
+
+
+
 #' List StatCan PUMF collection with canpumf wrappers
 #'
 #' @description A list of pumf collections and versions with convenience wrappers in canpumf.
@@ -85,6 +92,16 @@ list_canpumf_collection <- function(){
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2016-eng.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2023-eng.zip"))
+  cis_versions <- tibble(Acronym="CIS",
+                         Version=c("2022", "2021", "2020", "2019", "2018"), #"2017"),
+                         url=c("https://www150.statcan.gc.ca/n1/pub/72m0003x/2024001/2022.zip",
+                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2024001/2021.zip",
+                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2023002/2020.zip",
+                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2021001/2019.zip",
+                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2021001/2018-eng.zip"#,
+                               # stll some problems with 2017, come back to that later
+                               #"https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2019001/2017-eng.zip"
+                               ))
 
   census_download <- list_census_collection()
 
@@ -101,6 +118,7 @@ list_canpumf_collection <- function(){
       bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
                 its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
+                cis_versions |> mutate(Title="Canadian Income Survey",`Survey Number`='5200'),
                 tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
                        Version=paste0(seq(1971,last_eft_year,5)," (individuals)"),
                        url="(EFT)"),

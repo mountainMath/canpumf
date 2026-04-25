@@ -1,10 +1,3 @@
-list_pumf_collection <- function(){
-  tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
-    stats::na.omit()
-}
-
-
-
 
 
 #' Guess which columns in pumf data are numeric
@@ -236,10 +229,13 @@ read_pumf_data <- function(pumf_base_path,
                                  col_types = readr::cols(.default = "c"))
   } else if (length(reading_cards)>0){
     pumf_data <- parse_pumf_data_cards(pumf_base_path,layout_mask)
+    parse_pumf_metadata_cards(pumf_base_path,layout_mask)
   } else {
     layout<- read_pumf_layout_spss(pumf_base_path,layout_mask)
+    parse_pumf_metadata_spss(pumf_base_path,layout_mask)
     data_dir <- pumf_data_dir(pumf_base_path)
     data_path <- dir(data_dir,"\\.txt$")
+    data_path <- data_path[!grepl("Readme|Lisezmoi",data_path,ignore.case = TRUE)]
     if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
     if (length(data_path)==0) {
       data_path <- dir(data_dir,"\\.dat$")
