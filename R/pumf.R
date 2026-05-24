@@ -11,14 +11,21 @@
 guess_numeric_pumf_columns <- function(pumf_base_path,
                                        layout_mask=NULL,
                                        numeric_pattern = "\\d+-\\d+|THRU 99"){
-  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask)
+  miss_labels <- c()
+  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask, numeric_only=TRUE)
   if (nrow(miss_data)==0) {
     val_labels <- read_pumf_val_labels(pumf_base_path)
-    val_labels %>% filter(grepl(numeric_pattern,.data$val)) %>% pull(.data$name)
+    miss_labels <- val_labels %>%
+      filter(grepl(numeric_pattern,.data$val)) %>%
+      pull(.data$name)
   }
-  else  miss_data %>%
-    filter(grepl(numeric_pattern,.data$missing)) %>%
-    pull(.data$name)
+  else  {
+    miss_labels <- miss_data %>%
+      filter(grepl(numeric_pattern,.data$missing)) %>%
+      pull(.data$name)
+  }
+
+  miss_labels
 }
 
 
@@ -157,7 +164,7 @@ convert_pumf_numeric_columns <- function(pumf_data,
   if (is.null(pumf_base_path)) stop("Could not find PUMF base path to access metadata.")
   if (is.null(numeric_columns))  numeric_columns <- guess_numeric_pumf_columns(pumf_base_path,layout_mask)
 
-  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask)
+  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask, numeric_only=TRUE)
   missing <- setdiff(numeric_columns,miss_data$name)
 
   if (length(missing)>0 & nrow(miss_data)>0) {
@@ -281,6 +288,8 @@ read_pumf_data <- function(pumf_base_path,
 #' @param layout_mask optional layout mask in case there are several files.
 #' identifiers. For LFS this is the month/year.
 #' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
+#' @param guess_numeric logical, will guess numeric columns and covert to numeric and set missing values
+#' to \code{NA} if set to \code{TRUE} (default)
 #' @param pumf_cache_path A path to a permanent cache. If none is fould the data is stored in the temporary
 #' directory for the duration of the session.
 #' @param refresh optionall re-downlad pumf data, only for series that can be downloaded directly from StatCan
@@ -292,6 +301,7 @@ read_pumf_data <- function(pumf_base_path,
 get_pumf <- function(pumf_series,pumf_version = NULL,
                      layout_mask=NULL,
                      file_mask=layout_mask,
+                     guess_numeric = TRUE,
                      pumf_cache_path = getOption("canpumf.cache_path"),
                      refresh=FALSE,
                      refresh_layout=FALSE,
@@ -329,6 +339,10 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
       pumf_version <- d$Version
     }
 
+    if (nrow(d)!=1) {
+      stop("Could not find PUMF version.")
+    }
+
     if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
       pumf_cache_path<- file.path(tempdir(),"pumf")
       message(paste0("PUMF cache path is not set, consider setting the PUMF cache path via","\n",
@@ -346,7 +360,7 @@ get_pumf <- function(pumf_series,pumf_version = NULL,
       dd<-download_pumf(d$url,destination_dir = destination_dir)
     }
 
-    pumf_data <- read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask)
+    pumf_data <- read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask, guess_numeric=guess_numeric)
   }
   options(timeout=old_timeout)
   pumf_data

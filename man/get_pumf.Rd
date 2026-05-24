@@ -9,6 +9,7 @@ get_pumf(
   pumf_version = NULL,
   layout_mask = NULL,
   file_mask = layout_mask,
+  guess_numeric = TRUE,
   pumf_cache_path = getOption("canpumf.cache_path"),
   refresh = FALSE,
   refresh_layout = FALSE,
@@ -24,6 +25,9 @@ get_pumf(
 identifiers. For LFS this is the month/year.}
 
 \item{file_mask}{optional additional mask to filter down to specific PUMF file if there are several}
+
+\item{guess_numeric}{logical, will guess numeric columns and covert to numeric and set missing values
+to \code{NA} if set to \code{TRUE} (default)}
 
 \item{pumf_cache_path}{A path to a permanent cache. If none is fould the data is stored in the temporary
 directory for the duration of the session.}

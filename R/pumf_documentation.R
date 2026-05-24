@@ -175,6 +175,24 @@ open_pumf_documentation <- function(pumf_series, pumf_version = NULL,
   }
 
 
+  if (is.null(url)) {
+    pumf_base_path <- cached_pumf[grepl(pumf_series,cached_pumf)]
+    if (length(pumf_base_path)==1) {
+      pumf_base_path <- dir(pumf_base_path,full.names = TRUE)
+    }
+    if (length(pumf_base_path)>1 && !is.null(pumf_version)) {
+      pumf_base_path <- pumf_base_path[grepl(pumf_version,pumf_base_path)]
+    }
+    if (length(pumf_base_path)==1) {
+      pumf_base_path <- dir(pumf_base_path,full.names = TRUE)
+    }
+    url <- list.files(path = pumf_base_path,
+                            pattern = "\\.pdf$",
+                            recursive = TRUE,
+                            full.names = TRUE,
+                            ignore.case = TRUE)
+  }
+
   if (!is.null(url)) {
     lapply(url,utils::browseURL)
   } else {

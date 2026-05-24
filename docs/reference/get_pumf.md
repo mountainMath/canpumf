@@ -11,6 +11,7 @@ get_pumf(
   pumf_version = NULL,
   layout_mask = NULL,
   file_mask = layout_mask,
+  guess_numeric = TRUE,
   pumf_cache_path = getOption("canpumf.cache_path"),
   refresh = FALSE,
   refresh_layout = FALSE,
@@ -38,6 +39,11 @@ get_pumf(
 
   optional additional mask to filter down to specific PUMF file if there
   are several
+
+- guess_numeric:
+
+  logical, will guess numeric columns and covert to numeric and set
+  missing values to `NA` if set to `TRUE` (default)
 
 - pumf_cache_path:
 

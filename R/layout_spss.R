@@ -68,7 +68,7 @@ parse_pumf_metadata_spss <- function(pumf_base_path,layout_mask=NULL){
     saveRDS(val_labels,file.path(cpld,"val.Rds"))
   },
   error=function(e){
-    if (!grepl("_bsw",layout_mask)) {
+    if (is.null(layout_mask) || !grepl("_bsw",layout_mask)) {
       stop("No value labels found")
     }
   })

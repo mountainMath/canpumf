@@ -35,7 +35,7 @@ list_pumf_collection <- function(){
 #' @return a tibble with a list of the PUMF files with canpumf convenience wrappers
 #' @export
 list_canpumf_collection <- function(){
-  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS","SHS")
+  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS","SHS","GSS")
   pumf_surveys<-list_pumf_collection() %>%
     filter(.data$Acronym %in% canpumf_conveninence_series)
 
@@ -103,6 +103,29 @@ list_canpumf_collection <- function(){
                                #"https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2019001/2017-eng.zip"
                                ))
 
+  gss_versions <- tibble(Acronym="GSS",
+                             Version=c("1996", "2007", "2012", "2018"),
+                             url=c("https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c11_1996.zip",
+                                   "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c21_2007.zip",
+                                   "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c26_2012.zip",
+                                   "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c32_2018.zip"),
+                             Title="General Social Survey - Caregiving and Care Receiving",
+                             `Survey Number`='4502'
+  )
+  sgvp_versions <- tibble(Acronym="SGVP",
+                          Version=c("1997", "2000", "2004", "2007", "2010", "2013", "2018", "2023"),
+                          url=c("https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/NSGVP-ENDBP_1997.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/NSGVP-ENDBP_2000.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2004.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2007.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2010.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/c27_2013.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/c33_2018.zip",
+                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/GVP_DBP_2023.zip"),
+                          Title="General Social Survey - Giving, Volunteering and Participating",
+                          `Survey Number`='4430'
+  )
+
   census_download <- list_census_collection()
 
   first_year <- census_download$Version |> str_extract("\\d{4}") |> as.integer() |> min()
@@ -110,7 +133,7 @@ list_canpumf_collection <- function(){
 
   if (nrow(pumf_surveys)>0) {
     result <- pumf_surveys %>%
-      left_join(bind_rows(lfs_versions,its_versions,sfs_versions),
+      left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_versions,sgvp_versions),
                 by="Acronym") %>%
       bind_rows(chs,cpss,shs)
   } else {
@@ -119,6 +142,8 @@ list_canpumf_collection <- function(){
                 its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
                 cis_versions |> mutate(Title="Canadian Income Survey",`Survey Number`='5200'),
+                gss_versions,
+                sgvp_versions,
                 tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
                        Version=paste0(seq(1971,last_eft_year,5)," (individuals)"),
                        url="(EFT)"),

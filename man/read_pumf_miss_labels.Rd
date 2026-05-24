@@ -4,12 +4,14 @@
 \alias{read_pumf_miss_labels}
 \title{Read PUMF missing data information}
 \usage{
-read_pumf_miss_labels(pumf_base_path, layout_mask = NULL)
+read_pumf_miss_labels(pumf_base_path, layout_mask = NULL, numeric_only = TRUE)
 }
 \arguments{
 \item{pumf_base_path}{pumf base path}
 
 \item{layout_mask}{optional path or mask for the layout file in case there are several,}
+
+\item{numeric_only}{options, only returns missing data for numeric columns, defaul is `TRUE`.}
 }
 \value{
 tibble with missing data information

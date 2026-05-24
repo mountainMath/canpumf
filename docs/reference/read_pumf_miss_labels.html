@@ -44,7 +44,7 @@
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">read_pumf_miss_labels</span><span class="op">(</span><span class="va">pumf_base_path</span>, layout_mask <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">read_pumf_miss_labels</span><span class="op">(</span><span class="va">pumf_base_path</span>, layout_mask <span class="op">=</span> <span class="cn">NULL</span>, numeric_only <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -57,6 +57,10 @@
 
 <dt id="arg-layout-mask">layout_mask<a class="anchor" aria-label="anchor" href="#arg-layout-mask"></a></dt>
 <dd><p>optional path or mask for the layout file in case there are several,</p></dd>
+
+
+<dt id="arg-numeric-only">numeric_only<a class="anchor" aria-label="anchor" href="#arg-numeric-only"></a></dt>
+<dd><p>options, only returns missing data for numeric columns, defaul is `TRUE`.</p></dd>
 
 </dl></div>
     <div class="section level2">

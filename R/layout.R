@@ -36,10 +36,11 @@ read_pumf_var_labels <- function(pumf_base_path,layout_mask=NULL){
 #'
 #' @param pumf_base_path pumf base path
 #' @param layout_mask optional path or mask for the layout file in case there are several,
+#' @param numeric_only options, only returns missing data for numeric columns, defaul is `TRUE`.
 #'
 #' @return tibble with missing data information
 #' @export
-read_pumf_miss_labels <- function(pumf_base_path,layout_mask=NULL){
+read_pumf_miss_labels <- function(pumf_base_path,layout_mask=NULL, numeric_only=TRUE){
   if (is.data.frame(pumf_base_path)) {
     layout_mask <- attr(pumf_base_path,"layout_mask")
     pumf_base_path <- attr(pumf_base_path,"pumf_base_path")
@@ -52,6 +53,8 @@ read_pumf_miss_labels <- function(pumf_base_path,layout_mask=NULL){
   path <- file.path(pumf_clean_layout_dir(pumf_base_path,layout_mask),"miss.Rds")
   if (file.exists(path)) {
     miss <- readRDS(path)
+    val <- read_pumf_val_labels(pumf_base_path)
+    miss <- miss |> filter(!(.data$name %in% unique(val$name)))
   } else {
     miss <- tibble::tibble()
   }

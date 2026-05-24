@@ -61,7 +61,7 @@ pumf_layout_dir <- function(pumf_base_path){
 
 slice_raw_layout_data <- function(r){
   start_line <- which(grepl(" LABELS| VALUES|DATA LIST FILE",r$value))+1
-  end_line <- which(grepl(" +\\.",r$value))-1
+  end_line <- setdiff(which(grepl(" +\\.",r$value)),which(grepl(" +\\.\\.\\.",r$value)))-1
   r %>%
     slice(seq(start_line,end_line))
 }
