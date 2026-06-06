@@ -12,6 +12,7 @@
 | 6 | LFS database strategy | Single shared DuckDB + table across all LFS versions; monthly data superseded by annual when available |
 | 7 | Categorical storage | R factors with complete levels → DuckDB ENUM columns; NA values stored as NULL |
 | 8 | Test suite | `testthat` with golden-file fixtures per parser; integration tests for all downloadable surveys; property tests for factor/ENUM conversion |
+| 9 | Bilingual support | Both English and French labels parsed and stored in canonical metadata; `lang="eng"` (default) or `lang="fra"` parameter selects which labeled DuckDB table is created/returned; tables created lazily on first request |
 
 ---
 
@@ -38,12 +39,15 @@ One row per variable.
 | column | type | description |
 |---|---|---|
 | `name` | character | variable name (always uppercase) |
-| `label` | character | English human-readable variable label |
+| `label_en` | character | English human-readable variable label |
+| `label_fr` | character or NA | French human-readable variable label; NA when French metadata is unavailable |
 | `type` | character | `"character"` or `"numeric"` |
 | `missing_low` | numeric or NA | low end of missing-value range |
 | `missing_high` | numeric or NA | high end of missing-value range |
 
 `type` is `"numeric"` when the variable has a missing range and no code labels, `"character"` when it has code labels. Ambiguous cases (missing range AND code labels) resolve to `"character"`: if ANY code label exists, treat as character.
+
+`label_fr` is NA for any variable where the French command files do not provide a label. This can happen for an entire survey (no French command files found) or for individual variables where the French file has gaps. A warning is emitted when `label_fr` is NA for more than a configurable threshold of variables (default 20%) in a survey that does provide French files, since this likely indicates a parsing gap.
 
 ### `metadata/codes.csv`
 
@@ -53,7 +57,8 @@ One row per code value.
 |---|---|---|
 | `name` | character | variable name (uppercase) |
 | `val` | character | raw code value as it appears in the data file |
-| `label` | character | English label for this code |
+| `label_en` | character | English label for this code |
+| `label_fr` | character or NA | French label for this code; NA when unavailable |
 
 Missing-value codes that also appear in the value labels block are included here (consistent with the current `miss_data %>% filter(!name %in% unique(val$name))` logic).
 
@@ -71,8 +76,8 @@ One row per variable; **only written for fixed-width format data**. Not present 
 
 | Old file | New file(s) |
 |---|---|
-| `canpumf/var.Rds` | `metadata/variables.csv` (name, label columns) |
-| `canpumf/val.Rds` | `metadata/codes.csv` |
+| `canpumf/var.Rds` | `metadata/variables.csv` (name, label_en columns; label_fr new) |
+| `canpumf/val.Rds` | `metadata/codes.csv` (label_en column; label_fr new) |
 | `canpumf/miss.Rds` | `metadata/variables.csv` (missing_low, missing_high, type columns) |
 | `canpumf/lay.Rds` / `canpumf/layout.Rds` | `metadata/layout.csv` |
 
@@ -80,7 +85,9 @@ One row per variable; **only written for fixed-width format data**. Not present 
 
 This subsection specifies how `codes.csv` drives factor creation in Stage 3. It is part of the canonical format definition because the level set is authoritative metadata, not a runtime detail.
 
-**Level completeness**: factor levels are always the complete set from `codes.csv` for that variable, in the order they appear in `codes.csv` (which matches the order in the original SPSS/SAS command files — typically ascending code value). Levels are the *label* strings, not the raw code values. A code that does not appear in the actual data is still a level.
+**Language selection**: the `lang` parameter (`"eng"` or `"fra"`) selects which label column (`label_en` or `label_fr`) is used for factor level strings and variable renaming when building the DuckDB table. The same `metadata/codes.csv` serves both languages; Stage 3 selects the appropriate column at build time. If `label_fr` is NA for a variable when `lang="fra"` is requested, that variable's factor labels fall back to `label_en` with a warning listing the affected variables.
+
+**Level completeness**: factor levels are always the complete set from `codes.csv` for that variable, in the order they appear in `codes.csv` (which matches the order in the original SPSS/SAS command files — typically ascending code value). Levels are the *label* strings in the requested language, not the raw code values. A code that does not appear in the actual data is still a level.
 
 **Unmatched raw values**: data values not found in `codes.csv` (e.g. a code documented only in the user guide PDF, or a new code added after the command files were written) cannot be mapped to a label. These become `NA` after conversion. A warning is emitted listing the variable name and each unmatched value so the user can investigate.
 
@@ -112,7 +119,7 @@ Notes:
 - The zip is identified as "the single `.zip` file in the version directory". No renaming.
 - For EFT-only surveys (Census pre-download era), the user deposits the zip manually in `<cache_path>/Census/<version>/`. The pipeline detects this and skips download.
 - For Census, version strings like `"2021 (individuals)"` map to directory `Census/2021 (individuals)/`. The product-code discovery logic in `pumf_cache_path.R` is retired.
-- Multi-file surveys where a single version directory holds conceptually separate files (ITS CDN vs VIS) use `layout_mask` as a DuckDB table name within one `.duckdb` file. The default table is named `"main"`.
+- DuckDB table names encode both language and file mask: `"{lang}"` when no `layout_mask` (e.g. `"eng"`, `"fra"`), or `"{lang}_{layout_mask}"` for multi-file surveys (e.g. `"eng_CDN"`, `"fra_VIS"`). Tables are created **lazily** — only the table for the requested `lang` is built on a given call; the other language table is built only if later requested. This means most users will have exactly one table per `.duckdb` file.
 
 ### LFS (exception)
 
@@ -140,26 +147,26 @@ The LFS uses a single shared DuckDB at the series level rather than per-version 
     ...
 ```
 
-`LFS.duckdb` contains two tables:
-- `lfs` — all labeled data rows across all loaded versions
-- `lfs_versions` — version tracking (see Phase 7)
+`LFS.duckdb` contains up to three tables:
+- `lfs_eng` — all English-labeled data rows across all loaded versions (created on first `lang="eng"` request)
+- `lfs_fra` — all French-labeled data rows across all loaded versions (created on first `lang="fra"` request)
+- `lfs_versions` — version tracking (shared; records which versions have been loaded, regardless of language)
 
 ---
 
 ## Phase 3 — Metadata parsers
 
-### Design principle: parse everything, merge the results
+### Design principle: parse everything in both languages, merge the results
 
-Different command file formats provided with a PUMF release may contain complementary information:
-- The SPSS `*vare.sps` file may have variable labels absent from the SAS `.lbe` file.
-- The SAS `.cde` file may have more complete code labels than the SPSS `*vale.sps`.
-- The CSV codebook may have plain-text descriptions not encoded anywhere in the command files.
+Different command file formats provided with a PUMF release may contain complementary information. StatCan typically provides parallel English and French command files. The parser collects both and stores them side-by-side in `label_en` / `label_fr`.
 
-The dispatcher parses **all** formats found and merges using a priority order (most structured / most complete wins per variable). Merge strategy:
+Merge strategy within each language:
 1. Variable label: use first non-NA across parsers, priority SPSS monolithic > SPSS split > SAS cards > CSV.
 2. Code labels: union across parsers; where the same `(name, val)` appears in multiple sources, use the label from the highest-priority parser.
 3. Missing ranges: union; flag conflicts as a warning.
 4. Layout: use the source that actually defines column positions (only one format will have this per survey).
+
+Merge strategy across languages: after each parser produces `(label_en, label_fr)` columns, the merge operates on `(name)` for variables and `(name, val)` for codes as before, but both label columns are carried through. French labels are never used to fill missing English labels or vice versa.
 
 ### New file: `R/metadata_parsers.R`
 
@@ -167,37 +174,49 @@ The dispatcher parses **all** formats found and merges using a priority order (m
 
 Public entry point. Checks for `metadata/variables.csv`; skips if present and `refresh=FALSE`. Calls the dispatcher, writes canonical CSV files, returns the metadata dir path invisibly.
 
-#### `detect_formats(pumf_dir)` → named list of format → path(s)
+#### `detect_formats(pumf_dir)` → named list of format → language-keyed path(s)
 
-Walks the extracted PUMF directory tree and returns all parseable command files:
+Walks the extracted PUMF directory tree and returns all parseable command files, keyed by language where applicable. `fra` entries are `NULL` when no French files are found for that format.
 
-```
+```r
 list(
-  spss_mono  = c("path/to/file.sps", ...),
-  spss_split = c("path/to/dir/", ...),
-  sas_cards  = c("path/to/dir/", ...),
-  lfs_csv    = "path/to/codebook.csv",
-  cpss_csv   = "path/to/variables.csv"
+  spss_mono  = list(eng = "path/to/English/SPSS/file.sps",
+                    fra = "path/to/French/SPSS/file.sps"),  # fra = NULL if absent
+  spss_split = list(eng = "path/to/English/SPSS/",
+                    fra = "path/to/French/SPSS/"),           # fra = NULL if absent
+  sas_cards  = list(eng = "path/to/Reading cards/",         # .lbe, .cde
+                    fra = "path/to/Reading cards/"),         # same dir, .lbf, .cdf
+  lfs_csv    = "path/to/codebook.csv",    # bilingual columns in one file
+  cpss_csv   = "path/to/variables.csv"    # bilingual columns in one file
 )
 ```
 
 Detection rules (applied to the full recursive file tree):
 1. `codebook.csv` → `lfs_csv`
 2. `variables.csv` → `cpss_csv`
-3. Directory containing `.lay` + `.lbe` files → `sas_cards`
-4. Directory where multiple `.sps` files exist with names matching `vare|vale|miss|_i` → `spss_split`
-5. Single `.sps` file containing both `VARIABLE LABELS` and `VALUE LABELS` keywords → `spss_mono`
+3. Directory containing `.lay` + `.lbe` files → `sas_cards` (French detected by `.lbf`/`.cdf` in the same directory)
+4. Directory where multiple `.sps` files exist with names matching `vare|vale|miss|_i` → `spss_split` (French detected by matching `varf|valf|misf|_f` pattern in same or sibling directory)
+5. Single `.sps` file containing both `VARIABLE LABELS` and `VALUE LABELS` keywords → `spss_mono` (French detected by a parallel `.sps` in a sibling `French/` or `Français/` directory)
 
-#### `parse_spss_mono(sps_path, encoding="Latin1")` → list(variables, codes, layout)
+StatCan naming conventions for French command files:
+- SPSS split: `*varf.sps` (variable labels), `*valf.sps` (value labels), `*misf.sps` or `*miss.sps` in a `French/` subdirectory
+- SPSS monolithic: full parallel `.sps` in `French/SPSS/` (Census 2016/2021 pattern)
+- SAS cards: `.lbf` (variable labels), `.cdf` (code labels) alongside their English counterparts in the same directory
+- CSV (LFS codebook): same CSV, French columns are `FrenchLabel_EtiquetteFrancais` and the French variable name equivalent
+- CSV (CPSS): same CSV, French columns are `Variable Name - French` and `Label - French`
+
+#### `parse_spss_mono(eng_sps_path, fra_sps_path=NULL, encoding="Latin1")` → list(variables, codes, layout)
 
 Subsumes and generalises `ensure_2021_pumfi_metadata()` and `ensure_2016_pumf_metadata()`.
 
 Section landmarks:
-- `DATA LIST FILE` → layout (start/end positions)
-- First `VARIABLE LABELS` block → variable name → label
-- `VALUE LABELS` blocks (slash-delimited variable groups) → code labels
-- `MISSING VALUES` block → missing ranges
+- `DATA LIST FILE` → layout (start/end positions; read from English file only, same for both languages)
+- First `VARIABLE LABELS` block → variable name → `label_en` (and `label_fr` from French file)
+- `VALUE LABELS` blocks (slash-delimited variable groups) → `label_en` / `label_fr`
+- `MISSING VALUES` block → missing ranges (read from English file; French file used only for labels)
 - `FORMATS` block → type hints (A = character, F/N = numeric)
+
+When `fra_sps_path` is NULL, all `label_fr` values are `NA`.
 
 Quirks to handle robustly:
 - String continuation: `'first part' + 'second part'` — join before parsing.
@@ -206,47 +225,59 @@ Quirks to handle robustly:
 - Leading/trailing whitespace and inline comments (`/*...*/`).
 - Per-survey fixups stored in the registry, not in the parser (Census `LFACT` missing code 1, `CMA` spacing normalisation).
 
-#### `parse_spss_split(layout_dir, layout_mask=NULL, encoding="Latin1")` → list(variables, codes, layout)
+#### `parse_spss_split(eng_dir, fra_dir=NULL, layout_mask=NULL, encoding="Latin1")` → list(variables, codes, layout)
 
 Consolidates `parse_pumf_metadata_spss()` + `read_pumf_layout_spss()` into a single pass.
 
 File discovery via `find_unique_layout_file()` (kept from `helpers.R`):
-- Layout: `*_i.sps`
-- Variable labels: `*vare.sps`
-- Value labels: `*vale.sps`
-- Missing values: `*miss.sps`
+- Layout: `*_i.sps` (English directory only; positions are language-invariant)
+- English variable labels: `*vare.sps` → `label_en`
+- English value labels: `*vale.sps` → `label_en`
+- French variable labels: `*varf.sps` in `fra_dir` → `label_fr`
+- French value labels: `*valf.sps` in `fra_dir` → `label_fr`
+- Missing values: `*miss.sps` (English directory; language-invariant)
 
-`layout_mask` disambiguates when multiple `.sps` sets exist (e.g. SFS main vs BSW).
+`layout_mask` disambiguates when multiple `.sps` sets exist (e.g. SFS main vs BSW). When `fra_dir` is NULL, all `label_fr` values are `NA`.
 
 #### `parse_sas_cards(cards_dir, layout_mask=NULL, encoding="Latin1")` → list(variables, codes, layout)
 
 Consolidates `parse_pumf_metadata_cards()` + layout reading from `parse_pumf_data_cards()`.
 
-File types:
-- `.lay` → column positions (`@pos NAME $width.` SAS input format or `NAME start - end` reading card format; detected by first non-blank character)
-- `.lbe` → variable labels
-- `.mvs` → missing value ranges
-- `.cde` → code labels
+File types (English and French found in the same directory):
+- `.lay` → column positions (`@pos NAME $width.` SAS input format or `NAME start - end` format; language-invariant)
+- `.lbe` → English variable labels → `label_en`
+- `.lbf` → French variable labels → `label_fr` (NA for all if absent)
+- `.mvs` → missing value ranges (language-invariant)
+- `.cde` → English code labels → `label_en`
+- `.cdf` → French code labels → `label_fr` (NA for all if absent)
 
 #### `parse_lfs_codebook(codebook_path, encoding="CP1252")` → list(variables, codes, layout=NULL)
 
-Consolidates `ensure_lfs_metadata()`.
+Consolidates `ensure_lfs_metadata()`. The LFS codebook CSV is bilingual in a single file.
 
 The LFS `codebook.csv` structure:
-- Rows where `Field_Champ` is filled → variable definitions (`Variable_Variable` = name, `EnglishLabel_EtiquetteAnglais` = label)
-- Rows where `Field_Champ` is NA → code values for the preceding variable
+- Rows where `Field_Champ` is filled → variable definitions:
+  - `Variable_Variable` = name
+  - `EnglishLabel_EtiquetteAnglais` → `label_en`
+  - `FrenchLabel_EtiquetteFrancais` → `label_fr` (column name may vary by year; detect by position or pattern match)
+- Rows where `Field_Champ` is NA → code values for the preceding variable:
+  - `Variable_Variable` = code value
+  - `EnglishLabel_EtiquetteAnglais` → `label_en`
+  - `FrenchLabel_EtiquetteFrancais` → `label_fr`
 
 Numeric column list (currently hardcoded in `get_lfs_pumf()`) moves here as a `type` override. The `SURVMNTH` left-pad fixup also moves here.
 
 #### `parse_cpss_csv(variables_path, encoding="Latin1")` → list(variables, codes, layout=NULL)
 
-Consolidates `parse_pumf_metadata_csv()`.
+Consolidates `parse_pumf_metadata_csv()`. The CPSS `variables.csv` is bilingual in a single file.
 
 Columns used:
 - `Variable` → variable name
-- `Variable Name - English` → variable label
+- `Variable Name - English` → `label_en`
+- `Variable Name - French` → `label_fr` (NA if column absent)
 - `Code` → code value
-- `Label - English` → code label
+- `Label - English` → `label_en` for codes
+- `Label - French` → `label_fr` for codes (NA if column absent)
 
 #### `merge_metadata(parsed_list)` → list(variables, codes, layout)
 
@@ -288,27 +319,30 @@ Note: for LFS, this function is called per version but the DuckDB target is at t
 
 Calls `detect_formats()`, runs all applicable parsers, calls `merge_metadata()`, calls `write_metadata()`. Returns `metadata_dir` invisibly.
 
-#### Stage 3: `pumf_build_duckdb(version_dir, series, version, layout_mask=NULL, file_mask=NULL, refresh=FALSE)`
+#### Stage 3: `pumf_build_duckdb(version_dir, series, version, lang="eng", layout_mask=NULL, file_mask=NULL, refresh=FALSE)`
+
+`lang` is `"eng"` (default) or `"fra"`. The DuckDB table name is `lang` when no `layout_mask`, or `paste0(lang, "_", layout_mask)` otherwise. Only the requested language table is built on a given call — the other is left absent until first requested.
 
 Steps:
 1. Determine DuckDB path: `file.path(version_dir, paste0(series, "_", version, ".duckdb"))`.
-2. If DuckDB exists and `refresh=FALSE`: skip to step 8.
-3. Read canonical metadata from `metadata/`.
-4. Read data file:
+2. Determine table name: `if (is.null(layout_mask)) lang else paste0(lang, "_", layout_mask)`.
+3. If DuckDB exists and the named table exists and `refresh=FALSE`: skip to step 10.
+4. Read canonical metadata from `metadata/`. Select `label_en` or `label_fr` column based on `lang`; call this `label`. If `label_fr` is NA for any variable when `lang="fra"`, fall back to `label_en` for those variables with a warning.
+5. Read data file:
    - If `metadata/layout.csv` exists: `readr::read_fwf()` with positions.
    - Otherwise: `readr::read_csv()`.
    - `file_mask` selects the right data file when multiple exist.
    - All columns read as character; convert numeric columns per `variables.csv` `type` field.
-5. Look up survey registry for BSW config:
+6. Look up survey registry for BSW config:
    - If BSW mask present: read BSW file, join onto main data by join key, drop duplicate weight column.
-6. Apply code labels and convert to factors (see Phase 1 "Factor conversion and NA handling"):
+7. Apply code labels and convert to factors using the `label` column selected in step 4 (see Phase 1 "Factor conversion and NA handling"):
    - Apply per-survey data fixups from registry first (e.g. SFS `str_pad`), so the raw values match codes exactly before any mapping.
-   - For each character column present in `codes.csv`: map raw values → label strings using the `val → label` lookup; apply `factor(..., levels = codes$label[codes$name == col])` with the complete ordered level set; unmatched values become `NA` (warn if any).
-   - Character columns not in `codes.csv`: remain as character.
+   - For each character column present in `codes.csv`: map raw values → language-specific label strings; apply `factor(..., levels = codes$label[codes$name == col])` with the complete ordered level set; unmatched values become `NA` (warn if any).
+   - Character columns not in `codes.csv`: remain as character. If `rename_columns=TRUE` (controlled by the `lang` parameter — default is to rename), also rename column headers from `name` to the language-specific variable label.
    - Numeric columns: coerce to numeric, then set values within `[missing_low, missing_high]` to `NA`.
-7. Verify ENUM output: after writing to DuckDB, query `PRAGMA table_info(table_name)` and check that categorical columns have type `ENUM` not `VARCHAR`. If not, execute `ALTER TABLE ... ALTER COLUMN ... TYPE ENUM(...)` for each affected column.
-8. Write labeled table to DuckDB. Table name = `layout_mask` if provided, else `"main"`.
-9. Disconnect writer; open reader; return `duckplyr::tbl()`.
+8. Verify ENUM output: after writing to DuckDB, query `PRAGMA table_info(table_name)` and check that categorical columns have type `ENUM` not `VARCHAR`. If not, execute `ALTER TABLE ... ALTER COLUMN ... TYPE ENUM(...)` for each affected column.
+9. Write labeled table to DuckDB with the table name from step 2.
+10. Disconnect writer; open reader; return `duckplyr::tbl()`.
 
 **LFS does not use this function** — it uses the LFS-specific pipeline in Phase 7 which handles appending to a shared table with schema reconciliation.
 
@@ -358,7 +392,9 @@ type_patterns <- c(
 
 ## Phase 6 — Public API
 
-### `get_pumf(series, version=NULL, layout_mask=NULL, file_mask=NULL, cache_path=..., refresh=FALSE, ...)`
+### `get_pumf(series, version=NULL, lang="eng", layout_mask=NULL, file_mask=NULL, cache_path=..., refresh=FALSE, ...)`
+
+`lang` accepts `"eng"` (default, English) or `"fra"` (French). The first call with a given `lang` creates the language-specific DuckDB table; subsequent calls reuse it.
 
 For all series except LFS: runs all three stages in order; returns a lazy duckplyr table.
 
@@ -368,11 +404,11 @@ For LFS: delegates entirely to `lfs_get_pumf()` (Phase 7). The `refresh` paramet
 
 ### `pumf_metadata(series, version, cache_path=..., refresh=FALSE)`
 
-Runs stages 1 and 2 only. Returns:
+Runs stages 1 and 2 only. Returns the full bilingual canonical metadata — both label columns are always returned regardless of `lang`:
 ```r
 list(
-  variables = <tibble: name, label, type, missing_low, missing_high>,
-  codes     = <tibble: name, val, label>,
+  variables = <tibble: name, label_en, label_fr, type, missing_low, missing_high>,
+  codes     = <tibble: name, val, label_en, label_fr>,
   layout    = <tibble: name, start, end>  # NULL for CSV-format data
 )
 ```
@@ -442,25 +478,26 @@ The LFS schema changes slightly across years (variables added, rarely removed). 
 
 This means `lfs` is always a superset of all versions' columns.
 
-### `lfs_get_pumf(version=NULL, cache_path, refresh=FALSE)`
+### `lfs_get_pumf(version=NULL, lang="eng", cache_path, refresh=FALSE)`
 
-The internal implementation called by `get_pumf("LFS", ...)`.
+The internal implementation called by `get_pumf("LFS", ...)`. The `lang` parameter determines which labeled table (`lfs_eng` or `lfs_fra`) is read from or written to. `lfs_versions` is shared across both language tables and records version loading regardless of language. This means loading version `"2023"` in English does not re-download when `"2023"` is later requested in French, but does still need to re-label and write the French table from the already-parsed `metadata/codes.csv`.
 
 #### Behaviour when `version=NULL`
 
 1. Open (or create) `LFS.duckdb`.
-2. If `lfs_versions` table exists and has rows:
-   - Retrieve loaded versions.
+2. Check whether the `lfs_{lang}` table exists and whether `lfs_versions` has rows.
+3. If `lfs_versions` has rows:
+   - Check which versions have been labeled in the requested language: a version is "available in `lang`" if both the raw data was downloaded (recorded in `lfs_versions`) and the `lfs_{lang}` table contains rows for that version's SURVYEAR/SURVMNTH.
    - Call `list_available_lfs_pumf_versions()` to get all available versions from StatCan.
-   - Compute unavailable = available − loaded.
-   - Emit an informative message:
+   - Compute unavailable = available − downloaded.
+   - Emit an informative message, e.g.:
      ```
-     LFS database contains: 2022 (annual), 2023 (annual), 2024-01 to 2024-05 (monthly).
+     LFS database contains: 2022 (annual), 2023 (annual), 2024-01 to 2024-05 (monthly) [English].
      Not yet downloaded: 2024-06, 2024-07.
      Use refresh="auto" to download all available versions.
      ```
-3. If `lfs_versions` is empty or doesn't exist: emit a message that no data has been loaded and suggest specifying a version or using `refresh="auto"`.
-4. Return a lazy `duckplyr::tbl()` reference to the full `lfs` table (possibly empty).
+4. If `lfs_versions` is empty or `lfs_{lang}` doesn't exist: emit a message that no data has been loaded and suggest specifying a version or using `refresh="auto"`.
+5. Return a lazy `duckplyr::tbl()` reference to the full `lfs_{lang}` table (possibly empty).
 
 #### Behaviour when `version` is specified
 
@@ -474,11 +511,11 @@ The internal implementation called by `get_pumf("LFS", ...)`.
 5. Read and label data (same logic as Stage 3 but targeting the shared table):
    - Use version-specific `metadata/codes.csv` for labeling.
    - Reconcile schema against existing `lfs` table.
-   - `DBI::dbAppendTable(con, "lfs", labeled_data)`.
-   - Insert tracking row into `lfs_versions`.
-6. Return filtered lazy table:
-   - Annual `"YYYY"`: `filter(SURVYEAR == as.integer(year))`
-   - Monthly `"YYYY-MM"`: `filter(SURVYEAR == year, SURVMNTH == month_label)` where `month_label` is the labeled value for that month number (e.g. `"June"` or `"06"` depending on how codes are applied — use the code label from `codes.csv`).
+   - `DBI::dbAppendTable(con, paste0("lfs_", lang), labeled_data)`.
+   - Insert tracking row into `lfs_versions` (if not already present for this version — it may already exist from loading the other language).
+6. Return filtered lazy table from `lfs_{lang}`:
+   - Annual `"YYYY"`: `tbl(con, paste0("lfs_", lang)) |> filter(SURVYEAR == as.integer(year))`
+   - Monthly `"YYYY-MM"`: filter on SURVYEAR and the language-appropriate SURVMNTH label from `codes.csv`.
 
 #### Behaviour when `refresh="auto"`
 
@@ -551,13 +588,24 @@ All integration tests use `testthat::skip_if_offline()` and `testthat::skip_on_c
 
 | Test file | Survey | Notes |
 |---|---|---|
-| `test-pipeline-cpss.R` | CPSS v1 | Small CSV; good smoke test |
-| `test-pipeline-lfs.R` | LFS (one recent annual) | Tests LFS pipeline including `lfs_versions` table |
-| `test-pipeline-chs.R` | CHS 2021 | Tests SPSS split + BSW join |
-| `test-pipeline-sfs.R` | SFS 2019 | Tests SPSS split + BSW join + `str_pad` fixup |
-| `test-pipeline-census.R` | Census 2021 (individuals) | Tests SPSS mono; skip if EFT data absent |
+| `test-pipeline-cpss.R` | CPSS v1 | Small CSV; `lang="eng"` and `lang="fra"` both tested; verifies separate DuckDB tables |
+| `test-pipeline-lfs.R` | LFS (one recent annual) | Tests `lfs_versions` table; tests `lang="eng"` and `lang="fra"` produce `lfs_eng` / `lfs_fra` with different factor levels |
+| `test-pipeline-chs.R` | CHS 2021 | SPSS split + BSW join; both languages |
+| `test-pipeline-sfs.R` | SFS 2019 | SPSS split + BSW join + `str_pad` fixup; both languages |
+| `test-pipeline-census.R` | Census 2021 (individuals) | SPSS mono; both languages; skip if EFT data absent |
 
-#### C — Factor / ENUM property tests
+#### C — Bilingual metadata tests
+
+`test-bilingual.R` — no network required (uses golden fixtures from Steps 3–6).
+
+- **label_en / label_fr columns present**: after parsing any fixture, `variables` tibble has both columns; `codes` tibble has both columns.
+- **French NA when absent**: parse a fixture with no French command files; all `label_fr` values are `NA`; no error or warning about missing French files (absence is expected for some surveys).
+- **French NA warning threshold**: construct a synthetic parsed result where >20% of `label_fr` are NA even though French files were present; assert a warning is emitted.
+- **lang fallback**: when `lang="fra"` but `label_fr` is NA for some variables, English label is used with a warning listing those variable names.
+- **Separate DuckDB tables**: write a small labeled data frame as `"eng"` table and a differently-labeled frame as `"fra"` table to the same DuckDB; query both; assert they have different factor levels for the same column.
+- **Lazy creation**: open a DuckDB without requesting a table; assert neither `"eng"` nor `"fra"` exists; request `"eng"`; assert only `"eng"` exists; request `"fra"`; assert both exist.
+
+#### D — Factor / ENUM property tests
 
 `test-factor-enum.R` — no network, no large data.
 
@@ -596,9 +644,13 @@ This makes the intent of every parser change explicit in the git diff.
 
 `write_metadata()`, `read_metadata()`, `metadata_exists()`, `validate_metadata()` in `R/metadata_parsers.R`. Testthat skeleton + `test-metadata-io.R` written alongside.
 
-### Step 2 — testthat skeleton + factor/ENUM property tests (Phase 8C)
+### Step 2 — testthat skeleton + property tests (Phase 8C + 8D)
 
-Set up `tests/testthat/` with `testthat::use_testthat()` if not present. Write `test-factor-enum.R` covering complete levels, level order, unmatched→NA+warning, missing-range substitution, ENUM type verification in `:memory:` DuckDB, NULL round-trip, and schema evolution for LFS append. These tests define the exact contract that Stage 3 must satisfy before any pipeline code is written.
+Set up `tests/testthat/` with `testthat::use_testthat()` if not present.
+
+Write `test-factor-enum.R` covering: complete levels, level order, unmatched→NA+warning, missing-range substitution, ENUM type verification in `:memory:` DuckDB, NULL round-trip, and schema evolution for LFS append.
+
+Write `test-bilingual.R` covering: both label columns present, French-absent NA behaviour, NA warning threshold, `lang` fallback, separate DuckDB table creation, and lazy table creation. Both test files define contracts that Stage 3 must satisfy before any pipeline code is written. Also update `R/metadata_parsers.R` to use `label_en`/`label_fr` column names in place of `label` (since Step 1 used the old single-label schema — this is the point where it is corrected).
 
 ### Step 3 — SPSS monolithic parser (Phase 3, hardest piece)
 
@@ -682,6 +734,7 @@ Update `NAMESPACE`, `DESCRIPTION`, `CLAUDE.md`. Run full test suite; fix any reg
 | `NAMESPACE` | regenerate via `devtools::document()` |
 | `CLAUDE.md` | update architecture section after completion |
 | `tests/testthat/test-metadata-io.R` | **new** — write/read round-trip tests (Step 1) |
+| `tests/testthat/test-bilingual.R` | **new** — bilingual label storage and lang-selection property tests (Step 2) |
 | `tests/testthat/test-factor-enum.R` | **new** — factor/ENUM property tests (Step 2, before pipeline) |
 | `tests/testthat/test-parse-spss-mono.R` | **new** — SPSS monolithic parser (Step 3) |
 | `tests/testthat/test-parse-spss-split.R` | **new** — SPSS split parser (Step 4) |
