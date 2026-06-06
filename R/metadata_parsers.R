@@ -443,10 +443,26 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
     tibble::tibble(line = code_lines) |>
       dplyr::mutate(
-        val   = trimws(sub('".*', "", .data$line)),         # everything before first "
-        label = stringr::str_match(.data$line, '"([^"]+)"')[, 2L]
+        # Find all double-quoted strings on each line
+        all_q   = stringr::str_extract_all(.data$line, '"[^"]*"'),
+        n_q     = vapply(.data$all_q, length, integer(1L)),
+        # Safe accessors: NA when the list element is empty
+        first_q = vapply(.data$all_q,
+                         function(x) if (length(x) > 0L) x[[1L]] else NA_character_,
+                         character(1L)),
+        last_q  = vapply(.data$all_q,
+                         function(x) if (length(x) > 0L) x[[length(x)]] else NA_character_,
+                         character(1L)),
+        # Code: first quoted string content when line starts with ", else unquoted prefix
+        val   = dplyr::if_else(
+          grepl('^"', trimws(.data$line)),
+          gsub('^"|"$', "", .data$first_q),
+          trimws(sub('".*', "", .data$line))
+        ),
+        # Label: always the last quoted string
+        label = gsub('^"|"$', "", .data$last_q)
       ) |>
-      dplyr::filter(!is.na(.data$label)) |>
+      dplyr::filter(!is.na(.data$label), nchar(.data$val) > 0L) |>
       dplyr::mutate(name = n) |>
       dplyr::select("name", "val", "label")
   })
@@ -507,15 +523,18 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 .spss_parse_data_list <- function(all_clean, data_list_row) {
   remaining <- all_clean[seq(data_list_row + 1L, length(all_clean))]
   end_idx <- which(grepl("^\\.$|^$", remaining))[1L]
-  if (is.na(end_idx)) end_idx <- length(remaining)
-  section <- remaining[seq_len(end_idx - 1L)]
+  # If no terminator found, use ALL remaining lines (not length-1 which misses last line)
+  section <- if (is.na(end_idx)) remaining else remaining[seq_len(end_idx - 1L)]
   section <- section[grepl("[A-Za-z]", section)]
   section <- section[!grepl("^DATA LIST|^FILE HANDLE|^GET DATA|^FILE=|^/",
                              section, ignore.case = TRUE)]
   if (length(section) == 0L) return(NULL)
 
-  # Tokenise the whole section; process pairs (name, range-or-col)
+  # Tokenise the whole section; process pairs (name, range-or-col).
+  # Ranges may have spaces around the dash (e.g. "11 - 18"), so we normalise
+  # them to "11-18" before extracting tokens.
   all_text <- paste(gsub("\\.\\s*$", "", section), collapse = " ")
+  all_text <- gsub("(\\d+)\\s+-\\s+(\\d+)", "\\1-\\2", all_text)  # "11 - 18" → "11-18"
   tokens <- stringr::str_extract_all(
     all_text, "[A-Za-z][A-Za-z0-9_]*|\\d+-\\d+|\\d+"
   )[[1L]]
@@ -544,4 +563,188 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
   if (length(rows) == 0L) return(NULL)
   tibble::as_tibble(do.call(rbind, lapply(rows, as.data.frame, stringsAsFactors = FALSE)))
+}
+
+
+# ============================================================
+# SPSS split-file parser
+# ============================================================
+
+#' Parse a set of SPSS split command files for PUMF metadata
+#'
+#' Handles surveys where metadata is spread across separate files:
+#' \code{*_i.sps} (layout), \code{*vare.sps} (English variable labels),
+#' \code{*vale.sps} (English value labels), \code{*miss.sps} (missing values),
+#' with optional \code{*varf.sps} / \code{*valf.sps} for French.
+#'
+#' @param layout_dir Path to the directory containing the SPSS split files.
+#' @param layout_mask Optional string or regex; passed to
+#'   \code{find_unique_layout_file()} to disambiguate when multiple sets of
+#'   split files exist (e.g. SFS has both \code{EFAM_PUMF_*} and
+#'   \code{bsweights_pumf_*} files in the same directory).
+#' @param encoding Character encoding, e.g. \code{"Latin1"} or \code{"CP1252"}.
+#' @return A list with elements \code{variables}
+#'   (\code{name, label_en, label_fr, type, missing_low, missing_high}),
+#'   \code{codes} (\code{name, val, label_en, label_fr}), and \code{layout}
+#'   (\code{name, start, end}; \code{NULL} if no layout file is found).
+#' @keywords internal
+parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1") {
+
+  # Helper: find a split file by suffix pattern; return NULL if absent or ambiguous
+  find_opt <- function(suffix_pattern) {
+    tryCatch(
+      find_unique_layout_file(layout_dir, suffix_pattern, layout_mask),
+      error = function(e) NULL
+    )
+  }
+
+  layout_path  <- find_opt("_i\\.sps")
+  eng_var_path <- find_opt("vare\\.sps")
+  fra_var_path <- find_opt("varf\\.sps")
+  eng_val_path <- find_opt("vale\\.sps")
+  fra_val_path <- find_opt("valf\\.sps")
+  miss_path    <- find_opt("miss\\.sps")
+
+  # ---- Parse layout (_i.sps) ----
+  layout_result <- if (!is.null(layout_path))
+    .spss_split_parse_layout(layout_path, encoding)
+  else
+    list(layout = NULL, formats = tibble::tibble(name = character(), fmt_type = character()))
+
+  # ---- Parse variable labels ----
+  eng_var <- if (!is.null(eng_var_path))
+    .spss_split_read_section(eng_var_path, encoding) |> .spss_parse_var_labels()
+  else
+    tibble::tibble(name = character(), label = character())
+
+  fra_var <- if (!is.null(fra_var_path))
+    .spss_split_read_section(fra_var_path, encoding) |> .spss_parse_var_labels()
+  else
+    NULL
+
+  # ---- Parse value labels ----
+  eng_val <- if (!is.null(eng_val_path))
+    .spss_split_read_section(eng_val_path, encoding) |> .spss_parse_val_labels()
+  else
+    tibble::tibble(name = character(), val = character(), label = character())
+
+  fra_val <- if (!is.null(fra_val_path))
+    .spss_split_read_section(fra_val_path, encoding) |> .spss_parse_val_labels()
+  else
+    NULL
+
+  # ---- Parse missing values ----
+  missing_vals <- if (!is.null(miss_path))
+    .spss_split_read_section(miss_path, encoding) |> .spss_parse_missing()
+  else
+    tibble::tibble(name = character(), missing_low = double(), missing_high = double())
+
+  # ---- Combine type information ----
+  vars_with_codes <- unique(eng_val$name)
+
+  variables <- eng_var |>
+    dplyr::left_join(layout_result$formats, by = "name") |>
+    dplyr::left_join(missing_vals,           by = "name") |>
+    dplyr::mutate(
+      type = dplyr::case_when(
+        .data$name %in% vars_with_codes              ~ "character",
+        !is.na(.data$missing_low)                    ~ "numeric",
+        toupper(substr(.data$fmt_type, 1L, 1L)) == "A" ~ "character",
+        !is.na(.data$fmt_type)                       ~ "numeric",
+        TRUE                                         ~ "character"
+      )
+    )
+
+  # ---- Merge bilingual labels ----
+  if (!is.null(fra_var)) {
+    variables <- dplyr::left_join(
+      dplyr::rename(variables, label_en = "label"),
+      dplyr::select(fra_var, "name", label_fr = "label"),
+      by = "name"
+    )
+  } else {
+    variables <- dplyr::rename(variables, label_en = "label") |>
+      dplyr::mutate(label_fr = NA_character_)
+  }
+
+  if (!is.null(fra_val)) {
+    codes <- dplyr::left_join(
+      dplyr::rename(eng_val, label_en = "label"),
+      dplyr::select(fra_val, "name", "val", label_fr = "label"),
+      by = c("name", "val")
+    )
+  } else {
+    codes <- dplyr::rename(eng_val, label_en = "label") |>
+      dplyr::mutate(label_fr = NA_character_)
+  }
+
+  variables <- variables[, c("name", "label_en", "label_fr", "type",
+                              "missing_low", "missing_high")]
+  codes     <- codes[, c("name", "val", "label_en", "label_fr")]
+
+  list(variables = variables, codes = codes, layout = layout_result$layout)
+}
+
+
+# Read a split SPSS file and return its content lines with the leading keyword
+# line(s) and comment lines stripped.  Does NOT do quote normalisation — the
+# section parsers handle that via the monolithic preprocessor when needed.
+.spss_split_read_section <- function(path, encoding) {
+  raw   <- readr::read_lines(path, locale = readr::locale(encoding = encoding))
+  lines <- trimws(gsub("\\t", " ", raw))
+  lines <- lines[nchar(lines) > 0L]
+
+  # Strip leading keyword / comment lines
+  kw <- "^VARIABLE LABELS|^VALUE LABELS|^MISSING VALUES|^DATA LIST|^Comment"
+  while (length(lines) > 0L && grepl(kw, lines[1L], ignore.case = TRUE))
+    lines <- lines[-1L]
+
+  # Normalise single-quoted label lines to double quotes (same logic as monolithic)
+  sq <- grepl("'[^']*'\\s*\\.?\\s*$", lines) &
+        !grepl('"', lines, fixed = TRUE) &
+        !grepl("^\\s*/\\*", lines)
+  lines[sq] <- gsub("'", '"', lines[sq])
+  lines <- gsub('"\\s*\\.$', '"', lines)
+
+  lines
+}
+
+
+# Parse an _i.sps layout file.
+# Returns list(layout = tibble(name, start, end), formats = tibble(name, fmt_type)).
+# fmt_type: "A" = character, "F" = numeric (decimal-place annotation), NA = unknown.
+.spss_split_parse_layout <- function(path, encoding) {
+  raw   <- readr::read_lines(path, locale = readr::locale(encoding = encoding))
+  lines <- trimws(gsub("\\t", " ", raw))
+  lines <- lines[nchar(lines) > 0L]
+
+  # Find DATA LIST keyword and section content
+  dl_row <- which(grepl("^DATA LIST", lines, ignore.case = TRUE))[1L]
+  if (is.na(dl_row))
+    return(list(layout  = NULL,
+                formats = tibble::tibble(name = character(), fmt_type = character())))
+
+  section <- lines[seq(dl_row + 1L, length(lines))]
+  end_idx <- which(grepl("^\\.$|^$", section))[1L]
+  section <- if (is.na(end_idx)) section else section[seq_len(end_idx - 1L)]
+  section <- section[grepl("[A-Za-z]", section)]
+
+  # Extract type annotations from each line before tokenising
+  annot_df <- tibble::tibble(value = section) |>
+    dplyr::mutate(
+      name     = stringr::str_match(.data$value, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
+      annot    = stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L],
+      fmt_type = dplyr::case_when(
+        trimws(.data$annot) == "A"            ~ "A",
+        grepl("^\\d+$", trimws(.data$annot))  ~ "F",
+        TRUE                                  ~ NA_character_
+      )
+    ) |>
+    dplyr::filter(!is.na(.data$name)) |>
+    dplyr::select("name", "fmt_type")
+
+  # Reuse the tokeniser-based data_list parser: prepend a dummy DATA LIST header
+  layout <- .spss_parse_data_list(c("DATA LIST", section), 1L)
+
+  list(layout = layout, formats = annot_df)
 }

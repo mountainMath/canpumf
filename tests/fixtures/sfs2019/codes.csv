@@ -1,0 +1,304 @@
+name,val,label_en,label_fr
+PAGEMIEG,01,Under 20 years,Mois de 20 ans
+PAGEMIEG,02,20 to 24 years,20 à 24 ans
+PAGEMIEG,03,25 to 29 years,25 à 29 ans
+PAGEMIEG,04,30 to 34 years,30 à 34 ans
+PAGEMIEG,05,35 to 39 years,35 à 39 ans
+PAGEMIEG,06,40 to 44 years,40 à 44 ans
+PAGEMIEG,07,45 to 49 years,45 à 49 ans
+PAGEMIEG,08,50 to 54 years,50 à 54 ans
+PAGEMIEG,09,55 to 59 years,55 à 59 ans
+PAGEMIEG,10,60 to 64 years,60 à 64 ans
+PAGEMIEG,11,65 to 69 years,65 à 69 ans
+PAGEMIEG,12,70 to 74 years,70 à 74 ans
+PAGEMIEG,13,75 to 79 years,75 à 79 ans
+PAGEMIEG,14,80 years and older,80 ans et plus
+PAGEMIEG,96,Valid skip,Enchaînement valide
+PAGEMIEG,97,Don't know,Ne sait pas
+PAGEMIEG,98,Refusal,Refus
+PAGEMIEG,99,Not stated,Non déclaré
+PAS1MRAG,1,"20,000 and under",20 000 et moins
+PAS1MRAG,2,"20,001 to 40,000",20 001 à 40 000
+PAS1MRAG,3,"40,001 to 80,000",40 001 à 80 000
+PAS1MRAG,4,"80,001 and over",80 001 et plus
+PAS1MRAG,6,Valid skip,Enchaînement valide
+PAS1MRAG,7,Don't know,Ne sait pas
+PAS1MRAG,8,Refusal,Refus
+PAS1MRAG,9,Not stated,Non déclaré
+PAS1MRG1,1,Yes,Oui
+PAS1MRG1,2,No,Non
+PAS1MRG1,6,Valid skip,Enchaînement valide
+PAS1MRG1,7,Don't know,Ne sait pas
+PAS1MRG1,8,Refusal,Refus
+PAS1MRG1,9,Not stated,Non déclaré
+PASR1MFA,99999996,Valid skip,Enchaînement valide
+PASR1MFA,99999997,Don't know,Ne sait pas
+PASR1MFA,99999998,Refusal,Refus
+PASR1MFA,99999999,Not stated,Non déclaré
+PASRBUYG,01,Before 1961,Avant 1961
+PASRBUYG,02,1961 - 1970,1961 - 1970
+PASRBUYG,03,1971 - 1980,1971 - 1980
+PASRBUYG,04,1981 - 1990,1981 - 1990
+PASRBUYG,05,1991 - 2000,1991 - 2000
+PASRBUYG,06,2001 - 2005,2001 - 2005
+PASRBUYG,07,2006 - 2010,2006 - 2010
+PASRBUYG,08,2011 - 2015,2011 - 2015
+PASRBUYG,09,2016 - 2017,2016 - 2017
+PASRBUYG,10,2018 - 2019,2018 - 2019
+PASRBUYG,96,Valid skip,Enchaînement valide
+PASRBUYG,97,Don't know,Ne sait pas
+PASRBUYG,98,Refusal,Refus
+PASRBUYG,99,Not stated,Non déclaré
+PASRCNMG,1,1,1
+PASRCNMG,2,2,2
+PASRCNMG,3,3,3
+PASRCNMG,4,4 or more,4 ou plus
+PASRCNMG,6,Valid skip,Enchaînement valide
+PASRCNMG,7,Don't know,Ne sait pas
+PASRCNMG,8,Refusal,Refus
+PASRCNMG,9,Not stated,Non déclaré
+PASRCURG,01,3 or 6 months,3 ou 6 mois
+PASRCURG,02,1 year,1 an
+PASRCURG,03,2 years,2 ans
+PASRCURG,04,3 years,3 ans
+PASRCURG,05,4 years,4 ans
+PASRCURG,06,5 years,5 ans
+PASRCURG,07,7 or 10 years,7 ou 10 ans
+PASRCURG,08,Other,Autre
+PASRCURG,96,Valid skip,Enchaînement valide
+PASRCURG,97,Don't know,Ne sait pas
+PASRCURG,98,Refusal,Refus
+PASRCURG,99,Not stated,Non déclaré
+PASRDWNG,00,0%,0 %
+PASRDWNG,01,1% - 10%,1 % - 10 %
+PASRDWNG,02,11% - 20%,11 % - 20 %
+PASRDWNG,03,21% - 30%,21 % - 30 %
+PASRDWNG,04,31% - 40%,31 % - 40 %
+PASRDWNG,05,41% - 50%,41 % - 50 %
+PASRDWNG,06,51% - 60%,51 % - 60 %
+PASRDWNG,07,61% - 70%,61 % - 70 %
+PASRDWNG,08,71% - 99%,71 % - 99 %
+PASRDWNG,09,100%,100 %
+PASRDWNG,96,Valid skip,Enchaînement valide
+PASRDWNG,97,Don't know,Ne sait pas
+PASRDWNG,98,Refusal,Refus
+PASRDWNG,99,Not stated,Non déclaré
+PASRFNMG,1,1,1
+PASRFNMG,2,2 or more,2 ou plus
+PASRFNMG,6,Valid skip,Enchaînement valide
+PASRFNMG,7,Don't know,Ne sait pas
+PASRFNMG,8,Refusal,Refus
+PASRFNMG,9,Not stated,Non déclaré
+PASRINT,1,Fixed,Fixe
+PASRINT,2,Variable,Variable
+PASRINT,3,Combination (hybrid),Combinaison (hybride)
+PASRINT,6,Valid skip,Enchaînement valide
+PASRINT,7,Don't know,Ne sait pas
+PASRINT,8,Refusal,Refus
+PASRINT,9,Not stated,Non déclaré
+PASRINTG,01,0% - 1.99%,"0 % - 1,99 %"
+PASRINTG,02,2% - 2.49%,"2 % - 2,49 %"
+PASRINTG,03,2.5% - 2.99%,"2,5 % - 2,99 %"
+PASRINTG,04,3% - 3.49%,"3 % - 3,49 %"
+PASRINTG,05,3.5% - 3.99%,"3,50 % - 3,99 %"
+PASRINTG,06,4% - 4.99%,4 % - 4.99 %
+PASRINTG,07,5% and over,5 % et plus
+PASRINTG,96,Valid skip,Enchaînement valide
+PASRINTG,97,Don't know,Ne sait pas
+PASRINTG,98,Refusal,Refus
+PASRINTG,99,Not stated,Non déclaré
+PASRMOAG,1,0-14 years,0-14 ans
+PASRMOAG,2,15-24 years,15-24 ans
+PASRMOAG,3,25-29 years,25-29 ans
+PASRMOAG,4,30-40 years,30-40 ans
+PASRMOAG,6,Valid skip,Enchaînement valide
+PASRMOAG,7,Don't know,Ne sait pas
+PASRMOAG,8,Refusal,Refus
+PASRMOAG,9,Not stated,Non déclaré
+PASRMPFG,01,Under 5 years,Moins de 5 ans
+PASRMPFG,02,5 to 9 years,5 à 9 ans
+PASRMPFG,03,10 to 14 years,10 à 14 ans
+PASRMPFG,04,15 to 19 years,15 à 19 ans
+PASRMPFG,05,20 to 24 years,20 à 24 ans
+PASRMPFG,06,25 years and over,25 ans et plus
+PASRMPFG,96,Valid skip,Enchaînement valide
+PASRMPFG,97,Don't know,Ne sait pas
+PASRMPFG,98,Refusal,Refus
+PASRMPFG,99,Not stated,Non déclaré
+PASRMRYG,2019,2019,2019
+PASRMRYG,2020,2020,2020
+PASRMRYG,2021,2021,2021
+PASRMRYG,2022,2022,2022
+PASRMRYG,2023,2023,2023
+PASRMRYG,2024,2024 and over,2024 et plus
+PASRMRYG,9996,Valid skip,Enchaînement valide
+PASRMRYG,9997,Don't know,Ne sait pas
+PASRMRYG,9998,Refusal,Refus
+PASRMRYG,9999,Not stated,Non déclaré
+PATTCRLM,999996,Valid skip,Enchaînement valide
+PATTCRLM,999997,Don't know,Ne sait pas
+PATTCRLM,999998,Refusal,Refus
+PATTCRLM,999999,Not stated,Non déclaré
+PATTCRU,1,Less than the minimum amount?,Moins que le montant minimum exigé?
+PATTCRU,2,The minimum amount?,Le montant minimum exigé?
+PATTCRU,3,More than the minimum but less than the full amount?,Plus que le minimum mais moins que le montant complet?
+PATTCRU,4,The full amount?,Le montant complet?
+PATTCRU,5,The credit cards were not used.,Les cartes de crédit nétaient pas utilisées.
+PATTCRU,6,Valid skip,Enchaînement valide
+PATTCRU,7,Don't know,Ne sait pas
+PATTCRU,8,Refusal,Refus
+PATTCRU,9,Not stated,Non déclaré
+PATTSTIN,1,Increase,Augmentera
+PATTSTIN,2,Decrease,Diminuera
+PATTSTIN,3,Same,Pareille
+PATTSTIN,6,Valid skip,Enchaînement valide
+PATTSTIN,7,Don't know,Ne sait pas
+PATTSTIN,8,Refusal,Refus
+PATTSTIN,9,Not stated,Non déclaré
+PDWTYP,1,Single detached,Maison individuelle non attenante
+PDWTYP,2,"Double/semi-detached,row or terrace,duplex","Maison jumelée,maison en rangée ou en terrasse, duplex"
+PDWTYP,3,Apartment,Appartement
+PDWTYP,4,Other,Autres
+PDWTYP,6,Valid skip,Enchaînement valide
+PDWTYP,7,Don't know,Ne sait pas
+PDWTYP,8,Refusal,Refus
+PDWTYP,9,Not stated,Non déclaré
+PEDUCMIE,1,Less than high school,Moins que secondaires
+PEDUCMIE,2,High school diploma,Diplôme d'études secondaires
+PEDUCMIE,3,Non-university post-secondary certificate or diploma,Certificat ou diplôme post-secondaires non universitaire
+PEDUCMIE,4,University degree or certificate,Diplôme ou certificat universitaire
+PEDUCMIE,6,Valid skip,Enchaînement valide
+PEDUCMIE,7,Don't know,Ne sait pas
+PEDUCMIE,8,Refusal,Refus
+PEDUCMIE,9,Not stated,Non déclaré
+PEFMJSIF,01,No income,Aucun revenu
+PEFMJSIF,02,Wages and salaries,Salaires et traitements
+PEFMJSIF,03,Self-employment income,Revenu d'un travail autonome
+PEFMJSIF,04,Government transfers,Transferts gouvernementaux
+PEFMJSIF,05,Investment income,Revenu de placements
+PEFMJSIF,06,Retirement pensions,Pensions de retraite
+PEFMJSIF,07,Other income,Autre revenu
+PEFMJSIF,96,Valid skip,Enchaînement valide
+PEFMJSIF,97,Don't know,Ne sait pas
+PEFMJSIF,98,Refusal,Refus
+PEFMJSIF,99,Not stated,Non déclaré
+PEXMG1A,99996,Valid skip,Enchaînement valide
+PEXMG1A,99997,Don't know,Ne sait pas
+PEXMG1A,99998,Refusal,Refus
+PEXMG1A,99999,Not stated,Non déclaré
+PEXMG1F,1,Monthly,Mensuellement
+PEXMG1F,2,Every two weeks,Aux deux semaines
+PEXMG1F,3,Weekly,À la semaine
+PEXMG1F,4,Twice a month,Deux fois par mois
+PEXMG1F,5,Other - Specify,Autre - Précisez
+PEXMG1F,6,Valid skip,Enchaînement valide
+PEXMG1F,7,Don't know,Ne sait pas
+PEXMG1F,8,Refusal,Refus
+PEXMG1F,9,Not stated,Non déclaré
+PFCRN,1,1 or 2 cards,1 ou 2 cartes
+PFCRN,2,3 or 4 cards,3 ou 4 cartes
+PFCRN,3,5 or more cards,5 cartes ou plus
+PFCRN,4,Does not own credit cards,Ne possède pas de cartes de crédit
+PFCRN,6,Valid skip,Enchaînement valide
+PFCRN,7,Don't know,Ne sait pas
+PFCRN,8,Refusal,Refus
+PFCRN,9,Not stated,Non déclaré
+PFMTYPG,1,Unattached individual,Personne seule
+PFMTYPG,2,"Couple, no children","Couple, sans enfant"
+PFMTYPG,3,Couple with children and Lone-parent family,"Couple, avec des enfants et Famille monoparentale"
+PFMTYPG,4,Other family types,Autres types de famille
+PFMTYPG,6,Valid skip,Enchaînement valide
+PFMTYPG,7,Don't know,Ne sait pas
+PFMTYPG,8,Refusal,Refus
+PFMTYPG,9,Not stated,Non déclaré
+PFRSPST,1,Have RRSPs and have never made RRSP withdrawals,Dispose d'un REER et n'en a jamais retiré de fonds
+PFRSPST,2,Have or have had RRSPs and have made RRSP withdrawals,Dispose ou disposait d'un REER et en a retiré des fonds
+PFRSPST,3,Never had RRSPs,N'a jamais eu de REER
+PFRSPST,6,Valid skip,Enchaînement valide
+PFRSPST,7,Don't know,Ne sait pas
+PFRSPST,8,Refusal,Refus
+PFRSPST,9,Not stated,Non déclaré
+PFSZ,1,1 person,1 personne
+PFSZ,2,2 persons,2 personnes
+PFSZ,3,3 persons,3 personnes
+PFSZ,4,4 persons,4 personnes
+PFSZ,5,5 persons or more,5 personnes ou plus
+PFSZ,6,Valid skip,Enchaînement valide
+PFSZ,7,Don't know,Ne sait pas
+PFSZ,8,Refusal,Refus
+PFSZ,9,Not stated,Non déclaré
+PFSZ0017,1,Yes,Oui
+PFSZ0017,2,No,Non
+PFSZ0017,6,Valid skip,Enchaînement valide
+PFSZ0017,7,Don't know,Ne sait pas
+PFSZ0017,8,Refusal,Refus
+PFSZ0017,9,Not stated,Non déclaré
+PFTENUR,1,Own without mortgage,Propriétaire sans hypothèque
+PFTENUR,2,Own with mortgage,Propriétaire avec une hypothèque
+PFTENUR,3,Do not own,Non propriétaire
+PFTENUR,6,Valid skip,Enchaînement valide
+PFTENUR,7,Don't know,Ne sait pas
+PFTENUR,8,Refusal,Refus
+PFTENUR,9,Not stated,Non déclaré
+PGDRMIE,1,Male,Masculin
+PGDRMIE,2,Female,Féminin
+PGDRMIE,6,Valid skip,Enchaînement valide
+PGDRMIE,7,Don't know,Ne sait pas
+PGDRMIE,8,Refusal,Refus
+PGDRMIE,9,Not stated,Non déclaré
+PINHERT,999999996,Valid skip,Enchaînement valide
+PINHERT,999999997,Don't know,Ne sait pas
+PINHERT,999999998,Refusal,Refus
+PINHERT,999999999,Not stated,Non déclaré
+PLFFPTME,1,Yes - mostly full-time,"Oui, principalement à temps plein"
+PLFFPTME,2,Yes - mostly part-time,"Oui, principalement à temps partiel"
+PLFFPTME,3,No - did not work,N'a pas travaillé
+PLFFPTME,6,Valid skip,Enchaînement valide
+PLFFPTME,7,Don't know,Ne sait pas
+PLFFPTME,8,Refusal,Refus
+PLFFPTME,9,Not stated,Non déclaré
+PLFPDMEG,1,Employee,Employé
+PLFPDMEG,2,Self-employed or working without pay,Travailleur autonome ou travailleur non rémunéré
+PLFPDMEG,6,Valid skip,Enchaînement valide
+PLFPDMEG,7,Don't know,Ne sait pas
+PLFPDMEG,8,Refusal,Refus
+PLFPDMEG,9,Not stated,Non déclaré
+PNBEARG,0,None,Aucun
+PNBEARG,1,1,1
+PNBEARG,2,2,2
+PNBEARG,3,3 or more,3 ou plus
+PNBEARG,6,Valid skip,Enchaînement valide
+PNBEARG,7,Don't know,Ne sait pas
+PNBEARG,8,Refusal,Refus
+PNBEARG,9,Not stated,Non déclaré
+PPVRES,10,Newfoundland and Labrador,Terre-Neuve et Labrador
+PPVRES,11,Prince Edward Island,Île-du-Prince-Édouard
+PPVRES,12,Nova Scotia,Nouvelle-Écosse
+PPVRES,13,New Brunswick,Nouveau-Brunswick
+PPVRES,24,Quebec,Québec
+PPVRES,35,Ontario,Ontario
+PPVRES,46,Manitoba,Manitoba
+PPVRES,47,Saskatchewan,Saskatchewan
+PPVRES,48,Alberta,Alberta
+PPVRES,59,British Columbia,Colombie-Britannique
+PPVRES,96,Valid skip,Enchaînement valide
+PPVRES,97,Don't know,Ne sait pas
+PPVRES,98,Refusal,Refus
+PPVRES,99,Not stated,Non déclaré
+PREGION,1,Atlantic,Atlantique
+PREGION,2,Quebec,Québec
+PREGION,3,Ontario,Ontario
+PREGION,4,Prairies,Prairies
+PREGION,5,British Columbia,Colombie Britannique
+PREGION,6,Valid skip,Enchaînement valide
+PREGION,7,Don't know,Ne sait pas
+PREGION,8,Refusal,Refus
+PREGION,9,Not stated,Non déclaré
+PWAOTPEN,999999999996,Valid skip,Enchaînement valide
+PWAOTPEN,999999999997,Don't know,Ne sait pas
+PWAOTPEN,999999999998,Refusal,Refus
+PWAOTPEN,999999999999,Not stated,Non déclaré
+PWEIGHT,9999999.9996,Valid skip,Enchaînement valide
+PWEIGHT,9999999.9997,Don't know,Ne sait pas
+PWEIGHT,9999999.9998,Refusal,Refus
+PWEIGHT,9999999.9999,Not stated,Non déclaré

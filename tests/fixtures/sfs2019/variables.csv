@@ -1,0 +1,101 @@
+name,label_en,label_fr,type,missing_low,missing_high
+PEFAMID,Family unit: economic families and persons not in economic families.,Unité familiale: famille économique & personne hors famille économique,character,,
+PWEIGHT,Survey weights - PUMF,Poids de sondage - FMGD,character,9999999.9996,9999999.9999
+PAGEMIEG,Age of the major income earner in the family unit.,Age du soutien économique principal de l'unité familiale.,character,,
+PAS1MRAG,Amount borrowed at time of refinancing,Montant supplémentaire emprunté au moment du refinancement,character,6,9
+PAS1MRG1,Refinancing to renovate or make an addition to property,Refinancement pour rénover ou agrandir la propriété,character,6,9
+PAS1MRG2,Other reasons for refinancing,Autres raisons du refinancement,numeric,6,9
+PASR1MFA,Amount of additional mortgage payments,Montant des paiements hypothécaires additionnels,character,99999996,99999999
+PASR1MR,Mortgage renegotiated for reasons unrelated to home,Hypothèque renégociée pour des raisons autres que pour le logement,numeric,6,9
+PASRBUYG,Year property was purchased,L'année d'achat de la propriété,character,96,99
+PASRCNMG,Number of 'other real estate properties' owned (inside Canada),Nombre de ces 'autres propriétés' possédées (au Canada),character,6,9
+PASRCON,Property is a condominium development,Propriété fait parti d'un développement en condominium,numeric,6,9
+PASRCST,Purchase price of the property,Le prix d'achat de la propriété,numeric,99999996,99999999
+PASRCURG,Current length of mortgage term,Durée du terme actuel de l'hypothèque,character,96,99
+PASRDPO1,Down Payment - money in bank account,Mise de fonds - argent dun compte courant,numeric,6,9
+PASRDPO2,Down Payment - previous home,Mise de fonds - propriété précédente,numeric,6,9
+PASRDPO3,Down Payment - investments,Mise de fonds - investissements,numeric,6,9
+PASRDPO4,Down Payment - borrowing,Mise de fonds - emprunt,numeric,6,9
+PASRDPO5,Down Payment - other source,Mise de fonds - autre source,numeric,6,9
+PASRDWNG,Down payment in percentage terms,Pourcentage du paiment initial pour cette proporiété,character,96,99
+PASRFNMG,Number of 'other real estate properties' (outside Canada),Nombre de ces 'autres propriétés' (à l'extérieur du Canada),character,6,9
+PASRINT,Type of mortgage interest rate,"Taux dintérêt sur hypothèque est fixe, variable, ou une combinaison",character,6,9
+PASRINTG,Current interest rate on mortgage,Taux dintérêt sur hypothèque,character,,
+PASRMOAG,Original amortization period for the mortgage,La période d'amortissement originale de l'hypothèque,character,6,9
+PASRMPFG,Number of years to pay down remaining balance of mortgage,Nombre dannées pour rembourser entièrement l'hypothèque,character,96,99
+PASRMRYG,Year mortgage up for renewal,Année que le renouvellement de l'hypothèque est dû,character,9996,9999
+PASRRNTG,Part of the property is rented out,Une partie de la propriété est louée,numeric,6,9
+PASRSKP,Have skipped or delayed a mortgage payment,A sauté un paiement hypothécaire ou la effectué en retard,numeric,6,9
+PATTCRC,Have credit cards.,Cartes de crédit.,numeric,6,9
+PATTCRLM,Total credit limit on all credit cards owned,Limite totale de crédit sur toutes les cartes de crédit détenues.,character,999996,999999
+PATTCRR,Have been refused credit card.,Laccès à une carte de credit a été refusé.,numeric,6,9
+PATTCRU,Credit card balances usually paid off every month,Le solde des cartes de crédit sont habituellement payés à chaque mois.,character,6,9
+PATTDIF,Skipped card payment due to financial difficulties,Difficultés financières,numeric,6,9
+PATTLCP,Line of credit balances usually paid off every month,Le solde des marges de crédit est habituellement payé à chaque mois.,numeric,6,9
+PATTLCR,Lines of credit,Marges de crédit,numeric,6,9
+PATTPAYD,Borrowed money through Pay Day Loans.,Emprunté de l'argent via un prêt sur salaire.,numeric,6,9
+PATTRSA,Withdrew RRSP funds to purchase annuities or RRIFs.,Retiré de l'argent des REER pour acheter une rente ou un FERR.,numeric,6,9
+PATTRSH,Withdrew RRSP funds through Home Buyer's Plan.,Retiré de l'argent des REER via un Régime d'accession à la propriété.,numeric,6,9
+PATTRSL,Withdrew RRSP funds through a Lifelong Learning Plan.,Retiré $ des REER via un Régime d'encouragement à l'éduc. permanante.,numeric,6,9
+PATTRSP,Have or had money in RRSP.,Détiennent ou ont déjà détenu de l'argent dans des REER.,numeric,6,9
+PATTRSR,Withdrew RRSP funds for any reason other than those listed.,Retiré de l'argent des REER pour d'autres raisons.,numeric,6,9
+PATTSTIN,Expected change in total income,Changement attendu du revenu total,character,6,9
+PATTSKP,Have skipped or delayed non-mortgage payment,A sauté un paiement non-hypothécaire ou la effectué en retard,numeric,6,9
+PATTLMLC,Total credit limit on all lines of credit,Limite de crédit totale de toutes les marges de crédit,numeric,99999996,99999999
+PBUSIND,Have a business.,Possèdent une entreprise.,numeric,6,9
+PDWTYP,Type of dwelling.,Type de logement.,character,,
+PEDUCMIE,Highest level of education of the major income earner.,"Plus haut niveau de scolarité, soutien économique principal.",character,,
+PEFATINC,After-tax income.,Revenu après impôt.,numeric,99999996,99999999
+PEFGTR,"Government transfers, federal & provincial.","Transferts gouvernementaux, fédéraux & provinciaux.",numeric,99999996,99999999
+PEFMJSIF,Major source of income for the family unit.,Principale source de revenu pour la famille économique.,character,,
+PEFMTINC,Market income.,Revenu du marché.,numeric,99999996,99999999
+PEXMG1A,Amount of mortgage payments,Montant des paiments hypothécaires,character,99996,99999
+PEXMG1F,Frequency of mortgage payment,Fréquence des paiments hypothécaires,character,6,9
+PFCRN,"Number of credit cards used, grouped.",Nombre de cartes de crédit utilisées en valeur groupée.,character,,
+PFMTYPG,"Derived variable, composition of family units.",Variable dérivée pour la composition de l'unité familiale.,character,,
+PFRSPST,Have or have had RRSPs and made withdrawals.,Dispose ou disposait d'un REER et a retiré des fonds.,character,,
+PFSZ,"Number of members in the family unit, all ages.",Nombre de membres dans l'unité familiale.,character,6,9
+PFSZ0017,Presence of persons ages 0 to 4.,Présence de membres de la famille âgés de 0 à 4 ans.,character,,
+PFSZ1824,Presence of persons in the family of ages 18 to 24.,Présence de membres de la famille âgés de 18 à 24 ans.,character,,
+PFSZ2544,Presence of persons in the family of ages 25 to 44.,Présence de membres de la famille âgés de 25 à 44 ans.,character,,
+PFSZ4564,Presence of persons in the family of ages 45 to 64.,Présence de membres de la famille âgés de 45 à 64 ans.,character,,
+PFSZ65UP,Presence of persons in the family of age 65 and up.,Présence de membres de la famille âgés de 65 ans et plus.,character,,
+PFTENUR,Principal residence ownership status.,État daccession de la résidence principale.,character,6,9
+PINHERT,Total value of inheritances received in 2016 constant dollars,Valeur totale des héritages reçues en dollars constant de 2016,character,999999996,999999999
+PLFCHRME,Usually works 30 hours or more per week,Travail habituellement plus de 30 heures par semaine,character,,
+PLFFPTME,Worked either full time or part-time (in 2018),A travaillé soit à temps plein ou à temps partiel (en 2018),character,,
+PLFPDMEG,Is either a paid worker or self employed,Est soit un employé rémunéré ou un travailleur automnome,character,,
+PNBEARG,Number of earners aged 15 or over in the family unit.,Nombre de membres de lunité familiale (15+) ayant des gains.,character,6,9
+PPVRES,Province of residence for the family unit.,Province de résidence de l'unité familiale.,character,,
+PREGION,Region of residence of the family unit,Région de résidence de l'unité familiale,character,,
+PRETIRME,Indicates if the major income earner has ever retired.,Indique si le soutien économique principale a déjà pris sa retraite.,character,,
+PGDRMIE,Gender of the major income earner in the family unit.,Gendre du soutien économique principal de l'unité familiale.,character,6,9
+PWAOTPEN,Other retirement funds.,Autres régimes de pension.,character,999999999996,999999999999
+PWAPRVAL,Value of the principal residence.,Valeur du domicile principal.,numeric,999999999996,999999999999
+PWARPPG,Value of all employer pension plans. Going concern basis.,Valeur de tous les RPE. Évalués sur une base de permanence.,numeric,999999999996,999999999999
+PWARPPT,Value of all employer pension plans. Termination basis.,Valeur de tous les régimes de pension demployeur. Base de terminaison,numeric,999999999996,999999999999
+PWARRIF,Registered retirement income funds (RRIFs).,Fonds enregistrés de revenu de retraite (FERR).,numeric,999999999996,999999999999
+PWARRSPL,RRSP investments including locked in RRSPs.,"REER, y compris dans des REER immobilisés.",numeric,999999999996,999999999999
+PWASTBND,"Bonds, non-registered.","Obligations, non-enregistrés.",numeric,999999999996,999999999999
+PWASTDEP,"Money in banks, non-registered.","Dépôts bancaires, non-enregistrés.",numeric,999999999996,999999999999
+PWASTMUI,"Mutual funds, other investment, Income trusts, non-registered.","Fonds commun de placement, titre à revenu fixe, non-enregistrés.",numeric,999999999996,999999999999
+PWASTOIN,Other investments or financial assets.,Autres placements ou avoirs financiers.,numeric,999999999996,999999999999
+PWASTONF,Other non-financial assets.,Autres avoirs non financiers.,numeric,999999999996,999999999999
+PWASTRST,Real estate other than principal residence.,Biens immobiliers autres que la résidence principale.,numeric,999999999996,999999999999
+PWASTSTK,"Stocks and shares, non registered.","Actions et parts, non-enregistrés.",numeric,999999999996,999999999999
+PWASTVHE,Vehicles.,Véhicules.,numeric,999999999996,999999999999
+PWATFS,Tax Free Saving Accounts (TFSA).,Comptes dépargne libre dimpôt (CÉLI).,numeric,999999999996,999999999999
+PWATOTPG,Total assets including employer pension plans - On going concern basis,"Total des avoirs, y compris les RPP - Base de permanence.",numeric,999999999996,999999999999
+PWATOTPT,"Total assets, including employer pension plans - Termination basis.","Total des avoirs, y compris les RPP - Base de terminaison.",numeric,999999999996,999999999999
+PWBUSEQ,Equity value of businesses operated by the family unit.,Valeur nette totale des entreprises exploitées par la famille.,numeric,999999999996,999999999999
+PWDPRMOR,"Mortgage on principal residence, final value.","Hypothèque sur le domicile principal, valeur finale.",numeric,999999999996,999999999999
+PWDSLOAN,Debt value of student loans.,Dettes en prêts aux étudiants.,numeric,999999999996,999999999999
+PWDSTCRD,Credit card and installment debt.,Dettes sur carte de crédit et à tempérament.,numeric,999999999996,999999999999
+PWDSTLOC,Line-of-credit debt (home and other line of credit).,Dettes sur toutes les marges de crédit (bien immobiliers et autres).,numeric,999999999996,999999999999
+PWDSTODB,Other debt (other loans and other money owed).,Autres dettes (autres emprunts et autres sommes dues).,numeric,999999999996,999999999999
+PWDSTOMR,Mortgages on other real estate in and outside of Canada.,"Emprunts hypothécaires (autres domiciles), canadiens et étrangers.",numeric,999999999996,999999999999
+PWDSTVHN,Debt on vehicles.,Emprunts sur véhicules.,numeric,999999999996,999999999999
+PWDTOTAL,Total of all debts for the family.,Total de toutes les dettes pour la famille.,numeric,999999999996,999999999999
+PWNETWPG,Networth of the family unit. (On going concern basis).,Valeur nette de lunité familiale. (Base de long terme).,numeric,999999999996,999999999999
+PWNETWPT,Networth of the family unit. (Termination basis).,Valeur nette de lunité familiale. (Base de terminaison).,numeric,999999999996,999999999999
+VERDATE,Version date,Date de version,character,,
