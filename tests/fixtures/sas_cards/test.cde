@@ -1,0 +1,20 @@
+VALUE LABELS
+PROV
+    10     "Newfoundland and Labrador"
+    11     "Prince Edward Island"
+    12     "Nova Scotia"
+    24     "Quebec"
+    35     "Ontario"
+/
+AGEGRP
+    1     "Under 25 years"
+    2     "25 to 34 years"
+    3     "35 to 44 years"
+    9     "Not stated"
+/
+SEX
+    1     "Male"
+    2     "Female"
+    9     "Not stated"
+/
+.

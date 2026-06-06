@@ -1,0 +1,6 @@
+VARIABLE LABELS
+     CASEID "Identifiant du menage"
+     PROV "Province"
+     INCOME "Revenu total du menage"
+     AGEGRP "Groupe d age"
+     SEX "Sexe"

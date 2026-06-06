@@ -1,0 +1,8 @@
+set compress=on.
+DATA LIST FILE=DATA /
+    CASEID    1 -  6      (A)
+    PROV     7 -  8      (A)
+    INCOME   9 - 16   (4)
+    AGEGRP  17 - 18      (A)
+    SEX     19 - 19      (A)
+.

@@ -718,8 +718,28 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   lines <- trimws(gsub("\\t", " ", raw))
   lines <- lines[nchar(lines) > 0L]
 
+  # SAS @pos format: if any line starts with @, route to dedicated parser
+  if (any(grepl("^@", lines))) {
+    layout <- .sas_parse_at_layout(lines)
+    # Derive fmt_type from $ prefix (character) vs absence (numeric)
+    if (!is.null(layout)) {
+      at_lines <- lines[grepl("^@\\d+", lines)]
+      fmt_df <- tibble::tibble(value = at_lines) |>
+        dplyr::mutate(
+          name     = stringr::str_match(.data$value,
+                       "^@\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
+          fmt_type = dplyr::if_else(grepl("\\$", .data$value), "A", "F")
+        ) |>
+        dplyr::filter(!is.na(.data$name)) |>
+        dplyr::select("name", "fmt_type")
+    } else {
+      fmt_df <- tibble::tibble(name = character(), fmt_type = character())
+    }
+    return(list(layout = layout, formats = fmt_df))
+  }
+
   # Find DATA LIST keyword and section content
-  dl_row <- which(grepl("^DATA LIST", lines, ignore.case = TRUE))[1L]
+  dl_row <- which(grepl("^DATA LIST|^INPUT\\s*$", lines, ignore.case = TRUE))[1L]
   if (is.na(dl_row))
     return(list(layout  = NULL,
                 formats = tibble::tibble(name = character(), fmt_type = character())))
@@ -743,8 +763,179 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     dplyr::filter(!is.na(.data$name)) |>
     dplyr::select("name", "fmt_type")
 
-  # Reuse the tokeniser-based data_list parser: prepend a dummy DATA LIST header
-  layout <- .spss_parse_data_list(c("DATA LIST", section), 1L)
+  # Detect sub-format: @pos (SAS input) vs NAME start-end (reading card)
+  has_at <- any(grepl("^@", section))
+  layout <- if (has_at)
+    .sas_parse_at_layout(section)
+  else
+    .spss_parse_data_list(c("DATA LIST", section), 1L)
 
   list(layout = layout, formats = annot_df)
+}
+
+
+# Parse SAS @pos format layout lines.
+# Input:  character vector of lines like "@1 CASEID $CHAR6." or "@6 WEIGHT 10.4"
+# Output: tibble(name, start, end)
+.sas_parse_at_layout <- function(lines) {
+  at_lines <- lines[grepl("^@\\d+", lines)]
+  if (length(at_lines) == 0L) return(NULL)
+
+  tibble::tibble(value = at_lines) |>
+    dplyr::mutate(
+      start   = as.integer(stringr::str_match(.data$value, "^@(\\d+)")[, 2L]),
+      name    = stringr::str_match(.data$value,
+                                   "^@\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
+      # Size: from $CHARn. (character) or n.d (numeric)
+      size    = as.integer(stringr::str_match(
+        .data$value, "\\$?(?:CHAR)?(\\d+)\\.")[, 2L]),
+      fmt_raw = stringr::str_match(.data$value,
+                                   "\\s+(\\$[^.]+\\.|[0-9]+\\.[0-9]*)\\s*$")[, 2L],
+      end     = .data$start + .data$size - 1L
+    ) |>
+    dplyr::filter(!is.na(.data$name), !is.na(.data$start)) |>
+    dplyr::select("name", "start", "end")
+}
+
+
+# ============================================================
+# SAS reading cards parser
+# ============================================================
+
+#' Parse a set of SAS/SPSS reading-card files for PUMF metadata
+#'
+#' Handles surveys where metadata is stored in reading-card files:
+#' \code{.lay} (column positions), \code{.lbe} (English variable labels),
+#' \code{.cde} (English value labels), \code{.mvs} (missing values), with
+#' optional \code{.lbf} / \code{.cdf} for French.
+#'
+#' The \code{.lay} file supports two sub-formats detected automatically:
+#' \describe{
+#'   \item{Reading-card}{Lines like \code{NAME start - end (A)}}
+#'   \item{SAS input}{Lines like \code{@pos NAME \$CHAR6.}}
+#' }
+#'
+#' @param cards_dir Path to the directory containing the reading-card files.
+#' @param layout_mask Optional string; used to filter when multiple files share
+#'   the same extension (e.g. SHS 2017 has separate interview and diary files).
+#' @param encoding Character encoding (e.g. \code{"Latin1"}, \code{"CP1252"}).
+#' @return A list with elements \code{variables}
+#'   (\code{name, label_en, label_fr, type, missing_low, missing_high}),
+#'   \code{codes} (\code{name, val, label_en, label_fr}), and \code{layout}
+#'   (\code{name, start, end}; \code{NULL} when no \code{.lay} file is found).
+#' @keywords internal
+parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") {
+
+  # Helper: find a file by extension, optionally filtered by layout_mask
+  find_ext <- function(ext) {
+    pat   <- paste0("\\.", ext, "$")
+    files <- dir(cards_dir, pattern = pat, full.names = TRUE, ignore.case = TRUE)
+    if (!is.null(layout_mask) && length(files) > 1)
+      files <- files[grepl(layout_mask, basename(files), ignore.case = TRUE)]
+    if (length(files) == 0L) return(NULL)
+    if (length(files) > 1L) {
+      warning("Multiple .", ext, " files in ", cards_dir,
+              "; using: ", basename(files[1L]))
+      files <- files[1L]
+    }
+    files
+  }
+
+  lay_path <- find_ext("lay")
+  lbe_path <- find_ext("lbe")
+  lbf_path <- find_ext("lbf")
+  cde_path <- find_ext("cde")
+  cdf_path <- find_ext("cdf")
+  mvs_path <- find_ext("mvs")
+
+  # ---- Layout (.lay) ----
+  layout_result <- if (!is.null(lay_path))
+    .spss_split_parse_layout(lay_path, encoding)   # handles both NAME and @pos formats
+  else
+    list(layout  = NULL,
+         formats = tibble::tibble(name = character(), fmt_type = character()))
+
+  # ---- Variable labels (.lbe / .lbf) ----
+  read_var_labels <- function(path) {
+    if (is.null(path)) return(NULL)
+    lines <- .spss_split_read_section(path, encoding)
+    df    <- .spss_parse_var_labels(lines)
+    dplyr::mutate(df, name = toupper(.data$name))   # normalise to uppercase
+  }
+
+  eng_var <- read_var_labels(lbe_path) %||%
+    tibble::tibble(name = character(), label = character())
+  fra_var <- read_var_labels(lbf_path)   # NULL when absent
+
+  # ---- Value labels (.cde / .cdf) ----
+  read_val_labels <- function(path) {
+    if (is.null(path)) return(NULL)
+    lines <- .spss_split_read_section(path, encoding)
+    df    <- .spss_parse_val_labels(lines)
+    dplyr::mutate(df, name = toupper(.data$name))
+  }
+
+  eng_val <- read_val_labels(cde_path) %||%
+    tibble::tibble(name = character(), val = character(), label = character())
+  fra_val <- read_val_labels(cdf_path)
+
+  # ---- Missing values (.mvs) ----
+  missing_vals <- if (!is.null(mvs_path)) {
+    lines <- .spss_split_read_section(mvs_path, encoding)
+    df    <- .spss_parse_missing(lines)
+    dplyr::mutate(df, name = toupper(.data$name))
+  } else {
+    tibble::tibble(name = character(), missing_low = double(), missing_high = double())
+  }
+
+  # ---- Combine type information ----
+  fmt_df       <- dplyr::mutate(layout_result$formats, name = toupper(.data$name))
+  vars_w_codes <- unique(eng_val$name)
+
+  variables <- eng_var |>
+    dplyr::left_join(fmt_df,       by = "name") |>
+    dplyr::left_join(missing_vals, by = "name") |>
+    dplyr::mutate(
+      type = dplyr::case_when(
+        .data$name %in% vars_w_codes                  ~ "character",
+        !is.na(.data$missing_low)                      ~ "numeric",
+        toupper(substr(.data$fmt_type, 1L, 1L)) == "A" ~ "character",
+        !is.na(.data$fmt_type)                         ~ "numeric",
+        TRUE                                           ~ "character"
+      )
+    )
+
+  # ---- Merge bilingual labels ----
+  if (!is.null(fra_var)) {
+    variables <- dplyr::left_join(
+      dplyr::rename(variables, label_en = "label"),
+      dplyr::select(fra_var, "name", label_fr = "label"),
+      by = "name"
+    )
+  } else {
+    variables <- dplyr::rename(variables, label_en = "label") |>
+      dplyr::mutate(label_fr = NA_character_)
+  }
+
+  if (!is.null(fra_val)) {
+    codes <- dplyr::left_join(
+      dplyr::rename(eng_val, label_en = "label"),
+      dplyr::select(fra_val, "name", "val", label_fr = "label"),
+      by = c("name", "val")
+    )
+  } else {
+    codes <- dplyr::rename(eng_val, label_en = "label") |>
+      dplyr::mutate(label_fr = NA_character_)
+  }
+
+  layout <- if (!is.null(layout_result$layout))
+    dplyr::mutate(layout_result$layout, name = toupper(.data$name))
+  else
+    NULL
+
+  variables <- variables[, c("name", "label_en", "label_fr", "type",
+                              "missing_low", "missing_high")]
+  codes     <- codes[, c("name", "val", "label_en", "label_fr")]
+
+  list(variables = variables, codes = codes, layout = layout)
 }

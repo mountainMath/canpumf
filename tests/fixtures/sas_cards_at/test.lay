@@ -1,0 +1,8 @@
+* SAS input format (@pos NAME $format.) fixture;
+INFILE DATA LRECL=20;
+INPUT
+@1   CASEID   $CHAR6.
+@7   PROV     $CHAR2.
+@9   INCOME   10.4
+@19  SEX      $CHAR1.
+;

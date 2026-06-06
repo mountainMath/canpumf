@@ -1,0 +1,6 @@
+VARIABLE LABELS
+     CASEID "Household identifier"
+     PROV "Province"
+     INCOME "Total household income"
+     AGEGRP "Age group"
+     SEX "Sex"
