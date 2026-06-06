@@ -10,6 +10,8 @@
 | 4 | Zip filename retention | Retain original filename; locate by "any `.zip` in the version dir" |
 | 5 | Multi-format metadata | Parse ALL command files found (SPSS, SAS, CSV); merge results to maximise coverage |
 | 6 | LFS database strategy | Single shared DuckDB + table across all LFS versions; monthly data superseded by annual when available |
+| 7 | Categorical storage | R factors with complete levels → DuckDB ENUM columns; NA values stored as NULL |
+| 8 | Test suite | `testthat` with golden-file fixtures per parser; integration tests for all downloadable surveys; property tests for factor/ENUM conversion |
 
 ---
 
@@ -73,6 +75,20 @@ One row per variable; **only written for fixed-width format data**. Not present 
 | `canpumf/val.Rds` | `metadata/codes.csv` |
 | `canpumf/miss.Rds` | `metadata/variables.csv` (missing_low, missing_high, type columns) |
 | `canpumf/lay.Rds` / `canpumf/layout.Rds` | `metadata/layout.csv` |
+
+### Factor conversion and NA handling
+
+This subsection specifies how `codes.csv` drives factor creation in Stage 3. It is part of the canonical format definition because the level set is authoritative metadata, not a runtime detail.
+
+**Level completeness**: factor levels are always the complete set from `codes.csv` for that variable, in the order they appear in `codes.csv` (which matches the order in the original SPSS/SAS command files — typically ascending code value). Levels are the *label* strings, not the raw code values. A code that does not appear in the actual data is still a level.
+
+**Unmatched raw values**: data values not found in `codes.csv` (e.g. a code documented only in the user guide PDF, or a new code added after the command files were written) cannot be mapped to a label. These become `NA` after conversion. A warning is emitted listing the variable name and each unmatched value so the user can investigate.
+
+**NA handling**: `NA` values in a converted factor — whether from unmatched raw values or explicit missing-value range substitution — are stored as `NULL` in DuckDB. They are **not** promoted to an explicit `"(NA)"` level. This keeps the ENUM definition clean and makes `IS NULL` queries in SQL work naturally.
+
+**DuckDB ENUM storage**: R factors written via `duckdb::dbWriteTable()` with `duckdb >= 1.5.2` are stored as DuckDB `ENUM` types rather than `VARCHAR`. ENUMs are more compact (stored as integers internally) and preserve level order. The pipeline must verify this behaviour for the installed duckdb version; if the driver falls back to VARCHAR, an explicit `ALTER COLUMN ... SET DATA TYPE ENUM(...)` step is added.
+
+**Reading ENUMs back**: when a duckplyr/DBI query collects data from a DuckDB ENUM column, it returns a character vector, not a factor. This is expected: users who need R factors call `mutate(across(where(is.character), as.factor))` or similar on the collected tibble. The lazy duckplyr table preserves ENUM semantics at the DuckDB level for efficient filtering and grouping.
 
 ---
 
@@ -285,13 +301,14 @@ Steps:
    - All columns read as character; convert numeric columns per `variables.csv` `type` field.
 5. Look up survey registry for BSW config:
    - If BSW mask present: read BSW file, join onto main data by join key, drop duplicate weight column.
-6. Apply code labels:
-   - Character columns in `codes.csv`: apply val → label mapping; create ordered factor with levels from `codes.csv`.
+6. Apply code labels and convert to factors (see Phase 1 "Factor conversion and NA handling"):
+   - Apply per-survey data fixups from registry first (e.g. SFS `str_pad`), so the raw values match codes exactly before any mapping.
+   - For each character column present in `codes.csv`: map raw values → label strings using the `val → label` lookup; apply `factor(..., levels = codes$label[codes$name == col])` with the complete ordered level set; unmatched values become `NA` (warn if any).
    - Character columns not in `codes.csv`: remain as character.
-   - Numeric columns: set values in missing range to `NA`, coerce to numeric.
-   - Apply per-survey data fixups from registry (e.g. SFS `str_pad`).
-7. Write labeled table to DuckDB. Table name = `layout_mask` if provided, else `"main"`.
-8. Disconnect writer; open reader; return `duckplyr::tbl()`.
+   - Numeric columns: coerce to numeric, then set values within `[missing_low, missing_high]` to `NA`.
+7. Verify ENUM output: after writing to DuckDB, query `PRAGMA table_info(table_name)` and check that categorical columns have type `ENUM` not `VARCHAR`. If not, execute `ALTER TABLE ... ALTER COLUMN ... TYPE ENUM(...)` for each affected column.
+8. Write labeled table to DuckDB. Table name = `layout_mask` if provided, else `"main"`.
+9. Disconnect writer; open reader; return `duckplyr::tbl()`.
 
 **LFS does not use this function** — it uses the LFS-specific pipeline in Phase 7 which handles appending to a shared table with schema reconciliation.
 
@@ -492,69 +509,149 @@ If a future version of a label conflicts with an existing one for the same code 
 
 ---
 
+## Phase 8 — Comprehensive test suite
+
+### Framework and location
+
+`testthat` (standard for R packages). All tests live in `tests/testthat/`. Golden-file fixtures (reference CSVs) live in `tests/fixtures/<survey>/`. Actual PUMF data used as fixtures lives in `test_data/` (already gitignored where large).
+
+### Test categories
+
+#### A — Metadata parser unit tests
+
+One test file per parser. Each test:
+1. Points at a fixture directory containing a real PUMF command file set.
+2. Calls the parser and compares output against reference CSVs stored in `tests/fixtures/<survey>/`.
+3. Checks row counts, column names, specific known variable labels, and specific known code labels.
+4. Checks that no expected variable is missing from the output and no wholly spurious variable appears.
+
+Reference fixtures are generated once by running the new parsers against known-good data, spot-checked manually, then committed. They function as regression guards.
+
+| Test file | Parser | Fixture source |
+|---|---|---|
+| `test-parse-spss-mono.R` | `parse_spss_mono()` | Census 2021 or 2016 SPSS file (EFT, in `test_data/` if available; otherwise `skip_if_not(file.exists(...))`) |
+| `test-parse-spss-split.R` | `parse_spss_split()` | SFS 2019 or CHS 2018 SPSS split files |
+| `test-parse-sas-cards.R` | `parse_sas_cards()` | Census 1991 reading cards — **`test_data/cen91_ind_95m0007x_ind_rec91/` already present in repo** |
+| `test-parse-lfs-codebook.R` | `parse_lfs_codebook()` | LFS downloaded fixture (skip if offline) |
+| `test-parse-cpss-csv.R` | `parse_cpss_csv()` | CPSS `variables.csv` from downloaded fixture (skip if offline) |
+| `test-merge-metadata.R` | `merge_metadata()` | Synthetic in-memory lists; tests priority order and conflict warnings |
+| `test-metadata-io.R` | `write_metadata()` / `read_metadata()` | Pure in-memory; already partly tested in Step 1 |
+
+#### B — Integration tests (full pipeline per survey)
+
+Each integration test runs the complete three-stage pipeline for one survey version and asserts:
+- The DuckDB file is created.
+- The `main` table has the expected column names.
+- Row count is within a known range (not exact, since StatCan may revise files).
+- All categorical columns have DuckDB type ENUM (queried via `PRAGMA table_info`).
+- A sample of known factor levels is present (e.g. province names for PROV).
+- Numeric columns have no values in the documented missing range remaining as data.
+
+All integration tests use `testthat::skip_if_offline()` and `testthat::skip_on_cran()`. They also use a shared temp cache path and clean up after themselves.
+
+| Test file | Survey | Notes |
+|---|---|---|
+| `test-pipeline-cpss.R` | CPSS v1 | Small CSV; good smoke test |
+| `test-pipeline-lfs.R` | LFS (one recent annual) | Tests LFS pipeline including `lfs_versions` table |
+| `test-pipeline-chs.R` | CHS 2021 | Tests SPSS split + BSW join |
+| `test-pipeline-sfs.R` | SFS 2019 | Tests SPSS split + BSW join + `str_pad` fixup |
+| `test-pipeline-census.R` | Census 2021 (individuals) | Tests SPSS mono; skip if EFT data absent |
+
+#### C — Factor / ENUM property tests
+
+`test-factor-enum.R` — no network, no large data.
+
+- **Complete levels**: given a codes table with N distinct labels, the resulting factor has exactly N levels even when only a subset of codes appear in the synthetic data column.
+- **Level order**: factor levels match the order of rows in `codes.csv`, not the order of first appearance in data.
+- **Unmatched values → NA + warning**: a raw value not in `codes.csv` produces `NA` in the factor and triggers a warning naming the variable and the unmatched value(s).
+- **Missing-range substitution**: numeric values within `[missing_low, missing_high]` become `NA_real_` after conversion.
+- **ENUM type in DuckDB**: write a small data frame with a factor column to an in-memory DuckDB (`:memory:`); query `PRAGMA table_info`; assert column type is `ENUM`.
+- **NULL round-trip**: write a factor with some `NA` elements; read back from DuckDB; assert those positions are `NA` in R (not a string `"NA"`).
+- **Schema evolution (LFS)**: write two small data frames with differing column sets to the same DuckDB table using the append + ALTER logic; assert the merged table has all columns, NULLs in the right places, and ENUM types preserved after ALTER.
+
+### Golden-file workflow
+
+When a parser is first written:
+1. Run it against the fixture directory.
+2. Visually inspect a sample of variables and codes.
+3. `write_metadata(parsed, "tests/fixtures/<survey>")` to commit the reference CSVs.
+4. The test then reads these back with `read_metadata("tests/fixtures/<survey>")` and asserts `identical()`.
+
+When a parser is intentionally changed:
+1. Run tests — they will fail (good).
+2. Inspect the diff between old and new fixture output.
+3. If the change is correct, update the fixture: `write_metadata(new_parsed, "tests/fixtures/<survey>")` and commit.
+
+This makes the intent of every parser change explicit in the git diff.
+
+### `test_data/` fixture for SAS cards parser
+
+`test_data/cen91_ind_95m0007x_ind_rec91/` is the only PUMF data already in the repo. It will be the primary always-available fixture for `test-parse-sas-cards.R` (and acts as a canary that the reading-cards parser works end-to-end). The golden files for this fixture are generated in Step 4 (SAS cards parser) and committed to `tests/fixtures/cen91/`.
+
+---
+
 ## Implementation sequence
 
-### Step 1 — Canonical metadata format + writer (Phase 1)
+### Step 1 — Canonical metadata format + writer ✓ done
 
-Write `write_metadata()` and the CSV schema. No parsers yet.
-Test: manually construct `list(variables, codes, layout)` and verify the CSVs look right.
+`write_metadata()`, `read_metadata()`, `metadata_exists()`, `validate_metadata()` in `R/metadata_parsers.R`. Testthat skeleton + `test-metadata-io.R` written alongside.
 
-### Step 2 — SPSS monolithic parser (Phase 3, hardest piece)
+### Step 2 — testthat skeleton + factor/ENUM property tests (Phase 8C)
 
-Write `parse_spss_mono()` against a known Census SPSS file from `test_data/`.
-Test: compare output to current `ensure_2016_pumf_metadata()` / `ensure_2021_pumfi_metadata()` results.
+Set up `tests/testthat/` with `testthat::use_testthat()` if not present. Write `test-factor-enum.R` covering complete levels, level order, unmatched→NA+warning, missing-range substitution, ENUM type verification in `:memory:` DuckDB, NULL round-trip, and schema evolution for LFS append. These tests define the exact contract that Stage 3 must satisfy before any pipeline code is written.
 
-### Step 3 — SPSS split parser (Phase 3)
+### Step 3 — SPSS monolithic parser (Phase 3, hardest piece)
 
-Refactor `parse_pumf_metadata_spss()` + `read_pumf_layout_spss()` into `parse_spss_split()`.
-Test: compare to current `.Rds` output for a known SFS or CHS dataset.
+Write `parse_spss_mono()` against a known Census SPSS file. Compare output to current `ensure_2016_pumf_metadata()` / `ensure_2021_pumfi_metadata()` results to confirm no regression. Generate golden files → `tests/fixtures/census2016/` and `tests/fixtures/census2021/`. Write `test-parse-spss-mono.R`.
 
-### Step 4 — SAS cards parser (Phase 3)
+### Step 4 — SPSS split parser (Phase 3)
 
-Refactor `parse_pumf_metadata_cards()` into `parse_sas_cards()`.
-Test: compare to current `.Rds` output for a known SHS dataset.
+Refactor `parse_pumf_metadata_spss()` + `read_pumf_layout_spss()` into `parse_spss_split()`. Compare to current `.Rds` output for SFS 2019. Generate golden files → `tests/fixtures/sfs2019/`. Write `test-parse-spss-split.R`.
 
-### Step 5 — CSV parsers (Phase 3)
+### Step 5 — SAS cards parser (Phase 3)
 
-Refactor `ensure_lfs_metadata()` into `parse_lfs_codebook()` and `parse_pumf_metadata_csv()` into `parse_cpss_csv()`.
+Refactor `parse_pumf_metadata_cards()` into `parse_sas_cards()`. Use `test_data/cen91_ind_95m0007x_ind_rec91/` as the always-present fixture. Generate golden files → `tests/fixtures/cen91/`. Write `test-parse-sas-cards.R`.
 
-### Step 6 — Format detector + merger (Phase 3)
+### Step 6 — CSV parsers (Phase 3)
 
-Write `detect_formats()` and `merge_metadata()`. Test against directories with multiple format families.
+Refactor `ensure_lfs_metadata()` → `parse_lfs_codebook()` and `parse_pumf_metadata_csv()` → `parse_cpss_csv()`. Write `test-parse-lfs-codebook.R` and `test-parse-cpss-csv.R` (both skip if offline). Generate golden fixtures from a downloaded LFS and CPSS version.
 
-### Step 7 — Survey registry (Phase 4)
+### Step 7 — Format detector + merger (Phase 3)
+
+Write `detect_formats()` and `merge_metadata()`. Write `test-merge-metadata.R` with synthetic in-memory inputs covering priority ordering and conflict-warning cases.
+
+### Step 8 — Survey registry (Phase 4)
 
 Write `R/registry.R` with entries for all known surveys with special handling (SFS 2012/2016/2019/2023, CHS 2018/2021/2022, SHS 2017/2019, ITS 2018/2019, Census years).
 
-### Step 8 — Stage 1: locate/download (Phase 4)
+### Step 9 — Stage 1: locate/download (Phase 4)
 
-Write `pumf_locate_or_download()`. Test with a small downloadable survey (CPSS or CCAHS).
+Write `pumf_locate_or_download()`. Test with CPSS v1 (small, downloadable; skip if offline).
 
-### Step 9 — Stage 3: build DuckDB (Phase 4)
+### Step 10 — Stage 3: build DuckDB + factor/ENUM (Phase 4)
 
-Write `pumf_build_duckdb()`. Test end-to-end with a small non-LFS survey.
+Write `pumf_build_duckdb()` including the factor conversion and ENUM verification step. Run `test-factor-enum.R` to validate the implementation against the contracts defined in Step 2. Write `test-pipeline-cpss.R` as the first integration test (skip if offline).
 
-### Step 10 — Stage 2 wired in (Phase 4)
+### Step 11 — Stage 2 wired in (Phase 4)
 
-Wire `pumf_parse_metadata()` as the dispatcher between stages 1 and 3.
+Wire `pumf_parse_metadata()` as the dispatcher between stages 1 and 3. Add `test-pipeline-chs.R` and `test-pipeline-sfs.R`.
 
-### Step 11 — LFS pipeline (Phase 7)
+### Step 12 — LFS pipeline (Phase 7)
 
-Write `lfs_get_pumf()` with the `lfs_versions` table, version detection, append logic, schema reconciliation, supersession, and `refresh="auto"`.
-Test: load two LFS annual versions; verify counts and column union; simulate supersession by manually inserting a monthly entry and then adding the annual.
+Write `lfs_get_pumf()` with the `lfs_versions` table, version detection, append logic, schema reconciliation, supersession, and `refresh="auto"`. Write `test-pipeline-lfs.R`: load two annual versions, verify counts and column union, simulate supersession.
 
-### Step 12 — Public API (Phase 6)
+### Step 13 — Public API (Phase 6)
 
-Update `get_pumf()` to dispatch to `lfs_get_pumf()` for LFS and to the standard pipeline for everything else. Add `pumf_metadata()`. Add deprecation warnings to old functions.
+Update `get_pumf()` to dispatch to `lfs_get_pumf()` for LFS and to the standard pipeline for everything else. Add `pumf_metadata()`. Add deprecation warnings to old functions. Write `test-pipeline-census.R` (skip if EFT data absent).
 
-### Step 13 — Documentation rewrite (Phase 5)
+### Step 14 — Documentation rewrite (Phase 5)
 
 Replace `open_pumf_documentation()`.
 
-### Step 14 — Cleanup
+### Step 15 — Cleanup
 
 Remove `R/pumf_cache_path.R`, `R/layout_spss.R`, `R/layout_cards.R`, `R/layout_csv.R`, `R/lfs.R`, `R/chs.R`, `R/sfs.R`, `R/shs.R`, `R/census.R`, `R/canpumf_duckdb.R` once all logic is absorbed.
-Update `NAMESPACE`, `DESCRIPTION`, `CLAUDE.md`.
+Update `NAMESPACE`, `DESCRIPTION`, `CLAUDE.md`. Run full test suite; fix any regressions.
 
 ---
 
@@ -581,6 +678,23 @@ Update `NAMESPACE`, `DESCRIPTION`, `CLAUDE.md`.
 | `R/helpers.R` | keep — `pumf_layout_dir()`, `find_unique_layout_file()`, `robust_unzip()` |
 | `R/pumf_collection.R` | keep — `list_canpumf_collection()` unchanged |
 | `R/pumf_documentation.R` | rewrite — generic scanner replaces if/else tree |
-| `DESCRIPTION` | update imports |
+| `DESCRIPTION` | update imports; add `testthat` to Suggests |
 | `NAMESPACE` | regenerate via `devtools::document()` |
 | `CLAUDE.md` | update architecture section after completion |
+| `tests/testthat/test-metadata-io.R` | **new** — write/read round-trip tests (Step 1) |
+| `tests/testthat/test-factor-enum.R` | **new** — factor/ENUM property tests (Step 2, before pipeline) |
+| `tests/testthat/test-parse-spss-mono.R` | **new** — SPSS monolithic parser (Step 3) |
+| `tests/testthat/test-parse-spss-split.R` | **new** — SPSS split parser (Step 4) |
+| `tests/testthat/test-parse-sas-cards.R` | **new** — SAS cards parser, uses `test_data/cen91_*` (Step 5) |
+| `tests/testthat/test-parse-lfs-codebook.R` | **new** — LFS codebook parser, skip if offline (Step 6) |
+| `tests/testthat/test-parse-cpss-csv.R` | **new** — CPSS CSV parser, skip if offline (Step 6) |
+| `tests/testthat/test-merge-metadata.R` | **new** — merger + detector (Step 7) |
+| `tests/testthat/test-pipeline-cpss.R` | **new** — CPSS end-to-end integration (Step 10) |
+| `tests/testthat/test-pipeline-chs.R` | **new** — CHS integration (Step 11) |
+| `tests/testthat/test-pipeline-sfs.R` | **new** — SFS integration (Step 11) |
+| `tests/testthat/test-pipeline-lfs.R` | **new** — LFS longitudinal pipeline (Step 12) |
+| `tests/testthat/test-pipeline-census.R` | **new** — Census integration, skip if EFT data absent (Step 13) |
+| `tests/fixtures/cen91/` | **new** — golden metadata CSVs for Census 1991 SAS cards fixture |
+| `tests/fixtures/census2016/` | **new** — golden metadata CSVs for Census 2016 SPSS mono fixture |
+| `tests/fixtures/census2021/` | **new** — golden metadata CSVs for Census 2021 SPSS mono fixture |
+| `tests/fixtures/sfs2019/` | **new** — golden metadata CSVs for SFS 2019 SPSS split fixture |
