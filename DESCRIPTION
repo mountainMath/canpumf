@@ -13,7 +13,7 @@ Encoding: UTF-8
 LazyData: true
 RoxygenNote: 7.3.3
 Depends: R (>= 4.2)
-Imports: 
+Imports:
     dplyr (>= 1.0),
     readr,
     stringr,
@@ -23,12 +23,16 @@ Imports:
     tibble,
     tidyr,
     rvest,
-    purrr
-Suggests: 
+    purrr,
+    DBI,
+    duckdb  (>= 1.5.2),
+    duckplyr  (>= 1.2.1)
+Suggests:
     rmarkdown,
     knitr,
     scales,
-    ggplot2
+    ggplot2,
+    testthat (>= 3.0.0)
 URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/canpumf/
 BugReports: https://github.com/mountainMath/canpumf/issues
 VignetteBuilder: knitr
