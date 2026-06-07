@@ -137,14 +137,26 @@ get_pumf <- function(series     = NULL,
   if (read_only) {
     # Re-open as read-only so callers cannot accidentally mutate the DB.
     DBI::dbDisconnect(con, shutdown = TRUE)
-    pumf_open_duckdb(db_path, table_name, read_only = TRUE)
+    tbl <- pumf_open_duckdb(db_path, table_name, read_only = TRUE)
   } else {
     if (!DBI::dbExistsTable(con, table_name)) {
       DBI::dbDisconnect(con, shutdown = TRUE)
       stop("Table '", table_name, "' not found in ", db_path, ".")
     }
-    dplyr::tbl(con, table_name)
+    tbl <- dplyr::tbl(con, table_name)
   }
+
+  # For LFS, pumf_open_duckdb returns the whole shared lfs_eng/lfs_fra table.
+  # When a specific version was requested, filter to that year (and month).
+  if (series == "LFS" && !is.null(version)) {
+    survyear <- .lfs_survyear(version)
+    survmnth <- .lfs_survmnth(version)
+    tbl <- dplyr::filter(tbl, .data$SURVYEAR == survyear)
+    if (!is.na(survmnth))
+      tbl <- dplyr::filter(tbl, .data$SURVMNTH == survmnth)
+  }
+
+  tbl
 }
 
 
