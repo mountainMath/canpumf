@@ -458,61 +458,68 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
   # Group boundaries: position 1 (first group starts immediately) plus
   # every line that starts with /
-  slash_pos   <- which(grepl("^/", lines))
+  slash_pos    <- which(grepl("^/", lines))
   group_starts <- sort(unique(c(1L, slash_pos)))
   group_ends   <- c(group_starts[-1L] - 1L, length(lines))
 
   purrr::map2_df(group_starts, group_ends, function(gs, ge) {
     s <- gs
 
-    # Extract variable name by stripping leading /
-    n <- trimws(sub("^/", "", lines[s]))
+    # Extract content after the leading /
+    first_line <- trimws(sub("^/", "", lines[s]))
 
-    # If header was bare "/" (2016 style), next line is the variable name
-    if (nchar(n) == 0L) {
+    # Bare "/" (2016 style): next line holds the variable name(s)
+    if (nchar(first_line) == 0L) {
       s <- s + 1L
       if (s > ge)
         return(tibble::tibble(name = character(), val = character(), label = character()))
-      n <- trimws(lines[s])
+      first_line <- trimws(lines[s])
     }
 
-    # Take only the first word of the name (guard against "VAR1 VAR2" headers)
-    n <- sub("\\s.*", "", n)
-
+    # Collect variable names: the header may span several continuation lines.
+    # A code line always contains at least one double-quoted label; header/name
+    # lines do not.  Read lines while no double-quotes are present.
+    name_words <- strsplit(first_line, "\\s+")[[1L]]
     code_start <- s + 1L
-    if (code_start > ge)
+    while (code_start <= ge && !grepl('"', lines[code_start], fixed = TRUE)) {
+      name_words <- c(name_words,
+                      strsplit(trimws(lines[code_start]), "\\s+")[[1L]])
+      code_start <- code_start + 1L
+    }
+    var_names <- name_words[grepl("^[A-Za-z][A-Za-z0-9_]*$", name_words)]
+
+    if (length(var_names) == 0L || code_start > ge)
       return(tibble::tibble(name = character(), val = character(), label = character()))
 
     code_lines <- lines[seq(code_start, ge)]
-    code_lines <- code_lines[!grepl("^/", code_lines)]  # drop embedded / lines
+    code_lines <- code_lines[!grepl("^/", code_lines)]
     code_lines <- code_lines[nchar(code_lines) > 0L]
 
     if (length(code_lines) == 0L)
       return(tibble::tibble(name = character(), val = character(), label = character()))
 
-    tibble::tibble(line = code_lines) |>
+    codes_df <- tibble::tibble(line = code_lines) |>
       dplyr::mutate(
-        # Find all double-quoted strings on each line
         all_q   = stringr::str_extract_all(.data$line, '"[^"]*"'),
-        n_q     = vapply(.data$all_q, length, integer(1L)),
-        # Safe accessors: NA when the list element is empty
         first_q = vapply(.data$all_q,
                          function(x) if (length(x) > 0L) x[[1L]] else NA_character_,
                          character(1L)),
         last_q  = vapply(.data$all_q,
                          function(x) if (length(x) > 0L) x[[length(x)]] else NA_character_,
                          character(1L)),
-        # Code: first quoted string content when line starts with ", else unquoted prefix
         val   = dplyr::if_else(
           grepl('^"', trimws(.data$line)),
           gsub('^"|"$', "", .data$first_q),
           trimws(sub('".*', "", .data$line))
         ),
-        # Label: always the last quoted string
         label = gsub('^"|"$', "", .data$last_q)
       ) |>
       dplyr::filter(!is.na(.data$label), nchar(.data$val) > 0L) |>
-      dplyr::mutate(name = n) |>
+      dplyr::select("val", "label")
+
+    # Replicate the code/label pairs for every variable in this header block
+    purrr::map_df(var_names, function(vn)
+      dplyr::mutate(codes_df, name = vn)) |>
       dplyr::select("name", "val", "label")
   })
 }
