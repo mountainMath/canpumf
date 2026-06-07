@@ -220,8 +220,20 @@ pumf_locate_or_download <- function(series,
 # Recursive search for the main data file inside version_dir.
 # Excludes metadata/, SPSS command file directories, and documentation files.
 # Applies file_mask regex when multiple candidates remain.
-.find_pumf_data_file <- function(version_dir, file_mask, is_fwf) {
-  ext_pat  <- if (is_fwf) "\\.(txt|dat)$" else "\\.csv$"
+.find_pumf_data_file <- function(version_dir, file_mask, prefer_fwf = FALSE) {
+  # Derive the extension pattern from the file_mask when it contains an
+  # explicit extension; otherwise use prefer_fwf (TRUE → TXT/DAT, FALSE → CSV).
+  # This avoids the chicken-and-egg problem of needing is_fwf before finding
+  # the file, while keeping backward-compatible behaviour for surveys that have
+  # only one type of data file.
+  ext_pat <- if (!is.null(file_mask) && grepl("\\.csv$", file_mask, ignore.case = TRUE))
+    "\\.csv$"
+  else if (!is.null(file_mask) && grepl("\\.(txt|dat)$", file_mask, ignore.case = TRUE))
+    "\\.(txt|dat)$"
+  else if (prefer_fwf)
+    "\\.(txt|dat)$"
+  else
+    "\\.csv$"
   # Subdirectory names that hold metadata/layout but not data
   excl_pat <- paste0(
     "/(metadata|SPSS|Command|Syntax|Layout|SpssCard|",
@@ -233,7 +245,7 @@ pumf_locate_or_download <- function(series,
   # BSW files are always handled separately; exclude them regardless of format
   candidates <- candidates[!grepl("_BSW\\.", basename(candidates), ignore.case = TRUE)]
 
-  if (!is_fwf) {
+  if (grepl("\\.csv$", ext_pat, fixed = TRUE)) {
     candidates <- candidates[!grepl(
       "codebook|variables|layout|readme|lisezmoi|dictionary",
       basename(candidates), ignore.case = TRUE)]
@@ -552,9 +564,12 @@ pumf_build_duckdb <- function(version_dir,
   reg      <- pumf_registry_lookup(series, version)
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
   eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
-  is_fwf   <- !is.null(layout)
 
-  data_path <- .find_pumf_data_file(version_dir, eff_mask, is_fwf)
+  data_path <- .find_pumf_data_file(version_dir, eff_mask, prefer_fwf = !is.null(layout))
+  # FWF only when layout exists AND the actual data file is not CSV.
+  # Some surveys (e.g. CHS) ship both a CSV and a TXT file; the SPSS DATA LIST
+  # section creates a layout.csv, but data must be read from the CSV.
+  is_fwf    <- !is.null(layout) && !grepl("\\.csv$", data_path, ignore.case = TRUE)
   message("Reading ", if (is_fwf) "fixed-width" else "CSV",
           " data from ", basename(data_path), " ...")
 

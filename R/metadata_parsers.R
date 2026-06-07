@@ -834,18 +834,32 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   section <- if (is.na(end_idx)) section else section[seq_len(end_idx - 1L)]
   section <- section[grepl("[A-Za-z]", section)]
 
-  # Extract type/decimal annotations from each line before tokenising
+  # Extract type/decimal annotations from each line before tokenising.
+  # SPSS DATA LIST annotation forms:
+  #   none        → numeric integer (0 decimal places)
+  #   (A) / (An)  → character
+  #   (n)         → numeric, n decimal places  (e.g. "(4)" → 4 decimals)
+  #   (Fn.d)      → numeric, d decimal places  (e.g. "(F8.2)" → 2 decimals)
   annot_df <- tibble::tibble(value = section) |>
     dplyr::mutate(
       name     = stringr::str_match(.data$value, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
       annot    = stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L],
       fmt_type = dplyr::case_when(
         trimws(.data$annot) == "A"            ~ "A",
+        grepl("^A\\d*$", trimws(.data$annot)) ~ "A",
         grepl("^\\d+$", trimws(.data$annot))  ~ "F",
+        is.na(.data$annot)                    ~ "F",
         TRUE                                  ~ NA_character_
       ),
-      decimals = as.integer(
-        stringr::str_match(.data$annot, "[Ff]\\d+\\.(\\d+)")[, 2L])
+      decimals = dplyr::case_when(
+        is.na(.data$annot)                           ~ 0L,
+        grepl("^\\d+$", trimws(.data$annot))         ~
+          as.integer(trimws(.data$annot)),
+        !is.na(stringr::str_match(.data$annot,
+                                   "[Ff]\\d+\\.(\\d+)")[, 2L]) ~
+          as.integer(stringr::str_match(.data$annot, "[Ff]\\d+\\.(\\d+)")[, 2L]),
+        TRUE                                         ~ NA_integer_
+      )
     ) |>
     dplyr::filter(!is.na(.data$name)) |>
     dplyr::select("name", "fmt_type", "decimals")
