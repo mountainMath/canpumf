@@ -6,7 +6,7 @@ test_that("parse_spss_mono: VARIABLE LABELS extracted from 2021-style file", {
   m <- canpumf:::parse_spss_mono(fx("simple_en.sps"))
 
   expect_s3_class(m$variables, "data.frame")
-  expect_true(all(c("name","label_en","label_fr","type","missing_low","missing_high")
+  expect_true(all(c("name","label_en","label_fr","type","decimals","missing_low","missing_high")
                   %in% names(m$variables)))
   expect_setequal(m$variables$name, c("AGEGRP","PROV","WAGE","SEX"))
 
@@ -127,7 +127,7 @@ test_that("parse_spss_mono: 2016-style VARIABLE LABELS (double quotes, no indent
 test_that("parse_spss_mono: canonical schema returned", {
   m <- canpumf:::parse_spss_mono(fx("simple_en.sps"))
 
-  expect_named(m$variables, c("name","label_en","label_fr","type","missing_low","missing_high"))
+  expect_named(m$variables, c("name","label_en","label_fr","type","decimals","missing_low","missing_high"))
   expect_named(m$codes,     c("name","val","label_en","label_fr"))
   expect_named(m$layout,    c("name","start","end"))
 })

@@ -6,7 +6,7 @@ test_that("parse_spss_split: VARIABLE LABELS extracted", {
   m <- canpumf:::parse_spss_split(fx_dir())
 
   expect_s3_class(m$variables, "data.frame")
-  expect_true(all(c("name","label_en","label_fr","type","missing_low","missing_high")
+  expect_true(all(c("name","label_en","label_fr","type","decimals","missing_low","missing_high")
                   %in% names(m$variables)))
   expect_setequal(m$variables$name, c("FAMID","AGEGRP","PROV","INCOME","SEX"))
   expect_equal(m$variables$label_en[m$variables$name == "AGEGRP"], "Age group")
@@ -111,7 +111,7 @@ test_that("parse_spss_split: French labels joined when varf/valf present", {
 
 test_that("parse_spss_split: canonical schema returned", {
   m <- canpumf:::parse_spss_split(fx_dir())
-  expect_named(m$variables, c("name","label_en","label_fr","type","missing_low","missing_high"))
+  expect_named(m$variables, c("name","label_en","label_fr","type","decimals","missing_low","missing_high"))
   expect_named(m$codes,     c("name","val","label_en","label_fr"))
   expect_named(m$layout,    c("name","start","end"))
 })

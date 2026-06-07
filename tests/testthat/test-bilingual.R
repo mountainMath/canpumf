@@ -5,6 +5,7 @@ mk_meta_bilingual <- function() {
       label_en     = c("Labour force status", "Age of respondent", "Province"),
       label_fr     = c("Statut d'activité", "Âge du répondant", "Province"),
       type         = c("character", "numeric", "character"),
+      decimals     = c(NA_integer_, 0L, NA_integer_),
       missing_low  = c(NA_real_, 98, NA_real_),
       missing_high = c(NA_real_, 99, NA_real_)
     ),
@@ -88,7 +89,8 @@ test_that("check_bilingual_coverage is silent when coverage is <= threshold", {
   meta$variables <- rbind(
     meta$variables,
     tibble::tibble(name = "X", label_en = "Extra", label_fr = "Extra_fr",
-                   type = "character", missing_low = NA_real_, missing_high = NA_real_)
+                   type = "character", decimals = NA_integer_,
+                   missing_low = NA_real_, missing_high = NA_real_)
   )
   meta$variables$label_fr[3] <- NA_character_   # 1 of 4 = 25%
   expect_warning(canpumf:::check_bilingual_coverage(meta, threshold = 0.20))

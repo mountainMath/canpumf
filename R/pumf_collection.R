@@ -160,3 +160,33 @@ list_canpumf_collection <- function(){
   result |>
     bind_rows(census_download)
 }
+
+
+#' List available PUMF LFS versions
+#'
+#' Scrapes the StatCan LFS publication page and returns a tibble of all
+#' available LFS PUMF versions with their download URLs.
+#'
+#' @return A tibble with columns `Date`, `version`, and `url`.
+#' @export
+list_available_lfs_pumf_versions <- function(){
+  base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
+  url <- paste0(base_url,"71m0001x2021001-eng.htm")
+  ts <- rvest::read_html(url) %>%
+    rvest::html_elements("a")
+  ts <- ts[rvest::html_text(ts)=="CSV"]
+
+  lct <- Sys.getlocale("LC_TIME")
+  Sys.setlocale("LC_TIME", "C")
+
+  d <- tibble::tibble(
+    url  = paste0(base_url, rvest::html_attr(ts,"href")),
+    Date = gsub(" \\| PUMF: CSV","", rvest::html_attr(ts,"title"))) |>
+    dplyr::mutate(version = dplyr::case_when(
+      grepl("^\\d{4}$",.data$Date) ~ .data$Date,
+      TRUE ~ strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m"))) |>
+    dplyr::select(.data$Date, .data$version, .data$url)
+
+  Sys.setlocale("LC_TIME", lct)
+  d
+}

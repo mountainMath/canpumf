@@ -2,7 +2,7 @@
 % Please edit documentation in R/pumf.R
 \name{read_pumf_data}
 \alias{read_pumf_data}
-\title{Parse PUMF data}
+\title{Read raw PUMF data as a tibble (deprecated)}
 \usage{
 read_pumf_data(
   pumf_base_path,
@@ -12,20 +12,22 @@ read_pumf_data(
 )
 }
 \arguments{
-\item{pumf_base_path}{optional base path, guessed from attributes on \code{pumf_data}}
+\item{pumf_base_path}{Path to the extracted PUMF directory.}
 
-\item{layout_mask}{optional layout mask in case there are several layout files,
-guessed from attributes on \code{layout_mask}}
+\item{layout_mask}{Optional mask to select a specific layout file.}
 
-\item{file_mask}{optional additional mask to filter down to specific PUMF file if there are several}
+\item{file_mask}{Optional mask to select a specific data file.}
 
-\item{guess_numeric}{logical, will guess numeric columns and covert to numeric and set missing values
-to \code{NA} if set to \code{TRUE} (default)}
+\item{guess_numeric}{Logical; convert numeric columns and apply missing
+values.  Default `TRUE`.}
 }
 \value{
-data frame with one row for each case in the PUMF data
+A tibble with attributes `pumf_base_path` and `layout_mask`.
 }
 \description{
-Parse PUMF data
+`r lifecycle::badge("deprecated")`
+
+This function is kept for users who work with manually-deposited directories
+outside the standard cache.  For all standard surveys use [get_pumf()],
+which returns a lazy DuckDB table and handles labeling automatically.
 }
-\keyword{internal}

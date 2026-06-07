@@ -8,6 +8,7 @@ mk_meta <- function(with_french = TRUE, with_layout = TRUE) {
       label_en     = c("Labour force status", "Age of respondent", "Province"),
       label_fr     = fr_var,
       type         = c("character", "numeric", "character"),
+      decimals     = c(NA_integer_, 0L, NA_integer_),
       missing_low  = c(NA_real_, 98, NA_real_),
       missing_high = c(NA_real_, 99, NA_real_)
     ),

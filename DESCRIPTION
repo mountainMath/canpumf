@@ -26,13 +26,15 @@ Imports:
     purrr,
     DBI,
     duckdb  (>= 1.5.2),
-    duckplyr  (>= 1.2.1)
+    duckplyr  (>= 1.2.1),
+    haven
 Suggests:
     rmarkdown,
     knitr,
     scales,
     ggplot2,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/canpumf/
 BugReports: https://github.com/mountainMath/canpumf/issues
 VignetteBuilder: knitr

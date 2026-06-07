@@ -2,7 +2,7 @@
 % Please edit documentation in R/pumf.R
 \name{download_pumf}
 \alias{download_pumf}
-\title{Download PUMF data}
+\title{Download PUMF data (deprecated)}
 \usage{
 download_pumf(
   path,
@@ -12,18 +12,21 @@ download_pumf(
 )
 }
 \arguments{
-\item{path}{Download path for PUMF SPSS data}
+\item{path}{Download URL for the PUMF zip file.}
 
-\item{destination_dir}{Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`}
+\item{destination_dir}{Directory to extract into.}
 
-\item{refresh}{Optional parameter to force re-download of PUMF data}
+\item{refresh}{Force re-download even if directory exists.}
 
-\item{timeout}{Optional parameter to specify connection timeout for download}
+\item{timeout}{Connection timeout in seconds.}
 }
 \value{
 pumf_base_dir that can be used in the other package functions
 }
 \description{
-Download PUMF data
+`r lifecycle::badge("deprecated")`
+
+Use [pumf_locate_or_download()] internally or [get_pumf()] as the public
+entry point.
 }
 \keyword{internal}

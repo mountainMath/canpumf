@@ -42,8 +42,11 @@ One row per variable.
 | `label_en` | character | English human-readable variable label |
 | `label_fr` | character or NA | French human-readable variable label; NA when French metadata is unavailable |
 | `type` | character | `"character"` or `"numeric"` |
+| `decimals` | integer or NA | decimal places from format code (0 = integer, >0 = floating-point, NA = unknown); NA for character variables |
 | `missing_low` | numeric or NA | low end of missing-value range |
 | `missing_high` | numeric or NA | high end of missing-value range |
+
+`decimals` is populated from SPSS `FORMATS` blocks (e.g. `F8.2` → 2, `F4.0` → 0), SAS `@pos` format specs (e.g. `10.4` → 4), and `format.spss` attributes in `.sav` files. It is `NA` for sources that don't carry format precision (LFS codebook CSV, CPSS variables CSV, SAS NAME start-end layout). Stage 3 uses it to choose DuckDB column type: `decimals = 0` → `INTEGER`, `decimals > 0` → `DOUBLE`, `NA` numeric → `DOUBLE` (safe default), character → `VARCHAR`/`ENUM`.
 
 `type` is `"numeric"` when the variable has a missing range and no code labels, `"character"` when it has code labels. Ambiguous cases (missing range AND code labels) resolve to `"character"`: if ANY code label exists, treat as character.
 
@@ -266,6 +269,10 @@ The LFS `codebook.csv` structure:
   - `FrenchLabel_EtiquetteFrancais` → `label_fr`
 
 Numeric column list (currently hardcoded in `get_lfs_pumf()`) moves here as a `type` override. The `SURVMNTH` left-pad fixup also moves here.
+
+#### `parse_spss_sav(sav_path)` → list(variables, codes, layout=NULL) ✓ done
+
+Uses `haven::read_sav(n_max=0)` to extract `attr(x,"label")` (variable labels), `attr(x,"labels")` (value labels), and `attr(x,"format.spss")` (type + decimal precision) without loading data. Primary source for CIS 2016/2017 which ship only `.sav` with no command files. `detect_formats()` only activates this when no SPSS command files are found. Priority in `merge_metadata`: below `sas_cards`, above `lfs_csv`.
 
 #### `parse_cpss_csv(variables_path, encoding="Latin1")` → list(variables, codes, layout=NULL)
 
@@ -664,37 +671,53 @@ Refactor `parse_pumf_metadata_spss()` + `read_pumf_layout_spss()` into `parse_sp
 
 Refactor `parse_pumf_metadata_cards()` into `parse_sas_cards()`. Use `test_data/cen91_ind_95m0007x_ind_rec91/` as the always-present fixture. Generate golden files → `tests/fixtures/cen91/`. Write `test-parse-sas-cards.R`.
 
-### Step 6 — CSV parsers (Phase 3)
+### Step 6 — CSV parsers (Phase 3) ✓ done
 
-Refactor `ensure_lfs_metadata()` → `parse_lfs_codebook()` and `parse_pumf_metadata_csv()` → `parse_cpss_csv()`. Write `test-parse-lfs-codebook.R` and `test-parse-cpss-csv.R` (both skip if offline). Generate golden fixtures from a downloaded LFS and CPSS version.
+`parse_lfs_codebook()` and `parse_cpss_csv()` in `R/metadata_parsers.R`. Synthetic fixtures in `tests/fixtures/lfs_codebook/` and `tests/fixtures/cpss_csv/`. Tests in `test-parse-lfs-codebook.R` (23 pass, 1 skip) and `test-parse-cpss-csv.R` (25 pass).
 
-### Step 7 — Format detector + merger (Phase 3)
+### Step 7 — Format detector + merger (Phase 3) ✓ done
 
-Write `detect_formats()` and `merge_metadata()`. Write `test-merge-metadata.R` with synthetic in-memory inputs covering priority ordering and conflict-warning cases.
+`detect_formats()`, `merge_metadata()`, and `pumf_parse_metadata()` in `R/metadata_parsers.R`. Tests in `test-merge-metadata.R` (36 pass). `detect_formats` excludes `metadata/` subdirectory to avoid treating canonical output as input on refresh.
 
 ### Step 8 — Survey registry (Phase 4)
 
 Write `R/registry.R` with entries for all known surveys with special handling (SFS 2012/2016/2019/2023, CHS 2018/2021/2022, SHS 2017/2019, ITS 2018/2019, Census years).
 
-### Step 9 — Stage 1: locate/download (Phase 4)
+### Step 9 — Stage 1: locate/download (Phase 4) ✓ done
 
-Write `pumf_locate_or_download()`. Test with CPSS v1 (small, downloadable; skip if offline).
+`pumf_locate_or_download()` in `R/pipeline.R`. Internal helpers `.find_version_zip()`, `.version_is_extracted()`, `.zip_filename_from_url()`. Tests in `test-pipeline-stage1.R` (22 pass, 3 skip for network tests). Handles: refresh (wipes DuckDB + metadata, not raw data), EFT-only stop with actionable message, unknown series/version stop, skip-extract when already done, zip filename retained from URL (query string stripped).
 
-### Step 10 — Stage 3: build DuckDB + factor/ENUM (Phase 4)
+### Step 10 — Stage 3: build DuckDB + factor/ENUM (Phase 4) ✓ done
 
-Write `pumf_build_duckdb()` including the factor conversion and ENUM verification step. Run `test-factor-enum.R` to validate the implementation against the contracts defined in Step 2. Write `test-pipeline-cpss.R` as the first integration test (skip if offline).
+`pumf_build_duckdb()` and `pumf_open_duckdb()` in `R/pipeline.R`.  Returns `invisible(list(db_path, table_name))` rather than a tbl so that successive calls (eng then fra) can both open the file read-write without DuckDB file-lock conflicts. Callers use `pumf_open_duckdb()` to get a lazy tbl.  Internal helpers: `.find_pumf_data_file()`, `.read_bsw_data()`, `.apply_data_fixups()`, `.apply_numeric_conversion()`, `.apply_code_labels()`, `.ensure_enum_columns()`.  Tests in `test-pipeline-stage3.R` (47 pass) and `test-pipeline-cpss.R` (skips for v1 which has PDF-only codebook; will run for v2–v6).
 
-### Step 11 — Stage 2 wired in (Phase 4)
+Note: CPSS v1 ships only PDF codebooks — no machine-readable `variables.csv`. Stage 2+3 integration tests skip automatically via `detect_formats()` returning an empty list. CPSS v2–v6 include a `variables.csv` and will run through the full pipeline.
 
-Wire `pumf_parse_metadata()` as the dispatcher between stages 1 and 3. Add `test-pipeline-chs.R` and `test-pipeline-sfs.R`.
+### Step 11 — Stage 2 wired in (Phase 4) ✓ done
 
-### Step 12 — LFS pipeline (Phase 7)
+`pumf_run_pipeline(series, version, lang, cache_path, refresh)` added to `R/pipeline.R`. Chains Stage 1 → Stage 2 → Stage 3 using registry config (`layout_mask`, `metadata_encoding`). `pumf_parse_metadata` updated to accept `metadata_encoding` parameter, passed through to SPSS/SAS parsers (LFS codebook retains its own CP1252 default). Tests: `test-pipeline-chs.R` (7 cache-gated, skip when no CHS in cache) and `test-pipeline-sfs.R` (9 cache-gated + pumf_run_pipeline smoke test). Both test BSW join, str_pad fixup, ENUM column verification, and bilingual table coexistence.
 
-Write `lfs_get_pumf()` with the `lfs_versions` table, version detection, append logic, schema reconciliation, supersession, and `refresh="auto"`. Write `test-pipeline-lfs.R`: load two annual versions, verify counts and column union, simulate supersession.
+### Step 12 — LFS pipeline (Phase 7) ✓ done
 
-### Step 13 — Public API (Phase 6)
+`R/lfs_pipeline.R` with `lfs_get_pumf(version, lang, cache_path, refresh)`. Key design choices:
+- Categorical columns stored as **VARCHAR** (not ENUM) in `lfs_eng`/`lfs_fra` — label strings can legitimately differ across years; ENUM would conflict on append.
+- `lfs_versions` tracking table records download/parse status (language-agnostic); per-lang presence checked by data-table row count.
+- "Already loaded" check combines `lfs_version_exists` (version in tracking table) AND `lfs_data_exists` (data in lang table) — prevents false positive when only monthly data exists for a year and annual is requested.
+- `refresh=TRUE` re-runs Stage 1+2+3 and deletes old year data before re-appending.
+- `refresh="auto"` loads all StatCan-available versions not yet in the DB.
+- `pumf_locate_or_download` updated: skips download when extracted content already exists even if no zip present (supports test fixtures and manual deposits).
 
-Update `get_pumf()` to dispatch to `lfs_get_pumf()` for LFS and to the standard pipeline for everything else. Add `pumf_metadata()`. Add deprecation warnings to old functions. Write `test-pipeline-census.R` (skip if EFT data absent).
+Tests in `test-pipeline-lfs.R`: 56 pass (1 cache-gated skip). Covers: version parsing, lfs_versions table management, schema evolution (new column added with NULLs for old rows), supersession (monthly → annual replaces monthly rows and tracking entries), monthly-covered-by-annual short-circuit, refresh=TRUE relabeling, version=NULL status message, bilingual tables.
+
+### Step 13 — Public API (Phase 6) ✓ done
+
+`R/api.R` with `get_pumf(series, version, lang, cache_path, refresh, ...)` and `pumf_metadata(series, version, cache_path, refresh)`. Key changes:
+- `get_pumf()` dispatches to `lfs_get_pumf()` for LFS (accepts `refresh="auto"`), `pumf_run_pipeline()` for all other series. Returns lazy `dplyr::tbl()` — breaking change from old tibble return.
+- `get_pumf()` accepts deprecated parameter names (`pumf_series`, `pumf_version`, `pumf_cache_path`) with `warning()`.
+- `pumf_metadata()` exported; runs Stage 1+2 only, returns canonical list with both label columns.
+- Deprecation warnings added to: `label_pumf_data()`, `label_pumf_columns()`, `convert_pumf_numeric_columns()`, `guess_numeric_pumf_columns()`, `get_pumf_connection()`.
+- Old `get_pumf` stub renamed in `pumf.R`; new implementation in `api.R` takes over via NAMESPACE.
+- Tests: `test-api.R` (25 pass including deprecated-param warnings, end-to-end eng/fra/LFS), `test-pipeline-census.R` (8 cache-gated tests for Census SPSS-mono pipeline including UTF-8 encoding and RELIGION_DER rename fixup).
 
 ### Step 14 — Documentation rewrite (Phase 5)
 

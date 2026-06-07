@@ -11,6 +11,10 @@
 guess_numeric_pumf_columns <- function(pumf_base_path,
                                        layout_mask=NULL,
                                        numeric_pattern = "\\d+-\\d+|THRU 99"){
+  .Deprecated("pumf_metadata",
+    msg = paste0("guess_numeric_pumf_columns() is deprecated. ",
+                 "Use pumf_metadata() to access variable type information."))
+
   miss_labels <- c()
   miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask, numeric_only=TRUE)
   if (nrow(miss_data)==0) {
@@ -41,6 +45,9 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
 label_pumf_columns <- function(pumf_data,
                             pumf_base_path=attr(pumf_data,"pumf_base_path"),
                             layout_mask=attr(pumf_data,"layout_mask")){
+  .Deprecated("get_pumf",
+    msg = paste0("label_pumf_columns() is deprecated. ",
+                 "Use get_pumf() which applies labels automatically."))
   names(pumf_data) <- toupper(names(pumf_data))
   var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)  |> mutate(name=toupper(.data$name))
   if (sum(duplicated(var_labels$label))>0) {
@@ -72,6 +79,9 @@ label_pumf_data <- function(pumf_data,
                             layout_mask=attr(pumf_data,"layout_mask"),
                             rename_columns=FALSE,
                             infer_missing_numeric=FALSE){
+  .Deprecated("get_pumf",
+    msg = paste0("label_pumf_data() is deprecated. ",
+                 "Use get_pumf() which applies labels automatically via the new pipeline."))
   if (grepl("98M0001X",pumf_base_path)&&grepl("2021",pumf_base_path)) {
     infer_missing_numeric <- TRUE
   }
@@ -161,6 +171,9 @@ convert_pumf_numeric_columns <- function(pumf_data,
                                          numeric_columns=NULL,
                                          set_missing=TRUE,
                                          na.values = c(".")){
+  .Deprecated("get_pumf",
+    msg = paste0("convert_pumf_numeric_columns() is deprecated. ",
+                 "Use get_pumf() which handles numeric conversion automatically."))
   if (is.null(pumf_base_path)) stop("Could not find PUMF base path to access metadata.")
   if (is.null(numeric_columns))  numeric_columns <- guess_numeric_pumf_columns(pumf_base_path,layout_mask)
 
@@ -204,72 +217,75 @@ convert_pumf_numeric_columns <- function(pumf_data,
 
 
 
-#' Parse PUMF data
+#' Read raw PUMF data as a tibble (deprecated)
 #'
-#' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
-#' @param layout_mask optional layout mask in case there are several layout files,
-#' guessed from attributes on \code{layout_mask}
-#' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
-#' @param guess_numeric logical, will guess numeric columns and covert to numeric and set missing values
-#' to \code{NA} if set to \code{TRUE} (default)
+#' @description
+#' `r lifecycle::badge("deprecated")`
 #'
-#' @return data frame with one row for each case in the PUMF data
-#' @keywords internal
+#' This function is kept for users who work with manually-deposited directories
+#' outside the standard cache.  For all standard surveys use [get_pumf()],
+#' which returns a lazy DuckDB table and handles labeling automatically.
+#'
+#' @param pumf_base_path Path to the extracted PUMF directory.
+#' @param layout_mask Optional mask to select a specific layout file.
+#' @param file_mask Optional mask to select a specific data file.
+#' @param guess_numeric Logical; convert numeric columns and apply missing
+#'   values.  Default `TRUE`.
+#'
+#' @return A tibble with attributes `pumf_base_path` and `layout_mask`.
+#' @export
 read_pumf_data <- function(pumf_base_path,
-                          layout_mask=NULL,
-                          file_mask=layout_mask,
-                          guess_numeric=TRUE){
-  ## cgeck if data is csv
-  d <- dir(pumf_base_path,full.names = TRUE)
-  if (length(d)==1) pumf_base_path <- d
-  vars <- dir(pumf_base_path,pattern="variables\\.csv")
-  reading_cards <- dir(pumf_base_path,pattern="Reading cards")
-  if (length(reading_cards)==0) {
-    d <- dir(pumf_base_path,pattern="Data",full.names = TRUE)
-    if (length(d)==1) reading_cards <- dir(d,pattern="Reading cards")
-  }
-  if (length(vars)==1) {
-    data_path <- dir(pumf_base_path,pattern="\\.csv")
-    data_path <- file.path(pumf_base_path,data_path[data_path!=vars])
-    pumf_data <- readr::read_csv(data_path,
-                                 locale=readr::locale(encoding = "Latin1"),
-                                 col_types = readr::cols(.default = "c"))
-  } else if (length(reading_cards)>0){
-    pumf_data <- parse_pumf_data_cards(pumf_base_path,layout_mask)
-    parse_pumf_metadata_cards(pumf_base_path,layout_mask)
-  } else {
-    layout<- read_pumf_layout_spss(pumf_base_path,layout_mask)
-    parse_pumf_metadata_spss(pumf_base_path,layout_mask)
-    data_dir <- pumf_data_dir(pumf_base_path)
-    data_path <- dir(data_dir,"\\.txt$")
-    data_path <- data_path[!grepl("Readme|Lisezmoi",data_path,ignore.case = TRUE)]
-    if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
-    if (length(data_path)==0) {
-      data_path <- dir(data_dir,"\\.dat$")
-      if (length(file_mask)>0) data_path <- data_path[grepl(file_mask,data_path)]
-    }
-    if (length(data_path)==0) stop("Could not find PUMF data file")
-    if (length(data_path)>1) {
-      message("Found multiple PUMF data files, reading all.")
-      pumf_data <- data_path %>%
-        lapply(function(path){
-          read_fwf(file.path(data_dir,path),
-                   col_positions = fwf_positions(layout$start,layout$end,col_names = layout$name),
-                   col_types=cols(.default = "c"),
-                   locale=locale(encoding = "Latin1")) %>%
-            mutate(path=!!path)
-        }) %>%
-        bind_rows()
-    } else {
-      pumf_data <- readr::read_fwf(file.path(data_dir,data_path),
-                            col_positions = readr::fwf_positions(layout$start,layout$end,col_names = layout$name),
-                            col_types=readr::cols(.default = "c"),
-                            locale=readr::locale(encoding = "Latin1"))
-    }
+                           layout_mask  = NULL,
+                           file_mask    = layout_mask,
+                           guess_numeric = TRUE) {
+  warning(
+    "read_pumf_data() is deprecated. ",
+    "Use get_pumf(series, version) for the new DuckDB-backed pipeline, ",
+    "or pumf_metadata(series, version) to access metadata only.",
+    call. = FALSE)
+
+  # Parse canonical metadata if not already present
+  if (!metadata_exists(pumf_base_path)) {
+    tryCatch(
+      pumf_parse_metadata(pumf_base_path, layout_mask = layout_mask),
+      error = function(e)
+        stop("Could not parse metadata in ", pumf_base_path, ": ", e$message)
+    )
   }
 
-  attr(pumf_data,"pumf_base_path") <- pumf_base_path
-  attr(pumf_data,"layout_mask") <- layout_mask
+  meta   <- read_metadata(file.path(pumf_base_path, "metadata"))
+  is_fwf <- !is.null(meta$layout)
+  enc    <- "CP1252"
+
+  data_path <- tryCatch(
+    .find_pumf_data_file(pumf_base_path, file_mask, is_fwf),
+    error = function(e)
+      stop("Could not find data file in ", pumf_base_path, ": ", e$message)
+  )
+
+  if (is_fwf) {
+    pumf_data <- readr::read_fwf(
+      data_path,
+      col_positions  = readr::fwf_positions(meta$layout$start, meta$layout$end,
+                                             col_names = meta$layout$name),
+      col_types      = readr::cols(.default = "c"),
+      trim_ws        = TRUE,
+      locale         = readr::locale(encoding = enc),
+      show_col_types = FALSE)
+  } else {
+    pumf_data <- readr::read_csv(
+      data_path,
+      col_types      = readr::cols(.default = "c"),
+      locale         = readr::locale(encoding = enc),
+      show_col_types = FALSE)
+    names(pumf_data) <- toupper(names(pumf_data))
+  }
+
+  if (guess_numeric)
+    pumf_data <- .apply_numeric_conversion(pumf_data, meta$variables)
+
+  attr(pumf_data, "pumf_base_path") <- pumf_base_path
+  attr(pumf_data, "layout_mask")    <- layout_mask
 
   if (guess_numeric) pumf_data <- pumf_data %>% convert_pumf_numeric_columns()
 
@@ -278,100 +294,19 @@ read_pumf_data <- function(pumf_base_path,
 
 
 
-#' Get select pumf data files
+#' Download PUMF data (deprecated)
 #'
-#' @description This is a convenience function that downloads and accesses pumf data for
-#' a curated set of pumf datasets.
+#' @description
+#' `r lifecycle::badge("deprecated")`
 #'
-#' @param pumf_series sereis for the pumf data, like LSF, or CHS
-#' @param pumf_version In case there are several versions of a given series, like for LFS, the version
-#' @param layout_mask optional layout mask in case there are several files.
-#' identifiers. For LFS this is the month/year.
-#' @param file_mask optional additional mask to filter down to specific PUMF file if there are several
-#' @param guess_numeric logical, will guess numeric columns and covert to numeric and set missing values
-#' to \code{NA} if set to \code{TRUE} (default)
-#' @param pumf_cache_path A path to a permanent cache. If none is fould the data is stored in the temporary
-#' directory for the duration of the session.
-#' @param refresh optionall re-downlad pumf data, only for series that can be downloaded directly from StatCan
-#' @param refresh_layout (optional) regenerate the layout and metadata
-#' @param timeout Optional parameter to specify connection timeout for download
+#' Use [pumf_locate_or_download()] internally or [get_pumf()] as the public
+#' entry point.
 #'
-#' @return A tibble with the pumf data.
-#' @export
-get_pumf <- function(pumf_series,pumf_version = NULL,
-                     layout_mask=NULL,
-                     file_mask=layout_mask,
-                     guess_numeric = TRUE,
-                     pumf_cache_path = getOption("canpumf.cache_path"),
-                     refresh=FALSE,
-                     refresh_layout=FALSE,
-                     timeout=3000){
-  pumf_data <- NULL
-  old_timeout <- getOption("timeout")
-  options(timeout=timeout)
-  if (is.null(pumf_cache_path)) {
-    warning("No cache path specified, storing pumf data in temporary directory.")
-    pumf_cache_path <- file.path(tempdir(),"pumf")
-    if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
-  }
-  if (!dir.exists(pumf_cache_path)) stop("Invalid cache path: ",pumf_cache_path)
-
-  if (pumf_series=="Census") {
-    pumf_data <- get_census_pumf(pumf_version,pumf_cache_path,refresh_layout=refresh_layout)
-  } else if (pumf_series=="LFS") {
-    pumf_data <- get_lfs_pumf(pumf_version,pumf_cache_path,refresh=refresh,timeout=timeout)
-  } else if (pumf_series=="CHS") {
-    pumf_data <- get_chs_pumf(pumf_version,pumf_cache_path)
-  } else if (pumf_series=="SFS" && pumf_version %in% c("2012","2016","2019","2023")) {
-    pumf_data <- get_sfs_pumf(pumf_version,pumf_cache_path)
-  } else if (FALSE && pumf_series=="SHS") {
-    pumf_data <- get_shs_pumf(pumf_version,pumf_cache_path,refresh=refresh)
-  }
-
-  if (is.null(pumf_data)) {
-    d<- list_canpumf_collection() %>%
-      filter(.data$Acronym==pumf_series)
-    if (!is.null(pumf_version)) d <- d %>% filter(.data$Version==pumf_version)
-    else if (is.null(pumf_version)) {
-      if (nrow(d)!=1) {
-        stop("Could not find PUMF version.")
-      }
-      pumf_version <- d$Version
-    }
-
-    if (nrow(d)!=1) {
-      stop("Could not find PUMF version.")
-    }
-
-    if (is.null(pumf_cache_path)||nchar(pumf_cache_path)==0){
-      pumf_cache_path<- file.path(tempdir(),"pumf")
-      message(paste0("PUMF cache path is not set, consider setting the PUMF cache path via","\n",
-                     'options(canpumf.cache_path="<path to permanently cache PUMF data>")',"\n",
-                     "Data will be cached for the duration of the current session only."))
-    }
-    if (!dir.exists(pumf_cache_path)) dir.create(pumf_cache_path)
-    destination_dir <- file.path(pumf_cache_path,pumf_series)
-    if (!dir.exists(destination_dir)) dir.create(destination_dir)
-    if (!is.null(pumf_version)) {
-      destination_dir <- file.path(destination_dir,pumf_version)
-      if (!dir.exists(destination_dir)) dir.create(destination_dir)
-    }
-    if (length(dir(destination_dir))==0) {
-      dd<-download_pumf(d$url,destination_dir = destination_dir)
-    }
-
-    pumf_data <- read_pumf_data(destination_dir,layout_mask=layout_mask, file_mask=file_mask, guess_numeric=guess_numeric)
-  }
-  options(timeout=old_timeout)
-  pumf_data
-}
-
-#' Download PUMF data
-#'
-#' @param path Download path for PUMF SPSS data
-#' @param destination_dir Optional path where to store the extracted PUMF data, default is `file.path(tempdir(),"pumf")`
-#' @param refresh Optional parameter to force re-download of PUMF data
-#' @param timeout Optional parameter to specify connection timeout for download
+#' @param path Download URL for the PUMF zip file.
+#' @param destination_dir Directory to extract into.
+#' @param refresh Force re-download even if directory exists.
+#' @param timeout Connection timeout in seconds.
+#' @keywords internal
 #' @return pumf_base_dir that can be used in the other package functions
 #' @keywords internal
 download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),refresh=FALSE,timeout=3000){
@@ -467,4 +402,41 @@ add_bootstrap_weights <- function(pumf_data,
     }
   }
   pumf_data
+}
+
+
+#' Get select pumf database connections (deprecated)
+#'
+#' @description
+#' `r lifecycle::badge("deprecated")`
+#'
+#' Use [get_pumf()] instead, which returns a lazy duckplyr table directly.
+#'
+#' @param pumf_series Survey series acronym.
+#' @param pumf_version Version string.
+#' @param layout_mask Optional layout mask.
+#' @param file_mask Optional file mask.
+#' @param guess_numeric Logical.
+#' @param pumf_cache_path Cache path.
+#' @param refresh Logical.
+#' @param refresh_layout Logical.
+#' @param timeout Timeout in seconds.
+#'
+#' @return A lazy dplyr tbl backed by DuckDB.
+#' @export
+get_pumf_connection <- function(pumf_series, pumf_version = NULL,
+                                 layout_mask = NULL,
+                                 file_mask = layout_mask,
+                                 guess_numeric = TRUE,
+                                 pumf_cache_path = getOption("canpumf.cache_path"),
+                                 refresh = FALSE,
+                                 refresh_layout = FALSE,
+                                 timeout = 3000) {
+  .Deprecated("get_pumf",
+    msg = paste0("get_pumf_connection() is deprecated. ",
+                 "Use get_pumf(series, version) which returns a lazy duckplyr table directly."))
+  get_pumf(series     = pumf_series,
+           version    = pumf_version,
+           cache_path = pumf_cache_path %||% getOption("canpumf.cache_path", tempdir()),
+           refresh    = refresh)
 }

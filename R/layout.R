@@ -1,14 +1,6 @@
-ensure_layout_data_parsed <- function(pumf_base_path,layout_mask=NULL){
-  path <- file.path(pumf_clean_layout_dir(pumf_base_path,layout_mask),"var.Rds")
-  if (!file.exists(path)) {
-    vars <- dir(pumf_base_path,pattern="variables\\.csv")
-    if (length(vars)==1) {
-      parse_pumf_metadata_csv(pumf_base_path)
-    } else {
-      parse_pumf_metadata_spss(pumf_base_path,layout_mask)
-    }
-  }
-}
+# ensure_layout_data_parsed() retired: called the old SPSS/CSV parsers
+# (layout_spss.R, layout_csv.R) which have been deleted. The new pipeline
+# uses pumf_parse_metadata() → canonical metadata/variables.csv instead.
 
 
 #' Read PUMF variable labels
