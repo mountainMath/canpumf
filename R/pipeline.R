@@ -7,6 +7,28 @@
 
 # ---- internal helpers -------------------------------------------------------
 
+# Probe whether a DuckDB file can be opened for writing.
+# Opens a temporary RW connection and immediately closes it.  If the file is
+# already held by another connection (RO or RW), DuckDB emits a lock error;
+# we intercept that and replace it with a clear, actionable message.
+.assert_duckdb_writable <- function(db_path) {
+  if (!file.exists(db_path)) return(invisible(NULL))
+  con <- tryCatch(
+    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path),
+    error = function(e) e
+  )
+  if (inherits(con, "error")) {
+    msg <- conditionMessage(con)
+    if (grepl("lock|conflict|in use|block", msg, ignore.case = TRUE))
+      stop("'", basename(db_path), "' is locked by an open connection.\n",
+           "Close it first with close_pumf(tbl) and then retry.",
+           call. = FALSE)
+    stop(con)
+  }
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  invisible(NULL)
+}
+
 # Returns the path to the single zip in dir, or NULL if none exists.
 .find_version_zip <- function(dir) {
   if (!dir.exists(dir)) return(NULL)
@@ -476,19 +498,8 @@ pumf_build_duckdb <- function(version_dir,
   data <- .apply_code_labels(data, codes, label_col)
 
   # Step 9: write to DuckDB
-  # Open for writing; give an actionable error if another connection holds the file.
-  con <- tryCatch(
-    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path),
-    error = function(e) {
-      msg <- conditionMessage(e)
-      if (grepl("lock|conflict|in use|block", msg, ignore.case = TRUE))
-        stop("Cannot open '", basename(db_path), "' for writing: ",
-             "another connection is still open.\n",
-             "Close it first with close_pumf(tbl) then retry.",
-             call. = FALSE)
-      stop(e)
-    }
-  )
+  .assert_duckdb_writable(db_path)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
   if (DBI::dbExistsTable(con, table_name))
     DBI::dbRemoveTable(con, table_name)
   message("Writing DuckDB table '", table_name, "' ...")
@@ -574,6 +585,16 @@ pumf_run_pipeline <- function(series,
   stopifnot(lang %in% c("eng", "fra"))
 
   reg <- pumf_registry_lookup(series, version)
+
+  # Early lock check: when a rebuild is requested, verify the DuckDB file is
+  # not held open before doing any download / parse work.
+  if (isTRUE(refresh)) {
+    db_path_expected <- file.path(
+      cache_path, series, version,
+      paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
+    )
+    .assert_duckdb_writable(db_path_expected)
+  }
 
   # Stage 1 — locate or download
   version_dir <- pumf_locate_or_download(series, version,

@@ -346,6 +346,7 @@
     }
   )
 
+  .assert_duckdb_writable(db_path)
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
   .lfs_ensure_versions_table(con)
   loaded <- DBI::dbGetQuery(con, "SELECT version FROM lfs_versions")$version
@@ -429,6 +430,11 @@ lfs_get_pumf <- function(version    = NULL,
 
   dir.create(lfs_dir, showWarnings = FALSE, recursive = TRUE)
 
+  # Early lock check: when a rebuild is requested, verify the shared DuckDB is
+  # not held open before doing any download / parse work.
+  if (identical(refresh, TRUE) || identical(refresh, "auto"))
+    .assert_duckdb_writable(db_path)
+
   # version = NULL: just report status
   if (is.null(version))
     return(.lfs_status(db_path, data_tbl, lang, read_only = read_only))
@@ -485,6 +491,7 @@ lfs_get_pumf <- function(version    = NULL,
   n    <- nrow(data)
 
   # Write phase: open RW, append, close
+  .assert_duckdb_writable(db_path)
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
   .lfs_ensure_versions_table(con)
 
