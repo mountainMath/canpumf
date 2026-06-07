@@ -553,7 +553,6 @@ lfs_get_pumf <- function(version    = NULL,
               "get_pumf(\"LFS\", \"2024\")")
       return(invisible(NULL))
     }
-    .assert_duckdb_writable(db_path_e)
     con_e <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path_e, read_only = TRUE)
     loaded <- if (DBI::dbExistsTable(con_e, "lfs_versions"))
       DBI::dbGetQuery(con_e,
@@ -652,7 +651,6 @@ lfs_get_pumf <- function(version    = NULL,
   n    <- nrow(data)
 
   # Write phase: open RW, append, close
-  .assert_duckdb_writable(db_path)
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
   .lfs_ensure_versions_table(con)
 

@@ -61,9 +61,10 @@
     e
   })
 
-  DBI::dbDisconnect(con, shutdown = FALSE)
-
   if (!is.null(write_err)) {
+    # Probe failed: this connection shares the existing in-process instance
+    # (the user's open tbl).  Use shutdown=FALSE to leave that instance intact.
+    DBI::dbDisconnect(con, shutdown = FALSE)
     msg <- conditionMessage(write_err)
     if (grepl("read[_-]?only|attached in read", msg, ignore.case = TRUE))
       stop("'", basename(db_path), "' is held open by a read-only connection ",
@@ -72,6 +73,11 @@
            call. = FALSE)
     stop(write_err)
   }
+
+  # Probe succeeded: no other connection is sharing this instance, so a clean
+  # shutdown leaves no lingering driver reference that would interfere with
+  # subsequent connections.
+  DBI::dbDisconnect(con, shutdown = TRUE)
   invisible(NULL)
 }
 
@@ -663,8 +669,14 @@ pumf_run_pipeline <- function(series,
   # redownload implies a full rebuild
   eff_refresh <- refresh || redownload
 
-  # Verify the DuckDB is not locked before doing any download / parse work.
-  .assert_duckdb_writable(.pumf_db_path(series, version, cache_path))
+  # When a rebuild is requested and the DB already exists, verify it is not
+  # locked before doing any download / parse work.  For cache hits (no refresh,
+  # table already built) no write will occur, so multiple read-only connections
+  # are fine and the check must not run.  For first-time builds the file does
+  # not exist yet, so .assert_duckdb_writable is a no-op; the check inside
+  # pumf_build_duckdb() covers that write.
+  if (eff_refresh)
+    .assert_duckdb_writable(.pumf_db_path(series, version, cache_path))
 
   # Stage 1 — locate or download
   version_dir <- pumf_locate_or_download(series, version,
