@@ -31,7 +31,18 @@ For LFS data, the data is orgnaized by year except for the current year where it
 ```
 lfs_2022 <- get_pumf("LFS","2022")
 ```
-This will download the 2022 LFS pumf data if needed and load it.
+
+This will download the 2022 LFS pumf data if needed, parse it, load labelled PUMF data into a DuckDB database and hand back a connection to the data table. To load all LFS data that has been downloaded and parsed into the DuckDB database simply drop the `version` argument and write:
+
+```
+lfs_all_local <- get_pumf("LFS")
+```
+
+To ensure that the local database contains all availabel LFS data set the `refresh = 'auto'` option, this will check for availability of the latest (and older) LFS versions and import all the ones not currently in the database before handing back the database connection:
+
+```
+lfs_all <- get_pumf("LFS", refresh='auto')
+```
 
 StatCan unfortunately does not provide standardized metadata for PUMF files, but the canpumf package also parses the SPSS Command Files in order to allow for automated labelling of the data. To label the data with human-readable labels use
 

@@ -23,11 +23,10 @@ library(canpumf)
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
-The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from [work done by Nathan Lauster and Jens von Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/).
+The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from [work done by Nathan Lauster and Jens von Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/). We start by establishing a connection to the 2018 CHS, downloading the data, parsing the metadata and creating the local database if needed.
 
 ```{r}
-chs_pumf <- get_pumf("CHS","2018") |>
-  label_pumf_data(rename_columns = TRUE) 
+chs_pumf <- get_pumf("CHS","2018", refresh = TRUE) 
 ```
 
 
@@ -36,12 +35,9 @@ chs_pumf <- get_pumf("CHS","2018") |>
 We take a simple look at the share of current renters that were forced to move on their most recent move, keyed by when the most revent move occured. To estimate risk of being forced to move we look at all current renters that did not move in the five years prior to the CHS, or those that moved in the prior five years and were reners in their old accommodation, as a base and ask what share of these were forced to move in a given timeframe.
 
 ```{r}
-renter_chs_pumf <- chs_pumf %>% 
-  mutate(`Previous accommodations - when move to current dwelling occurred`=as.character(`Previous accommodations - when move to current dwelling occurred`)) %>%
-  filter((Tenure == "No" & 
-            grepl("10",`Previous accommodations - when move to current dwelling occurred`)) | 
-           (!grepl("10",`Previous accommodations - when move to current dwelling occurred`) &
-              `Previous accommodations - tenure`=="Rent it"))
+renter_chs_pumf <- chs_pumf |>
+  filter((PDCT_05 == "No" & PPAC_05 == "10 or more years ago + Always lived here") | 
+           (PPAC_05 != "10 or more years ago + Always lived here" & PPAC_30 == "Rent it"))
 ```
 
 We will also focus on people that did move in the past 5 years, as recall bias might make data from longer timeframes less reliable and the reproted time windows get large.
