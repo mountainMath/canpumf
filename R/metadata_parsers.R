@@ -1024,9 +1024,11 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
     if (is.na(fc[i]) && i > 1L) fc[i] <- fc[i - 1L]
   }
 
-  # Lookup table: Field_Champ value -> uppercase variable name
+  # Lookup table: Field_Champ value -> uppercase variable name.
+  # trimws() handles codebook versions where names carry leading/trailing spaces
+  # (observed in 2025 LFS release: " lfsstat    ", "age_6    ", etc.).
   var_fc   <- raw$Field_Champ[is_var]
-  var_name <- toupper(raw$Variable_Variable[is_var])
+  var_name <- trimws(toupper(raw$Variable_Variable[is_var]))
 
   # Code rows: originally NA Field_Champ and Variable_Variable not NA.
   # Filter out range-description tokens that newer codebook formats use to
@@ -1044,7 +1046,7 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
 
   codes <- tibble::tibble(
     name     = code_name,
-    val      = raw$Variable_Variable[is_code],
+    val      = trimws(raw$Variable_Variable[is_code]),
     label_en = raw$EnglishLabel_EtiquetteAnglais[is_code],
     label_fr = if (!is.null(fra_col)) raw[[fra_col]][is_code] else NA_character_
   )

@@ -108,12 +108,65 @@ find_unique_layout_file <- function(layout_path,pattern,path_or_pattern=NULL){
 }
 
 
-robust_unzip <- function(path,exdir) {
-  if (Sys.info()[['sysname']]=="Darwin") {
-    system(paste0("ditto -V -x -k --sequesterRsrc --rsrc '",path,"' '",exdir,"'"))
+# Low-level extractor: ditto on macOS with unzip fallbacks.
+.unzip_impl <- function(path, exdir) {
+  if (Sys.info()[['sysname']] == "Darwin") {
+    # ditto does not support all ZIP compression variants (e.g. newer deflate
+    # flavours used by StatCan since 2025).  Fall back to system unzip, then
+    # to utils::unzip, if ditto exits non-zero.
+    exit <- system(paste0("ditto -x -k --sequesterRsrc --rsrc '",
+                           path, "' '", exdir, "'"))
+    if (exit != 0L) {
+      message("ditto failed (exit ", exit, "); falling back to unzip.")
+      exit2 <- system(paste0("unzip -o '", path, "' -d '", exdir, "'"),
+                      ignore.stdout = TRUE)
+      if (exit2 != 0L) utils::unzip(path, exdir = exdir)
+    }
   } else {
-    utils::unzip(path,exdir = exdir)
+    utils::unzip(path, exdir = exdir)
   }
+}
+
+robust_unzip <- function(path, exdir) {
+  zip_name <- basename(path)
+
+  # Detect naming collision: some ZIPs have a single top-level directory with
+  # the same name as the archive (e.g. 2025-CSV.zip contains 2025-CSV.zip/*).
+  # When the archive lives inside exdir, extracting would require creating a
+  # directory at the same path as the zip file — which fails.
+  #
+  # Fix: extract to a temp sibling directory (same filesystem → atomic rename),
+  # strip .zip from the colliding directory name, then move into exdir.
+  top_entries   <- tryCatch(utils::unzip(path, list = TRUE)$Name,
+                             error = function(e) character(0L))
+  top_dirs      <- unique(sub("/.*", "/", grep("/", top_entries,
+                                               value = TRUE, fixed = TRUE)))
+  has_collision <- paste0(zip_name, "/") %in% top_dirs
+
+  if (has_collision) {
+    tmp_dir <- paste0(exdir, "_unzip_tmp")
+    dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+    on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+    .unzip_impl(path, tmp_dir)
+
+    # Rename the colliding directory: strip the .zip extension so it no longer
+    # shadows the archive file (2025-CSV.zip/ → 2025-CSV/).
+    safe_name <- sub("\\.zip$", "", zip_name, ignore.case = TRUE)
+    from_col  <- file.path(tmp_dir, zip_name)
+    if (file.exists(from_col))
+      file.rename(from_col, file.path(tmp_dir, safe_name))
+
+    # Move everything from the temp dir into exdir.
+    for (item in list.files(tmp_dir, all.files = FALSE)) {
+      dest <- file.path(exdir, item)
+      if (!file.exists(dest))
+        file.rename(file.path(tmp_dir, item), dest)
+    }
+  } else {
+    .unzip_impl(path, exdir)
+  }
+  invisible(NULL)
 }
 
 get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {

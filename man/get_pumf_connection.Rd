@@ -2,44 +2,47 @@
 % Please edit documentation in R/pumf.R
 \name{get_pumf_connection}
 \alias{get_pumf_connection}
-\title{Get select pumf database connections (deprecated)}
+\title{Get a write-access DuckDB connection to a PUMF database}
 \usage{
 get_pumf_connection(
-  pumf_series,
-  pumf_version = NULL,
-  layout_mask = NULL,
-  file_mask = layout_mask,
-  guess_numeric = TRUE,
-  pumf_cache_path = getOption("canpumf.cache_path"),
+  series = NULL,
+  version = NULL,
+  lang = "eng",
+  cache_path = getOption("canpumf.cache_path", tempdir()),
   refresh = FALSE,
-  refresh_layout = FALSE,
-  timeout = 3000
+  redownload = FALSE,
+  ...
 )
 }
 \arguments{
-\item{pumf_series}{Survey series acronym.}
+\item{series}{Survey series acronym, e.g. `"SFS"` or `"LFS"`.}
 
-\item{pumf_version}{Version string.}
+\item{version}{Version string.  `NULL` for single-version series.}
 
-\item{layout_mask}{Optional layout mask.}
+\item{lang}{`"eng"` (default) or `"fra"`.  Passed to the pipeline to ensure
+the labelled table for this language is built before returning.}
 
-\item{file_mask}{Optional file mask.}
+\item{cache_path}{Root cache directory.  Defaults to
+`getOption("canpumf.cache_path", tempdir())`.}
 
-\item{guess_numeric}{Logical.}
+\item{refresh}{If `TRUE`, rebuild the DuckDB from already-extracted raw
+files before opening.  Does **not** re-download.}
 
-\item{pumf_cache_path}{Cache path.}
+\item{redownload}{If `TRUE`, re-download from StatCan and rebuild.  Implies
+`refresh = TRUE`.}
 
-\item{refresh}{Logical.}
-
-\item{refresh_layout}{Logical.}
-
-\item{timeout}{Timeout in seconds.}
+\item{...}{Accepts deprecated parameter names (`pumf_series`,
+`pumf_version`, `pumf_cache_path`) with a warning.}
 }
 \value{
-A lazy dplyr tbl backed by DuckDB.
+A [DBI::DBIConnection-class] opened in read-write mode.  Disconnect
+  with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
 }
 \description{
-`r lifecycle::badge("deprecated")`
-
-Use [get_pumf()] instead, which returns a lazy duckplyr table directly.
+Downloads (if needed), parses metadata, builds the DuckDB, and returns a
+raw read-write [DBI::DBIConnection-class] to the database file.  The
+connection gives full SQL access: create derived tables, persist custom
+views, and join them against the original PUMF data in the same file.
+[get_pumf()] is built on top of this function and adds language-table
+selection and read-only semantics for everyday analysis.
 }

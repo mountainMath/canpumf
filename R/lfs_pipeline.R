@@ -84,51 +84,84 @@
   DBI::dbGetQuery(con, sql)$n > 0L
 }
 
+# Parse level names from a DuckDB inline ENUM type string.
+# e.g. "ENUM('a', 'b''c')" → c("a", "b'c")
+.parse_inline_enum_levels <- function(type_str) {
+  if (!startsWith(type_str, "ENUM(")) return(character(0L))
+  inner <- substr(type_str, 6L, nchar(type_str) - 1L)
+  vals  <- character(0L)
+  i     <- 1L
+  n     <- nchar(inner)
+  while (i <= n) {
+    if (substr(inner, i, i) == "'") {
+      j <- i + 1L
+      while (j <= n) {
+        if (substr(inner, j, j) == "'") {
+          if (j < n && substr(inner, j + 1L, j + 1L) == "'") {
+            j <- j + 2L   # escaped ''
+          } else {
+            break          # closing quote
+          }
+        } else {
+          j <- j + 1L
+        }
+      }
+      vals <- c(vals, gsub("''", "'", substr(inner, i + 1L, j - 1L)))
+      i    <- j + 2L       # skip closing quote + ", " separator
+    } else {
+      i <- i + 1L
+    }
+  }
+  vals
+}
+
 # Append new_data to table_name, extending the schema when columns differ.
 #   New columns in new_data → ALTER TABLE ADD COLUMN (NULL for old rows).
 #   Columns in table missing from new_data → NA column before append.
-#
-# Factor columns are converted to character (VARCHAR) before writing.
-# The LFS shared table spans multiple years; label strings can legitimately
-# differ across years (e.g. a province name update), so ENUM types would
-# conflict on append.  VARCHAR is the right type for longitudinal LFS data.
+#   Factor columns → stored as ENUM; types evolved on each append as needed.
 .lfs_append <- function(con, table_name, new_data) {
-  for (col in names(new_data))
-    if (is.factor(new_data[[col]]))
-      new_data[[col]] <- as.character(new_data[[col]])
+  factor_cols   <- names(new_data)[vapply(new_data, is.factor, logical(1L))]
+  factor_levels <- stats::setNames(
+    lapply(factor_cols, function(c) levels(new_data[[c]])),
+    factor_cols)
 
+  # ---- First write: create table, enforce ENUM for factor columns ----
   if (!DBI::dbExistsTable(con, table_name)) {
     DBI::dbWriteTable(con, table_name, new_data)
+    # DuckDB >= 1.5.2 auto-creates inline ENUMs; .ensure_enum_columns is a
+    # no-op for columns that are already ENUM, so this is safe for all versions.
+    if (length(factor_cols) > 0L)
+      .ensure_enum_columns(con, table_name, factor_levels)
     return(invisible(NULL))
   }
 
+  # ---- Schema evolution ----
   existing <- DBI::dbListFields(con, table_name)
   incoming <- names(new_data)
 
-  # Add entirely new columns
   for (col in setdiff(incoming, existing)) {
-    sql_type <- if (is.integer(new_data[[col]])) "INTEGER"
-    else if (is.numeric(new_data[[col]]))  "DOUBLE"
-    else if (is.logical(new_data[[col]]))  "BOOLEAN"
-    else "VARCHAR"
-    DBI::dbExecute(
-      con, sprintf('ALTER TABLE "%s" ADD COLUMN "%s" %s',
-                   table_name, col, sql_type))
+    r_val    <- new_data[[col]]
+    sql_type <- if (is.integer(r_val)) "INTEGER"
+                else if (is.numeric(r_val)) "DOUBLE"
+                else if (is.logical(r_val)) "BOOLEAN"
+                else "VARCHAR"
+    DBI::dbExecute(con, sprintf('ALTER TABLE "%s" ADD COLUMN "%s" %s',
+                                 table_name, col, sql_type))
     message("  Added new column '", col, "' (", sql_type, ") to ", table_name)
   }
 
-  # Fix columns that were stored as VARCHAR but should be numeric.
-  # This can happen when a previously character-typed variable is corrected to
-  # numeric in the metadata (e.g. FINALWT after a parse_lfs_codebook fix).
-  # DuckDB will silently coerce numeric values back to VARCHAR on append if the
-  # schema is not updated first, so we ALTER the column type here.
-  schema_df <- DBI::dbGetQuery(con, paste0(
+  schema_df   <- DBI::dbGetQuery(con, paste0(
     "SELECT column_name, data_type FROM information_schema.columns ",
-    "WHERE table_name = '", table_name, "' AND table_schema = 'main'"
-  ))
+    "WHERE table_name = '", table_name, "' AND table_schema = 'main'"))
+  pragma_info <- DBI::dbGetQuery(
+    con, sprintf("PRAGMA table_info('%s')", table_name))
+
   for (col in intersect(incoming, schema_df$column_name)) {
-    db_type <- schema_df$data_type[schema_df$column_name == col]
-    r_val   <- new_data[[col]]
+    db_type     <- schema_df$data_type[schema_df$column_name == col]
+    pragma_type <- pragma_info$type[pragma_info$name == col]
+    r_val       <- new_data[[col]]
+
+    # VARCHAR → numeric (e.g. FINALWT corrected after a metadata fix)
     if ((is.integer(r_val) || is.numeric(r_val)) &&
         db_type %in% c("VARCHAR", "TEXT", "CHAR", "CHARACTER VARYING")) {
       new_sql <- if (is.integer(r_val)) "INTEGER" else "DOUBLE"
@@ -138,15 +171,67 @@
           table_name, col, new_sql))
         message("  Upgraded column '", col, "' from VARCHAR to ", new_sql,
                 " in ", table_name)
-      }, error = function(e) {
+      }, error = function(e)
         warning("Could not upgrade type of '", col, "' from VARCHAR to ", new_sql,
                 ": ", conditionMessage(e),
-                "\nUse redownload = TRUE for a full clean rebuild.",
-                call. = FALSE)
-      })
+                "\nUse redownload = TRUE for a full clean rebuild.", call. = FALSE))
+    }
+
+    # DOUBLE → INTEGER (e.g. REC_NUM now forced to integer after a metadata fix)
+    if (is.integer(r_val) && db_type == "DOUBLE") {
+      tryCatch({
+        DBI::dbExecute(con, sprintf(
+          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE INTEGER',
+          table_name, col))
+        message("  Upgraded column '", col, "' from DOUBLE to INTEGER in ", table_name)
+      }, error = function(e)
+        warning("Could not upgrade type of '", col, "' from DOUBLE to INTEGER: ",
+                conditionMessage(e),
+                "\nUse redownload = TRUE for a full clean rebuild.", call. = FALSE))
+    }
+
+    # ENUM evolution: extend inline ENUM with any new factor levels
+    if (col %in% factor_cols && grepl("^ENUM", db_type)) {
+      current_levels <- .parse_inline_enum_levels(pragma_type)
+      new_lvls       <- setdiff(factor_levels[[col]], current_levels)
+      if (length(new_lvls) > 0L) {
+        all_levels <- union(current_levels, factor_levels[[col]])
+        lvls_sql   <- paste0("'", gsub("'", "''", all_levels), "'", collapse = ", ")
+        tryCatch({
+          DBI::dbExecute(con, sprintf(
+            'ALTER TABLE "%s" ALTER COLUMN "%s" TYPE ENUM(%s)',
+            table_name, col, lvls_sql))
+          message("  Extended ENUM for '", col, "' with: ",
+                  paste(new_lvls, collapse = ", "))
+        }, error = function(e)
+          warning("Could not extend ENUM for '", col, "': ", conditionMessage(e),
+                  call. = FALSE))
+      }
+    }
+
+    # VARCHAR → ENUM: column predates ENUM enforcement; upgrade now
+    if (col %in% factor_cols &&
+        db_type %in% c("VARCHAR", "TEXT", "CHAR", "CHARACTER VARYING")) {
+      # Include any existing values in the data so the cast doesn't fail
+      existing_vals <- tryCatch(
+        na.omit(DBI::dbGetQuery(con, sprintf(
+          'SELECT DISTINCT CAST("%s" AS VARCHAR) AS val FROM "%s"',
+          col, table_name))$val),
+        error = function(e) character(0L))
+      all_levels <- union(existing_vals, factor_levels[[col]])
+      lvls_sql   <- paste0("'", gsub("'", "''", all_levels), "'", collapse = ", ")
+      tryCatch({
+        DBI::dbExecute(con, sprintf(
+          'ALTER TABLE "%s" ALTER COLUMN "%s" TYPE ENUM(%s)',
+          table_name, col, lvls_sql))
+        message("  Upgraded column '", col, "' from VARCHAR to ENUM in ", table_name)
+      }, error = function(e)
+        warning("Could not upgrade '", col, "' to ENUM: ", conditionMessage(e),
+                call. = FALSE))
     }
   }
 
+  # ---- Append ----
   all_cols <- DBI::dbListFields(con, table_name)
   for (col in setdiff(all_cols, incoming))
     new_data[[col]] <- NA
@@ -220,12 +305,14 @@
   variables <- meta$variables
   codes     <- meta$codes
 
-  # Force SURVYEAR and SURVMNTH to integer before label mapping
-  lfs_int_cols <- c("SURVYEAR", "SURVMNTH")
+  # Force these to integer regardless of what the codebook says.
+  # SURVYEAR/SURVMNTH: needed so SQL year/month filters work on integers.
+  # REC_NUM: a record counter — always whole numbers, never needs double precision.
+  lfs_int_cols <- c("SURVYEAR", "SURVMNTH", "REC_NUM")
   variables$type[variables$name %in% lfs_int_cols]    <- "numeric"
   variables$decimals[variables$name %in% lfs_int_cols] <- 0L
 
-  # Exclude SURVYEAR and SURVMNTH from code labeling (kept as integers)
+  # Exclude these from code labeling (kept as raw integers)
   codes_lbl <- codes[!codes$name %in% lfs_int_cols, ]
 
   # Locate data files — supports all three StatCan shipping formats:
@@ -266,7 +353,7 @@
   }))
 
   # Guard: ensure the key survey dimension columns are present
-  missing_cols <- setdiff(lfs_int_cols, names(data))
+  missing_cols <- setdiff(c("SURVYEAR", "SURVMNTH"), names(data))
   if (length(missing_cols) > 0L)
     stop("LFS data is missing required columns: ",
          paste(missing_cols, collapse = ", "),
@@ -455,11 +542,45 @@ lfs_get_pumf <- function(version    = NULL,
       !identical(refresh, TRUE)  &&
       !identical(refresh, "auto"))
     stop("'refresh' must be FALSE, TRUE, or \"auto\".")
-  if (identical(refresh, TRUE) && is.null(version))
-    stop("Specify a version when refresh = TRUE.  ",
-         "Use refresh = \"auto\" to reload all versions.")
-  if (isTRUE(redownload) && is.null(version))
-    stop("Specify a version when redownload = TRUE.")
+  # No version specified + rebuild requested → rebuild all loaded versions.
+  if ((identical(refresh, TRUE) || isTRUE(redownload)) && is.null(version)) {
+    lfs_dir_e  <- file.path(cache_path, "LFS")
+    db_path_e  <- file.path(lfs_dir_e, "LFS.duckdb")
+    data_tbl_e <- paste0("lfs_", lang)
+
+    if (!file.exists(db_path_e)) {
+      message("No LFS data in cache. Download a version first: ",
+              "get_pumf(\"LFS\", \"2024\")")
+      return(invisible(NULL))
+    }
+    .assert_duckdb_writable(db_path_e)
+    con_e <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path_e, read_only = TRUE)
+    loaded <- if (DBI::dbExistsTable(con_e, "lfs_versions"))
+      DBI::dbGetQuery(con_e,
+        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth NULLS LAST")$version
+    else character(0L)
+    DBI::dbDisconnect(con_e, shutdown = TRUE)
+
+    if (length(loaded) == 0L) {
+      message("No LFS versions loaded yet. Download first: ",
+              "get_pumf(\"LFS\", \"2024\")")
+      return(invisible(NULL))
+    }
+    message("Rebuilding ", length(loaded), " LFS version(s): ",
+            paste(loaded, collapse = ", "))
+    for (v in loaded) {
+      tryCatch({
+        tbl_v <- lfs_get_pumf(v, lang = lang, cache_path = cache_path,
+                               refresh    = refresh,
+                               redownload = redownload,
+                               read_only  = FALSE)
+        if (!is.null(tbl_v) && DBI::dbIsValid(tbl_v$src$con))
+          DBI::dbDisconnect(tbl_v$src$con, shutdown = TRUE)
+      }, error = function(e)
+        warning("Failed to rebuild LFS ", v, ": ", conditionMessage(e), call. = FALSE))
+    }
+    return(.lfs_open_tbl(db_path_e, data_tbl_e, read_only = read_only))
+  }
 
   # redownload implies a full rebuild
   eff_refresh <- identical(refresh, TRUE) || isTRUE(redownload)
@@ -470,11 +591,6 @@ lfs_get_pumf <- function(version    = NULL,
   label_col <- if (lang == "eng") "label_en" else "label_fr"
 
   dir.create(lfs_dir, showWarnings = FALSE, recursive = TRUE)
-
-  # Early lock check: when a rebuild is requested, verify the shared DuckDB is
-  # not held open before doing any download / parse work.
-  if (eff_refresh || identical(refresh, "auto"))
-    .assert_duckdb_writable(db_path)
 
   # refresh = "auto": download everything missing (takes priority over version=NULL)
   if (identical(refresh, "auto"))
@@ -517,6 +633,9 @@ lfs_get_pumf <- function(version    = NULL,
     }
     DBI::dbDisconnect(con_chk, shutdown = TRUE)
   }
+
+  # Verify the DuckDB is not locked before doing any download / parse work.
+  .assert_duckdb_writable(db_path)
 
   # --- Stage 1: locate / download ---
   version_dir <- pumf_locate_or_download("LFS", version,

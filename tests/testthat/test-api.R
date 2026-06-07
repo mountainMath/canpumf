@@ -167,16 +167,6 @@ test_that("label_pumf_columns: emits deprecation warning", {
   )
 })
 
-test_that("get_pumf_connection: emits deprecation warning", {
-  expect_warning(
-    tryCatch(
-      get_pumf_connection("SFS", pumf_cache_path = tempdir()),
-      error = function(e) NULL
-    ),
-    regexp = "deprecated"
-  )
-})
-
 # ---- get_pumf end-to-end (uses synthetic fixture) ---------------------------
 
 make_e2e_version_dir <- function(tmp, series = "FAKE", version = "2099") {
@@ -218,6 +208,31 @@ make_e2e_version_dir <- function(tmp, series = "FAKE", version = "2099") {
   writeLines("", file.path(vdir, "sentinel.txt"))
   vdir
 }
+
+test_that("get_pumf_connection: returns a DBI connection with table list message", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  con <- expect_message(
+    get_pumf_connection("FAKE", "2099", cache_path = tmp),
+    regexp = "Available tables"
+  )
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  expect_true(inherits(con, "duckdb_connection"))
+  expect_true(length(DBI::dbListTables(con)) > 0L)
+})
+
+test_that("get_pumf_connection: connection is read-write (can create a table)", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  con <- suppressMessages(get_pumf_connection("FAKE", "2099", cache_path = tmp))
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  DBI::dbWriteTable(con, "derived", data.frame(x = 1L))
+  expect_true(DBI::dbExistsTable(con, "derived"))
+})
 
 test_that("get_pumf: returns lazy tbl for non-LFS survey", {
   tmp <- withr::local_tempdir()
@@ -397,4 +412,19 @@ test_that(".assert_duckdb_writable: no error on an unlocked DuckDB file", {
   db  <- file.path(tmp, "FAKE", "2099", "FAKE_2099.duckdb")
   close_pumf(tbl)
   expect_no_error(canpumf:::.assert_duckdb_writable(db))
+})
+
+test_that(".assert_duckdb_writable: clear error when read-only connection is open", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+  # Open a read-only tbl (default) and keep it open.
+  tbl <- get_pumf("FAKE", "2099", cache_path = tmp)
+  db  <- file.path(tmp, "FAKE", "2099", "FAKE_2099.duckdb")
+  # The check must detect the in-process read-only sharing and give a clear message.
+  expect_error(
+    canpumf:::.assert_duckdb_writable(db),
+    regexp = "held open by a read-only connection",
+    fixed  = FALSE
+  )
+  close_pumf(tbl)
 })

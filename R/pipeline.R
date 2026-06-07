@@ -7,10 +7,35 @@
 
 # ---- internal helpers -------------------------------------------------------
 
+# Compute the expected DuckDB file path for a survey version.
+.pumf_db_path <- function(series, version, cache_path) {
+  if (series == "LFS")
+    return(file.path(cache_path, "LFS", "LFS.duckdb"))
+  db_file <- paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
+  file.path(cache_path, series, version, db_file)
+}
+
+# Compute the DuckDB table name for a given series / version / lang.
+.pumf_table_name <- function(series, version, lang) {
+  if (series == "LFS") return(paste0("lfs_", lang))
+  lm <- pumf_registry_lookup(series, version)$layout_mask
+  if (is.null(lm)) lang else paste0(lang, "_", lm)
+}
+
 # Probe whether a DuckDB file can be opened for writing.
-# Opens a temporary RW connection and immediately closes it.  If the file is
-# already held by another connection (RO or RW), DuckDB emits a lock error;
-# we intercept that and replace it with a clear, actionable message.
+#
+# Two failure modes require detection:
+#   (a) External lock (OS-level): dbConnect itself raises an error containing
+#       "lock", "conflict", etc.
+#   (b) In-process read-only sharing: DuckDB silently hands back a connection
+#       that shares the read-only in-process instance already open (e.g. from
+#       a get_pumf() tbl the user is holding).  dbConnect succeeds, but the
+#       first write raises "attached in read-only mode".
+#
+# We probe for (b) with a rolled-back DDL statement.  DuckDB DDL is fully
+# transactional, so BEGIN + CREATE TABLE + ROLLBACK leaves no trace.
+# shutdown=FALSE on disconnect: if the connection shares an existing in-process
+# instance (the user's open tbl), shutdown=TRUE would invalidate that instance.
 .assert_duckdb_writable <- function(db_path) {
   if (!file.exists(db_path)) return(invisible(NULL))
   con <- tryCatch(
@@ -25,7 +50,28 @@
            call. = FALSE)
     stop(con)
   }
-  DBI::dbDisconnect(con, shutdown = TRUE)
+
+  write_err <- tryCatch({
+    DBI::dbExecute(con, "BEGIN")
+    DBI::dbExecute(con, "CREATE TABLE IF NOT EXISTS _canpumf_rw_probe (x INTEGER)")
+    DBI::dbExecute(con, "ROLLBACK")
+    NULL
+  }, error = function(e) {
+    tryCatch(DBI::dbExecute(con, "ROLLBACK"), error = function(e2) NULL)
+    e
+  })
+
+  DBI::dbDisconnect(con, shutdown = FALSE)
+
+  if (!is.null(write_err)) {
+    msg <- conditionMessage(write_err)
+    if (grepl("read[_-]?only|attached in read", msg, ignore.case = TRUE))
+      stop("'", basename(db_path), "' is held open by a read-only connection ",
+           "(e.g. a tbl from get_pumf()).\n",
+           "Close it first with close_pumf(tbl) and then retry.",
+           call. = FALSE)
+    stop(write_err)
+  }
   invisible(NULL)
 }
 
@@ -38,12 +84,24 @@
 
 # TRUE when version_dir contains something other than the zip and metadata/.
 # Presence of any such item means the zip was already extracted.
+#
+# StatCan occasionally ships zips whose top-level entry has the same name as
+# the zip file (e.g. 2025-CSV.zip/ inside 2025-CSV.zip).  After extraction
+# this creates a subdirectory named "2025-CSV.zip" — a directory, not a file,
+# even though its name ends in .zip.  We use file.info() to distinguish real
+# zip files from extracted directories with zip-like names.
 .version_is_extracted <- function(dir) {
   if (!dir.exists(dir)) return(FALSE)
-  items <- list.files(dir)
-  other <- items[!grepl("\\.zip$|\\.duckdb$", items, ignore.case = TRUE) &
-                   items != "metadata"]
-  length(other) > 0L
+  items    <- list.files(dir)
+  if (length(items) == 0L) return(FALSE)
+  are_dirs <- file.info(file.path(dir, items))$isdir
+  # Any subdirectory other than metadata/ is extracted content.
+  if (any(are_dirs & items != "metadata", na.rm = TRUE)) return(TRUE)
+  # Among regular files, exclude zip archives and duckdb files.
+  other_files <- items[!are_dirs &
+                        !grepl("\\.zip$|\\.duckdb$", items, ignore.case = TRUE) &
+                        items != "metadata"]
+  length(other_files) > 0L
 }
 
 # Strip any query string from a URL and return the bare filename.
@@ -602,15 +660,8 @@ pumf_run_pipeline <- function(series,
   # redownload implies a full rebuild
   eff_refresh <- refresh || redownload
 
-  # Early lock check: when a rebuild is requested, verify the DuckDB file is
-  # not held open before doing any download / parse work.
-  if (eff_refresh) {
-    db_path_expected <- file.path(
-      cache_path, series, version,
-      paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
-    )
-    .assert_duckdb_writable(db_path_expected)
-  }
+  # Verify the DuckDB is not locked before doing any download / parse work.
+  .assert_duckdb_writable(.pumf_db_path(series, version, cache_path))
 
   # Stage 1 — locate or download
   version_dir <- pumf_locate_or_download(series, version,

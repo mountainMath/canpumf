@@ -152,6 +152,33 @@ test_that(".lfs_append: VARCHAR column upgraded to DOUBLE when numeric data appe
   expect_true(is.numeric(result$FINALWT))
 })
 
+test_that(".lfs_append: DOUBLE column upgraded to INTEGER when integer data appended", {
+  con <- duck_mem()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  # Simulate old state: REC_NUM was incorrectly stored as DOUBLE
+  df_old <- data.frame(SURVYEAR = 2022L, REC_NUM = 1.0)
+  canpumf:::.lfs_append(con, "lfs_eng", df_old)
+
+  schema_before <- DBI::dbGetQuery(con,
+    "SELECT data_type FROM information_schema.columns WHERE table_name='lfs_eng' AND column_name='REC_NUM'")
+  expect_equal(schema_before$data_type, "DOUBLE")
+
+  # Append with REC_NUM as integer — should trigger DOUBLE → INTEGER upgrade
+  df_new <- data.frame(SURVYEAR = 2023L, REC_NUM = 2L)
+  expect_message(
+    canpumf:::.lfs_append(con, "lfs_eng", df_new),
+    regexp = "Upgraded.*REC_NUM.*DOUBLE.*INTEGER", ignore.case = TRUE
+  )
+
+  schema_after <- DBI::dbGetQuery(con,
+    "SELECT data_type FROM information_schema.columns WHERE table_name='lfs_eng' AND column_name='REC_NUM'")
+  expect_equal(schema_after$data_type, "INTEGER")
+
+  result <- DBI::dbGetQuery(con, "SELECT REC_NUM FROM lfs_eng ORDER BY SURVYEAR")
+  expect_true(is.integer(result$REC_NUM))
+})
+
 test_that(".lfs_append: missing column in new data filled with NA", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
@@ -605,7 +632,7 @@ test_that("lfs_get_pumf: fra table uses French labels", {
   expect_false("Newfoundland" %in% fra_result$PROV)
 })
 
-test_that("lfs_get_pumf: SURVYEAR and SURVMNTH stored as integer, PROV as VARCHAR", {
+test_that("lfs_get_pumf: SURVYEAR/SURVMNTH stored as integer, PROV stored as ENUM", {
   tmp <- withr::local_tempdir()
   make_lfs_vdir(tmp, "2022", n_rows = 3L)
 
@@ -623,17 +650,94 @@ test_that("lfs_get_pumf: SURVYEAR and SURVMNTH stored as integer, PROV as VARCHA
     label = paste0("SURVYEAR type: '", yr_type, "'"))
   expect_true(grepl("INT", mn_type, ignore.case = TRUE),
     label = paste0("SURVMNTH type: '", mn_type, "'"))
-  # LFS categoricals are VARCHAR — label strings can differ across years
-  expect_true(grepl("VARCHAR|CHAR", prov_type, ignore.case = TRUE),
-    label = paste0("PROV should be VARCHAR in LFS table, got: '", prov_type, "'"))
+  expect_true(grepl("ENUM", prov_type, ignore.case = TRUE),
+    label = paste0("PROV should be ENUM in LFS table, got: '", prov_type, "'"))
 })
 
-test_that("lfs_get_pumf: refresh=TRUE with NULL version errors", {
-  tmp <- withr::local_tempdir()
-  expect_error(
-    canpumf:::lfs_get_pumf(version = NULL, cache_path = tmp, refresh = TRUE),
-    regexp = "Specify a version"
+test_that(".lfs_append: factor column stored as ENUM on first write", {
+  con <- duck_mem()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  df <- data.frame(
+    SURVYEAR = 2022L,
+    PROV     = factor("Newfoundland", levels = c("Newfoundland", "Ontario"))
   )
+  canpumf:::.lfs_append(con, "lfs_eng", df)
+
+  info <- DBI::dbGetQuery(con, "PRAGMA table_info('lfs_eng')")
+  prov_type <- info$type[info$name == "PROV"]
+  expect_true(grepl("ENUM", prov_type, ignore.case = TRUE),
+    label = paste0("PROV type after first write: '", prov_type, "'"))
+})
+
+test_that(".lfs_append: ENUM gains new levels from subsequent factor data", {
+  con <- duck_mem()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  df1 <- data.frame(SURVYEAR = 2022L,
+                    PROV = factor("Newfoundland", levels = c("Newfoundland", "Ontario")))
+  df2 <- data.frame(SURVYEAR = 2023L,
+                    PROV = factor("Alberta", levels = c("Newfoundland", "Ontario", "Alberta")))
+
+  canpumf:::.lfs_append(con, "lfs_eng", df1)
+  canpumf:::.lfs_append(con, "lfs_eng", df2)
+
+  result <- DBI::dbGetQuery(con, "SELECT PROV FROM lfs_eng ORDER BY SURVYEAR")
+  expect_equal(as.character(result$PROV), c("Newfoundland", "Alberta"))
+})
+
+test_that(".lfs_append: VARCHAR factor column upgraded to ENUM on subsequent write", {
+  con <- duck_mem()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  # Old data written as plain character (VARCHAR)
+  df_old <- data.frame(SURVYEAR = 2021L, PROV = "Ontario", stringsAsFactors = FALSE)
+  canpumf:::.lfs_append(con, "lfs_eng", df_old)
+  info_before <- DBI::dbGetQuery(con, "PRAGMA table_info('lfs_eng')")
+  expect_true(grepl("VARCHAR|CHAR", info_before$type[info_before$name == "PROV"],
+                    ignore.case = TRUE))
+
+  # New data comes in as factor → should trigger VARCHAR → ENUM upgrade
+  df_new <- data.frame(SURVYEAR = 2022L,
+                       PROV = factor("Newfoundland", levels = c("Newfoundland", "Ontario")))
+  expect_message(
+    canpumf:::.lfs_append(con, "lfs_eng", df_new),
+    regexp = "Upgraded.*PROV.*ENUM", ignore.case = TRUE
+  )
+
+  info_after <- DBI::dbGetQuery(con, "PRAGMA table_info('lfs_eng')")
+  expect_true(grepl("ENUM", info_after$type[info_after$name == "PROV"],
+                    ignore.case = TRUE))
+})
+
+test_that("lfs_get_pumf: refresh=TRUE with NULL version and no cache returns NULL invisibly", {
+  tmp <- withr::local_tempdir()
+  result <- expect_message(
+    canpumf:::lfs_get_pumf(version = NULL, cache_path = tmp, refresh = TRUE),
+    regexp = "No LFS data"
+  )
+  expect_null(result)
+})
+
+test_that("lfs_get_pumf: refresh=TRUE with NULL version rebuilds all loaded versions", {
+  tmp <- withr::local_tempdir()
+  # Seed two versions
+  make_lfs_vdir(tmp, "2022", n_rows = 2L)
+  make_lfs_vdir(tmp, "2023", n_rows = 2L)
+  tbl1 <- canpumf:::lfs_get_pumf("2022", cache_path = tmp)
+  DBI::dbDisconnect(tbl1$src$con, shutdown = TRUE)
+  tbl2 <- canpumf:::lfs_get_pumf("2023", cache_path = tmp)
+  DBI::dbDisconnect(tbl2$src$con, shutdown = TRUE)
+
+  # refresh=TRUE with no version should rebuild both
+  tbl_all <- expect_message(
+    canpumf:::lfs_get_pumf(version = NULL, cache_path = tmp, refresh = TRUE),
+    regexp = "Rebuilding 2 LFS"
+  )
+  on.exit(DBI::dbDisconnect(tbl_all$src$con, shutdown = TRUE))
+
+  result <- dplyr::collect(tbl_all)
+  expect_true(all(c(2022L, 2023L) %in% result$SURVYEAR))
 })
 
 test_that("lfs_get_pumf: refresh='auto' with NULL version runs auto-refresh, not status", {

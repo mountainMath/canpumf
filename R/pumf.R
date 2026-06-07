@@ -405,38 +405,94 @@ add_bootstrap_weights <- function(pumf_data,
 }
 
 
-#' Get select pumf database connections (deprecated)
+#' Get a write-access DuckDB connection to a PUMF database
 #'
-#' @description
-#' `r lifecycle::badge("deprecated")`
+#' Downloads (if needed), parses metadata, builds the DuckDB, and returns a
+#' raw read-write [DBI::DBIConnection-class] to the database file.  The
+#' connection gives full SQL access: create derived tables, persist custom
+#' views, and join them against the original PUMF data in the same file.
+#' [get_pumf()] is built on top of this function and adds language-table
+#' selection and read-only semantics for everyday analysis.
 #'
-#' Use [get_pumf()] instead, which returns a lazy duckplyr table directly.
+#' @param series Survey series acronym, e.g. `"SFS"` or `"LFS"`.
+#' @param version Version string.  `NULL` for single-version series.
+#' @param lang `"eng"` (default) or `"fra"`.  Passed to the pipeline to ensure
+#'   the labelled table for this language is built before returning.
+#' @param cache_path Root cache directory.  Defaults to
+#'   `getOption("canpumf.cache_path", tempdir())`.
+#' @param refresh If `TRUE`, rebuild the DuckDB from already-extracted raw
+#'   files before opening.  Does **not** re-download.
+#' @param redownload If `TRUE`, re-download from StatCan and rebuild.  Implies
+#'   `refresh = TRUE`.
+#' @param ... Accepts deprecated parameter names (`pumf_series`,
+#'   `pumf_version`, `pumf_cache_path`) with a warning.
 #'
-#' @param pumf_series Survey series acronym.
-#' @param pumf_version Version string.
-#' @param layout_mask Optional layout mask.
-#' @param file_mask Optional file mask.
-#' @param guess_numeric Logical.
-#' @param pumf_cache_path Cache path.
-#' @param refresh Logical.
-#' @param refresh_layout Logical.
-#' @param timeout Timeout in seconds.
-#'
-#' @return A lazy dplyr tbl backed by DuckDB.
+#' @return A [DBI::DBIConnection-class] opened in read-write mode.  Disconnect
+#'   with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
 #' @export
-get_pumf_connection <- function(pumf_series, pumf_version = NULL,
-                                 layout_mask = NULL,
-                                 file_mask = layout_mask,
-                                 guess_numeric = TRUE,
-                                 pumf_cache_path = getOption("canpumf.cache_path"),
-                                 refresh = FALSE,
-                                 refresh_layout = FALSE,
-                                 timeout = 3000) {
-  .Deprecated("get_pumf",
-    msg = paste0("get_pumf_connection() is deprecated. ",
-                 "Use get_pumf(series, version) which returns a lazy duckplyr table directly."))
-  get_pumf(series     = pumf_series,
-           version    = pumf_version,
-           cache_path = pumf_cache_path %||% getOption("canpumf.cache_path", tempdir()),
-           refresh    = refresh)
+get_pumf_connection <- function(series     = NULL,
+                                 version    = NULL,
+                                 lang       = "eng",
+                                 cache_path = getOption("canpumf.cache_path",
+                                                        tempdir()),
+                                 refresh    = FALSE,
+                                 redownload = FALSE,
+                                 ...) {
+  dots     <- list(...)
+  resolved <- .api_resolve_deprecated(series, version, cache_path, dots,
+                                       "get_pumf_connection")
+  series     <- resolved$series
+  version    <- resolved$version
+  cache_path <- resolved$cache_path
+
+  if (is.null(series))
+    stop("'series' must be specified (e.g. get_pumf_connection(\"SFS\", \"2019\")).")
+  version <- pumf_resolve_version(series, version)
+  stopifnot(lang %in% c("eng", "fra"))
+
+  if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
+      !identical(refresh, "auto"))
+    stop("'refresh' must be FALSE, TRUE, or \"auto\".")
+  if (identical(refresh, "auto") && series != "LFS")
+    stop("refresh = \"auto\" is only valid for LFS.")
+  if (isTRUE(redownload) && identical(refresh, "auto"))
+    stop("redownload = TRUE is not compatible with refresh = \"auto\".")
+
+  # Run the pipeline and open a read-write connection.
+  tbl <- if (series == "LFS") {
+    lfs_get_pumf(version    = version,
+                 lang       = lang,
+                 cache_path = cache_path,
+                 refresh    = refresh,
+                 redownload = redownload,
+                 read_only  = FALSE)
+  } else {
+    if (is.null(version)) {
+      collection <- list_canpumf_collection()
+      rows <- dplyr::filter(collection, .data$Acronym == series)
+      if (nrow(rows) == 0L)
+        stop("Unknown series '", series,
+             "'. Check list_canpumf_collection() for available series.")
+      if (nrow(rows) > 1L)
+        stop("Series '", series, "' has multiple versions: ",
+             paste(rows$Version, collapse = ", "),
+             ".\nSpecify 'version'.")
+      version <- rows$Version[[1L]]
+    }
+    pumf_run_pipeline(series, version,
+                      lang       = lang,
+                      cache_path = cache_path,
+                      refresh    = refresh,
+                      redownload = redownload,
+                      read_only  = FALSE)
+  }
+
+  if (is.null(tbl)) return(invisible(NULL))
+
+  con    <- tbl$src$con
+  tables <- sort(DBI::dbListTables(con))
+  message("Connected to DuckDB (read-write). Available tables: ",
+          paste(tables, collapse = ", "),
+          ".\nDisconnect with DBI::dbDisconnect(con, shutdown = TRUE) when done.")
+  con
 }

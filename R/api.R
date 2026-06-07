@@ -104,17 +104,8 @@ get_pumf <- function(series     = NULL,
     stop("redownload = TRUE is not compatible with refresh = \"auto\". ",
          "Call lfs_get_pumf() per version instead.")
 
-  # ---- LFS: shared longitudinal database ------------------------------------
-  if (series == "LFS")
-    return(lfs_get_pumf(version    = version,
-                        lang       = lang,
-                        cache_path = cache_path,
-                        refresh    = refresh,
-                        redownload = redownload,
-                        read_only  = read_only))
-
-  # ---- Standard three-stage pipeline ----------------------------------------
-  if (is.null(version)) {
+  # Resolve single-version non-LFS series so table_name and db_path are known.
+  if (series != "LFS" && is.null(version)) {
     collection <- list_canpumf_collection()
     rows <- dplyr::filter(collection, .data$Acronym == series)
     if (nrow(rows) == 0L)
@@ -128,12 +119,32 @@ get_pumf <- function(series     = NULL,
     version <- rows$Version[[1L]]
   }
 
-  pumf_run_pipeline(series, version,
-                    lang       = lang,
-                    cache_path = cache_path,
-                    refresh    = refresh,
-                    redownload = redownload,
-                    read_only  = read_only)
+  # Ensure the DB is built and get a temporary read-write connection.
+  con <- suppressMessages(
+    get_pumf_connection(series     = series,
+                        version    = version,
+                        lang       = lang,
+                        cache_path = cache_path,
+                        refresh    = refresh,
+                        redownload = redownload)
+  )
+  if (is.null(con)) return(invisible(NULL))
+
+  # Select the language table from the connection.
+  table_name <- .pumf_table_name(series, version, lang)
+  db_path    <- .pumf_db_path(series, version, cache_path)
+
+  if (read_only) {
+    # Re-open as read-only so callers cannot accidentally mutate the DB.
+    DBI::dbDisconnect(con, shutdown = TRUE)
+    pumf_open_duckdb(db_path, table_name, read_only = TRUE)
+  } else {
+    if (!DBI::dbExistsTable(con, table_name)) {
+      DBI::dbDisconnect(con, shutdown = TRUE)
+      stop("Table '", table_name, "' not found in ", db_path, ".")
+    }
+    dplyr::tbl(con, table_name)
+  }
 }
 
 
