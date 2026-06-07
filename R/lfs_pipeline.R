@@ -105,6 +105,7 @@
   existing <- DBI::dbListFields(con, table_name)
   incoming <- names(new_data)
 
+  # Add entirely new columns
   for (col in setdiff(incoming, existing)) {
     sql_type <- if (is.integer(new_data[[col]])) "INTEGER"
     else if (is.numeric(new_data[[col]]))  "DOUBLE"
@@ -114,6 +115,36 @@
       con, sprintf('ALTER TABLE "%s" ADD COLUMN "%s" %s',
                    table_name, col, sql_type))
     message("  Added new column '", col, "' (", sql_type, ") to ", table_name)
+  }
+
+  # Fix columns that were stored as VARCHAR but should be numeric.
+  # This can happen when a previously character-typed variable is corrected to
+  # numeric in the metadata (e.g. FINALWT after a parse_lfs_codebook fix).
+  # DuckDB will silently coerce numeric values back to VARCHAR on append if the
+  # schema is not updated first, so we ALTER the column type here.
+  schema_df <- DBI::dbGetQuery(con, paste0(
+    "SELECT column_name, data_type FROM information_schema.columns ",
+    "WHERE table_name = '", table_name, "' AND table_schema = 'main'"
+  ))
+  for (col in intersect(incoming, schema_df$column_name)) {
+    db_type <- schema_df$data_type[schema_df$column_name == col]
+    r_val   <- new_data[[col]]
+    if ((is.integer(r_val) || is.numeric(r_val)) &&
+        db_type %in% c("VARCHAR", "TEXT", "CHAR", "CHARACTER VARYING")) {
+      new_sql <- if (is.integer(r_val)) "INTEGER" else "DOUBLE"
+      tryCatch({
+        DBI::dbExecute(con, sprintf(
+          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE %s',
+          table_name, col, new_sql))
+        message("  Upgraded column '", col, "' from VARCHAR to ", new_sql,
+                " in ", table_name)
+      }, error = function(e) {
+        warning("Could not upgrade type of '", col, "' from VARCHAR to ", new_sql,
+                ": ", conditionMessage(e),
+                "\nUse redownload = TRUE for a full clean rebuild.",
+                call. = FALSE)
+      })
+    }
   }
 
   all_cols <- DBI::dbListFields(con, table_name)
@@ -399,9 +430,13 @@
 #'   report database state and return the full table.
 #' @param lang `"eng"` (default) or `"fra"`.
 #' @param cache_path Root cache directory.
-#' @param refresh `FALSE` (default), `TRUE` (re-download and re-label the
-#'   specified version), or `"auto"` (download all versions not yet in the
-#'   database).  `refresh = TRUE` requires a non-NULL `version`.
+#' @param refresh `FALSE` (default), `TRUE` (re-parse and re-label the
+#'   specified version from the cached raw files), or `"auto"` (download all
+#'   versions not yet in the database).  `refresh = TRUE` requires a non-NULL
+#'   `version`.
+#' @param redownload If `TRUE`, delete the cached zip and extracted content for
+#'   the specified version and re-download from StatCan before rebuilding.
+#'   Implies `refresh = TRUE`.  Requires a non-NULL `version`.
 #' @param read_only Open the DuckDB connection in read-only mode (default
 #'   `TRUE`).  Pass `FALSE` to allow write access to the LFS DuckDB.
 #'
@@ -413,6 +448,7 @@ lfs_get_pumf <- function(version    = NULL,
                           cache_path = getOption("canpumf.cache_path",
                                                   tempdir()),
                           refresh    = FALSE,
+                          redownload = FALSE,
                           read_only  = TRUE) {
   stopifnot(lang %in% c("eng", "fra"))
   if (!identical(refresh, FALSE) &&
@@ -422,6 +458,11 @@ lfs_get_pumf <- function(version    = NULL,
   if (identical(refresh, TRUE) && is.null(version))
     stop("Specify a version when refresh = TRUE.  ",
          "Use refresh = \"auto\" to reload all versions.")
+  if (isTRUE(redownload) && is.null(version))
+    stop("Specify a version when redownload = TRUE.")
+
+  # redownload implies a full rebuild
+  eff_refresh <- identical(refresh, TRUE) || isTRUE(redownload)
 
   lfs_dir   <- file.path(cache_path, "LFS")
   db_path   <- file.path(lfs_dir, "LFS.duckdb")
@@ -432,7 +473,7 @@ lfs_get_pumf <- function(version    = NULL,
 
   # Early lock check: when a rebuild is requested, verify the shared DuckDB is
   # not held open before doing any download / parse work.
-  if (identical(refresh, TRUE) || identical(refresh, "auto"))
+  if (eff_refresh || identical(refresh, "auto"))
     .assert_duckdb_writable(db_path)
 
   # version = NULL: just report status
@@ -454,7 +495,7 @@ lfs_get_pumf <- function(version    = NULL,
                                read_only = TRUE)
     .lfs_ensure_versions_table(con_chk)
 
-    if (!identical(refresh, TRUE)) {
+    if (!eff_refresh) {
       # Monthly requested but annual already covers this year
       if (vtype == "monthly" && .lfs_has_annual(con_chk, survyear)) {
         message("Annual LFS data for ", survyear, " already loaded; ",
@@ -480,10 +521,11 @@ lfs_get_pumf <- function(version    = NULL,
   # --- Stage 1: locate / download ---
   version_dir <- pumf_locate_or_download("LFS", version,
                                           cache_path = cache_path,
-                                          refresh    = identical(refresh, TRUE))
+                                          refresh    = eff_refresh,
+                                          redownload = isTRUE(redownload))
 
   # --- Stage 2: parse metadata ---
-  pumf_parse_metadata(version_dir, refresh = identical(refresh, TRUE))
+  pumf_parse_metadata(version_dir, refresh = eff_refresh)
 
   # --- Stage 3 (LFS variant): build labeled data and append ---
   message("Labeling LFS ", version, " [", lang, "] ...")
@@ -495,7 +537,7 @@ lfs_get_pumf <- function(version    = NULL,
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
   .lfs_ensure_versions_table(con)
 
-  if (identical(refresh, TRUE)) {
+  if (eff_refresh) {
     # Wipe existing data for this year before re-appending
     .lfs_delete_year(con, data_tbl, survyear)
   } else if (vtype == "annual") {

@@ -77,13 +77,23 @@ pumf_locate_or_download <- function(series,
                                     version,
                                     cache_path = getOption("canpumf.cache_path",
                                                            tempdir()),
-                                    refresh    = FALSE) {
+                                    refresh    = FALSE,
+                                    redownload = FALSE) {
   version_dir <- file.path(cache_path, series, version)
 
-  # Step 2: refresh — wipe DuckDB(s) and metadata/, leave raw files alone.
+  # Step 2a: redownload — wipe the entire version directory (zip, extracted
+  # content, DuckDB, metadata) so the download/extract cycle starts fresh.
+  # DuckDB lock check must have already passed before this point.
+  if (redownload && dir.exists(version_dir)) {
+    message("Removing cached data for ", series, " ", version, " ...")
+    unlink(version_dir, recursive = TRUE)
+  }
+
+  # Step 2b: refresh — wipe DuckDB(s) and metadata/, leave raw files alone.
   # Use "\\.duckdb" (no $ anchor) to also remove .duckdb.wal and any other
   # DuckDB sidecar files left from a previous run or interrupted write.
-  if (refresh && dir.exists(version_dir)) {
+  # No-op when redownload already wiped the directory.
+  if ((refresh || redownload) && dir.exists(version_dir)) {
     duckdb_paths <- list.files(version_dir, pattern = "\\.duckdb",
                                ignore.case = TRUE, full.names = TRUE)
     for (p in duckdb_paths) {
@@ -571,6 +581,8 @@ pumf_open_duckdb <- function(db_path, table_name, read_only = TRUE) {
 #'   `getOption("canpumf.cache_path", tempdir())`.
 #' @param refresh If `TRUE`, clear DuckDB and metadata and rebuild from
 #'   already-extracted raw data.  Does **not** re-download.
+#' @param redownload If `TRUE`, delete the zip and all extracted content and
+#'   re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
 #' @param read_only Open the DuckDB in read-only mode (default `TRUE`).
 #'
 #' @return A lazy `dplyr::tbl()` backed by a DuckDB connection.
@@ -581,14 +593,18 @@ pumf_run_pipeline <- function(series,
                                cache_path = getOption("canpumf.cache_path",
                                                       tempdir()),
                                refresh    = FALSE,
+                               redownload = FALSE,
                                read_only  = TRUE) {
   stopifnot(lang %in% c("eng", "fra"))
 
   reg <- pumf_registry_lookup(series, version)
 
+  # redownload implies a full rebuild
+  eff_refresh <- refresh || redownload
+
   # Early lock check: when a rebuild is requested, verify the DuckDB file is
   # not held open before doing any download / parse work.
-  if (isTRUE(refresh)) {
+  if (eff_refresh) {
     db_path_expected <- file.path(
       cache_path, series, version,
       paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
@@ -599,19 +615,20 @@ pumf_run_pipeline <- function(series,
   # Stage 1 — locate or download
   version_dir <- pumf_locate_or_download(series, version,
                                           cache_path = cache_path,
-                                          refresh    = refresh)
+                                          refresh    = eff_refresh,
+                                          redownload = redownload)
 
   # Stage 2 — parse metadata
   pumf_parse_metadata(version_dir,
                        layout_mask       = reg$layout_mask,
                        metadata_encoding = reg$metadata_encoding,
-                       refresh           = refresh)
+                       refresh           = eff_refresh)
 
   # Stage 3 — build DuckDB
   result <- pumf_build_duckdb(version_dir, series, version,
                                lang        = lang,
                                layout_mask = reg$layout_mask,
-                               refresh     = refresh)
+                               refresh     = eff_refresh)
 
   pumf_open_duckdb(result$db_path, result$table_name, read_only = read_only)
 }

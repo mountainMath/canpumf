@@ -24,6 +24,14 @@ test_that("get_pumf: errors on invalid refresh value", {
   )
 })
 
+test_that("get_pumf: errors when redownload=TRUE and refresh='auto'", {
+  expect_error(
+    get_pumf("LFS", refresh = "auto", redownload = TRUE),
+    regexp = "redownload.*auto|auto.*redownload",
+    ignore.case = TRUE
+  )
+})
+
 test_that("get_pumf: errors when version=NULL and multiple exist", {
   skip_if_offline()
   expect_error(get_pumf("SFS"), regexp = "multiple versions")
@@ -197,6 +205,16 @@ make_e2e_version_dir <- function(tmp, series = "FAKE", version = "2099") {
     tibble::tibble(PROV=c("10","35","10"), WEIGHT=c("100","200","9999")),
     file.path(vdir, "survey.csv")
   )
+  # Minimal codebook so pumf_parse_metadata can re-parse on refresh=TRUE
+  readr::write_csv(
+    tibble::tibble(
+      Field_Champ               = c("PROV", NA, NA, "WEIGHT"),
+      Variable_Variable         = c("PROV", "10", "35", "WEIGHT"),
+      EnglishLabel_EtiquetteAnglais = c("Province","Newfoundland","Ontario","Survey weight"),
+      FrenchLabel_EtiquetteFrancais = c("Province","Terre-Neuve","Ontario","Poids")
+    ),
+    file.path(vdir, "codebook.csv")
+  )
   writeLines("", file.path(vdir, "sentinel.txt"))
   vdir
 }
@@ -226,6 +244,46 @@ test_that("get_pumf: lang=fra returns French labels", {
   result <- dplyr::collect(tbl)
   expect_true("Terre-Neuve" %in% result$PROV)
   expect_false("Newfoundland" %in% result$PROV)
+})
+
+test_that("get_pumf: refresh=TRUE rebuilds without re-downloading", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  tbl1 <- get_pumf("FAKE", "2099", cache_path = tmp)
+  db   <- file.path(tmp, "FAKE", "2099", "FAKE_2099.duckdb")
+  m1   <- file.info(db)$mtime
+  close_pumf(tbl1)
+
+  Sys.sleep(0.05)
+  tbl2 <- get_pumf("FAKE", "2099", cache_path = tmp, refresh = TRUE)
+  m2   <- file.info(db)$mtime
+  close_pumf(tbl2)
+
+  # DuckDB was rewritten; raw data file still present
+  expect_true(m2 > m1)
+  expect_true(file.exists(file.path(tmp, "FAKE", "2099", "survey.csv")))
+})
+
+test_that("get_pumf: redownload=TRUE wipes version dir and rebuilds", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  # Seed a canary file to verify it gets removed by redownload
+  canary <- file.path(tmp, "FAKE", "2099", "canary.txt")
+  writeLines("canary", canary)
+
+  tbl1 <- get_pumf("FAKE", "2099", cache_path = tmp)
+  close_pumf(tbl1)
+  expect_true(file.exists(canary))
+
+  # redownload would attempt a network fetch for an unknown series; the canary
+  # and DuckDB should be gone before it hits the network error.
+  expect_error(
+    get_pumf("FAKE", "2099", cache_path = tmp, redownload = TRUE),
+    regexp = "not found in the canpumf collection|download"
+  )
+  expect_false(file.exists(canary))
 })
 
 test_that("get_pumf: second call is a no-op (cached)", {
