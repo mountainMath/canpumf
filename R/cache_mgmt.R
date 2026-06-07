@@ -250,15 +250,21 @@ remove_pumf_cache <- function(series,
       DBI::dbExecute(con, sprintf(
         "DELETE FROM lfs_versions WHERE version = '%s'", version))
 
-    n_left <- if (DBI::dbExistsTable(con, "lfs_versions"))
-      DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM lfs_versions")$n
-    else 0L
+    # Delete the shared DuckDB when ALL data tables are empty, not just when
+    # lfs_versions is empty — the two can diverge if data was manipulated
+    # outside the normal pipeline.
+    data_tbls <- intersect(c("lfs_eng", "lfs_fra"), DBI::dbListTables(con))
+    total_rows <- if (length(data_tbls) == 0L) 0L else {
+      sum(vapply(data_tbls, function(t)
+        DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "%s"', t))$n,
+        numeric(1L)))
+    }
     DBI::dbDisconnect(con, shutdown = TRUE)
 
-    if (n_left == 0L) {
+    if (total_rows == 0L) {
       unlink(list.files(lfs_dir, pattern = "\\.duckdb",
                          full.names = TRUE, ignore.case = TRUE))
-      message("LFS database removed (no versions remaining).")
+      message("LFS database removed (no data remaining).")
     }
   }
 

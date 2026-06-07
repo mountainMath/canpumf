@@ -145,10 +145,33 @@ test_that("remove_pumf_cache: LFS keep_raw=TRUE removes rows and metadata", {
     regexp = "Raw files kept"
   )
 
-  # DuckDB still exists (had 1 version, now 0) — file deleted
+  # All data tables empty → DuckDB file deleted
   expect_false(file.exists(db_path))
   expect_false(dir.exists(meta_dir))
   expect_true(file.exists(file.path(vdir, "pub2022.csv")))  # raw kept
+})
+
+test_that("remove_pumf_cache: LFS DB deleted when data tables empty even if lfs_versions stale", {
+  # Regression: emptiness check must look at actual row counts, not just lfs_versions.
+  tmp     <- withr::local_tempdir()
+  lfs_dir <- file.path(tmp, "LFS")
+  db_path <- file.path(lfs_dir, "LFS.duckdb")
+  dir.create(lfs_dir, recursive = TRUE)
+
+  # Seed: lfs_versions has an entry, but data tables are already empty
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  DBI::dbExecute(con, "CREATE TABLE lfs_eng (SURVYEAR INTEGER, PROV VARCHAR)")
+  DBI::dbExecute(con, paste0(
+    "CREATE TABLE lfs_versions (version VARCHAR, type VARCHAR, ",
+    "survyear INTEGER, survmnth INTEGER, loaded_at TIMESTAMP, n_records INTEGER)"))
+  DBI::dbExecute(con,
+    "INSERT INTO lfs_versions VALUES ('2022','annual',2022,NULL,NOW(),0)")
+  DBI::dbDisconnect(con, shutdown = TRUE)
+
+  remove_pumf_cache("LFS", "2022", keep_raw = TRUE, cache_path = tmp)
+
+  # Data tables were empty → DB must be removed despite stale lfs_versions entry
+  expect_false(file.exists(db_path))
 })
 
 test_that("remove_pumf_cache: LFS with two versions keeps DB after removing one", {
