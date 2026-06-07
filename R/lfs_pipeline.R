@@ -476,14 +476,14 @@ lfs_get_pumf <- function(version    = NULL,
   if (eff_refresh || identical(refresh, "auto"))
     .assert_duckdb_writable(db_path)
 
-  # version = NULL: just report status
-  if (is.null(version))
-    return(.lfs_status(db_path, data_tbl, lang, read_only = read_only))
-
-  # refresh = "auto": download everything missing
+  # refresh = "auto": download everything missing (takes priority over version=NULL)
   if (identical(refresh, "auto"))
     return(.lfs_auto_refresh(db_path, data_tbl, label_col, lang, cache_path,
                               read_only = read_only))
+
+  # version = NULL: just report status
+  if (is.null(version))
+    return(.lfs_status(db_path, data_tbl, lang, read_only = read_only))
 
   vtype    <- .lfs_version_type(version)
   survyear <- .lfs_survyear(version)

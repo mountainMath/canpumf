@@ -636,6 +636,23 @@ test_that("lfs_get_pumf: refresh=TRUE with NULL version errors", {
   )
 })
 
+test_that("lfs_get_pumf: refresh='auto' with NULL version runs auto-refresh, not status", {
+  # Regression test: refresh='auto' must take priority over version=NULL so that
+  # lfs_get_pumf(refresh="auto") actually triggers .lfs_auto_refresh, not .lfs_status.
+  tmp <- withr::local_tempdir()
+  # .lfs_auto_refresh calls list_available_lfs_pumf_versions() which requires
+  # network; intercept by checking the error is network-related, not a status message.
+  result <- tryCatch(
+    canpumf:::lfs_get_pumf(version = NULL, cache_path = tmp, refresh = "auto"),
+    error = function(e) e,
+    message = function(m) m
+  )
+  # If the bug were present we'd get a .lfs_status message ("No LFS data loaded")
+  # instead of a network or auto-refresh attempt. Confirm it's not a status message.
+  if (inherits(result, "message"))
+    expect_false(grepl("No LFS data loaded", conditionMessage(result)))
+})
+
 test_that("lfs_get_pumf: invalid refresh value errors", {
   tmp <- withr::local_tempdir()
   expect_error(
