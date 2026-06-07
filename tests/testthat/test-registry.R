@@ -44,7 +44,12 @@ test_that("pumf_registry_lookup: SFS/2012 has no BSW and no fixup", {
 })
 
 test_that("pumf_registry_lookup: CHS entries have BSW config", {
-  for (v in c("2018", "2021", "2022")) {
+  # 2018 PUMF was released without a bootstrap weight file
+  e18 <- canpumf:::pumf_registry_lookup("CHS", "2018")
+  expect_true(is.null(e18$bsw_mask), label = "CHS/2018 has no BSW")
+  expect_false(is.null(e18$file_mask), label = "CHS/2018 file_mask")
+
+  for (v in c("2021", "2022")) {
     e <- canpumf:::pumf_registry_lookup("CHS", v)
     expect_false(is.null(e$bsw_mask),      label = paste0("CHS/", v, " bsw_mask"))
     expect_equal(e$bsw_join_key, "PUMFID", label = paste0("CHS/", v, " bsw_join_key"))

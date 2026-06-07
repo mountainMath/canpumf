@@ -507,10 +507,24 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
         last_q  = vapply(.data$all_q,
                          function(x) if (length(x) > 0L) x[[length(x)]] else NA_character_,
                          character(1L)),
-        val   = dplyr::if_else(
-          grepl('^"', trimws(.data$line)),
+        is_q    = grepl('^"', trimws(.data$line)),
+        raw_val = dplyr::if_else(
+          .data$is_q,
           gsub('^"|"$', "", .data$first_q),
           trimws(sub('".*', "", .data$line))
+        ),
+        # Normalize unquoted (numeric) code values: parse as number then
+        # convert back to string.  This strips leading zeros ("01" → "1")
+        # and avoids integer overflow for large sentinel values (e.g. 99999999996).
+        # R's as.character() renders whole-number doubles without ".0" ("1.0"→"1").
+        # Quoted codes (character variables) are kept verbatim.
+        val = dplyr::if_else(
+          .data$is_q,
+          .data$raw_val,
+          {
+            num <- suppressWarnings(as.numeric(.data$raw_val))
+            dplyr::if_else(!is.na(num), as.character(num), .data$raw_val)
+          }
         ),
         label = gsub('^"|"$', "", .data$last_q)
       ) |>
@@ -851,7 +865,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
         is.na(.data$annot)                    ~ "F",
         TRUE                                  ~ NA_character_
       ),
-      decimals = dplyr::case_when(
+      decimals = suppressWarnings(dplyr::case_when(
         is.na(.data$annot)                           ~ 0L,
         grepl("^\\d+$", trimws(.data$annot))         ~
           as.integer(trimws(.data$annot)),
@@ -859,7 +873,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
                                    "[Ff]\\d+\\.(\\d+)")[, 2L]) ~
           as.integer(stringr::str_match(.data$annot, "[Ff]\\d+\\.(\\d+)")[, 2L]),
         TRUE                                         ~ NA_integer_
-      )
+      ))
     ) |>
     dplyr::filter(!is.na(.data$name)) |>
     dplyr::select("name", "fmt_type", "decimals")

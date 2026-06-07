@@ -111,9 +111,6 @@
 
   "CHS/2018" = .make_entry("CHS", "2018",
     layout_mask   = "chs2018ecl_pumf",
-    bsw_mask      = "chs2018ecl_PUMF_bsw",
-    bsw_file_mask = "chs2018ecl_PUMF_bsw\\.csv",
-    bsw_join_key  = "PUMFID",
     file_mask     = "CHS2018ECL_PUMF\\.csv"),
 
   "CHS/2021" = .make_entry("CHS", "2021",
