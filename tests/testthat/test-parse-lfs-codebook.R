@@ -56,6 +56,46 @@ test_that("parse_lfs_codebook: variables with codes are character, without are n
   expect_equal(type_of("WAGE"),    "numeric")
 })
 
+test_that("parse_lfs_codebook: sentinel-only codes → numeric with missing range", {
+  tmp <- withr::local_tempdir()
+  cb <- data.frame(
+    Field_Champ = c("HOURS", NA, NA, "PROV", NA, NA, "WEIGHT"),
+    Variable_Variable = c("HOURS", "97", "99",
+                          "PROV",  "10", "35",
+                          "WEIGHT"),
+    EnglishLabel_EtiquetteAnglais = c(
+      "Hours worked", "Not applicable", "Not stated",
+      "Province",     "Ontario",        "Newfoundland",
+      "Survey weight"
+    ),
+    FrenchLabel_EtiquetteFrancais = c(
+      "Heures", "Sans objet", "Non declare",
+      "Province", "Ontario", "Terre-Neuve",
+      "Poids"
+    ),
+    stringsAsFactors = FALSE
+  )
+  readr::write_csv(cb, file.path(tmp, "codebook.csv"))
+  m <- canpumf:::parse_lfs_codebook(file.path(tmp, "codebook.csv"))
+
+  type_of <- function(nm) m$variables$type[m$variables$name == nm]
+  # Categorical variable (has non-sentinel codes) stays character
+  expect_equal(type_of("PROV"),   "character")
+  # Sentinel-only coded variable → numeric
+  expect_equal(type_of("HOURS"),  "numeric")
+  # No codes → numeric
+  expect_equal(type_of("WEIGHT"), "numeric")
+
+  # HOURS missing range derived from sentinel code values 97 and 99
+  hours_row <- m$variables[m$variables$name == "HOURS", ]
+  expect_equal(unname(hours_row$missing_low),  97)
+  expect_equal(unname(hours_row$missing_high), 99)
+
+  # PROV has no missing range
+  prov_row <- m$variables[m$variables$name == "PROV", ]
+  expect_true(is.na(prov_row$missing_low))
+})
+
 test_that("parse_lfs_codebook: canonical schema", {
   m <- canpumf:::parse_lfs_codebook(fx("codebook.csv"))
 

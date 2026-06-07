@@ -1028,8 +1028,18 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
   var_fc   <- raw$Field_Champ[is_var]
   var_name <- toupper(raw$Variable_Variable[is_var])
 
-  # Code rows: originally NA Field_Champ and Variable_Variable not NA
-  is_code <- !is_var & !is.na(raw$Variable_Variable)
+  # Code rows: originally NA Field_Champ and Variable_Variable not NA.
+  # Filter out range-description tokens that newer codebook formats use to
+  # document numeric ranges rather than list individual code values:
+  #   - Numeric ranges:       "1-99999", "001-240", "000001-999999"
+  #   - Open-ended ranges:    "1976-"
+  #   - Excel-mangled ranges: "Jan-99" (Excel converted "1-99" to a date)
+  #   - Blank token:          "blank"  (means missing/not-applicable in data)
+  vv <- raw$Variable_Variable
+  is_range_desc <- grepl("^[0-9].*-[0-9]|^[0-9]+-$|^[A-Za-z]{2,3}-[0-9]",
+                          vv, perl = TRUE)
+  is_blank_tok  <- tolower(trimws(vv)) == "blank"
+  is_code <- !is_var & !is.na(vv) & !is_range_desc & !is_blank_tok
   code_name <- var_name[match(fc[is_code], var_fc)]
 
   codes <- tibble::tibble(
@@ -1040,16 +1050,53 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
   )
   codes <- codes[!is.na(codes$name), ]
 
-  # Variables with code entries are categorical; all others are numeric.
-  vars_with_codes <- unique(codes$name)
+  # Classify each variable:
+  #  - No codes → numeric
+  #  - All codes are sentinel labels (Not applicable, Not stated, Valid skip,
+  #    etc.) → numeric; derive missing_low / missing_high from the sentinel
+  #    code values so .apply_numeric_conversion can NA them out
+  #  - At least one non-sentinel code → character (categorical)
+  #
+  # Sentinel labels are recognised by an exact anchored match so that genuine
+  # category labels that merely CONTAIN the words ("Employee, not applicable")
+  # are never misclassified.
+  .sentinel_pat <- paste0(
+    "(?i)^(not (applicable|stated|in (the )?universe|available)|",
+    "valid skip|refusal|refused|don.?t know|missing|n/a|does not apply|",
+    "not in scope)$"
+  )
+
+  vars_with_codes  <- unique(codes$name)
+  sentinel_missing <- list()  # variable name -> c(lo, hi) from sentinel vals
+
+  for (v in vars_with_codes) {
+    vc     <- codes[codes$name == v, ]
+    labels <- trimws(vc$label_en)
+    if (length(labels) > 0L && all(grepl(.sentinel_pat, labels, perl = TRUE))) {
+      s_nums <- suppressWarnings(as.numeric(vc$val))
+      s_nums <- s_nums[!is.na(s_nums)]
+      if (length(s_nums) > 0L)
+        sentinel_missing[[v]] <- c(min(s_nums), max(s_nums))
+      else
+        sentinel_missing[[v]] <- c(NA_real_, NA_real_)
+    }
+  }
+
+  sentinel_only      <- names(sentinel_missing)
+  truly_categorical  <- setdiff(vars_with_codes, sentinel_only)
+
   variables <- tibble::tibble(
     name         = var_name,
     label_en     = raw$EnglishLabel_EtiquetteAnglais[is_var],
     label_fr     = if (!is.null(fra_col)) raw[[fra_col]][is_var] else NA_character_,
-    type         = ifelse(var_name %in% vars_with_codes, "character", "numeric"),
+    type         = ifelse(var_name %in% truly_categorical, "character", "numeric"),
     decimals     = NA_integer_,
-    missing_low  = NA_real_,
-    missing_high = NA_real_
+    missing_low  = unname(vapply(var_name, function(v) {
+      if (!is.null(sentinel_missing[[v]])) sentinel_missing[[v]][1L] else NA_real_
+    }, numeric(1L))),
+    missing_high = unname(vapply(var_name, function(v) {
+      if (!is.null(sentinel_missing[[v]])) sentinel_missing[[v]][2L] else NA_real_
+    }, numeric(1L)))
   )
 
   # SURVMNTH fixup: raw data has 2-digit month codes but codebook often has 1-digit
