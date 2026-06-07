@@ -190,6 +190,9 @@ pumf_locate_or_download <- function(series,
     zip_name <- .zip_filename_from_url(url)
     zip_path  <- file.path(version_dir, zip_name)
     message("Downloading ", series, " ", version, " ...")
+    old_timeout <- getOption("timeout")
+    options(timeout = max(600L, old_timeout))
+    on.exit(options(timeout = old_timeout), add = TRUE)
     utils::download.file(url, zip_path, mode = "wb", quiet = FALSE)
     is_extracted <- FALSE  # need extraction after download
   }

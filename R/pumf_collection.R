@@ -84,6 +84,29 @@ list_canpumf_collection <- function(){
     dplyr::mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist) %>%
     dplyr::mutate(Version=coalesce(.data$Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
 
+  # Pre-2006 LFS PUMF monthly releases are EFT-only.  Scrape the catalogue
+  # index to discover which year/month combinations StatCan has published.
+  # Catalogue entries follow the pattern 71M0001X{YYYY}{MMM} (3-digit month).
+  lfs_eft_versions <- tryCatch({
+    cat_page <- rvest::read_html("https://www150.statcan.gc.ca/n1/en/catalogue/71M0001X")
+    hrefs    <- rvest::html_attr(rvest::html_elements(cat_page, "a"), "href")
+    m        <- stringr::str_match(hrefs, "71M0001X(\\d{4})(\\d{3})$")
+    m        <- m[!is.na(m[, 1L]), , drop = FALSE]
+    year     <- as.integer(m[, 2L])
+    month    <- as.integer(m[, 3L])
+    eft      <- year < 2006L & month >= 1L & month <= 12L
+    tibble::tibble(
+      Acronym = "LFS",
+      Version = paste0(m[eft, 2L], "-",
+                        formatC(month[eft], width = 2L, flag = "0")),
+      url     = "(EFT)"
+    ) |> dplyr::distinct()
+  }, error = function(e) {
+    tibble::tibble(Acronym = character(0L), Version = character(0L),
+                   url     = character(0L))
+  })
+  lfs_versions <- dplyr::bind_rows(lfs_versions, lfs_eft_versions)
+
   sfs_versions <- tibble(Acronym="SFS",
                          Version=c("1999","2005","2012","2016","2019","2023"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS1999-eng.zip",
