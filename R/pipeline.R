@@ -280,33 +280,51 @@ pumf_locate_or_download <- function(series,
 
   is_csv <- grepl("\\.csv$", bsw_path, ignore.case = TRUE)
 
+  # Parse BSW-specific SPSS metadata (layout + variable types).
+  # For FWF BSW this is required; for CSV BSW it provides type information so
+  # weight columns are stored as DOUBLE rather than VARCHAR in DuckDB.
+  formats    <- detect_formats(version_dir)
+  bsw_parsed <- NULL
+  if (!is.null(reg$bsw_mask) && !is.null(formats$spss_split)) {
+    bsw_parsed <- tryCatch(
+      parse_spss_split(formats$spss_split, layout_mask = reg$bsw_mask),
+      error = function(e) NULL
+    )
+  }
+
   if (is_csv) {
     bsw <- readr::read_csv(bsw_path,
                             col_types = readr::cols(.default = "c"),
                             locale = readr::locale(encoding = data_encoding),
                             show_col_types = FALSE)
     names(bsw) <- toupper(names(bsw))
+
+    # The join key (e.g. PUMFID) must stay character at join time: the main
+    # data frame is also all-character until Step 7's .apply_numeric_conversion.
+    # Exclude it from all BSW numeric conversions here.
+    join_cols <- if (!is.null(reg$bsw_join_key)) toupper(reg$bsw_join_key)
+                 else character(0L)
+    if (!is.null(bsw_parsed)) {
+      bsw_vars <- bsw_parsed$variables[
+        !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
+      bsw <- .apply_numeric_conversion(bsw, bsw_vars)
+    }
+    # BSW weight columns are continuous by definition.  The _vare.sps often
+    # labels only the join key, leaving BSWxx columns absent from bsw_vars and
+    # still character after the above.  Sweep any remaining character columns.
+    for (col in setdiff(names(bsw)[vapply(bsw, is.character, logical(1L))], join_cols))
+      bsw[[col]] <- suppressWarnings(as.numeric(bsw[[col]]))
     return(bsw)
   }
 
   # FWF BSW: need column positions from the BSW-specific SPSS command files.
-  formats <- detect_formats(version_dir)
-  bsw_layout <- NULL
-
-  if (!is.null(formats$spss_split)) {
-    parsed  <- tryCatch(
-      parse_spss_split(formats$spss_split, layout_mask = reg$bsw_mask),
-      error = function(e) NULL
-    )
-    bsw_layout <- parsed$layout
-  }
-
-  if (is.null(bsw_layout)) {
+  if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
     warning("Could not determine BSW column layout for mask '", reg$bsw_mask,
             "'; bootstrap weights will not be joined.")
     return(NULL)
   }
 
+  bsw_layout <- bsw_parsed$layout
   bsw <- readr::read_fwf(
     bsw_path,
     col_positions = readr::fwf_positions(bsw_layout$start, bsw_layout$end,
@@ -316,6 +334,13 @@ pumf_locate_or_download <- function(series,
     locale    = readr::locale(encoding = data_encoding),
     show_col_types = FALSE
   )
+  join_cols <- if (!is.null(reg$bsw_join_key)) toupper(reg$bsw_join_key)
+               else character(0L)
+  bsw_vars  <- bsw_parsed$variables[
+    !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
+  bsw <- .apply_numeric_conversion(bsw, bsw_vars)
+  for (col in setdiff(names(bsw)[vapply(bsw, is.character, logical(1L))], join_cols))
+    bsw[[col]] <- suppressWarnings(as.numeric(bsw[[col]]))
   bsw
 }
 
