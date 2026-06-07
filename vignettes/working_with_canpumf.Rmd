@@ -26,18 +26,36 @@ options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 The Canadian Housing Survey PUMF data is a rich dataset on Canadian housing preferences and needs. This vignette is adapted from [work done by Nathan Lauster and Jens von Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/). We start by establishing a connection to the 2018 CHS, downloading the data, parsing the metadata and creating the local database if needed.
 
 ```{r}
-chs_pumf <- get_pumf("CHS","2018", refresh = TRUE) 
+chs_pumf <- get_pumf("CHS","2018") 
+
+chs_pumf |> 
+  select(1:5) |>
+  head(10)
 ```
 
+The data comes outomatically labelled, but column names are left as coded in the data. That makes it easier to work with the data if one is very familiar with the particular survey, but can also be a barrier. In that case one can apply column labels on the fly.
 
+
+```{r}
+chs_pumf <- chs_pumf |>
+  label_pumf_columns()
+
+chs_pumf |> 
+  select(1:5) |>
+  head(10)
+```
+
+Applying column labels can make selecting columns more tedious, but can also avoid downstream errors in the analysis.
 
 ## Forced moves
 We take a simple look at the share of current renters that were forced to move on their most recent move, keyed by when the most revent move occured. To estimate risk of being forced to move we look at all current renters that did not move in the five years prior to the CHS, or those that moved in the prior five years and were reners in their old accommodation, as a base and ask what share of these were forced to move in a given timeframe.
 
 ```{r}
 renter_chs_pumf <- chs_pumf |>
-  filter((PDCT_05 == "No" & PPAC_05 == "10 or more years ago + Always lived here") | 
-           (PPAC_05 != "10 or more years ago + Always lived here" & PPAC_30 == "Rent it"))
+  filter((Tenure == "No" & 
+            `Previous accommodations - when move to current dwelling occurred` == "10 or more years ago + Always lived here") | 
+           (`Previous accommodations - when move to current dwelling occurred` != "10 or more years ago + Always lived here" & 
+              `Previous accommodations - tenure`== "Rent it"))
 ```
 
 We will also focus on people that did move in the past 5 years, as recall bias might make data from longer timeframes less reliable and the reproted time windows get large.
@@ -69,6 +87,7 @@ With PUMF data we need to be aware that we are dealing with a synthetic sample t
 
 ```{r fig-yvr-renters-forced-moves-bootstrap, fig.alt="Vancouver renters forced to move with bootstrap weights"}
 plot_data <- renter_chs_pumf %>%
+  collect() |>
   add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
@@ -97,6 +116,7 @@ Another complication when interpreting the data is that the previous accommodati
 
 ```{r fig-yvr-renters-forced-moves-previous-location, fig.alt="Vancouver renters forced to move by previous location"}
 plot_data <- renter_chs_pumf %>%
+  collect() |>
   add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
@@ -130,6 +150,7 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 
 ```{r fig-renters-forced-moves, fig.alt="Renters forced to move"}
 plot_data <- renter_chs_pumf %>%
+  collect() |>
   add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
   filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
