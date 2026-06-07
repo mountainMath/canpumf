@@ -1,7 +1,38 @@
 # R/api.R — Public entry points for the canpumf package.
 #
-# get_pumf()      — download, parse, label, and return a lazy DuckDB tbl
-# pumf_metadata() — download and parse metadata only; return canonical list
+# get_pumf()            — download, parse, label, and return a lazy DuckDB tbl
+# label_pumf_columns()  — rename tbl columns to human-readable variable labels
+# pumf_metadata()       — download and parse metadata only; return canonical list
+
+# ---- Connection provenance registry -----------------------------------------
+#
+# DBI connections are S4 objects wrapping a C++ external pointer (Xptr).
+# Assigning one to a new variable (e.g. con <- tbl$src$con) gives an R-level
+# copy of the S4 wrapper, but the Xptr inside always points to the same C++
+# object.  format(Xptr) returns the C++ address — a stable, unique key that
+# survives S4 copies and dplyr tbl transformations.
+#
+# We use this as a key into a package-level environment so that provenance
+# (series, version, cache_path, lang) set in get_pumf() can be retrieved in
+# label_pumf_columns() even after the user has applied additional dplyr
+# operations to the tbl.
+
+.pumf_con_registry <- new.env(hash = TRUE, parent = emptyenv())
+
+.pumf_register_con <- function(con, series, version, cache_path, lang) {
+  key <- format(con@conn_ref)
+  .pumf_con_registry[[key]] <- list(
+    series     = series,
+    version    = version,
+    cache_path = cache_path,
+    lang       = lang
+  )
+  invisible(NULL)
+}
+
+.pumf_lookup_con <- function(con) {
+  .pumf_con_registry[[format(con@conn_ref)]]
+}
 
 
 # ---- Internal helper: resolve deprecated parameter names --------------------
@@ -156,7 +187,89 @@ get_pumf <- function(series     = NULL,
       tbl <- dplyr::filter(tbl, .data$SURVMNTH == survmnth)
   }
 
+  # Register provenance so label_pumf_columns() can find it later via the
+  # connection's stable C++ pointer address.
+  .pumf_register_con(tbl$src$con, series, version, cache_path, lang)
+
   tbl
+}
+
+
+# ---- label_pumf_columns -----------------------------------------------------
+
+#' Rename PUMF table columns to human-readable variable labels
+#'
+#' Takes a lazy `dplyr::tbl()` returned by [get_pumf()] and returns the same
+#' lazy table with column names replaced by the variable labels from the survey
+#' metadata (e.g. `PHHSIZE` → `"Household size"`).
+#'
+#' Duplicate labels are disambiguated by appending ` (VAR_NAME)`.  Columns
+#' with no label (e.g. internal DuckDB columns) are left unchanged.
+#'
+#' The tbl must have been produced by [get_pumf()]; the function reads survey
+#' provenance (series, version, cache path, language) from the underlying
+#' DuckDB connection.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
+#' @return A lazy `dplyr::tbl()` with renamed columns.
+#' @export
+label_pumf_columns <- function(tbl) {
+  prov <- .pumf_lookup_con(tbl$src$con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  series     <- prov$series
+  version    <- prov$version
+  cache_path <- prov$cache_path
+  lang       <- prov$lang %||% "eng"
+
+  # For LFS with version = NULL, pick the first loaded version to read metadata.
+  if (series == "LFS" && is.null(version)) {
+    db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
+    if (!file.exists(db_path))
+      stop("LFS database not found at '", db_path, "'.", call. = FALSE)
+    con_tmp  <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+    versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
+      DBI::dbGetQuery(
+        con_tmp,
+        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth LIMIT 1")$version
+    else character(0L)
+    DBI::dbDisconnect(con_tmp, shutdown = TRUE)
+    if (length(versions) == 0L)
+      stop("No LFS versions found in the database.", call. = FALSE)
+    version <- versions[[1L]]
+  }
+
+  version_dir <- file.path(cache_path, series, version)
+  meta_dir    <- file.path(version_dir, "metadata")
+  if (!dir.exists(meta_dir))
+    stop("Metadata directory not found: '", meta_dir, "'. ",
+         "Run get_pumf(\"", series, "\", \"", version, "\") first.",
+         call. = FALSE)
+
+  meta      <- read_metadata(meta_dir)
+  variables <- meta$variables
+  label_col <- if (lang == "eng") "label_en" else "label_fr"
+
+  var_labels <- variables[!is.na(variables[[label_col]]),
+                           c("name", label_col), drop = FALSE]
+  names(var_labels)[2L] <- "label"
+
+  # Disambiguate duplicate labels by appending (NAME)
+  dups <- var_labels$label[duplicated(var_labels$label)]
+  if (length(dups) > 0L) {
+    is_dup <- var_labels$label %in% dups
+    var_labels$label[is_dup] <-
+      paste0(var_labels$label[is_dup], " (", var_labels$name[is_dup], ")")
+  }
+
+  # Only rename columns present in the tbl
+  tbl_cols   <- colnames(tbl)
+  var_labels <- var_labels[var_labels$name %in% tbl_cols, , drop = FALSE]
+  if (nrow(var_labels) == 0L) return(tbl)
+
+  rename_map <- stats::setNames(var_labels$name, var_labels$label)
+  dplyr::rename(tbl, !!!rename_map)
 }
 
 
@@ -178,8 +291,10 @@ get_pumf <- function(series     = NULL,
 #' @export
 close_pumf <- function(tbl) {
   con <- tbl$src$con
-  if (!is.null(con) && DBI::dbIsValid(con))
+  if (!is.null(con) && DBI::dbIsValid(con)) {
+    rm(list = format(con@conn_ref), envir = .pumf_con_registry, inherits = FALSE)
     DBI::dbDisconnect(con, shutdown = TRUE)
+  }
   invisible(NULL)
 }
 

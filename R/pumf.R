@@ -33,35 +33,7 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
 }
 
 
-#' Rename to human readable column names
-#'
-#' @param pumf_data pumf data file
-#' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
-#' @param layout_mask optional layout mask in case there are several layout files,
-#' guessed from attributes on \code{layout_mask}
-#'
-#' @return data frame with renamed columns
-#' @export
-label_pumf_columns <- function(pumf_data,
-                            pumf_base_path=attr(pumf_data,"pumf_base_path"),
-                            layout_mask=attr(pumf_data,"layout_mask")){
-  .Deprecated("get_pumf",
-    msg = paste0("label_pumf_columns() is deprecated. ",
-                 "Use get_pumf() which applies labels automatically."))
-  names(pumf_data) <- toupper(names(pumf_data))
-  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask)  |> mutate(name=toupper(.data$name))
-  if (sum(duplicated(var_labels$label))>0) {
-    var_labels <- var_labels |>
-      mutate(n=n(),.by=.data$label) |>
-      mutate(label=case_when(.data$n>1~paste0(.data$label," (",.data$name,")"),TRUE~.data$label)) |>
-      select(-"n")
-  }
-
-  vars <- pumf_data %>% names() %>% intersect(var_labels$name)
-  vr <- var_labels %>% filter(.data$name %in% vars)
-  pumf_data %>% rename(!!!setNames(vr$name,vr$label))
-
-}
+# label_pumf_columns() is now implemented in R/api.R (new non-deprecated version).
 
 #' Add variable labels and rename to human readable column names
 #'

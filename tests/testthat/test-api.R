@@ -157,14 +157,26 @@ test_that("guess_numeric_pumf_columns: emits deprecation warning", {
   )
 })
 
-test_that("label_pumf_columns: emits deprecation warning", {
-  expect_warning(
-    tryCatch(
-      label_pumf_columns(data.frame(X=1), pumf_base_path = tempdir()),
-      error = function(e) NULL
-    ),
-    regexp = "deprecated"
-  )
+test_that("label_pumf_columns: errors clearly when tbl has no provenance", {
+  tmp <- withr::local_tempdir()
+  vdir     <- file.path(tmp, "FAKE", "2099")
+  meta_dir <- file.path(vdir, "metadata")
+  dir.create(meta_dir, recursive = TRUE)
+  readr::write_csv(tibble::tibble(name="X", label_en="MyX", label_fr=NA_character_,
+                                   type="numeric", decimals=0L,
+                                   missing_low=NA_real_, missing_high=NA_real_),
+                   file.path(meta_dir, "variables.csv"))
+  readr::write_csv(tibble::tibble(name=character(), val=character(),
+                                   label_en=character(), label_fr=character()),
+                   file.path(meta_dir, "codes.csv"))
+
+  db <- tempfile(fileext = ".duckdb")
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db)
+  DBI::dbWriteTable(con, "t", data.frame(X = 1L))
+  bare_tbl <- dplyr::tbl(con, "t")
+
+  expect_error(label_pumf_columns(bare_tbl), regexp = "pumf provenance")
+  DBI::dbDisconnect(con, shutdown = TRUE)
 })
 
 # ---- get_pumf end-to-end (uses synthetic fixture) ---------------------------
@@ -247,6 +259,25 @@ test_that("get_pumf: returns lazy tbl for non-LFS survey", {
   expect_setequal(na.omit(unique(result$PROV)), c("Newfoundland","Ontario"))
   expect_true(is.na(result$WEIGHT[result$WEIGHT == 9999L]) ||
               any(is.na(result$WEIGHT)))  # missing range applied
+})
+
+test_that("label_pumf_columns: renames columns using variable labels", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  tbl     <- get_pumf("FAKE", "2099", cache_path = tmp)
+  labeled <- label_pumf_columns(tbl)
+  on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE))
+
+  cols <- colnames(labeled)
+  expect_true("Province" %in% cols)
+  expect_true("Survey weight" %in% cols)
+  expect_false("PROV" %in% cols)
+  expect_false("WEIGHT" %in% cols)
+
+  # Collecting still works
+  result <- dplyr::collect(labeled)
+  expect_equal(nrow(result), 3L)
 })
 
 test_that("get_pumf: lang=fra returns French labels", {
