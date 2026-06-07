@@ -7,6 +7,33 @@
 # codes.csv:     name (chr), val (chr), label_en (chr), label_fr (chr|NA)
 # layout.csv:    name (chr), start (int), end (int)   [only for fixed-width data]
 
+# Sentinel label pattern: labels that indicate a missing/non-response code rather
+# than a genuine category.  Used by all parsers to distinguish sentinel-only
+# variables (→ numeric with a missing range) from truly categorical ones.
+.sentinel_pat <- paste0(
+  "(?i)^(not (applicable|stated|in (the )?universe|available)|",
+  "valid skip|refusal|refused|don.?t know|missing|n/a|does not apply|",
+  "not in scope)$"
+)
+
+# Identify variables whose value labels are ALL sentinel labels.
+# Returns a named list: name → c(missing_lo, missing_hi) derived from the
+# sentinel code values (NA_real_ pair when values are non-numeric).
+.detect_sentinel_only <- function(codes_tbl, label_col = "label_en") {
+  out <- list()
+  for (v in unique(codes_tbl$name)) {
+    vc     <- codes_tbl[codes_tbl$name == v, ]
+    labels <- trimws(vc[[label_col]])
+    if (length(labels) > 0L && all(grepl(.sentinel_pat, labels, perl = TRUE))) {
+      s_nums <- suppressWarnings(as.numeric(vc$val))
+      s_nums <- s_nums[!is.na(s_nums)]
+      out[[v]] <- if (length(s_nums) > 0L) c(min(s_nums), max(s_nums))
+                  else c(NA_real_, NA_real_)
+    }
+  }
+  out
+}
+
 .metadata_variables_cols <- readr::cols(
   name         = readr::col_character(),
   label_en     = readr::col_character(),
@@ -332,7 +359,16 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     layout <- .spss_parse_data_list(spss$clean, data_list_pos[1])
 
   # ---- Combine into variables tibble ----
-  vars_with_codes <- unique(codes$name)
+  # Variables whose value labels are ALL sentinel labels (Not applicable, Valid
+  # skip, etc.) are continuous numerics with a missing-value range, not
+  # categoricals.  Exclude them from truly_categorical so they fall through to
+  # the missing_low or fmt_type rules.  Drop their codes entries (the missing
+  # range captures the sentinel info; keeping them would cause spurious
+  # "unmatched value" warnings in .apply_code_labels).
+  sentinel_info    <- .detect_sentinel_only(codes, label_col = "label_en")
+  sentinel_names   <- names(sentinel_info)
+  truly_categorical <- setdiff(unique(codes$name), sentinel_names)
+  codes            <- codes[!codes$name %in% sentinel_names, ]
 
   # Variables in DATA LIST without an explicit 'A' format type are numeric in SPSS.
   in_data_list <- if (!is.null(layout)) layout$name else character(0L)
@@ -342,9 +378,9 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     dplyr::left_join(missing_vals, by = "name") |>
     dplyr::mutate(
       type = dplyr::case_when(
-        .data$name %in% vars_with_codes                 ~ "character",
-        !is.na(.data$missing_low)                        ~ "numeric",
+        .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
+        !is.na(.data$missing_low)                        ~ "numeric",
         !is.na(.data$fmt_type)                           ~ "numeric",
         .data$name %in% in_data_list                     ~ "numeric",
         TRUE                                             ~ "character"
@@ -658,7 +694,13 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     tibble::tibble(name = character(), missing_low = double(), missing_high = double())
 
   # ---- Combine type information ----
-  vars_with_codes <- unique(eng_val$name)
+  sentinel_info     <- .detect_sentinel_only(eng_val, label_col = "label")
+  sentinel_names    <- names(sentinel_info)
+  truly_categorical <- setdiff(unique(eng_val$name), sentinel_names)
+  eng_val           <- eng_val[!eng_val$name %in% sentinel_names, ]
+  if (!is.null(fra_val))
+    fra_val         <- fra_val[!fra_val$name %in% sentinel_names, ]
+
   # Ensure formats tibble has decimals column (defensively)
   if (!"decimals" %in% names(layout_result$formats))
     layout_result$formats$decimals <- NA_integer_
@@ -672,9 +714,9 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     dplyr::left_join(missing_vals,           by = "name") |>
     dplyr::mutate(
       type = dplyr::case_when(
-        .data$name %in% vars_with_codes                 ~ "character",
-        !is.na(.data$missing_low)                        ~ "numeric",
+        .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
+        !is.na(.data$missing_low)                        ~ "numeric",
         !is.na(.data$fmt_type)                           ~ "numeric",
         .data$name %in% in_data_list                     ~ "numeric",
         TRUE                                             ~ "character"
@@ -927,11 +969,17 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
   }
 
   # ---- Combine type information ----
+  sentinel_info     <- .detect_sentinel_only(eng_val, label_col = "label")
+  sentinel_names    <- names(sentinel_info)
+  truly_categorical <- setdiff(unique(eng_val$name), sentinel_names)
+  eng_val           <- eng_val[!eng_val$name %in% sentinel_names, ]
+  if (!is.null(fra_val))
+    fra_val         <- fra_val[!fra_val$name %in% sentinel_names, ]
+
   # Ensure formats tibble has decimals column (defensively)
   if (!"decimals" %in% names(layout_result$formats))
     layout_result$formats$decimals <- NA_integer_
-  fmt_df       <- dplyr::mutate(layout_result$formats, name = toupper(.data$name))
-  vars_w_codes <- unique(eng_val$name)
+  fmt_df <- dplyr::mutate(layout_result$formats, name = toupper(.data$name))
 
   # Variables with a layout entry but no explicit 'A' format type are numeric.
   in_data_list <- if (!is.null(layout_result$layout))
@@ -942,12 +990,12 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     dplyr::left_join(missing_vals, by = "name") |>
     dplyr::mutate(
       type = dplyr::case_when(
-        .data$name %in% vars_w_codes                   ~ "character",
-        !is.na(.data$missing_low)                       ~ "numeric",
+        .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
-        !is.na(.data$fmt_type)                          ~ "numeric",
-        .data$name %in% in_data_list                    ~ "numeric",
-        TRUE                                            ~ "character"
+        !is.na(.data$missing_low)                        ~ "numeric",
+        !is.na(.data$fmt_type)                           ~ "numeric",
+        .data$name %in% in_data_list                     ~ "numeric",
+        TRUE                                             ~ "character"
       ),
       decimals = dplyr::if_else(.data$type == "character", NA_integer_, .data$decimals)
     )
@@ -1061,31 +1109,11 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
   #
   # Sentinel labels are recognised by an exact anchored match so that genuine
   # category labels that merely CONTAIN the words ("Employee, not applicable")
-  # are never misclassified.
-  .sentinel_pat <- paste0(
-    "(?i)^(not (applicable|stated|in (the )?universe|available)|",
-    "valid skip|refusal|refused|don.?t know|missing|n/a|does not apply|",
-    "not in scope)$"
-  )
-
-  vars_with_codes  <- unique(codes$name)
-  sentinel_missing <- list()  # variable name -> c(lo, hi) from sentinel vals
-
-  for (v in vars_with_codes) {
-    vc     <- codes[codes$name == v, ]
-    labels <- trimws(vc$label_en)
-    if (length(labels) > 0L && all(grepl(.sentinel_pat, labels, perl = TRUE))) {
-      s_nums <- suppressWarnings(as.numeric(vc$val))
-      s_nums <- s_nums[!is.na(s_nums)]
-      if (length(s_nums) > 0L)
-        sentinel_missing[[v]] <- c(min(s_nums), max(s_nums))
-      else
-        sentinel_missing[[v]] <- c(NA_real_, NA_real_)
-    }
-  }
-
+  # are never misclassified.  .sentinel_pat and .detect_sentinel_only are
+  # defined at file scope and shared with the SPSS parsers.
+  sentinel_missing   <- .detect_sentinel_only(codes, label_col = "label_en")
   sentinel_only      <- names(sentinel_missing)
-  truly_categorical  <- setdiff(vars_with_codes, sentinel_only)
+  truly_categorical  <- setdiff(unique(codes$name), sentinel_only)
 
   variables <- tibble::tibble(
     name         = var_name,
