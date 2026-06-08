@@ -978,11 +978,21 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
          formats = tibble::tibble(name = character(), fmt_type = character()))
 
   # ---- Variable labels (.lbe / .lbf) ----
+  # SAS label files use NAME="label" (no space); SPSS label files use
+  # NAME "label". Detect by presence of the = pattern and route accordingly.
   read_var_labels <- function(path) {
     if (is.null(path)) return(NULL)
     lines <- .spss_split_read_section(path, encoding)
-    df    <- .spss_parse_var_labels(lines)
-    mutate(df, name = toupper(.data$name))   # normalise to uppercase
+    is_sas_fmt <- any(grepl('^[A-Za-z][A-Za-z0-9_]*\\s*=\\s*"', lines))
+    df <- if (is_sas_fmt) {
+      m <- stringr::str_match(lines,
+             '^([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*"([^"]*)"')
+      tibble::tibble(name = m[, 2L], label = m[, 3L]) |>
+        filter(!is.na(.data$name))
+    } else {
+      .spss_parse_var_labels(lines)
+    }
+    mutate(df, name = toupper(.data$name))
   }
 
   eng_var <- read_var_labels(lbe_path) %||%
@@ -1272,11 +1282,20 @@ detect_formats <- function(pumf_dir) {
   vf <- all_files[grepl("(?i)^variables\\.csv$", basename(all_files), perl = TRUE)]
   if (length(vf) > 0L) result$cpss_csv <- vf[[1L]]
 
-  # 3. SAS reading cards: directory containing both .lay and .lbe files
+  # 3. SAS reading cards: directory containing both .lay and .lbe files.
+  # When multiple candidates exist (e.g. parallel SAS and SPSS card directories),
+  # prefer .lbe files in SPSS syntax (contain "VARIABLE LABELS") over SAS syntax
+  # (start with "LABEL") because our parser handles SPSS syntax natively.
   lay_files <- all_files[grepl("\\.lay$", all_files, ignore.case = TRUE)]
   lbe_files <- all_files[grepl("\\.lbe$", all_files, ignore.case = TRUE)]
   if (length(lay_files) > 0L && length(lbe_files) > 0L) {
-    result$sas_cards <- dirname(lbe_files[[1L]])
+    spss_lbe <- lbe_files[vapply(lbe_files, function(f) {
+      hdr <- tryCatch(readLines(f, n = 5L, warn = FALSE, encoding = "latin1"),
+                      error = function(e) character(0L))
+      any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE))
+    }, logical(1L))]
+    chosen_lbe <- if (length(spss_lbe) > 0L) spss_lbe[[1L]] else lbe_files[[1L]]
+    result$sas_cards <- dirname(chosen_lbe)
   }
 
   # 4. SPSS split: directory containing vare/vale/_i named .sps files

@@ -97,6 +97,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Survey of Financial Security | SFS | 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
 | Canadian Income Survey | CIS | 2018–2022 | ✓ |
+| Survey of Household Spending | SHS | 2017, 2019, 2021 | ✓ |
 
 Additional Census variants (hierarchical/individuals for 2016, 2011, 2006; all variants for 2001, 1996, 1991, 1986, 1981, 1976, 1971) and other SFS vintages (2012, 2016, 2019) are registered with specific parsing configuration but have not yet been end-to-end tested from this machine.
 
