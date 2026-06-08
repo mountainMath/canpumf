@@ -12,3 +12,5 @@ test_data/*
 ^pkgdown$
 ^\.positai$
 ^\.claude$
+CLAUDE.md
+duckdb_plan.md
