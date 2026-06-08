@@ -178,13 +178,26 @@ get_pumf <- function(series     = NULL,
   }
 
   # For LFS, pumf_open_duckdb returns the whole shared lfs_eng/lfs_fra table.
-  # When a specific version was requested, filter to that year (and month).
-  if (series == "LFS" && !is.null(version)) {
-    survyear <- .lfs_survyear(version)
-    survmnth <- .lfs_survmnth(version)
-    tbl <- dplyr::filter(tbl, .data$SURVYEAR == survyear)
-    if (!is.na(survmnth))
-      tbl <- dplyr::filter(tbl, .data$SURVMNTH == survmnth)
+  if (series == "LFS") {
+    # When a specific version was requested, filter to that year (and month).
+    if (!is.null(version)) {
+      survyear <- .lfs_survyear(version)
+      survmnth <- .lfs_survmnth(version)
+      tbl <- dplyr::filter(tbl, .data$SURVYEAR == survyear)
+      if (!is.na(survmnth))
+        tbl <- dplyr::filter(tbl, .data$SURVMNTH == survmnth)
+    }
+    # ensure nicer order
+    cn <- colnames(tbl)
+    if ("SEX" %in% cn &&  "GENDER" %in% cn) {
+      isex <- which(cn=="SEX")
+      igender <- which(cn=="GENDER")
+      if (isex>igender) {
+        tbl <- dplyr::relocate(tbl,"SEX",.before="GENDER")
+      } else {
+        tbl <- dplyr::relocate(tbl,"GENDER",.after="SEX")
+      }
+    }
   }
 
   # Register provenance so label_pumf_columns() can find it later via the
