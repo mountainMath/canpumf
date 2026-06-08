@@ -921,6 +921,52 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 
 
 # ============================================================
+# SAS DATA step LABEL parser
+# ============================================================
+
+# Parse variable labels from SAS DATA step LABEL statements.
+# Handles the pattern:  LABEL VARNAME = "label text" ;
+# Used by Census 2011 individuals whose SPSS command file lacks VARIABLE LABELS.
+parse_sas_data_labels <- function(eng_path, fra_path = NULL,
+                                  encoding = "CP1252") {
+  parse_one <- function(path) {
+    if (is.null(path)) return(NULL)
+    lines <- tryCatch(
+      readr::read_lines(path, locale = readr::locale(encoding = encoding)),
+      error = function(e) character(0L)
+    )
+    m <- stringr::str_match(lines,
+           "^\\s*LABEL\\s+([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*\"([^\"]+)\"")
+    df <- tibble::tibble(name = toupper(m[, 2L]), label = m[, 3L])
+    df[!is.na(df$name), ]
+  }
+
+  eng <- parse_one(eng_path)
+  if (is.null(eng) || nrow(eng) == 0L) return(NULL)
+  fra <- parse_one(fra_path)
+
+  variables <- if (!is.null(fra) && nrow(fra) > 0L) {
+    left_join(rename(eng, label_en = "label"),
+              select(fra, "name", label_fr = "label"),
+              by = "name")
+  } else {
+    mutate(rename(eng, label_en = "label"), label_fr = NA_character_)
+  }
+  variables$type         <- NA_character_
+  variables$decimals     <- NA_integer_
+  variables$missing_low  <- NA_real_
+  variables$missing_high <- NA_real_
+
+  list(
+    variables = variables,
+    codes     = tibble::tibble(name = character(), val = character(),
+                               label_en = character(), label_fr = character()),
+    layout    = NULL
+  )
+}
+
+
+# ============================================================
 # SAS reading cards parser
 # ============================================================
 
@@ -1361,6 +1407,26 @@ detect_formats <- function(pumf_dir) {
     if (length(sav_files) > 0L) result$spss_sav <- sav_files[[1L]]
   }
 
+  # 7. SAS DATA step LABEL statements (e.g. 2011 Census individuals).
+  #    Supplement when the primary parser lacks variable labels — scan for .SAS
+  #    files containing "LABEL varname =" lines.
+  if (is.null(result$sas_cards)) {
+    sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
+    fra_sas   <- sas_files[grepl("/(fran|french)", sas_files, ignore.case = TRUE)]
+    eng_sas   <- sas_files[!grepl("/(fran|french)", sas_files, ignore.case = TRUE)]
+    for (sf in head(eng_sas, 4L)) {
+      snippet <- tryCatch(readLines(sf, warn = FALSE, encoding = "latin1"),
+                          error = function(e) character(0L))
+      if (any(grepl("^\\s*LABEL\\s+[A-Za-z]", snippet, useBytes = TRUE))) {
+        result$sas_labels <- list(
+          eng = sf,
+          fra = if (length(fra_sas) > 0L) fra_sas[[1L]] else NULL
+        )
+        break
+      }
+    }
+  }
+
   result
 }
 
@@ -1537,6 +1603,11 @@ pumf_parse_metadata <- function(version_dir,
 
   if (!is.null(formats$spss_sav))
     parsed$spss_sav   <- parse_spss_sav(formats$spss_sav)
+
+  if (!is.null(formats$sas_labels))
+    parsed$sas_labels <- parse_sas_data_labels(formats$sas_labels$eng,
+                                                fra_path = formats$sas_labels$fra,
+                                                encoding = metadata_encoding %||% "CP1252")
 
   metadata <- merge_metadata(parsed)
 
