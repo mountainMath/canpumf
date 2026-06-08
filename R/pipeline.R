@@ -412,8 +412,11 @@ pumf_locate_or_download <- function(series,
 
 
 # Apply pre-label data fixups from the registry entry:
-#   str_pad — left/right-pad specified columns to a target width
-#   rename  — rename columns (only when the old name is present)
+#   str_pad      — left/right-pad specified columns to a target width
+#   rename       — rename columns (only when the old name is present)
+#   force_numeric — character vector of column names to treat as numeric
+#                   even if they have non-sentinel VALUE LABELS (top-coded
+#                   boundary labels like "85 years and over")
 .apply_data_fixups <- function(data, fixups) {
   for (spec in fixups$str_pad) {
     for (col in spec$cols) {
@@ -687,6 +690,14 @@ pumf_build_duckdb <- function(version_dir,
               "injecting manually: ", injected, call. = FALSE)
       codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
     }
+  }
+  # force_numeric: override type to "numeric" for variables that carry
+  # top-coded boundary labels (e.g. "85 years and over") alongside unlabeled
+  # data values, preventing the character-type path from NAs-ing valid data.
+  if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
+    fn <- reg$data_fixups$force_numeric
+    variables$type[variables$name %in% fn] <- "numeric"
+    codes <- codes[!codes$name %in% fn, ]
   }
   data <- .apply_numeric_conversion(data, variables, na_values = na_vals)
   data <- .apply_code_labels(data, codes, label_col)

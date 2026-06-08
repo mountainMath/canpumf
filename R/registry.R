@@ -157,6 +157,28 @@
     bsw_join_key  = "CASEID",
     file_mask     = "PUMF_SHS_2021\\.txt"),
 
+  # ---- GSS: General Social Survey -------------------------------------------
+  # 2018 (cycle 32): split-SPSS layouts in Data_Donnees/Layouts/SPSS/.
+  # An Addendum_04-2024.txt file at the root would be mistaken for a data file
+  # without an explicit file_mask.
+  # AGEHSDYC ("age of youngest household member") has one top-coded boundary
+  # label (85 = "85 years and over") alongside unlabeled ages 0-84; force_numeric
+  # prevents those 85 valid age values from being NAs.
+  "GSS/2018" = .make_entry("GSS", "2018",
+    file_mask    = "C32PUMFM\\.txt",
+    data_fixups  = list(
+      # Top-coded / boundary-labeled variables: only one labeled value exists
+      # (e.g. 85="85 years and over", 0="No hours") alongside unlabeled numeric
+      # data values.  force_numeric prevents those values from becoming NA.
+      force_numeric = c(
+        "AGEHSDYC", "DPA_10",  "PAR_10",  "DVCG120C",
+        "RNA_10C",  "RNA_20C", "RNA_30C", "RNA_40C",
+        "DNA_10C",  "DNA_15C", "DVDNA20C","DNA_31C",
+        "DNA_32C",  "DNA_33C", "DNA_34C", "ITA_10C",
+        "IPA_21C",  "IPA_22C", "IPA_23C", "PHS_10C"
+      )
+    )),
+
   # ---- ITS: International Travel Survey -------------------------------------
   # No ITS-specific parsing quirks discovered yet; entries are placeholders
   # so Stage 1 can find these versions in the collection without error.
