@@ -158,6 +158,36 @@
     file_mask     = "PUMF_SHS_2021\\.txt"),
 
   # ---- GSS: General Social Survey -------------------------------------------
+  # 1996 (cycle 11): monolithic SPSS; data in C11MDFAscRecLay-Eng/.
+  # All 40 numeric variables use "DO NOT KNOW" / "DO NOT KNOW (PROXY ONLY)" rather
+  # than the contraction form — handled by the extended .sentinel_pat.
+  "GSS/1996" = .make_entry("GSS", "1996",
+    file_mask = "c11mice\\.dat"),
+
+  # 2007 (cycle 21): monolithic SPSS (two variants — main and short);
+  # detect_formats picks c21pumf_main_Spss_Eng.sps (the complete one).
+  "GSS/2007" = .make_entry("GSS", "2007",
+    file_mask = "C21PUMFM\\.DAT"),
+
+  # 2012 (cycle 26): monolithic SPSS; data in Data Files ASCII/.
+  # 27 count/age variables have boundary labels (e.g. "100 hours or more",
+  # "85 years or older") alongside unlabeled numeric values — force_numeric
+  # prevents valid data from being silently NAs.
+  "GSS/2012" = .make_entry("GSS", "2012",
+    file_mask   = "GSS26PUMFM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "AGEHSDYC", "NLC_Q100C", "HAR_Q10C",  "NPA_Q10C",
+      "HAP_Q10C", "PRN_Q30C",  "DOA_Q30C",
+      "AGE_CGI_01_BEGC", "AGE_CGI_01_ENDC",
+      "AGE_CGI_02_BEGC", "AGE_CGI_02_ENDC",
+      "AGE_CGI_03_BEGC", "AGE_CGI_03_ENDC",
+      "AGE_CGI_04_BEGC", "AGE_CGI_04_ENDC",
+      "AGE_CGI_05_BEGC", "AGE_CGI_05_ENDC",
+      "WHW_Q120C", "WHW_Q130C", "WHW_Q140C",
+      "ITL_Q10",   "ITL_Q40C",  "ITA_Q10",
+      "IPE_Q10GR", "IPO_Q10GR", "IPO_Q20GR", "PHS_Q10"
+    ))),
+
   # 2018 (cycle 32): split-SPSS layouts in Data_Donnees/Layouts/SPSS/.
   # An Addendum_04-2024.txt file at the root would be mistaken for a data file
   # without an explicit file_mask.

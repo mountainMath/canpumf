@@ -11,12 +11,12 @@
 # than a genuine category.  Used by all parsers to distinguish sentinel-only
 # variables (→ numeric with a missing range) from truly categorical ones.
 .sentinel_pat <- paste0(
-  "(?i)^(not (applicable|stated|in (the )?universe|available)|",
-  "valid skip|refusal|refused|don.?t know|missing|n/a|does not apply|",
-  "not in scope|",
-  # French equivalents (1991 Census XMF is French-only)
+  "(?i)^(not (applicable|stated|asked|in (the )?universe|available)( [(][^)]*[)])?|",
+  "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
+  "missing|n/a|does not apply|not in scope|",
+  # French equivalents (1991 Census XMF is French-only; GSS uses "Non demandé")
   "sans objet|non (disponible|déclaré|applicable)|",
-  "ne s.?applique pas|inconnu|manquant)$"
+  "ne s.?applique pas|inconnu|manquant|non demandé)$"
 )
 
 # Identify variables whose value labels are ALL sentinel labels.
@@ -1436,19 +1436,25 @@ detect_formats <- function(pumf_dir) {
       spss_txt,
       xmf_files
     )
-    # French paths: match /français/, /french/, or /francais_.../ directory segments.
-    fra_pat    <- "/(fran|french)"
-    all_spss   <- c(sps_files, spss_txt, xmf_files)
-    for (sps in head(mono_candidates, 8L)) {
-      hdr <- tryCatch(readLines(sps, n = 500L, warn = FALSE, encoding = "latin1"),
+    # French indicators: /français/, /french/, /francais/, /-Fr/ directories,
+    # or file suffixes _F.sps / _Fre.sps / _Fref.sps (case-insensitive).
+    .is_fra <- function(paths) {
+      grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
+      grepl("(?i)_[Ff](re?f?)?\\.sps$", basename(paths), perl = TRUE)
+    }
+    all_spss     <- c(sps_files, spss_txt, xmf_files)
+    # Exclude likely-French files from English candidates
+    mono_eng     <- mono_candidates[!.is_fra(mono_candidates)]
+    if (length(mono_eng) == 0L) mono_eng <- mono_candidates   # fallback
+    for (sps in head(mono_eng, 8L)) {
+      hdr <- tryCatch(readLines(sps, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
       if (any(grepl("VALUE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE))) {
-        fra_sps   <- NULL
-        fra_cands <- all_spss[grepl(fra_pat, all_spss, ignore.case = TRUE) &
+        fra_cands <- all_spss[.is_fra(all_spss) &
                                !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
                                        all_spss, ignore.case = TRUE)]
-        if (length(fra_cands) > 0L) fra_sps <- fra_cands[[1L]]
-        result$spss_mono <- list(eng = sps, fra = fra_sps)
+        result$spss_mono <- list(eng = sps,
+                                  fra = if (length(fra_cands) > 0L) fra_cands[[1L]] else NULL)
         break
       }
     }
