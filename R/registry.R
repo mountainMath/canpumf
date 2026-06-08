@@ -47,7 +47,7 @@
 #     99999999 = not applicable  (e.g. persons aged < 15)
 #     88888888 = not available
 #
-#   2001–2011: 7-char income fields (same variables, narrower layout)
+#   1996–2011: 7-char income fields (same variables, narrower layout)
 #     9999999  = not applicable
 #     8888888  = not available
 #
@@ -55,7 +55,7 @@
 # would treat a valid $9,999,999 income (stored as " 9999999", trimmed to
 # "9999999") as NA.
 #
-# 1996 and earlier: field widths unverified — omitted from na_values until
+# 1991 and earlier: field widths unverified — omitted from na_values until
 # confirmed from user guides.
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
@@ -209,16 +209,19 @@
     file_mask   = "\\.dat",
     data_fixups = .census_fixup),
 
-  # 1996 and earlier: income field widths unverified — do NOT apply census_fixup
-  # until the sentinel values are confirmed from user guides.
+  # 1996: 7-char income fields (confirmed from SPSS DATA LIST), same sentinels
+  # as 2001-2011.  1991 and earlier unverified.
   "Census/1996 (individuals)" = .make_entry("Census", "1996 (individuals)",
-    file_mask   = "\\.dat"),
+    file_mask   = "\\.dat",
+    data_fixups = .census_fixup_7),
 
   "Census/1996 (households)" = .make_entry("Census", "1996 (households)",
-    file_mask   = "\\.dat"),
+    file_mask   = "\\.dat",
+    data_fixups = .census_fixup_7),
 
   "Census/1996 (families)" = .make_entry("Census", "1996 (families)",
-    file_mask   = "\\.dat"),
+    file_mask   = "\\.dat",
+    data_fixups = .census_fixup_7),
 
   # 1991: fixed-width files extracted from sub-archives (hhld91.zip, etc.)
   "Census/1991 (individuals)" = .make_entry("Census", "1991 (individuals)",

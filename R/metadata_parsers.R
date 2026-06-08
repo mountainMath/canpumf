@@ -600,7 +600,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # If no terminator found, use ALL remaining lines (not length-1 which misses last line)
   section <- if (is.na(end_idx)) remaining else remaining[seq_len(end_idx - 1L)]
   section <- section[grepl("[A-Za-z]", section)]
-  section <- section[!grepl("^DATA LIST|^FILE HANDLE|^GET DATA|^FILE=|^/",
+  # Strip leading record-group marker (/) so variables on the same line as the
+  # marker (e.g. "/PROVP  1-2") are retained.
+  section <- sub("^/", "", section)
+  section <- section[!grepl("^DATA LIST|^FILE HANDLE|^GET DATA|^FILE=",
                              section, ignore.case = TRUE)]
   if (length(section) == 0L) return(NULL)
 
@@ -608,7 +611,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # Ranges may have spaces around the dash (e.g. "11 - 18"), so we normalise
   # them to "11-18" before extracting tokens.
   all_text <- paste(gsub("\\.\\s*$", "", section), collapse = " ")
-  all_text <- gsub("(\\d+)\\s+-\\s+(\\d+)", "\\1-\\2", all_text)  # "11 - 18" -> "11-18"
+  all_text <- gsub("(\\d+)\\s*-\\s*(\\d+)", "\\1-\\2", all_text)  # "11-  18" or "11 - 18" -> "11-18"
   tokens <- stringr::str_extract_all(
     all_text, "[A-Za-z][A-Za-z0-9_]*|\\d+-\\d+|\\d+"
   )[[1L]]
