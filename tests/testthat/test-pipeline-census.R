@@ -27,14 +27,17 @@
   "2016 (individuals)", "2016 (hierarchical)",
   "2011 (individuals)", "2011 (hierarchical)",
   "2006 (individuals)", "2006 (hierarchical)",
-  "2001 (individuals)", "2001 (households)", "2001 (families)"
+  "2001 (individuals)", "2001 (households)", "2001 (families)",
+  "1996 (individuals)", "1996 (households)", "1996 (families)",
+  "1991 (individuals)", "1991 (households)", "1991 (families)"
 )
 
 # Census versions where codes_supplement injects manually: map version ->
 # expected warning regex.  Any warning NOT matching this pattern is unexpected.
 .census_supplement_warnings <- list(
-  "2006 (hierarchical)" = "absent from command files",
-  "2001 (families)"     = "absent from command files"
+  "2006 (hierarchical)"  = "absent from command files",
+  "2001 (families)"      = "absent from command files",
+  "1991 (individuals)"   = "absent from command files"
 )
 
 .census_any_version <- function() {
@@ -144,6 +147,63 @@ test_that("Census 2001 (families): registry codes_supplement for MODEF", {
     label = "MODEF codes_supplement should contain code 7")
   expect_true("Other method" %in% modef$label_en,
     label = "MODEF code 7 should be labeled 'Other method'")
+})
+
+
+# ---- Bilingual label coverage tests -----------------------------------------
+
+# For every verified version: metadata must have English and French labels for
+# both variables and value codes.  Province code 59 (British Columbia /
+# Colombie-Britannique) is present in all Census PUMF files and provides a
+# reliable bilingual anchor.
+
+for (.v in .census_verified) {
+  local({
+    ver <- .v
+    test_that(paste0("Census ", ver, ": metadata has English and French labels"), {
+      skip_if_not(.census_metadata_exists(ver),
+                  paste("Census", ver, "metadata not parsed"))
+
+      meta <- canpumf:::read_metadata(file.path(.census_vdir(ver), "metadata"))
+
+      en_vars <- sum(!is.na(meta$variables$label_en) &
+                       nchar(meta$variables$label_en) > 0L)
+      expect_gt(en_vars, 0L,
+        label = paste0(ver, ": should have English variable labels"))
+
+      fr_vars <- sum(!is.na(meta$variables$label_fr) &
+                       nchar(meta$variables$label_fr) > 0L)
+      expect_gt(fr_vars, 0L,
+        label = paste0(ver, ": should have French variable labels"))
+
+      expect_true(any(grepl("British Columbia", meta$codes$label_en, fixed = TRUE)),
+        label = paste0(ver, ": 'British Columbia' expected in English codes"))
+
+      expect_true(any(grepl("Colombie", meta$codes$label_fr, fixed = TRUE)),
+        label = paste0(ver, ": 'Colombie' expected in French codes"))
+    })
+  })
+}
+
+# 1991 specific: bundled English XMF must produce genuinely English labels —
+# not the French-only labels that come with the StatCan download.
+test_that("Census 1991 (individuals): English labels from bundled XMF are genuinely English", {
+  skip_if_not(.census_metadata_exists("1991 (individuals)"),
+              "Census 1991 (individuals) metadata not parsed")
+
+  meta <- canpumf:::read_metadata(
+    file.path(.census_vdir("1991 (individuals)"), "metadata"))
+
+  prov_en <- meta$codes$label_en[meta$codes$name == "PROVP" &
+                                    meta$codes$val == "10"]
+  expect_true(any(grepl("Newfoundland", prov_en, fixed = TRUE)),
+    label = "PROVP code 10 should be 'Newfoundland' in English (not 'Terre-Neuve')")
+
+  sex_en <- meta$codes$label_en[meta$codes$name == "SEXP"]
+  expect_true(any(grepl("(?i)female|male", sex_en, perl = TRUE)),
+    label = "SEXP codes should have English sex labels (Female/Male)")
+  expect_false(any(grepl("(?i)femme|homme", sex_en, perl = TRUE)),
+    label = "SEXP label_en should not contain French 'Femme'/'Homme'")
 })
 
 
