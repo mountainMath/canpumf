@@ -159,10 +159,13 @@
 
   # ---- GSS: General Social Survey -------------------------------------------
   # 1996 (cycle 11): monolithic SPSS; data in C11MDFAscRecLay-Eng/.
-  # All 40 numeric variables use "DO NOT KNOW" / "DO NOT KNOW (PROXY ONLY)" rather
-  # than the contraction form — handled by the extended .sentinel_pat.
+  # The French SPSS file (C11MICF.SPS) uses CP850 (DOS-era encoding); CP1252
+  # has undefined code points for bytes like 0x90 (É in CP850), causing a
+  # segfault in readr.  All 40 numeric variables use "DO NOT KNOW" / "DO NOT
+  # KNOW (PROXY ONLY)" rather than the contraction — handled by .sentinel_pat.
   "GSS/1996" = .make_entry("GSS", "1996",
-    file_mask = "c11mice\\.dat"),
+    file_mask         = "c11mice\\.dat",
+    metadata_encoding = "CP850"),
 
   # 2007 (cycle 21): monolithic SPSS (two variants — main and short);
   # detect_formats picks c21pumf_main_Spss_Eng.sps (the complete one).
