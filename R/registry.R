@@ -205,7 +205,12 @@
 
   "Census/2006 (hierarchical)" = .make_entry("Census", "2006 (hierarchical)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7, list(
+      codes_supplement = list(
+        MORGH = data.frame(val = "8", label_en = "Not stated",
+                           label_fr = "Non déclaré", stringsAsFactors = FALSE)
+      )
+    ))),
 
   # 2001: fixed-width .dat; three file types
   "Census/2001 (individuals)" = .make_entry("Census", "2001 (individuals)",

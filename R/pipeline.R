@@ -653,6 +653,18 @@ pumf_build_duckdb <- function(version_dir,
   # Step 7: numeric types, then code labels → factors
   na_vals <- if (!is.null(reg)) reg$data_fixups$na_values %||% character(0L)
              else character(0L)
+  # codes_supplement: per-variable extra rows to inject before label mapping.
+  # Used for codes that appear in data but are absent from the command files.
+  if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {
+    for (vname in names(reg$data_fixups$codes_supplement)) {
+      extra <- reg$data_fixups$codes_supplement[[vname]]
+      extra$name <- vname
+      injected <- paste0(extra$val, "=", extra$label_en, collapse = "; ")
+      warning("Variable ", vname, ": value label(s) absent from command files, ",
+              "injecting manually: ", injected, call. = FALSE)
+      codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
+    }
+  }
   data <- .apply_numeric_conversion(data, variables, na_values = na_vals)
   data <- .apply_code_labels(data, codes, label_col)
 
