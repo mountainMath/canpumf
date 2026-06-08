@@ -1285,7 +1285,7 @@ detect_formats <- function(pumf_dir) {
     mono_candidates <- sps_files[!grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
                                         sps_files, ignore.case = TRUE)]
     for (sps in head(mono_candidates, 5L)) {
-      hdr <- tryCatch(readLines(sps, n = 500L, warn = FALSE),
+      hdr <- tryCatch(readLines(sps, n = 500L, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
       if (any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE)) &&
           any(grepl("VALUE LABELS",    hdr, ignore.case = TRUE))) {
