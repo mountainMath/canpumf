@@ -373,13 +373,27 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   truly_categorical <- setdiff(unique(codes$name), sentinel_names)
   codes            <- codes[!codes$name %in% sentinel_names, ]
 
+  # Build a missing-range tibble from sentinel detection so that variables with
+  # only sentinel VALUE LABELS (but no MISSING VALUES entry) still get a correct
+  # missing range.  Ranges from the MISSING VALUES section take precedence.
+  # names(list()) returns NULL, not character(0), so guard explicitly.
+  snt_nms <- names(sentinel_info) %||% character(0L)
+  sentinel_ranges <- tibble::tibble(
+    name                  = snt_nms,
+    missing_low_sentinel  = vapply(sentinel_info, function(x) x[[1L]], numeric(1L)),
+    missing_high_sentinel = vapply(sentinel_info, function(x) x[[2L]], numeric(1L))
+  )
+
   # Variables in DATA LIST without an explicit 'A' format type are numeric in SPSS.
   in_data_list <- if (!is.null(layout)) layout$name else character(0L)
 
   variables <- variable_labels |>
-    left_join(formats,      by = "name") |>
-    left_join(missing_vals, by = "name") |>
+    left_join(formats,         by = "name") |>
+    left_join(missing_vals,    by = "name") |>
+    left_join(sentinel_ranges, by = "name") |>
     mutate(
+      missing_low  = coalesce(.data$missing_low,  .data$missing_low_sentinel),
+      missing_high = coalesce(.data$missing_high, .data$missing_high_sentinel),
       type = case_when(
         .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
@@ -546,7 +560,11 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
         raw_val = if_else(
           .data$is_q,
           gsub('^"|"$', "", .data$first_q),
-          trimws(sub('".*', "", .data$line))
+          # Strip from first double-quote to end, then strip any trailing
+          # non-identifier characters left by labels like '"No" single...'
+          # where the label starts with a double-quoted word inside single quotes.
+          trimws(stringr::str_replace(sub('".*', "", .data$line),
+                                      "[^A-Za-z0-9._-]+$", ""))
         ),
         # Normalize unquoted (numeric) code values: parse as number then
         # convert back to string.  This strips leading zeros ("01" → "1")
@@ -1084,7 +1102,12 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
   read_val_labels <- function(path) {
     if (is.null(path)) return(NULL)
     lines <- .spss_split_read_section(path, encoding)
-    df    <- .spss_parse_val_labels(lines)
+    # SAS PROC FORMAT files share the .cde extension but use a different syntax
+    # that _spss_parse_val_labels cannot handle — skip them silently.
+    if (any(grepl("^PROC\\s+FORMAT", lines, ignore.case = TRUE)))
+      return(tibble::tibble(name = character(), val = character(),
+                            label = character()))
+    df <- .spss_parse_val_labels(lines)
     mutate(df, name = toupper(.data$name))
   }
 
@@ -1147,12 +1170,12 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
 
   if (!is.null(fra_val)) {
     codes <- left_join(
-      rename(eng_val, label_en = "label"),
-      select(fra_val, "name", "val", label_fr = "label"),
+      distinct(rename(eng_val, label_en = "label")),
+      distinct(select(fra_val, "name", "val", label_fr = "label")),
       by = c("name", "val")
     )
   } else {
-    codes <- rename(eng_val, label_en = "label") |>
+    codes <- distinct(rename(eng_val, label_en = "label")) |>
       mutate(label_fr = NA_character_)
   }
 
