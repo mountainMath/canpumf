@@ -13,19 +13,20 @@ label_pumf_data(
 )
 }
 \arguments{
-\item{pumf_data}{pumf data file}
+\item{pumf_data}{A lazy `dplyr::tbl()` returned by [get_pumf()].}
 
-\item{pumf_base_path}{optional base path, guessed from attributes on \code{pumf_data}}
+\item{pumf_base_path}{Deprecated, ignored.}
 
-\item{layout_mask}{optional layout mask in case there are several layout files,
-guessed from attributes on \code{layout_mask}}
+\item{layout_mask}{Deprecated, ignored.}
 
-\item{rename_columns}{rename PUMF columns to human readable names, default is `FALSE`}
+\item{rename_columns}{If `TRUE`, rename columns to human-readable labels via
+[label_pumf_columns()]. Default `FALSE`.}
 
-\item{infer_missing_numeric}{optional character, infer variables that aren't labelled to be numeric}
+\item{infer_missing_numeric}{Deprecated, ignored.}
 }
 \value{
-relabeled data frame
+`pumf_data` unchanged, or with columns renamed if
+  `rename_columns = TRUE`.
 }
 \description{
 Add variable labels and rename to human readable column names

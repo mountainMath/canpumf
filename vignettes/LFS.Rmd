@@ -192,7 +192,7 @@ unemployment_stats |>
 ```
 
 
-Because the data is efficiently ogranzied in DuckDB, this query runs quite fast despite no explicit indexing of the database, taking about 1/3rd of a second.
+Because the data is efficiently ogranzied in DuckDB, this query runs quite fast despite no explicit indexing of the database, taking less than half a second.
 
 ```{r}
 microbenchmark::microbenchmark(collect(unemployment_stats)) |> 
