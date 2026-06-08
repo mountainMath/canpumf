@@ -47,7 +47,7 @@
 #     99999999 = not applicable  (e.g. persons aged < 15)
 #     88888888 = not available
 #
-#   2006–2011: 7-char income fields (same variables, narrower layout)
+#   2001–2011: 7-char income fields (same variables, narrower layout)
 #     9999999  = not applicable
 #     8888888  = not available
 #
@@ -55,12 +55,11 @@
 # would treat a valid $9,999,999 income (stored as " 9999999", trimmed to
 # "9999999") as NA.
 #
-# 2001 and earlier: field widths unverified — .census_fixup_8 is applied as
-# a placeholder but may need revision once those files are confirmed.
+# 1996 and earlier: field widths unverified — omitted from na_values until
+# confirmed from user guides.
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
-# Backward-compatible alias used by 2001 entries (field widths unverified).
-.census_fixup   <- .census_fixup_8
+.census_fixup   <- .census_fixup_7   # alias; most FWF years use 7-char fields
 
 # SFS 2016/2019/2023: three categorical columns arrive as "1" / "2" instead of
 # "01" / "02" — the SPSS command files expect the zero-padded forms.
@@ -210,10 +209,8 @@
     file_mask   = "\\.dat",
     data_fixups = .census_fixup),
 
-  # 1996 and earlier: income field widths have not been confirmed — do NOT apply
-  # census_fixup until the sentinel values are verified from the user guides.
-  # (8-char fields with 99999999/88888888 are confirmed for 2001+; pre-1996
-  # files likely use narrower fields with shorter all-9s/all-8s sentinels.)
+  # 1996 and earlier: income field widths unverified — do NOT apply census_fixup
+  # until the sentinel values are confirmed from user guides.
   "Census/1996 (individuals)" = .make_entry("Census", "1996 (individuals)",
     file_mask   = "\\.dat"),
 

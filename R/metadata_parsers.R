@@ -1279,23 +1279,28 @@ detect_formats <- function(pumf_dir) {
     result$spss_split <- dirname(split_sps[[1L]])
   }
 
-  # 5. SPSS monolithic: .sps file (not split-named) containing both
-  #    VARIABLE LABELS and VALUE LABELS markers
+  # 5. SPSS monolithic: .sps file (not split-named) OR a .txt file with "SPSS"
+  #    in its name (older StatCan releases, e.g. 2001 Census, ship command files
+  #    as *SPSS.txt instead of *.sps), containing VARIABLE LABELS + VALUE LABELS.
   if (is.null(result$spss_split)) {
-    mono_candidates <- sps_files[!grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
-                                        sps_files, ignore.case = TRUE)]
-    for (sps in head(mono_candidates, 5L)) {
+    spss_txt   <- all_files[grepl("spss\\.txt$", all_files, ignore.case = TRUE)]
+    mono_candidates <- c(
+      sps_files[!grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
+                        sps_files, ignore.case = TRUE)],
+      spss_txt
+    )
+    # French paths: match /français/, /french/, or /francais_.../ directory segments.
+    fra_pat    <- "/(fran|french)"
+    all_spss   <- c(sps_files, spss_txt)
+    for (sps in head(mono_candidates, 8L)) {
       hdr <- tryCatch(readLines(sps, n = 500L, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
       if (any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE)) &&
           any(grepl("VALUE LABELS",    hdr, ignore.case = TRUE))) {
-        # Look for parallel French .sps anywhere in pumf_dir.
-        # Match paths that include a French-language directory segment.
-        fra_sps <- NULL
-        fra_pat <- "/(fran.ais|french)/"
-        fra_cands <- sps_files[grepl(fra_pat, sps_files, ignore.case = TRUE) &
-                                !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
-                                        sps_files, ignore.case = TRUE)]
+        fra_sps   <- NULL
+        fra_cands <- all_spss[grepl(fra_pat, all_spss, ignore.case = TRUE) &
+                               !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
+                                       all_spss, ignore.case = TRUE)]
         if (length(fra_cands) > 0L) fra_sps <- fra_cands[[1L]]
         result$spss_mono <- list(eng = sps, fra = fra_sps)
         break
