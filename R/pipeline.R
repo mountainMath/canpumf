@@ -226,10 +226,15 @@ pumf_locate_or_download <- function(series,
   # This avoids the chicken-and-egg problem of needing is_fwf before finding
   # the file, while keeping backward-compatible behaviour for surveys that have
   # only one type of data file.
+  # When file_mask has a recognised extension, use it to pre-filter by
+  # extension; otherwise (unusual extensions like .INDIV) set ext_pat=NULL
+  # and rely solely on file_mask to select the correct file.
   ext_pat <- if (!is.null(file_mask) && grepl("\\.csv$", file_mask, ignore.case = TRUE))
     "\\.csv$"
   else if (!is.null(file_mask) && grepl("\\.(txt|dat)$", file_mask, ignore.case = TRUE))
     "\\.(txt|dat)$"
+  else if (!is.null(file_mask))
+    NULL  # unusual extension — search all files, let file_mask select
   else if (prefer_fwf)
     "\\.(txt|dat)$"
   else
@@ -240,12 +245,15 @@ pumf_locate_or_download <- function(series,
     "Reading[_ ]cards|Documents|canpumf)/")
 
   all_files  <- list.files(version_dir, recursive = TRUE, full.names = TRUE)
-  candidates <- all_files[grepl(ext_pat, all_files, ignore.case = TRUE)]
+  candidates <- if (!is.null(ext_pat))
+    all_files[grepl(ext_pat, all_files, ignore.case = TRUE)]
+  else
+    all_files
   candidates <- candidates[!grepl(excl_pat, candidates, ignore.case = TRUE)]
   # BSW files are always handled separately; exclude them regardless of format
   candidates <- candidates[!grepl("_BSW\\.", basename(candidates), ignore.case = TRUE)]
 
-  if (grepl("\\.csv$", ext_pat, fixed = TRUE)) {
+  if (isTRUE(grepl("\\.csv$", ext_pat, fixed = TRUE))) {
     candidates <- candidates[!grepl(
       "codebook|variables|layout|readme|lisezmoi|dictionary",
       basename(candidates), ignore.case = TRUE)]

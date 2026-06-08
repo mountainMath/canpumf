@@ -47,7 +47,7 @@
 #     99999999 = not applicable  (e.g. persons aged < 15)
 #     88888888 = not available
 #
-#   1996–2011: 7-char income fields (same variables, narrower layout)
+#   1991–2011: 7-char income fields (same variables, narrower layout)
 #     9999999  = not applicable
 #     8888888  = not available
 #
@@ -55,7 +55,7 @@
 # would treat a valid $9,999,999 income (stored as " 9999999", trimmed to
 # "9999999") as NA.
 #
-# 1991 and earlier: field widths unverified — omitted from na_values until
+# 1986 and earlier: field widths unverified — omitted from na_values until
 # confirmed from user guides.
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
@@ -223,9 +223,14 @@
     file_mask   = "\\.dat",
     data_fixups = .census_fixup_7),
 
-  # 1991: fixed-width files extracted from sub-archives (hhld91.zip, etc.)
+  # 1991: data file is PUMF91.INDIV (individuals); metadata in INDF91.XMF (SPSS,
+  # French-only). Households/families file masks TBD when tested.
+  # Metadata encoded in IBM CP850 (DOS-era encoding, not CP1252/Latin-1).
+  # Income fields confirmed 7-char wide (e.g. TOTINCP 127-133).
   "Census/1991 (individuals)" = .make_entry("Census", "1991 (individuals)",
-    file_mask   = "\\.(dat|DAT|txt)"),
+    file_mask         = "PUMF91\\.INDIV",
+    metadata_encoding = "CP850",
+    data_fixups       = .census_fixup_7),
 
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
     file_mask   = "\\.(dat|DAT|txt)"),

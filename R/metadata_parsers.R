@@ -596,8 +596,12 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 # (PPSORT 1-6  WEIGHT 7-22), and single-column variables without range (SEX 11).
 .spss_parse_data_list <- function(all_clean, data_list_row) {
   remaining <- all_clean[seq(data_list_row + 1L, length(all_clean))]
-  end_idx <- which(grepl("^\\.$|^$", remaining))[1L]
-  # If no terminator found, use ALL remaining lines (not length-1 which misses last line)
+  # Stop at a blank/period line OR at the next SPSS command keyword.
+  # Some older files (e.g. 1991 XMF) have no blank line between DATA LIST
+  # and VARIABLE LABELS, so the keyword check is the only reliable terminator.
+  end_idx <- which(grepl(
+    "^\\.$|^$|^VARIABLE LABELS|^VALUE LABELS|^MISSING VALUES|^FORMATS|^EXECUTE",
+    remaining, ignore.case = TRUE))[1L]
   section <- if (is.na(end_idx)) remaining else remaining[seq_len(end_idx - 1L)]
   section <- section[grepl("[A-Za-z]", section)]
   # Strip leading record-group marker (/) so variables on the same line as the
@@ -1282,24 +1286,26 @@ detect_formats <- function(pumf_dir) {
     result$spss_split <- dirname(split_sps[[1L]])
   }
 
-  # 5. SPSS monolithic: .sps file (not split-named) OR a .txt file with "SPSS"
-  #    in its name (older StatCan releases, e.g. 2001 Census, ship command files
-  #    as *SPSS.txt instead of *.sps), containing VARIABLE LABELS + VALUE LABELS.
+  # 5. SPSS monolithic: .sps file (not split-named), a .txt file with "SPSS"
+  #    in its name (e.g. 2001 Census *SPSS.txt), or a .xmf file (e.g. 1991
+  #    Census INDF91.XMF), all verified by VARIABLE LABELS + VALUE LABELS content.
   if (is.null(result$spss_split)) {
     spss_txt   <- all_files[grepl("spss\\.txt$", all_files, ignore.case = TRUE)]
+    xmf_files  <- all_files[grepl("\\.xmf$",     all_files, ignore.case = TRUE)]
     mono_candidates <- c(
       sps_files[!grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
                         sps_files, ignore.case = TRUE)],
-      spss_txt
+      spss_txt,
+      xmf_files
     )
     # French paths: match /français/, /french/, or /francais_.../ directory segments.
     fra_pat    <- "/(fran|french)"
-    all_spss   <- c(sps_files, spss_txt)
+    all_spss   <- c(sps_files, spss_txt, xmf_files)
     for (sps in head(mono_candidates, 8L)) {
       hdr <- tryCatch(readLines(sps, n = 500L, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
-      if (any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE)) &&
-          any(grepl("VALUE LABELS",    hdr, ignore.case = TRUE))) {
+      if (any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE)) &&
+          any(grepl("VALUE LABELS",    hdr, ignore.case = TRUE, useBytes = TRUE))) {
         fra_sps   <- NULL
         fra_cands <- all_spss[grepl(fra_pat, all_spss, ignore.case = TRUE) &
                                !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
