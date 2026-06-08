@@ -37,92 +37,26 @@ guess_numeric_pumf_columns <- function(pumf_base_path,
 
 #' Add variable labels and rename to human readable column names
 #'
-#' @param pumf_data pumf data file
-#' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
-#' @param layout_mask optional layout mask in case there are several layout files,
-#' guessed from attributes on \code{layout_mask}
-#' @param rename_columns rename PUMF columns to human readable names, default is `FALSE`
-#' @param infer_missing_numeric optional character, infer variables that aren't labelled to be numeric
+#' @param pumf_data A lazy `dplyr::tbl()` returned by [get_pumf()].
+#' @param pumf_base_path Deprecated, ignored.
+#' @param layout_mask Deprecated, ignored.
+#' @param rename_columns If `TRUE`, rename columns to human-readable labels via
+#'   [label_pumf_columns()]. Default `FALSE`.
+#' @param infer_missing_numeric Deprecated, ignored.
 #'
-#' @return relabeled data frame
+#' @return `pumf_data` unchanged, or with columns renamed if
+#'   `rename_columns = TRUE`.
 #' @export
 label_pumf_data <- function(pumf_data,
-                            pumf_base_path=attr(pumf_data,"pumf_base_path"),
-                            layout_mask=attr(pumf_data,"layout_mask"),
-                            rename_columns=FALSE,
-                            infer_missing_numeric=FALSE){
+                            pumf_base_path = attr(pumf_data, "pumf_base_path"),
+                            layout_mask    = attr(pumf_data, "layout_mask"),
+                            rename_columns = FALSE,
+                            infer_missing_numeric = FALSE) {
   .Deprecated("get_pumf",
     msg = paste0("label_pumf_data() is deprecated. ",
-                 "Use get_pumf() which applies labels automatically via the new pipeline."))
-  if (grepl("98M0001X",pumf_base_path)&&grepl("2021",pumf_base_path)) {
-    infer_missing_numeric <- TRUE
-  }
-  val_labels <- read_pumf_val_labels(pumf_base_path,layout_mask) |> mutate(name=toupper(.data$name))
-  var_labels <- read_pumf_var_labels(pumf_base_path,layout_mask) |> mutate(name=toupper(.data$name))
-
-  if (sum(duplicated(var_labels$label))>0) {
-    var_labels <- var_labels |>
-      mutate(n=n(),.by=.data$label) |>
-      mutate(label=case_when(.data$n>1~paste0(.data$label," (",.data$name,")"),TRUE~.data$label)) |>
-      select(-"n")
-  }
-
-  n1 <- val_labels$name |> unique()
-  n2 <- var_labels$name |> unique()
-  if (length(setdiff(n1,n2))>0) {
-    if(length(setdiff(toupper(n1),toupper(n2)))==0) {
-      val_labels <- val_labels |> mutate(name=toupper(.data$name))
-      var_labels <- var_labels |> mutate(name=toupper(.data$name))
-    }
-  }
-  names(pumf_data) <- toupper(names(pumf_data))
-  vars <- pumf_data %>% select_if(function(d)!is.numeric(d)) %>% names() %>% intersect(var_labels$name)
-  missing_vars <- setdiff(n2,n1)
-  for (var in vars) {
-    vl <- val_labels %>%
-      filter(.data$name==var) %>%
-      filter(!grepl("^\\d+-\\d+$|^\\d+-$",.data$val))
-    if (nrow(vl)==1 && vl$val[1]=="blank") vl <- vl %>% filter(.data$val!="blank")
-    lookup <- setNames(vl$label,vl$val)
-    if (length(lookup)>0) {
-      missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
-      if (length(missed)>0) {
-        missed_i <- as.integer(missed) |> as.character()
-        for (m in intersect(missed_i,names(lookup))) {
-          mi <- which(m==missed_i)
-          mo <- missed[mi]
-          if (length(lookup[m])==length(mo)) {
-            lookup <- c(lookup,setNames(lookup[m],mo))
-          }
-        }
-      }
-      missed <- pumf_data %>% pull(var) %>% unique %>% setdiff(vl$val)
-      if (any(is.na(missed)) && 'blank' %in% names(lookup)) {
-        pumf_data <- pumf_data %>%
-          mutate_at(var,function(d)coalesce(d,"blank"))
-        missed <- setdiff(missed,NA)
-      }
-      if (length(missed)==0) {
-       pumf_data <- pumf_data %>%
-          mutate_at(var,function(d)factor(recode(d,!!!lookup),levels=unique(vl$label)))
-      } else {
-        pumf_data <- pumf_data %>%
-          mutate_at(var,function(d)recode(d,!!!lookup))
-      }
-    }
-  }
-
-  if (infer_missing_numeric) {
-    pumf_data <- pumf_data |>
-      mutate(across(setdiff(missing_vars,"PPSORT"),\(d)ifelse(d==88888888|d==99999999,NA_real_,as.numeric(d))))
-  }
-
-  if (rename_columns) {
-    pumf_data <- label_pumf_columns(pumf_data=pumf_data,
-                                    pumf_base_path=pumf_base_path,
-                                    layout_mask=layout_mask)
-  }
-  pumf_data
+                 "Use get_pumf() which applies labels automatically. ",
+                 "For column renaming use label_pumf_columns()."))
+  if (rename_columns) label_pumf_columns(pumf_data) else pumf_data
 }
 
 #' Convert columns to numeric and convert all missing values to \code{NA}
