@@ -1,0 +1,1127 @@
+
+// JOB
+/*SERVICE ?
+/*ROUTE PRINT RMT402
+//  EXEC SPSSX
+//IN  DD DSN=
+//OUT  DD DSN=
+//SYSIN  DD *
+DATA LIST   FILE=IN RECORDS=1/
+    PROVH      1 -    2  
+    CMAPUMFH      3 -    5  
+    CSDPUMFH      6 -    9  
+    CAREAH     10 -   10  
+    HHINDA     11 -   11  
+    HHINDB     12 -   12  
+    HHPERA     13 -   13  
+    HHPERB1     14 -   14  
+    HHPERB2     15 -   15  
+    HHPERD1     16 -   16  
+    HHPERD2     17 -   17  
+    HHPERE1     18 -   18  
+    HHPERE2     19 -   19  
+    HHPERF1     20 -   20  
+    HHPERF2     21 -   21  
+    HHPERG1     22 -   22  
+    HHPERG2     23 -   23  
+    HHPERH1     24 -   24  
+    HHPERH2     25 -   25  
+    HHSIZE     26 -   26  
+    HHCOMP     27 -   27  
+    NUNFH     28 -   28  
+    NUEFH     29 -   29  
+    NULDGH     30 -   30  
+    NUEMPINH     31 -   31  
+    NUIRH     32 -   32  
+    MSINCH     33 -   33  
+    EMPINCH     34 -   40  
+    INVSTH     41 -   47  
+    GOVINCH     48 -   54  
+    OTINCH     55 -   61  
+    TOTINCH     62 -   68  
+    DTYPEH     69 -   69  
+    BUILTH     70 -   70  
+    TENURH     71 -   71  
+    MORGH     72 -   72  
+    RCONDH     73 -   73  
+    ROOMH     74 -   75  
+    BROOMH     76 -   76  
+    VALUEH     77 -   83  
+    NUHMH     84 -   84  
+    SECREL1     85 -   85  
+    SECREL2     86 -   86  
+    RPAIRH     87 -   87  
+    GROSRTH     88 -   91  
+    OMPH     92 -   95  
+    CONDFH     96 -   99  
+    HMAGE    100 -  101  
+    HMSEX    102 -  102  
+    HMMARST    103 -  103  
+    HMHMRST    104 -  104  
+    HMREL    105 -  106  
+    HMEFST    107 -  107  
+    HMPOB    108 -  108  
+    HMETH    109 -  110  
+    HMIMMIG    111 -  111  
+    HMIMMST    112 -  112  
+    HMCIT    113 -  113  
+    HMMTN    114 -  114  
+    HMOLN    115 -  115  
+    HMMOB5    116 -  116  
+    HMMOB1    117 -  117  
+    HMHLOS    118 -  118  
+    HMSCAT    119 -  119  
+    HMOCC91    120 -  121  
+    HMOCC80    122 -  123  
+    HMLFACT    124 -  125  
+    HMCOW    126 -  126  
+    HMWKSWK    127 -  128  
+    HMFPTWK    129 -  129  
+    HMPOW    130 -  130  
+    HMMSINC    131 -  131  
+    HMEMPIN    132 -  138  
+    HMINV    139 -  145  
+    HMGOVIN    146 -  152  
+    HMOTINC    153 -  159  
+    HMTOTIN    160 -  166  
+    SHMAGE    167 -  168  
+    SHMSEX    169 -  169  
+    SHMMARST    170 -  170  
+    SHMHMRST    171 -  171  
+    SHMREL    172 -  173  
+    SHMPOB    174 -  174  
+    SHMETH    175 -  176  
+    SHMIMMIG    177 -  177  
+    SHMIMMST    178 -  178  
+    SHMCIT    179 -  179  
+    SHMMTN    180 -  180  
+    SHMOLN    181 -  181  
+    SHMMOB5    182 -  182  
+    SHMMOB1    183 -  183  
+    SHMHLOS    184 -  184  
+    SHMSCAT    185 -  185  
+    SHMOCC91    186 -  187  
+    SHMOCC80    188 -  189  
+    SHMLFACT    190 -  191  
+    SHMCOW    192 -  192  
+    SHMWKSWK    193 -  194  
+    SHMFPTWK    195 -  195  
+    SHMPOW    196 -  196  
+    SHMMSINC    197 -  197  
+    SHMEMPIN    198 -  204  
+    SHMINV    205 -  211  
+    SHMGOVIN    212 -  218  
+    SHMOTINC    219 -  225  
+    SHMTOTIN    226 -  232  
+    EFSIZE    233 -  233  
+    EFADULT    234 -  234  
+    EFPERSG    235 -  235  
+    EFPERSA    236 -  236  
+    EFPERSB    237 -  237  
+    EFPERSC    238 -  238  
+    EFPERSD    239 -  239  
+    EFCOMP    240 -  241  
+    EFNUEMPI    242 -  242  
+    EFNUIR    243 -  243  
+    EFLOINC    244 -  244  
+    EFMSINC    245 -  245  
+    EFEMPIN    246 -  252  
+    EFINV    253 -  259  
+    EFGOVIN    260 -  266  
+    EFOTINC    267 -  273  
+    EFTOTINC    274 -  280  
+    WEIGHTH    281 -  287  ( 4  )  
+VARIABLE LABELS
+  PROVH  'Province' 
+  CMAPUMFH  'Census Metropolitan Area' 
+  CSDPUMFH  'Census Subdivision' 
+  CAREAH  'Census Geographic Area Indicator' 
+  HHINDA  'Indicator of Persons 0-4 Years of Age' 
+  HHINDB  'Indicator of Persons 0-17 Years of Age' 
+  HHPERA  'Number of Persons <5 Years of Age in the Household' 
+  HHPERB1  'Number of Males in the Household at Home 5-17 Yrs.' 
+  HHPERB2  'Num. of Females in the Household at Home 5-17 Yrs.' 
+  HHPERD1  'Number of Males in the Household at Home 18-24 Yrs' 
+  HHPERD2  'Num. of Females in the Household at Home 18-24 Yrs' 
+  HHPERE1  'Number of Males in the Household at Home 25-59 Yrs' 
+  HHPERE2  'Num. of Females in the Household at Home 25-59 Yrs' 
+  HHPERF1  'Number of Males in the Household at Home 60-64 Yrs' 
+  HHPERF2  'Num. of Females in the Household at Home 60-64 Yrs' 
+  HHPERG1  'Number of Males in the Household at Home 65-74 Yrs' 
+  HHPERG2  'Num. of Females in the Household at Home 65-74 Yrs' 
+  HHPERH1  'Number of Males in the Household at Home 75 Yrs. +' 
+  HHPERH2  'Num. of Females in the Household at Home 75 Yrs. +' 
+  HHSIZE  'Number of Persons in the Household' 
+  HHCOMP  'Household Composition' 
+  NUNFH  'Number of Unattached Individuals in Household' 
+  NUEFH  'Number of Economic Families in Household' 
+  NULDGH  'Number of Lodgers in Household' 
+  NUEMPINH  'Num. of Employment Income Recipients in Household' 
+  NUIRH  'Number of Income recipients in a Household' 
+  MSINCH  'Major Source of Household Income' 
+  EMPINCH  'Total Household Employment Income' 
+  INVSTH  'Total Investment Income of Household' 
+  GOVINCH  'Total Household Government Transfer Payments' 
+  OTINCH  'All Other Household Income' 
+  TOTINCH  'Total Household Income' 
+  DTYPEH  'Structural Type of Dwelling' 
+  BUILTH  'Period of Construction' 
+  TENURH  'Tenure' 
+  MORGH  'Presence of Mortgage' 
+  RCONDH  'Tenure - Condominium' 
+  ROOMH  'Number of Rooms' 
+  BROOMH  'Number of Bedrooms' 
+  VALUEH  'Value of Dwelling' 
+  NUHMH  'Number of Household Maintainers' 
+  SECREL1  'Second Hhold Maintainer-Relationship to Primary HM' 
+  SECREL2  'Situation of Primary Maintainer's W, H, or CL Ptnr' 
+  RPAIRH  'Condition of Dwelling' 
+  GROSRTH  'Monthly Gross Rent' 
+  OMPH  'Owner's Major Payments (Monthly)' 
+  CONDFH  'Condominium Fees' 
+  HMAGE  'Age of Primary Household Maintainer' 
+  HMSEX  'Sex of Primary Household Maintainer' 
+  HMMARST  'Legal Marital Status of Household Maintainer' 
+  HMHMRST  'Hist. Comp. Indicator of Marital Status -Prim. HhM' 
+  HMREL  'Religion of Primary Household Maintainer' 
+  HMEFST  'Primary Hhold Maintainer's Economic Family Status' 
+  HMPOB  'Place of Birth of Primary Household Maintainer' 
+  HMETH  'Ethnic Origin of Primary Household Maintainer' 
+  HMIMMIG  'Period of Immigration of Primary Hhold Maintainer' 
+  HMIMMST  'Immigrant Status of Primary Household Maintainer' 
+  HMCIT  'Citizenship Status of Primary Household Maintainer' 
+  HMMTN  'Mother Tongue of Primary Household Maintainer' 
+  HMOLN  'Official Language of Primary Household Maintainer' 
+  HMMOB5  'Mobility Status - Place of Res 5yrs Ago of Pri HhM' 
+  HMMOB1  'Mobility Status - Place of Res 1yr Ago of Pri. HhM' 
+  HMHLOS  'Highest Level of Schooling of Primary Hhold Maint.' 
+  HMSCAT  'School Attendance of Primary Household Maintainer' 
+  HMOCC91  'Occupation (1991 SOC) of Primary Hhold Maintainer' 
+  HMOCC80  'Occupation (1980 SOC) of Primary Hhold Maintainer' 
+  HMLFACT  'Labour Force Activity of Primary Hhold Maintainer' 
+  HMCOW  'Class of Worker of Primary Household Maintainer' 
+  HMWKSWK  'Weeks Worked in 1990 by Primary Hhold Maintainer' 
+  HMFPTWK  'Full-Time or Part-Time Weeks Worked in 1990 by PHM' 
+  HMPOW  'Place of Work of Primary Household Maintainer' 
+  HMMSINC  'Major Source of Income of Primary Hhold Maintainer' 
+  HMEMPIN  'Total Employment Income of Primary Hhld Maintainer' 
+  HMINV  'Total Investment Income of Primary Hhld Maintainer' 
+  HMGOVIN  'Total Government Transfer Payments of Primary HhdM' 
+  HMOTINC  'All other Income of Primary Household Maintainer' 
+  HMTOTIN  'Total Income of Primary Household Maintainer' 
+  SHMAGE  'Age of Spouse or C-L Partner of Primary HhM' 
+  SHMSEX  'Sex of Spouse or C-L Partner of Primary Hhold M' 
+  SHMMARST  'Legal Marital Status of Spouse or CLP of Prim. HhM' 
+  SHMHMRST  'Hist Comp Ind of Mar Stat for Spouse or CLP of PHM' 
+  SHMREL  'Religion of Spouse or C-L Partner of Primary HhM' 
+  SHMPOB  'Place of Birth of Spouse or CLP of Primary HhM' 
+  SHMETH  'Ethnic Origin of Spouse or CLP of Primary HhM' 
+  SHMIMMIG  'Year of Immigration of Spouse or CLP of Prim. HhM' 
+  SHMIMMST  'Immigrant Status of Spouse or CLP of Primary HhM' 
+  SHMCIT  'Citizenship Status of Spouse or CLP of Primary HhM' 
+  SHMMTN  'Mother Tongue of Spouse or CLP of Primary HhM' 
+  SHMOLN  'Official Language of Spouse or CLP of Primary HhM' 
+  SHMMOB5  'Mobility Status-Place of Resid 5 Yrs ago of Spouse' 
+  SHMMOB1  'Mobility Status-Place of Resid 1 Yr ago of Spouse' 
+  SHMHLOS  'Highest Level of Schooling of Spouse or CLP of PHM' 
+  SHMSCAT  'School Attendance of Spouse or CLP of Primary HhM' 
+  SHMOCC91  'Occupation (1991 SOC) of Spouse or CLP of Prim HhM' 
+  SHMOCC80  'Occupation (1980 SOC) of Spouse or CLP of Prim HhM' 
+  SHMLFACT  'Labour Force Activity of Spouse or CLP of Prim HhM' 
+  SHMCOW  'Class of Worker of Spouse or CLP of Primary HhM' 
+  SHMWKSWK  'Weeks Worked in 1990 by Spouse or CLP of Prim HhM' 
+  SHMFPTWK  'F/Time or P/Time Wks Work in 1990 by Spouse of HhM' 
+  SHMPOW  'Place of Work of Spouse or CLP of Primary HhM' 
+  SHMMSINC  'Major Source of Income of Spouse or CLP of Prim HM' 
+  SHMEMPIN  'Total Employment Income of Spouse or CLP of PHhM' 
+  SHMINV  'Total Investment Income of Spouse or CLP of PHhM' 
+  SHMGOVIN  'Total Government Trans. Payments of Spouse of PHhM' 
+  SHMOTINC  'All Other Income of Spouse or CLP of Primary HhM' 
+  SHMTOTIN  'Total Income of Spouse or CLP of Primary HhM' 
+  EFSIZE  'Number of Persons in the Hhold M's Economic Family' 
+  EFADULT  'Number of Adults in the PHhold M's Economic Family' 
+  EFPERSG  'Number of Persons 65+ Yrs. in the P Hhold M's EF' 
+  EFPERSA  'Number of Persons <6 Yrs. in the P Hhold M's EF' 
+  EFPERSB  'Number of Persons 6-15 Yrs. in the P Hhold M's EF' 
+  EFPERSC  'Number of Persons 16 & 17 Yrs. in the P Hhd M's EF' 
+  EFPERSD  'Number of Persons 18-24 Yrs. in the P Hhold M's EF' 
+  EFCOMP  'Primary Household Maintainer's EF Composition' 
+  EFNUEMPI  'Number of Employment Income Recipients in PHM's EF' 
+  EFNUIR  'Number of Income Recipients in Primary Hhd M's EF' 
+  EFLOINC  'Income Status (1990 LICO) of Primary Hhld M's EF' 
+  EFMSINC  'Major Source of Income of the Primary Hhld M's EF' 
+  EFEMPIN  'Total Employment Income of the Primary Hhld M's EF' 
+  EFINV  'Total Investment Income of the Primary Hhld M's EF' 
+  EFGOVIN  'Total Government Transfer Payments of the PHM's EF' 
+  EFOTINC  'All Other Income of the Primary Hhold M's  EF' 
+  EFTOTINC  'Total Income of the Primary Hhold Maintainer's EF' 
+  WEIGHTH  'Weight of Households' 
+VALUE LABELS
+    PROVH   10  'Newfoundland'
+          11  'Prince Edward Island'
+          12  'Nova Scotia'
+          13  'New Brunswick'
+          24  'Quebec'
+          35  'Ontario'
+          46  'Manitoba'
+          47  'Saskatchewan'
+          48  'Alberta'
+          59  'British Columbia'
+          60  'Yukon/Northwest Territories'
+         /
+    CMAPUMFH   999  'Not Applicable'
+          205  'Halifax'
+          421  'Quebec'
+          462  'Montreal'
+          499  'Sherbrooke-433 & Trois-Riv-442'
+          505  'Ottawa-Hull'
+          532  'Oshawa'
+          535  'Toronto'
+          537  'Hamilton'
+          539  'St. Catharines-Niagara'
+          541  'Kitchener'
+          555  'London'
+          559  'Windsor'
+          599  'Sudbury-580 & Thunder Bay-595'
+          602  'Winnipeg'
+          799  'Regina-705 & Saskatoon-725'
+          825  'Calgary'
+          835  'Edmonton'
+          933  'Vancouver'
+          935  'Victoria'
+         /
+    CSDPUMFH   9999  'Not Applicable'
+          4620  'Montreal'
+          4621  'Laval'
+          5050  'Ottawa'
+          5350  'Toronto'
+          5351  'North York'
+          5352  'Scarborough'
+          5353  'Mississauga'
+          5354  'Etobicoke'
+          5370  'Hamilton'
+          8350  'Edmonton'
+          9330  'Vancouver'
+          9331  'Surrey'
+         /
+    CAREAH   9  'Not Applicable'
+          1  'CMA or CA'
+          2  'Not a CMA or a CA:  Urban area'
+          3  'Not a CMA or a CA:  Rural area'
+         /
+    HHINDA   8  'Not available'
+          0  'None'
+          1  'Odd'
+          2  'Even'
+         /
+    HHINDB   8  'Not available'
+          0  'None'
+          1  'Odd'
+          2  'Even'
+         /
+    HHPERA   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    HHPERB1   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    HHPERB2   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    HHPERD1   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    HHPERD2   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    HHPERE1   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three persons'
+          4  'Four or more persons'
+         /
+    HHPERE2   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three persons'
+          4  'Four or more persons'
+         /
+    HHPERF1   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    HHPERF2   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    HHPERG1   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    HHPERG2   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    HHPERH1   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    HHPERH2   8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    HHSIZE   9  'Not available'
+          1  'One person'
+          2  'Two persons'
+          3  'Three persons'
+          4  'Four persons'
+          5  'Five persons'
+          6  'Six persons'
+          7  'Seven persons'
+          8  'Eight or more persons'
+         /
+    HHCOMP   1  'NF HHold:  One person only'
+          2  'NF HHold:  Two or more persons'
+          3  'EF HHold: 1-famhhld: WO unatt.'
+          4  'EF HHold: 1-famhhld: W attach.'
+          5  'Multiple family household'
+         /
+    NUNFH   0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    NUEFH   0  'None'
+          1  'One economic family'
+          2  'Two or more economic families'
+         /
+    NULDGH   0  'None'
+          1  'One lodger'
+          2  'Two or more lodgers'
+         /
+    NUEMPINH   0  'No recipient'
+          1  'One recipient'
+          2  'Two recipients'
+          3  'Three recipients'
+          4  'Four recipients'
+          5  'Five or more recipients'
+         /
+    NUIRH   0  'No recipient'
+          1  'One recipient'
+          2  'Two recipients'
+          3  'Three recipients'
+          4  'Four recipients'
+          5  'Five or more recipients'
+         /
+    MSINCH   1  'No Income'
+          2  'Wages and salaries'
+          3  'Self-employment income'
+          4  'Government transfer payments'
+          5  'Investment income'
+          6  'Other income'
+         /
+    DTYPEH   9  'Not available'
+          1  'Single-detached house'
+          2  'Apartment in build. 5+ storeys'
+          3  'Apartment in build. <5 storeys'
+          4  'Semi-detached house'
+          5  'Apartment in a detached duplex'
+          6  'Row house'
+          7  'Other single-attached house'
+          8  'Mobile home or other movable'
+         /
+    BUILTH   1  '1920 or before'
+          2  '1921-1945'
+          3  '1946-1960'
+          4  '1961-1970'
+          5  '1971-1980'
+          6  '1981-1985'
+          7  '1986-1990'
+          8  '1991'
+         /
+    TENURH   1  'Owned (with or w/out mortgage)'
+          2  'Rented for cash, other or band'
+         /
+    MORGH   9  'Not applicable'
+          1  'Yes'
+          2  'No'
+         /
+    RCONDH   9  'Not applicable'
+          1  'Condominium'
+          2  'Not a condominium'
+         /
+    ROOMH   1  'One room'
+          2  'Two rooms'
+          3  'Three rooms'
+          4  'Four rooms'
+          5  'Five rooms'
+          6  'Six rooms'
+          7  'Seven rooms'
+          8  'Eight rooms'
+          9  'Nine rooms'
+          10  'Ten or more rooms'
+         /
+    BROOMH   0  'No bedroom'
+          1  'One bedroom'
+          2  'Two bedrooms'
+          3  'Three bedrooms'
+          4  'Four bedrooms'
+          5  'Five or more bedrooms'
+         /
+    VALUEH   9999999  'Not applicable'
+          9999998  'Not available'
+         /
+    NUHMH   1  'One maintainer in the hhold'
+          2  'Two maintainers in the hhold'
+          3  'Three+ maintainers in hhold'
+         /
+    SECREL1   0  'No second maintainer in hhold'
+          1  'Same EF:  Spouse or common-law'
+          2  'Same EF:  Other member of pmEF'
+          3  'Not a member of primary mainEF'
+         /
+    SECREL2   9  'Not applicable'
+          1  'One of the hhold maintainers'
+          2  'Not a household maintainer'
+         /
+    RPAIRH   1  'Only reg. maintenance needed'
+          2  'Minor repairs needed'
+          3  'Major repairs needed'
+         /
+    GROSRTH   9999  'Not applicable'
+         /
+    OMPH   9999  'Not applicable'
+         /
+    CONDFH   9999  'Not applicable'
+         /
+    HMAGE   98  'Not available'
+          1  '15-24 years of age'
+          2  '25-34 years of age'
+          3  '35-44 years of age'
+          4  '45-54 years of age'
+          5  '55-64 years of age'
+          6  '65-74 years of age'
+          7  '75-79 years of age'
+          8  '80 years of age or more'
+         /
+    HMSEX   1  'Male'
+          2  'Female'
+         /
+    HMMARST   8  'Not available'
+          1  'Divorced'
+          2  'Legally Married (& not sep.)'
+          3  'Legally married and separated'
+          4  'Never married (single)'
+          5  'Widowed'
+         /
+    HMHMRST   8  'Not available'
+          1  'Divorced'
+          2  'Now Married'
+          3  'Separated'
+          4  'Never married (single)'
+          5  'Widowed'
+         /
+    HMREL   98  'Not available'
+          1  'Catholic'
+          2  'Protestant:  Anglican'
+          3  'Protestant:  Baptist'
+          4  'Protestant:  Lutheran'
+          5  'Protestant:  Pentecostal'
+          6  'Protestant:  Presbyterian'
+          7  'Protestant:  United Church'
+          8  'Protestant:  Protestant, nos'
+          9  'Protestant:  Other Protestant'
+          10  'No religion'
+          11  'Other'
+         /
+    HMEFST   1  'EF member:  H or male cl ptner'
+          2  'EF member:  W or female cl ptr'
+          3  'EF member:  Male lone parent'
+          4  'EF member:  Female lone parent'
+          5  'EF member:  Child'
+          6  'EF member:  Other rel. person'
+          7  'Not EF member:  Unattached ind'
+         /
+    HMPOB   8  'Not available'
+          1  'Born in Canada: In prov of res'
+          2  'Born in Canada: Out prv of res'
+          3  'Born out Canada: Europe'
+          4  'Born out Canada: Asia/Mid East'
+          5  'Born out Canada: Other'
+         /
+    HMETH   98  'Not available'
+          1  'Single:  Total British origins'
+          2  'Single:  Total French origins'
+          3  'Single:  Canadian'
+          4  'Single:  Aboriginal origins'
+          5  'Single:  Other single origins'
+          6  'Multiple:  British only'
+          7  'Multiple:  British and French'
+          8  'Multiple:  British and Other'
+          9  'Multiple:  French and Other'
+          10  'Multiple: British French & oth'
+          11  'Multiple: Other multiples'
+         /
+    HMIMMIG   9  'Not applicable'
+          8  'Not available'
+          1  'Before 1961'
+          2  '1961-1970'
+          3  '1971-1980'
+          4  '1981-1985'
+          5  '1986-1991'
+         /
+    HMIMMST   8  'Not available'
+          1  'Permanent residents:  Non-imm.'
+          2  'Permanent residents: Immigrant'
+          3  'Non-permanent residents'
+         /
+    HMCIT   8  'Not available'
+          1  'Canadian cit: Canada by birth'
+          2  'Canadian cit: Canada by natur.'
+          3  'Non-Canadian cit: bir. country'
+          4  'Non-Canadian cit: Oth. country'
+         /
+    HMMTN   9  'Not available'
+          1  'Single: English only'
+          2  'Single: French only'
+          3  'Single: Other only'
+          4  'Multiple: English and French'
+          5  'Multiple: English and Other'
+          6  'Multiple: French and Other'
+          7  'Multiple: English French & Oth'
+          8  'Multiple: Other'
+         /
+    HMOLN   1  'English only'
+          2  'French only'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    HMMOB5   1  'Non-movers'
+          2  'Internal Intraprov: Non-migrt.'
+          3  'Internal Intraprov: d-CSD S-CD'
+          4  'Internal Intraprov: d-CD s-prv'
+          5  'Internal: Interprov. migrants'
+          6  'External migrants'
+         /
+    HMMOB1   1  'Non-movers'
+          2  'Intraprovincial movers'
+          3  'Interprovincial migrants'
+          4  'External migrants'
+         /
+    HMHLOS   8  'Not available'
+          1  'Less than Grade 9'
+          2  'Grades 9-13: W/out sec crt/dip'
+          3  'Grades 9-13: With sec cert/dip'
+          4  'Other non-univ: W/out cert/dip'
+          5  'Other non-univ: With cert/dip'
+          6  'University: Without degree'
+          7  'University: With degree -bach+'
+         /
+    HMSCAT   1  'Did not attend in past 9 mos.'
+          2  'Attended f/t in past 9 months'
+          3  'Attended p/t in past 9 months'
+         /
+    HMOCC91   99  'Not applicable'
+          1  'Senior managers (SLIV)'
+          2  'Middle & other managers (SLIV)'
+          3  'Professionals (SLIV)'
+          4  'Semi-profess. & techs. (SLIII)'
+          5  'Supervisors (SLIII)'
+          6  'Foremen/women (SLIII)'
+          7  'Admin. & senior cler. (SLIII)'
+          8  'Sales & Service (SLIII)'
+          9  'Skilled crafts & trades(SLIII)'
+          10  'Clerical workers (SLII)'
+          11  'Sales & service (SLII)'
+          12  'Semi-skilled manual wrk.(SLII)'
+          13  'Sales & service (SLI)'
+          14  'Other manual workers (SLI)'
+         /
+    HMOCC80   99  'Not applicable'
+          1  'Managerial, admin. & related'
+          2  'Nat. sciences, engin. & maths.'
+          3  'Social sciences & related'
+          4  'Teaching & related'
+          5  'Medicine & health'
+          6  'Artistic, lit., recreat. & rel'
+          7  'Clerical & related'
+          8  'Sales'
+          9  'Service'
+          10  'Farming, hort. & animal husban'
+          11  'Other primary'
+          12  'Processing'
+          13  'Mach & prod fab assem & repair'
+          14  'Construction trades'
+          15  'Transport equipment operating'
+          16  'Other occupations'
+         /
+    HMLFACT   98  'Not available'
+          1  'Employed: Worked'
+          2  'Employed: Absent'
+          3  'Unempl.: Layoff-Did not look'
+          4  'Unempl.: Layoff-Looked for f/t'
+          5  'Unempl.: Layoff-Looked for p/t'
+          6  'Unempl.: Newjob-Did not look'
+          7  'Unempl.: Newjob-Looked for f/t'
+          8  'Unempl.: Newjob-Looked for p/t'
+          9  'Unempl.: Looked for f/t'
+          10  'Unempl.: Looked for p/t'
+          11  'Not in lab force: Last work 91'
+          12  'Not in lab force: Last work 90'
+          13  'Not in lab force: wrk prior 90'
+          14  'Not in lab force: Never worked'
+         /
+    HMCOW   9  'Not applicable'
+          1  'Paid workers & unpaid family'
+          2  'Paid workers (self-emp incorp)'
+          3  'Self-emp w/out paid help-uninc'
+          4  'Self-emp w/ paid help (uninc.)'
+         /
+    HMWKSWK   99  'Not applicable'
+         /
+    HMFPTWK   1  'Worked mainly FT weeks in 1990'
+          2  'Worked mainly PT weeks in 1990'
+          3  'Did not work in 1990'
+         /
+    HMPOW   9  'Not applicable'
+          1  'Worked at home'
+          2  'Usual POW same CSD as resid.'
+          3  'Usual POW dif. CSD, same prov.'
+          4  'Usual POW dif. CSD, dif. prov.'
+          5  'Worked outside Canada'
+          6  'No usual place of work'
+         /
+    HMMSINC   1  'No income'
+          2  'Wages and salaries'
+          3  'Self-employment income'
+          4  'Government transfer payments'
+          5  'Investment income'
+          6  'Other income'
+         /
+    SHMAGE   99  'Not applicable'
+          98  'Not available'
+          1  'Spouse in same age grp as main'
+          2  'Spouse younger than m: prev'
+          3  'Spouse younger than m: 2+ prev'
+          4  'Spouse older than m: subseq'
+          5  'Spouse older than m: 2+ subseq'
+         /
+    SHMSEX   9  'Not applicable'
+          1  'Male'
+          2  'Female'
+         /
+    SHMMARST   9  'Not applicable'
+          1  'Divorced'
+          2  'Legally married (& not separ.)'
+          3  'Legally married and separated'
+          4  'Never married (single)'
+          5  'Widowed'
+         /
+    SHMHMRST   9  'Not applicable'
+          1  'Now married'
+         /
+    SHMREL   99  'Not applicable'
+          1  'Catholic'
+          2  'Protestant: Anglican'
+          3  'Protestant: Baptist'
+          4  'Protestant: Lutheran'
+          5  'Protestant: Pentecostal'
+          6  'Protestant: Presbyterian'
+          7  'Protestant: United Church'
+          8  'Protestant: Protestant, n.o.s.'
+          9  'Protestant: Other Protestant'
+          10  'No religion'
+          11  'Other'
+         /
+    SHMPOB   9  'Not applicable'
+          1  'Born in Canada: In prov of res'
+          2  'Born in Canada: Out prv of res'
+          3  'Born outside Canada: Europe'
+          4  'Born outside Canada: Asia/MidE'
+          5  'Other'
+         /
+    SHMETH   99  'Not applicable'
+          1  'Single: Total British origins'
+          2  'Single: Total French origins'
+          3  'Single: Canadian'
+          4  'Single: Aboriginal origins'
+          5  'Single: Other single origins'
+          6  'Multiple: British only'
+          7  'Multiple: British & French'
+          8  'Multiple: British & Other'
+          9  'Multiple: French & Other'
+          10  'Multiple: British French & Oth'
+          11  'Multiple: Other mult. origins'
+         /
+    SHMIMMIG   9  'Not applicable'
+          1  'Before 1961'
+          2  '1961-1970'
+          3  '1971-1980'
+          4  '1981-1985'
+          5  '1986-1991'
+         /
+    SHMIMMST   9  'Not applicable'
+          1  'Permanent residents: Non-imm.'
+          2  'Permanent residents: Immigrant'
+          3  'Non-permanent residents'
+         /
+    SHMCIT   9  'Not applicable'
+          1  'Cdn citizenship: Canada by bir'
+          2  'Cdn citizenship: Canada by nat'
+          3  'Citizen not Cdn: Bir country'
+          4  'Citizen not Cdn: Other country'
+         /
+    SHMMTN   9  'Not applicable'
+          1  'Single: English only'
+          2  'Single: French only'
+          3  'Single: Other only'
+          4  'Multiple: English & French'
+          5  'Multiple: English & other'
+          6  'Multiple: French & other'
+          7  'Multiple: English French & oth'
+          8  'Multiple: Other'
+         /
+    SHMOLN   9  'Not applicable'
+          1  'English only'
+          2  'French only'
+          3  'Both English & French'
+          4  'Neither English nor French'
+         /
+    SHMMOB5   9  'Not applicable'
+          1  'Non-movers'
+          2  'Internal Intraprov: Non-migrnt'
+          3  'Internal Intraprov: d/CSD s/CD'
+          4  'Internal Intraprov: d/CD s/prv'
+          5  'Internal: Interprov. migrants'
+          6  'External migrants'
+         /
+    SHMMOB1   9  'Not applicable'
+          1  'Non-movers'
+          2  'Intraprovincial movers'
+          3  'Interprovincial migrants'
+          4  'External migrants'
+         /
+    SHMHLOS   9  'Not applicable'
+          1  'Less than Grade 9'
+          2  'Grades 9-13: W/out sec crt/dip'
+          3  'Grades 9-13: With sec cert/dip'
+          4  'Other non-univ: W/out cert/dip'
+          5  'Other non-univ: With cert/dip'
+          6  'University: Without degree'
+          7  'University: With degree -bach+'
+         /
+    SHMSCAT   9  'Not applicable'
+          1  'Did not attend in past 9 mos.'
+          2  'Attended f/t in past 9 months'
+          3  'Attended p/t in past 9 months'
+         /
+    SHMOCC91   99  'Not applicable'
+          1  'Senior managers (SLIV)'
+          2  'Middle & other managers (SLIV)'
+          3  'Professionals (SLIV)'
+          4  'Semi-profess. & techs. (SLIII)'
+          5  'Supervisors (SLIII)'
+          6  'Foremen/women (SLIII)'
+          7  'Admin. & senior cler. (SLIII)'
+          8  'Sales & Service (SLIII)'
+          9  'Skilled crafts & trades(SLIII)'
+          10  'Clerical workers (SLII)'
+          11  'Sales & service (SLII)'
+          12  'Semi-skilled manual wrk.(SLII)'
+          13  'Sales & service (SLI)'
+          14  'Other manual workers (SLI)'
+         /
+    SHMOCC80   99  'Not applicable'
+          1  'Managerial, admin. & related'
+          2  'Nat. sciences, engin. & maths.'
+          3  'Social sciences & related'
+          4  'Teaching & related'
+          5  'Medicine & health'
+          6  'Artistic, lit., recreat. & rel'
+          7  'Clerical & related'
+          8  'Sales'
+          9  'Service'
+          10  'Farming, hort. & animal husban'
+          11  'Other primary'
+          12  'Processing'
+          13  'Mach & prod fab assem & repair'
+          14  'Construction trades'
+          15  'Transport equipment operating'
+          16  'Other occupations'
+         /
+    SHMLFACT   99  'Not applicable'
+          1  'Employed: Worked'
+          2  'Employed: Absent'
+          3  'Unempl.: Layoff-Did not look'
+          4  'Unempl.: Layoff-Looked for f/t'
+          5  'Unempl.: Layoff-Looked for p/t'
+          6  'Unempl.: Newjob-Did not look'
+          7  'Unempl.: Newjob-Looked for f/t'
+          8  'Unempl.: Newjob-Looked for p/t'
+          9  'Unempl.: Looked for f/t'
+          10  'Unempl.: Looked for p/t'
+          11  'Not in lab force: Last work 91'
+          12  'Not in lab force: Last work 90'
+          13  'Not in lab force: wrk prior 90'
+          14  'Not in lab force: Never worked'
+         /
+    SHMCOW   9  'Not applicable'
+          1  'Paid workers & unpaid family'
+          2  'Paid workers (self-emp incorp)'
+          3  'Self-emp w/out paid help-uninc'
+          4  'Self-emp w/ paid help (uninc.)'
+         /
+    SHMWKSWK   99  'Not applicable'
+         /
+    SHMFPTWK   9  'Not applicable'
+          1  'Worked mainly FT weeks in 1990'
+          2  'Worked mainly PT weeks in 1990'
+          3  'Did not work in 1990'
+         /
+    SHMPOW   9  'Not applicable'
+          1  'Worked at home'
+          2  'Usual POW same CSD as resid.'
+          3  'Usual POW dif. CSD, same prov.'
+          4  'Usual POW dif. CSD, dif. prov.'
+          5  'Worked outside Canada'
+          6  'No usual place of work'
+         /
+    SHMMSINC   9  'Not applicable'
+          1  'No income'
+          2  'Wages and salaries'
+          3  'Self-employment income'
+          4  'Government transfer payments'
+          5  'Investment income'
+          6  'Other income'
+         /
+    SHMEMPIN   9999999  'Not applicable'
+         /
+    SHMINV   9999999  'Not applicable'
+         /
+    SHMGOVIN   9999999  'Not applicable'
+         /
+    SHMOTINC   9999999  'Not applicable'
+         /
+    SHMTOTIN   9999999  'Not applicable'
+         /
+    EFSIZE   9  'Not applicable'
+          8  'Not available'
+          2  'Persons in EF: Two persons'
+          3  'Persons in EF: Three persons'
+          4  'Persons in EF: Four persons'
+          5  'Persons in EF: Five persons'
+          6  'Persons in EF: Six persons'
+          7  'Persons in EF: Seven or more'
+         /
+    EFADULT   9  'Not applicable'
+          8  'Not available'
+          1  'One adult'
+          2  'Two adults'
+          3  'Three adults'
+          4  'Four adults'
+          5  'Five adults'
+          6  'Six or more adults'
+         /
+    EFPERSG   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    EFPERSA   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    EFPERSB   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three persons'
+          4  'Four or more persons'
+         /
+    EFPERSC   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two or more persons'
+         /
+    EFPERSD   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One person'
+          2  'Two persons'
+          3  'Three or more persons'
+         /
+    EFCOMP   99  'Not applicable'
+          1  'HW family without children'
+          2  'HW family with child(ren)'
+          3  'C-L partners without children'
+          4  'C-L partners with child(ren)'
+          5  'Male lone parent w/ child(ren)'
+          6  'Female lone par. w/ child(ren)'
+          7  'HW fam w/ married kids & fams.'
+          8  'HW fam w/single & married kids'
+          9  'HW family with other relatives'
+          10  'CLP w/ married kids & families'
+          11  'CLP w/ single & married kids+'
+          12  'CLP with other relatives'
+          13  'All other families'
+         /
+    EFNUEMPI   9  'Not applicable'
+          0  'No recipient'
+          1  'One recipient'
+          2  'Two recipients'
+          3  'Three recipients'
+          4  'Four recipients'
+          5  'Five or more recipients'
+         /
+    EFNUIR   9  'Not applicable'
+          0  'No recipient'
+          1  'One recipient'
+          2  'Two recipients'
+          3  'Three recipients'
+          4  'Four recipients'
+          5  'Five or more recipients'
+         /
+    EFLOINC   9  'Not applicable'
+          1  'Aboveline'
+          2  'Belowline'
+         /
+    EFMSINC   9  'Not applicable'
+          1  'No income'
+          2  'Wages and salaries'
+          3  'Self-employment income'
+          4  'Government transfer payments'
+          5  'Investment income'
+          6  'Other income'
+         /
+    EFEMPIN   9999999  'Not applicable'
+         /
+    EFINV   9999999  'Not applicable'
+         /
+    EFGOVIN   9999999  'Not applicable'
+         /
+    EFOTINC   9999999  'Not applicable'
+         /
+    EFTOTINC   9999999  'Not applicable'
+         /
+MISSING VALUES  CMAPUMFH  ( 999 )/
+                CSDPUMFH  ( 9999 )/
+                CAREAH  ( 9 )/
+                HHINDA  ( 8 )/
+                HHINDB  ( 8 )/
+                HHPERA  ( 8 )/
+                HHPERB1  ( 8 )/
+                HHPERB2  ( 8 )/
+                HHPERD1  ( 8 )/
+                HHPERD2  ( 8 )/
+                HHPERE1  ( 8 )/
+                HHPERE2  ( 8 )/
+                HHPERF1  ( 8 )/
+                HHPERF2  ( 8 )/
+                HHPERG1  ( 8 )/
+                HHPERG2  ( 8 )/
+                HHPERH1  ( 8 )/
+                HHPERH2  ( 8 )/
+                HHSIZE  ( 9 )/
+                DTYPEH  ( 9 )/
+                MORGH  ( 9 )/
+                RCONDH  ( 9 )/
+                VALUEH  ( 9999999,9999998 )/
+                SECREL2  ( 9 )/
+                GROSRTH  ( 9999 )/
+                OMPH  ( 9999 )/
+                CONDFH  ( 9999 )/
+                HMAGE  ( 98 )/
+                HMMARST  ( 8 )/
+                HMHMRST  ( 8 )/
+                HMREL  ( 98 )/
+                HMPOB  ( 8 )/
+                HMETH  ( 98 )/
+                HMIMMIG  ( 9,8 )/
+                HMIMMST  ( 8 )/
+                HMCIT  ( 8 )/
+                HMMTN  ( 9 )/
+                HMHLOS  ( 8 )/
+                HMOCC91  ( 99 )/
+                HMOCC80  ( 99 )/
+                HMLFACT  ( 98 )/
+                HMCOW  ( 9 )/
+                HMWKSWK  ( 99 )/
+                HMPOW  ( 9 )/
+                SHMAGE  ( 99,98 )/
+                SHMSEX  ( 9 )/
+                SHMMARST  ( 9 )/
+                SHMHMRST  ( 9 )/
+                SHMREL  ( 99 )/
+                SHMPOB  ( 9 )/
+                SHMETH  ( 99 )/
+                SHMIMMIG  ( 9 )/
+                SHMIMMST  ( 9 )/
+                SHMCIT  ( 9 )/
+                SHMMTN  ( 9 )/
+                SHMOLN  ( 9 )/
+                SHMMOB5  ( 9 )/
+                SHMMOB1  ( 9 )/
+                SHMHLOS  ( 9 )/
+                SHMSCAT  ( 9 )/
+                SHMOCC91  ( 99 )/
+                SHMOCC80  ( 99 )/
+                SHMLFACT  ( 99 )/
+                SHMCOW  ( 9 )/
+                SHMWKSWK  ( 99 )/
+                SHMFPTWK  ( 9 )/
+                SHMPOW  ( 9 )/
+                SHMMSINC  ( 9 )/
+                SHMEMPIN  ( 9999999 )/
+                SHMINV  ( 9999999 )/
+                SHMGOVIN  ( 9999999 )/
+                SHMOTINC  ( 9999999 )/
+                SHMTOTIN  ( 9999999 )/
+                EFSIZE  ( 9,8 )/
+                EFADULT  ( 9,8 )/
+                EFPERSG  ( 9,8 )/
+                EFPERSA  ( 9,8 )/
+                EFPERSB  ( 9,8 )/
+                EFPERSC  ( 9,8 )/
+                EFPERSD  ( 9,8 )/
+                EFCOMP  ( 99 )/
+                EFNUEMPI  ( 9 )/
+                EFNUIR  ( 9 )/
+                EFLOINC  ( 9 )/
+                EFMSINC  ( 9 )/
+                EFEMPIN  ( 9999999 )/
+                EFINV  ( 9999999 )/
+                EFGOVIN  ( 9999999 )/
+                EFOTINC  ( 9999999 )/
+                EFTOTINC  ( 9999999 )/
+SAVE OUTFILE=OUT
+EXECUTE
+

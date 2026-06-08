@@ -1,0 +1,1345 @@
+
+// JOB
+/*SERVICE ?
+/*ROUTE PRINT RMT402
+//  EXEC SPSSX
+//IN  DD DSN=
+//OUT  DD DSN=
+//SYSIN  DD *
+DATA LIST   FILE=IN RECORDS=1/
+    PROVP      1 -    2  
+    CMAPUMFP      3 -    5  
+    HHCLASSP      6 -    6  
+    HTYPEP      7 -    8  
+    UNITSP      9 -    9  
+    HHINCP     10 -   11  
+    EFSTATP     12 -   12  
+    EFSIZEP     13 -   13  
+    CFSTATP     14 -   15  
+    CFSIZEP     16 -   16  
+    PRESCHP     17 -   17  
+    MSCFINCP     18 -   18  
+    CFINCP     19 -   20  
+    HHSTATP     21 -   22  
+    AGEP     23 -   24  
+    SEXP     25 -   25  
+    MARSTLP     26 -   26  
+    MARSTHP     27 -   27  
+    FERTFHP     28 -   28  
+    RELIGRP     29 -   30  
+    POBP     31 -   32  
+    CITIZENP     33 -   33  
+    IMMPOPP     34 -   34  
+    YRIMMIGP     35 -   36  
+    IMMIAGEP     37 -   38  
+    ETHNICRP     39 -   40  
+    VISMINP     41 -   41  
+    REGINP     42 -   42  
+    BNFNMEMP     43 -   43  
+    DUETHNCP     44 -   44  
+    GEETHNCP     45 -   45  
+    HUETHNCP     46 -   46  
+    POETHNCP     47 -   47  
+    UKETHNCP     48 -   48  
+    GRETHNCP     49 -   49  
+    ITETHNCP     50 -   50  
+    PRETHNCP     51 -   51  
+    SPETHNCP     52 -   52  
+    JEETHNCP     53 -   53  
+    CAETHNCP     54 -   54  
+    CHETHNCP     55 -   55  
+    FIETHNCP     56 -   56  
+    VIETHNCP     57 -   57  
+    CBETHNCP     58 -   58  
+    ABETHNCP     59 -   59  
+    BAETHNCP     60 -   60  
+    ARETHNCP     61 -   61  
+    WAETHNCP     62 -   62  
+    SOETHNCP     63 -   63  
+    LCETHNCP     64 -   64  
+    OLNP     65 -   65  
+    MTNP     66 -   67  
+    HLNP     68 -   69  
+    FOLP     70 -   70  
+    NOLP     71 -   71  
+    NOLABOP     72 -   72  
+    NOLGERP     73 -   73  
+    NOLNETP     74 -   74  
+    NOLITAP     75 -   75  
+    NOLSPAP     76 -   76  
+    NOLPORP     77 -   77  
+    NOLPOLP     78 -   78  
+    NOLUKRP     79 -   79  
+    NOLGREP     80 -   80  
+    NOLCHIP     81 -   81  
+    NOLVIEP     82 -   82  
+    NOLARAP     83 -   83  
+    NOLPUNP     84 -   84  
+    NOLIRAP     85 -   85  
+    SCHATTP     86 -   86  
+    HGRADP     87 -   87  
+    SECGRADP     88 -   88  
+    HLOSP     89 -   90  
+    TRNUCP     91 -   91  
+    DGREEP     92 -   93  
+    DGMFSP     94 -   95  
+    PSUVP     96 -   96  
+    PSOTP     97 -   97  
+    TOTSCHP     98 -   99  
+    MOB5P    100 -  100  
+    MOB1P    101 -  101  
+    PROV5P    102 -  103  
+    PROV1P    104 -  105  
+    LFACTP    106 -  107  
+    POWP    108 -  108  
+    COWP    109 -  109  
+    FPTWKP    110 -  110  
+    HRSWKP    111 -  113  
+    LSTWKP    114 -  114  
+    WKSWKP    115 -  116  
+    OCC91P    117 -  118  
+    OCC80P    119 -  120  
+    OCC71P    121 -  122  
+    IND80P    123 -  124  
+    IND70P    125 -  126  
+    TOTINCP    127 -  133  
+    WAGESP    134 -  140  
+    SELFIP    141 -  147  
+    FAMALP    148 -  154  
+    CHDCRP    155 -  161  
+    OASGIP    162 -  168  
+    CQPPBP    169 -  175  
+    UICBNP    176 -  182  
+    GOVTIP    183 -  189  
+    TGOVTP    190 -  196  
+    INVSTP    197 -  203  
+    RETIRP    204 -  210  
+    OTINCP    211 -  217  
+    INCSTP    218 -  218  
+    TENURP    219 -  219  
+    RCONDP    220 -  220  
+    OMPP    221 -  224  
+    GROSRTP    225 -  228  
+    NUHMAINP    229 -  229  
+    PRMAINP    230 -  230  
+    ROOMP    231 -  232  
+    CONDWELP    233 -  233  
+    VALUEP    234 -  239  
+    WEIGHTP    240 -  246  ( 4  )  
+VARIABLE LABELS
+  PROVP  'Province' 
+  CMAPUMFP  'Census Metropolitan Area (CMA)' 
+  HHCLASSP  'Household Classification' 
+  HTYPEP  'Household Type' 
+  UNITSP  'Household Size' 
+  HHINCP  'Total Household Income Groups' 
+  EFSTATP  'Economic Family Status' 
+  EFSIZEP  'Number of persons in the Economic Family' 
+  CFSTATP  'Census Family Status' 
+  CFSIZEP  'Number of Persons in the Census Family' 
+  PRESCHP  'Presence of Nev-Mar. Sons/Daughters at hone in CF' 
+  MSCFINCP  'Major Source of Census Family Income' 
+  CFINCP  'Total Census Family Income Groups' 
+  HHSTATP  'Relationship to Hhld. Ref. Person (Person 1)' 
+  AGEP  'Age' 
+  SEXP  'Sex' 
+  MARSTLP  'Legal Marital Status' 
+  MARSTHP  'Hist. Comp. Indicator of Marital Status' 
+  FERTFHP  'Fertility' 
+  RELIGRP  'Religion' 
+  POBP  'Place of Birth' 
+  CITIZENP  'Citizenship' 
+  IMMPOPP  'Immigrant Status Indicator' 
+  YRIMMIGP  'Year of Immigration' 
+  IMMIAGEP  'Age at Immigration' 
+  ETHNICRP  'Ethnic Origin' 
+  VISMINP  'Visible Minority Indicator' 
+  REGINP  'Registered Indian Indicator' 
+  BNFNMEMP  'Member of an Indian Band or First Nation' 
+  DUETHNCP  'Dutch (Netherlands) Ethnic Origin' 
+  GEETHNCP  'German Ethnic Origin' 
+  HUETHNCP  'Hungarian Ethnic Origin' 
+  POETHNCP  'Polish Ethnic Origin' 
+  UKETHNCP  'Ukrainian Ethnic Origin' 
+  GRETHNCP  'Greek Ethnic Origin' 
+  ITETHNCP  'Italian Ethnic Origin' 
+  PRETHNCP  'Portuguese Ethnic Origin' 
+  SPETHNCP  'Spanish Ethnic Origin' 
+  JEETHNCP  'Jewish Ethnic Origin' 
+  CAETHNCP  'Canadian Ethnic Origin' 
+  CHETHNCP  'Chinese Ethnic Origin' 
+  FIETHNCP  'Filipino Ethnic Origin' 
+  VIETHNCP  'Vietnamese Ethnic Origin' 
+  CBETHNCP  'Black/Caribbean Ethnic Category' 
+  ABETHNCP  'Aboriginal Ethnic Category' 
+  BAETHNCP  'Balkan Ethnic Category' 
+  ARETHNCP  'Arab Ethnic Category' 
+  WAETHNCP  'West Asian Ethnic Category' 
+  SOETHNCP  'South Asian Ethnic Category' 
+  LCETHNCP  'Latin, Central and South American Ethnic Category' 
+  OLNP  'Knowledge of Official Languages' 
+  MTNP  'Mother Tongue' 
+  HLNP  'Home Language' 
+  FOLP  'First Official Language Spoken' 
+  NOLP  'Knowledge of Non-official Languages' 
+  NOLABOP  'Knowledge of an Aboriginal Language' 
+  NOLGERP  'Knowledge of German Language' 
+  NOLNETP  'Knowledge of Netherlandic Languages' 
+  NOLITAP  'Knowledge of Italian Language' 
+  NOLSPAP  'Knowledge of Spanish Language' 
+  NOLPORP  'Knowledge of Portuguese Language' 
+  NOLPOLP  'Knowledge of Polish Language' 
+  NOLUKRP  'Knowledge of Ukrainian Language' 
+  NOLGREP  'Knowledge of Greek Language' 
+  NOLCHIP  'Knowledge of Chinese Language' 
+  NOLVIEP  'Knowledge of Austro-Asiatic Languages' 
+  NOLARAP  'Knowledge of Arabic Language' 
+  NOLPUNP  'Knowledge of Punjabi Language' 
+  NOLIRAP  'Knowledge of Other Indo-Iranian Languages' 
+  SCHATTP  'School Attendance' 
+  HGRADP  'Highest Grade of Elementary/Secondary School' 
+  SECGRADP  'Secondary School Graduation Certificate' 
+  HLOSP  'Highest Level of Schooling' 
+  TRNUCP  'Trades and Other Non-university Certificates' 
+  DGREEP  'Highest Degree, Certificate or Diploma' 
+  DGMFSP  'Major Field of Study' 
+  PSUVP  'Years of University' 
+  PSOTP  'Years of Other Non-university Education' 
+  TOTSCHP  'Total Years of Schooling' 
+  MOB5P  'Mobility Status - 5 Years Ago (Place of Residence)' 
+  MOB1P  'Mobility Status - 1 Year Ago (Place of Residence)' 
+  PROV5P  'Province/Territory of Residence 5 Years Ago' 
+  PROV1P  'Province/Territory of Residence 1 Year Ago' 
+  LFACTP  'Labour Force Activity' 
+  POWP  'Place of Work' 
+  COWP  'Class of Worker' 
+  FPTWKP  'Full-time/Part-time Weeks Worked in 1990' 
+  HRSWKP  'Hours Worked in Reference Week' 
+  LSTWKP  'When Last Worked' 
+  WKSWKP  'Weeks Worked in 1990' 
+  OCC91P  'Occupation (1991 Classification Basis)' 
+  OCC80P  'Occupation (1980 Classification Basis)' 
+  OCC71P  'Occupation (1971 Classification Basis)' 
+  IND80P  'Industry (1980 Standard Industrial Classification)' 
+  IND70P  'Industry (1970 Standard Industrial Classification)' 
+  TOTINCP  'Total Income' 
+  WAGESP  'Wages and Salaries' 
+  SELFIP  'Self-employment Income' 
+  FAMALP  'Family Allowances' 
+  CHDCRP  'Federal Child Tax Credits' 
+  OASGIP  'Old Age Sec. Pension/Guaranteed Inc. Supplement' 
+  CQPPBP  'Canada/Quebec Pension Plan Benefits' 
+  UICBNP  'Unemployment Insurance Benefits' 
+  GOVTIP  'Other Income from Government Sources' 
+  TGOVTP  'Total Government Transfer Payments' 
+  INVSTP  'Investment Income' 
+  RETIRP  'Retirement Pensions/Superannuation/Annuities' 
+  OTINCP  'Other Money Income' 
+  INCSTP  'Income Status (1990 Low Income Cut-offs)' 
+  TENURP  'Tenure' 
+  RCONDP  'Tenure - Condominium' 
+  OMPP  'Owner's Major Payments (Monthly)' 
+  GROSRTP  'Monthly Gross Rent' 
+  NUHMAINP  'Number of Household Maintainers' 
+  PRMAINP  'Primary Household Maintainer Indicator' 
+  ROOMP  'Number of Rooms' 
+  CONDWELP  'Condition of Dwelling' 
+  VALUEP  'Value of Dwelling' 
+  WEIGHTP  'Weight of Individuals' 
+VALUE LABELS
+    PROVP   10  'Newfoundland'
+          11  'Prince Edward Island'
+          12  'Nova Scotia'
+          13  'New Brunswick'
+          24  'Quebec'
+          35  'Ontario'
+          46  'Manitoba'
+          47  'Saskatchewan'
+          48  'Alberta'
+          59  'British Columbia'
+          60  'Yukon/Northwest Territories'
+         /
+    CMAPUMFP   999  'Not applicable'
+          205  'Halifax'
+          421  'Quebec'
+          462  'Montreal'
+          499  'Sherbrooke(433)+Trois-Riv(442)'
+          505  'Ottawa-Hull'
+          532  'Oshawa'
+          535  'Toronto'
+          537  'Hamilton'
+          539  'St. Catharines - Niagara'
+          541  'Kitchener'
+          555  'London'
+          559  'Windsor'
+          599  'Sudbury(580)+Thunder Bay(595)'
+          602  'Winnipeg'
+          799  'Regina(705) + Saskatoon(725)'
+          825  'Calgary'
+          835  'Edmonton'
+          933  'Vancouver'
+          935  'Victoria'
+         /
+    HHCLASSP   1  'Private household'
+          2  'Other households'
+         /
+    HTYPEP   99  'Not applicable'
+          1  'Fam-Oneh-Cou-NowM-wo NMSD-woAP'
+          2  'Fam-Oneh-Cou-NowM-woNMSD-wAP'
+          3  'Fam-Oneh-Cou-NowM-wNMSD-woAP'
+          4  'Fam-Oneh-Cou-NowM-wNMSD-wAP'
+          5  'Fam-Oneh-Cou-CLC-woNMSD-woAP'
+          6  'Fam-Oneh-Cou-CLC-woNMSD-wAP'
+          7  'Fam-Oneh-Cou-CLC-wNMSD-woAP'
+          8  'Fam-Oneh-Cou-CLC-wNMSD-wAP'
+          9  'Fam-Oneh-LoneParent Fam-woAP'
+          10  'Fam-Oneh-LoneParent Fam-wAP'
+          11  'Fam-Multiple family hhld'
+          12  'NonFamily hhld-one person only'
+          13  'NonFamily hhld-2 or more pers.'
+         /
+    UNITSP   8  'Not available'
+          9  'Not applicable'
+          1  'One person'
+          2  'Two persons'
+          3  'Three persons'
+          4  'Four persons'
+          5  'Five persons'
+          6  'Six persons'
+          7  'Seven or more persons'
+         /
+    HHINCP   99  'Not applicable'
+          1  'Loss'
+          2  'No income'
+          3  '$ 1 - $1,999'
+          4  '$2,000 - $4,999'
+          5  '$5,000 - $7,999'
+          6  '$8,000 - $9,999'
+          7  '$10,000 - $14,999'
+          8  '$15,000 - $19,999'
+          9  '$20,000 - $24,999'
+          10  '$25,000 - $29,999'
+          11  '$30,000 - $34,999'
+          12  '$35,000 - $39,999'
+          13  '$40,000 - $44,999'
+          14  '$45,000 - $49,999'
+          15  '$50,000 - $54,999'
+          16  '$55,000 - $59,999'
+          17  '$60,000 - $64,999'
+          18  '$65,000 - $69,999'
+          19  '$70,000 - $74,999'
+          20  '$75,000 - $84,999'
+          21  '$85,000 - $99,999'
+          22  '$100,000 - $119,999'
+          23  'F-all-Atl.M:120K/OtM:=120<150K'
+          24  '$150K-$199999 - Not Atl. males'
+          25  '$200K or more - Not Atl. males'
+         /
+    EFSTATP   9  'Not applicable'
+          1  'EF: EF does not include a CF'
+          2  'EF: EF incl. CF but no add NFP'
+          3  'EF: EF incl. CF plus add. NFPs'
+          4  'EF: EF incl. 2+ CF, no add.per'
+          5  'EF: EF incl. 2+ CF, + add.per'
+          6  'Not an Economic Family member'
+         /
+    EFSIZEP   8  'Not available'
+          9  'Not applicable'
+          1  'Unattached individual'
+          2  'EF:  Two persons'
+          3  'EF:  Three persons'
+          4  'EF:  Four persons'
+          5  'EF:  Five persons'
+          6  'EF:  Six persons'
+          7  'EF:  Seven or more persons'
+         /
+    CFSTATP   99  'Not applicable'
+          1  'CF: Husband'
+          2  'CF: Male common-law partner'
+          3  'CF: Male lone parent'
+          4  'CF: Wife'
+          5  'CF: Female common-law partner'
+          6  'CF: Female lone parent'
+          7  'CF: Never-mar. S/D in H/W fam.'
+          8  'CF: Never-mar. S/D in CL fam.'
+          9  'CF: Never-mar. S/D in MLP fam.'
+          10  'CF: Never-mar. S/D in FLP fam.'
+          11  'NCFP: Living with relatives'
+          12  'NCFP: Living w non-rel. only'
+          13  'NCFPL Living alone'
+         /
+    CFSIZEP   8  'Not available'
+          9  'Not applicable'
+          1  'Non-family persons'
+          2  'CF:  Two persons'
+          3  'CF:  Three persons'
+          4  'CF:  Four persons'
+          5  'CF:  Five persons'
+          6  'CF:  Six persons'
+          7  'CF:  Seven or more persons'
+         /
+    PRESCHP   9  'Not applicable'
+          1  'No never-marr. sons/daughters'
+          2  'At least one < 2, none > 5 yr.'
+          3  '0 < 2 yr, at least 1 2-5, 0 >5'
+          4  'At least one < 6, some > 5 yr'
+          5  'None < 6, at least one 6-14 yr'
+          6  'None < 15, at least one >14 yr'
+         /
+    MSCFINCP   9  'Not applicable'
+          1  'No income'
+          2  'Wages and salaries'
+          3  'Self-employment income'
+          4  'Government transfer payments'
+          5  'Investment income'
+          6  'Other income'
+         /
+    CFINCP   99  'Not applicable'
+          1  'Loss'
+          2  'No income'
+          3  '$ 1 - $1,999'
+          4  '$2,000 - $4,999'
+          5  '$5,000 - $7,999'
+          6  '$8,000 - $9,999'
+          7  '$10,000 - $14,999'
+          8  '$15,000 - $19,999'
+          9  '$20,000 - $24,999'
+          10  '$25,000 - $29,999'
+          11  '$30,000 - $34,999'
+          12  '$35,000 - $39,999'
+          13  '$40,000 - $44,999'
+          14  '$45,000 - $49,999'
+          15  '$50,000 - $54,999'
+          16  '$55,000 - $59,999'
+          17  '$60,000 - $64,999'
+          18  '$65,000 - $69,999'
+          19  '$70,000 - $74,999'
+          20  '$75,000 - $84,999'
+          21  '$85,000 - $99,999'
+          22  '$100,000 - $119,999'
+          23  'F-all-Alt.M:>120K/OtM:120<150'
+          24  '$150K-199999 - Not Atl. males'
+          25  '$200K or more - Not Atl. males'
+         /
+    HHSTATP   1  'Person 1'
+          2  'Pers. 1s spouse/cl partner'
+          3  'Pers. 1s son/daughter'
+          4  'Pers. 1s father/mother'
+          5  'Pers. 1s brother/sister'
+          6  'Pers. 1s son/daughter-in-law'
+          7  'Pers. 1s father/mother-in-law'
+          8  'Pers. 1s bro./sister-in-law'
+          9  'Other relatives of Person 1'
+          10  'Persons not related to Pers. 1'
+         /
+    AGEP   98  'Not available'
+         /
+    SEXP   1  'Female'
+          2  'Male'
+         /
+    MARSTLP   8  'Not available'
+          1  'Divorced'
+          2  'Legally married (& not sep.)'
+          3  'Legally married and separated'
+          4  'Never married (Single)'
+          5  'Widowed'
+         /
+    MARSTHP   8  'Not available'
+          1  'Divorced'
+          2  'Now married'
+          3  'Separated'
+          4  'Never married (single)'
+          5  'Widowed'
+         /
+    FERTFHP   9  'Not applicable'
+          1  'No children ever born'
+          2  'One child'
+          3  'Two children'
+          4  'Three children'
+          5  'Four children'
+          6  'Five children'
+          7  'Six children'
+          8  'Seven or more children'
+         /
+    RELIGRP   98  'Not available'
+          1  'Cath: Roman Catholic'
+          2  'Cath: Other Catholic'
+          3  'Prot: Anglican'
+          4  'Prot: Baptist'
+          5  'Prot: Jehovahs Witnesses'
+          6  'Prot: Lutheran'
+          7  'Prot: Mennonite and Hutterite'
+          8  'Prot: Pentecostal'
+          9  'Prot: Presbyterian'
+          10  'Prot: United Church'
+          11  'Prot: Protestant, n.o.s.'
+          12  'Prot: Other Protestant'
+          13  'East. Ortho: Greek Orthodox'
+          14  'East. Ortho:Oth East. Orthodox'
+          15  'Jewish'
+          16  'East. Non-Christian: Buddhist'
+          17  'East. Non-Christian: Hindu'
+          18  'East. Non-Christian: Islam'
+          19  'East. Non-Christian: Sikh'
+          20  'No Religion'
+          21  'Other'
+          22  'Catholic (Atlan./Terr. only)'
+          23  'Other Prot (Atlan./Terr. only)'
+          24  'Other (Atlan./Terr. only)'
+         /
+    POBP   98  'Not available'
+          1  'Cda: Newfoundland'
+          2  'Cda: Nova Scotia'
+          3  'Cda: New Brunswick'
+          4  'Cda: Quebec'
+          5  'Cda: Ontario'
+          6  'Cda: Manitoba'
+          7  'Cda: Saskatchewan'
+          8  'Cda: Alberta'
+          9  'Cda: British Columbia'
+          10  'Cda: Other province/territory'
+          11  'United States of America'
+          12  'Eur: United Kingdom'
+          13  'Eur: Fed. Republic of Germany'
+          14  'Eur: Italy'
+          15  'Eur: Portugal'
+          16  'Eur: Poland'
+          17  'Eur: U.S.S.R.'
+          18  'Eur: Other Europe'
+          19  'Middle East and Western Asia'
+          20  'Southern Asia'
+          21  'E/SE Asia: Hong Kong'
+          22  'E/SE Asia: P. Repub. of China'
+          23  'E/SE Asia: Philippines'
+          24  'E/SE Asia: Viet Nam'
+          25  'E/SE Asia: Other E/SE Asia'
+          26  'Africa'
+          27  'Central/South America/Carr&Ber'
+          28  'Other'
+          29  'In prov of res (Atl/Terr only)'
+          30  'Out prov res: East (Atl/Terr)'
+          31  'Out prov res: Que (Atl/Terr)'
+          32  'Out prov res: Ont (Atl/Terr)'
+          33  'Out prov res: West (Atl/Terr)'
+          34  'Other Europe (Atl/Terr)'
+          35  'Other (Atlantic/Territorries)'
+         /
+    CITIZENP   8  'Not available'
+          1  'Can. Cit.: Canada by birth'
+          2  'Can. Cit.: Canada by natur.'
+          3  'Not Can.: Country of birth'
+          4  'Not Can.: Other country'
+         /
+    IMMPOPP   8  'Not available'
+          1  'Perm. Residents: Non-immigrant'
+          2  'Perm. Residents: Immigrant'
+          3  'Non-permanent residents'
+         /
+    YRIMMIGP   98  'Not available'
+          99  'Not applicable'
+          1  'Before 1946'
+          2  '1946-50'
+          3  '1951'
+          4  '1952'
+          5  '1953-55'
+          6  '1956'
+          7  '1957'
+          8  '1958-60'
+          9  '1961-62'
+          10  '1963-65'
+          11  '1966'
+          12  '1967'
+          13  '1968-70'
+          14  '1971-72'
+          15  '1973-75'
+          16  '1976-77'
+          17  '1978-79'
+          18  '1980'
+          19  '1981'
+          20  '1982-83'
+          21  '1984-85'
+          22  '1986'
+          23  '1987'
+          24  '1988'
+          25  '1989'
+          26  '1990'
+          27  '1991'
+          28  'Before 1961 (Atlan/Terr only)'
+          29  '1961-70 (Atlan/Terr only)'
+          30  '1971-80 (Atlan/Terr only)'
+          31  '1981-1991 (Atlan./Terr. only)'
+         /
+    IMMIAGEP   98  'Not available'
+          99  'Not applicable'
+          1  '0-4 years'
+          2  '5-9 years'
+          3  '10-14 years'
+          4  '15-19 years'
+          5  '20-24 years'
+          6  '25-29 years'
+          7  '30-34 years'
+          8  '35-39 years'
+          9  '40-44 years'
+          10  '45-49 years'
+          11  '50-54 years'
+          12  '55-59 years'
+          13  '60-64 years'
+          14  '65 years and over'
+         /
+    ETHNICRP   98  'Not available'
+          1  'Sing: British origins'
+          2  'Sing: French origins'
+          3  'Sing: Dutch (Netherlands)'
+          4  'Sing: German'
+          5  'Sing: Other Western European'
+          6  'Sing: Hungarian (Magyar)'
+          7  'Sing: Polish'
+          8  'Sing: Ukrainian'
+          9  'Sing: Balkan origins'
+          10  'Sing: Greek'
+          11  'Sing: Italian'
+          12  'Sing: Portuguese'
+          13  'Sing: Spanish'
+          14  'Sing: Jewish'
+          15  'Sing: Other European origins'
+          16  'Sing: Arab origins'
+          17  'Sing: West Asian origins'
+          18  'Sing: South Asian origins'
+          19  'Sing: Chinese'
+          20  'Sing: Filipino'
+          21  'Sing: Vietnamese'
+          22  'Sing: Other E/SE Asian origins'
+          23  'Sing: Lat./Central/South orig.'
+          24  'Sing: Black/Caribbean origins'
+          25  'Sing: Aboriginl origins'
+          26  'Sing: Canadian'
+          27  'Sing: Other single origins'
+          28  'Mult: British only'
+          29  'Mult: British and French'
+          30  'Mult: British and Other'
+          31  'Mult: French and Other'
+          32  'Mult: British/French/Other'
+          33  'Mult: Canadian and Other'
+          34  'Sing: Other Eur origins (At/T)'
+          35  'Sing: Asian origins (At/T)'
+          36  'Sing: Other sing origins(At/T)'
+         /
+    VISMINP   1  'Member of visible minority'
+          2  'Non-member of visible minority'
+         /
+    REGINP   1  'Registered under Indian Act'
+          2  'Not regist. under Indian Act'
+         /
+    BNFNMEMP   1  'Member of an IB/FN of Canada'
+          2  'Not a member of IB/FN of Can.'
+         /
+    DUETHNCP   8  'Not available'
+          9  'Not applicable'
+          1  'Dutch (Netherlands) single'
+          2  'Dutch (Netherlands) multiple'
+          3  'Other'
+         /
+    GEETHNCP   8  'Not available'
+          1  'German single ethnic origin'
+          2  'German multiple ethnic origin'
+          3  'Other'
+         /
+    HUETHNCP   8  'Not available'
+          9  'Not applicable'
+          1  'Hungarian single ethnic origin'
+          2  'Hungarian mult. ethnic origin'
+          3  'Other'
+         /
+    POETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Polish single ethnic origin'
+          2  'Polish multiple ethnic origin'
+          3  'Other'
+         /
+    UKETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Ukrainian sing. ethnic origin'
+          2  'Ukrainian mult. ethnic origin'
+          3  'Other'
+         /
+    GRETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Greek single ethnic origin'
+          2  'Greek multiple ethnic origin'
+          3  'Other'
+         /
+    ITETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Italian single ethnic origin'
+          2  'Italian multiple ethnic origin'
+          3  'Other'
+         /
+    PRETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Portuguese sing. ethnic origin'
+          2  'Portuguese mult. ethnic origin'
+          3  'Other'
+         /
+    SPETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Spanish single ethnic origin'
+          2  'Spanish multiple ethnic origin'
+          3  'Other'
+         /
+    JEETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Jewish single ethnic origin'
+          2  'Jewish multiple ethnic origin'
+          3  'Other'
+         /
+    CAETHNCP   8  'Not available'
+          1  'Canadian single ethnic origin'
+          2  'Canadian mult. ethnic origin'
+          3  'Other'
+         /
+    CHETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Chinese single ethnic origin'
+          2  'Chinese multiple ethnic origin'
+          3  'Other'
+         /
+    FIETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Filipino single ethnic origin'
+          2  'Filipino mult. ethnic origin'
+          3  'Other'
+         /
+    VIETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Vietnamese sing. ethnic origin'
+          2  'Vietnamese mult. ethnic origin'
+          3  'Other'
+         /
+    CBETHNCP   8  'Not available'
+          1  'Black/Car. single eth. cat.'
+          2  'Black/Car. multiple eth. cat.'
+          3  'Other'
+         /
+    ABETHNCP   8  'Not available'
+          1  'Abor: Sing: NA Indian'
+          2  'Abor: Sing: Other sing. abo.'
+          3  'Abor: Mult: NA Ind. only + oth'
+          4  'Abor: Mult: All other mult abo'
+          5  'Non-aboriginal origins'
+         /
+    BAETHNCP   8  'Not available'
+          9  'Not applicable'
+          1  'Balkan single category'
+          2  'Balkan multiple category'
+          3  'Other'
+         /
+    ARETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Arab single ethnic category'
+          2  'Arab multiple ethnic category'
+          3  'Other'
+         /
+    WAETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'W. Asian sing. ethnic category'
+          2  'W. Asian mult. ethnic category'
+          3  'Other'
+         /
+    SOETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'S. Asian sing. ethnic category'
+          2  'S. Asian mult. ethnic category'
+          3  'Other'
+         /
+    LCETHNCP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Lat/Central/South Amer. single'
+          2  'Lat/Central/South Amer. mult.'
+          3  'Other'
+         /
+    OLNP   1  'English only'
+          2  'French only'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    MTNP   98  'Not available'
+          1  'English single response'
+          2  'French single response'
+          3  'English and French'
+          4  'NOL: Aboriginal languages'
+          5  'NOL: German'
+          6  'NOL: Netherlandic languages'
+          7  'NOL: Italian'
+          8  'NOL: Spanish'
+          9  'NOL: Portuguese'
+          10  'NOL: Polish'
+          11  'NOL: Ukrainian'
+          12  'NOL: Greek'
+          13  'NOL: Chinese'
+          14  'NOL: Austro-Asiatic languages'
+          15  'NOL: Arabic'
+          16  'NOL: Punjabi'
+          17  'NOL: Other Indo-Iran.'
+          18  'NOL: Other'
+          19  'NOL: Other (Atl./Terr. only)'
+         /
+    HLNP   98  'Not available'
+          1  'English single response'
+          2  'French single response'
+          3  'English and French'
+          4  'NOL: Aboriginal languages'
+          5  'NOL: German'
+          6  'NOL: Italian'
+          7  'NOL: Spanish'
+          8  'NOL: Portuguese'
+          9  'NOL: Polish'
+          10  'NOL: Chinese'
+          11  'NOL: Austro-Asiatic languages'
+          12  'NOL: Arabic'
+          13  'NOL: Punjabi'
+          14  'NOL: Other Indo-Iran.'
+          15  'NOL: Other'
+          16  'NOL: Other (Atl./Terr. only)'
+         /
+    FOLP   1  'English first spoken'
+          2  'French first spoken'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    NOLP   1  'One non-off/lang. known'
+          2  'Two non-off/lang. known'
+          3  'Three non-off/lang. known'
+          4  'No non-off/lang. known'
+         /
+    NOLABOP   8  'Not available'
+          1  'Aboriginal language known'
+          2  'Aboriginal language unknown'
+         /
+    NOLGERP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'German language known'
+          2  'German language unknown'
+         /
+    NOLNETP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Netherlandic language known'
+          2  'Netherlandic language unknown'
+         /
+    NOLITAP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Italian language known'
+          2  'Italian language unknown'
+         /
+    NOLSPAP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Spanish language known'
+          2  'Spanish language unknown'
+         /
+    NOLPORP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Portuguese language known'
+          2  'Portuguese language unknown'
+         /
+    NOLPOLP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Polish language known'
+          2  'Polish language unknown'
+         /
+    NOLUKRP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Ukrainiann language known'
+          2  'Ukrainian language unknown'
+         /
+    NOLGREP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Greek language known'
+          2  'Greek language unknown'
+         /
+    NOLCHIP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Chinese language known'
+          2  'Chinese language unknown'
+         /
+    NOLVIEP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Austro-Asiatic lang. known'
+          2  'Austro-Asiatic lang. unknown'
+         /
+    NOLARAP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Arabic language known'
+          2  'Arabic language unknown'
+         /
+    NOLPUNP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Punjabi language known'
+          2  'Punjabi language unknown'
+         /
+    NOLIRAP   8  'Not available'
+          9  'Not app. (Atl./Terr. only)'
+          1  'Other Indo-Iran. lang. known'
+          2  'Other Indo-Iran. lang. unknown'
+         /
+    SCHATTP   9  'Not applicable'
+          1  'Did not attend in past 9 mths.'
+          2  'Attended FT in past 9 months'
+          3  'Attended PT in past 9 months'
+         /
+    HGRADP   9  'Not applicable'
+          1  'Less than grade 5'
+          2  'Grades 5-8'
+          3  'Grade 9'
+          4  'Grade 10'
+          5  'Grade 11'
+          6  'Grade 12'
+          7  'Grade 13'
+         /
+    SECGRADP   9  'Not applicable'
+          1  'WO sec.- WO further trng'
+          2  'WO sec.- W +trng: trades'
+          3  'WO sec. - W +trng: other'
+          4  'W sec. - WO further trng'
+          5  'W sec. - W further trng'
+         /
+    HLOSP   98  'Not available'
+          99  'Not applicable'
+          1  'Elem/Sec.: Less than grade 5'
+          2  'Elem/Sec.: Grades 5-8'
+          3  'Elem/Sec.: Grades 9-13'
+          4  'E/S: Sec. school grad. cert.'
+          5  'E/S: Trades cert. or diploma'
+          6  'Oth non-univ: WO trades or oth'
+          7  'Oth non-univ: W trades cert.'
+          8  'Oth non-univ: w other non-univ'
+          9  'Univ: WO cert., diploma or deg'
+          10  'Univ: W univ/other cert/dipl.'
+          11  'Univ: W bach. or 1st prof. deg'
+          12  'Univ: W cert./diploma above BA'
+          13  'Univ: W masters degree(s)'
+          14  'Univ: W earned doctorate'
+         /
+    TRNUCP   9  'Not applicable'
+          1  'Neither trades/other non-univ'
+          2  'Trades cert. only, WO sec.cert'
+          3  'Other non-univ, WO sec.cert'
+          4  'Both tr/oth non-univ, WO sec.'
+          5  'Trades cert. only, W sec.cert'
+          6  'Other non-univ, W sec.cert'
+          7  'Both tr/oth non-univ, W sec.'
+         /
+    DGREEP   98  'Not available'
+          99  'Not applicable'
+          1  'No deg., cert. or diploma'
+          2  'Sec. school grad. cert. or equ'
+          3  'Trades certificate or diploma'
+          4  'Other non-univ. cert/diploma'
+          5  'Univ. cert/diploma < bachelor'
+          6  'Bachelor degree(s)'
+          7  'Univ. cert/diploma > bachelor'
+          8  'Deg. in med/dent/vet/optometry'
+          9  'Masters degree(s)'
+          10  'Earned doctorate'
+         /
+    DGMFSP   99  'Not applicable'
+          1  'Educ/recreation/counselling'
+          2  'Fine and applied arts'
+          3  'Humanities and related'
+          4  'Social sciences and related'
+          5  'Commerce/managt./business adm.'
+          6  'Secreterial science'
+          7  'Agri/bio. sciences/tech.'
+          8  'Engineering/applied sciences'
+          9  'Engi/app. science tech/trades'
+          10  'Nursing and nursing assistance'
+          11  'Other health prof/sci/tech'
+          12  'Mathematics/physical sciences'
+          13  'All other'
+          14  'No postsecondary qualification'
+         /
+    PSUVP   9  'Not applicable'
+          0  'None'
+          1  '< than 1 yr of comp. courses'
+          2  '1 year'
+          3  '2 years'
+          4  '3 years'
+          5  '4 years'
+          6  '5 years'
+          7  '6 years or more'
+         /
+    PSOTP   9  'Not applicable'
+          0  'None'
+          1  '< than 1 yr completed courses'
+          2  '1 year'
+          3  '2 years'
+          4  '3 years'
+          5  '4 years or more'
+         /
+    TOTSCHP   99  'Not applicable'
+          1  'Never or kindergarten only'
+          2  '1-4 years of schooling'
+          3  '5-8 years of schooling'
+          4  '9 years of schooling'
+          5  '10 years of schooling'
+          6  '11 years of schooling'
+          7  '12 years of schooling'
+          8  '13 years of schooling'
+          9  '14-17 years of schooling'
+          10  '18 or more years of schooling'
+         /
+    MOB5P   9  'Not applicable'
+          1  'Non-movers'
+          2  'IM: Intraprovincial: Non-mig.'
+          3  'IM: Intrapro: Dif.CSD, same CD'
+          4  'IM: Intrapro, Dif.CD, same pro'
+          5  'IM: Interprovincial migrants'
+          6  'External migrants'
+         /
+    MOB1P   9  'Not applicable'
+          1  'Non-movers'
+          2  'Intraprovincial movers'
+          3  'Interprovincial movers'
+          4  'External migrants'
+         /
+    PROV5P   99  'Not applicable'
+          1  'Lived in Nfld. 5 years ago'
+          2  'Lived in P.E.I. 5 years ago'
+          3  'Lived in N.S. 5 years ago'
+          4  'Lived in N.B. 5 years ago'
+          5  'Lived in Quebec 5 years ago'
+          6  'Lived in Ontario 5 years ago'
+          7  'Lived in Man. 5 years ago'
+          8  'Lived in Sask. 5 years ago'
+          9  'Lived in Alberta 5 years ago'
+          10  'Lived in B.C. 5 years ago'
+          11  'Lived in YT/NWT 5 years ago'
+         /
+    PROV1P   99  'Not applicable'
+          1  'Lived in Nfld. 1 year ago'
+          2  'Lived in P.E.I. 1 year ago'
+          3  'Lived in N.S. 1 year ago'
+          4  'Lived in N.B. 1 year ago'
+          5  'Lived in Quebec 1 year ago'
+          6  'Lived in Ontario 1 year ago'
+          7  'Lived in Manitoba 1 year ago'
+          8  'Lived in Sask. 1 year ago'
+          9  'Lived in Alberta 1 year ago'
+          10  'Lived in B.C. 1 year ago'
+          11  'Lived in YT/NWT 1 year ago'
+         /
+    LFACTP   98  'Not available'
+          99  'Not applicable'
+          1  'Employed - Worked'
+          2  'Employed - Absent'
+          3  'Unemp. Lay-off - Did not look'
+          4  'Unemp. Lay-off - Looked for FT'
+          5  'Unemp. Lay-off - Looked for PT'
+          6  'Unemp. New job - Did not look'
+          7  'Unemp. New job - Looked for FT'
+          8  'Unemp. New job - Looked for PT'
+          9  'Unemp. Looked for FT work'
+          10  'Unemp. Looked for PT work'
+          11  'Not in LF - Last worked 1991'
+          12  'Not in LF - Last worked 1990'
+          13  'Not in LF - Last worked < 1990'
+          14  'Not in LF - Never worked'
+         /
+    POWP   9  'Not applicable'
+          1  'Worked at home'
+          2  'Usual POW in same CSD as resid'
+          3  'Usual POW in dif. CSD same P/T'
+          4  'Usual POW dif., CSD. dif. P/T'
+          5  'Worked outside Canada'
+          6  'No usual place of work (POW)'
+         /
+    COWP   9  'Not applicable'
+          1  'Pd workers/unpd fam. workers'
+          2  'Pd workers (self-emp. incorp.)'
+          3  'Sel-emp. wo paid help unincor.'
+          4  'Self-emp. with paid help uninc'
+         /
+    FPTWKP   9  'Not applicable'
+          1  'Worked mainly FT weeks in 1990'
+          2  'Worked mainly PT weeks in 1990'
+         /
+    HRSWKP   998  'Not available'
+          999  'Not applicable'
+         /
+    LSTWKP   9  'Not applicable'
+          1  'Before 1990'
+          2  'In 1990'
+          3  'In 1991'
+          4  'Never worked in lifetime'
+         /
+    WKSWKP   99  'Not applicable'
+         /
+    OCC91P   99  'Not applicable'
+          1  'Sr. managers (Skill level IV)'
+          2  'Middle and oth. (SL IV)'
+          3  'Professionals (SL IV)'
+          4  'Semi-prof. & tech. (SL III)'
+          5  'Supervisors (SL III)'
+          6  'FOremen/women (SL III)'
+          7  'Adm. & Sr. clerical (SL III)'
+          8  'Sales/Service (SL III)'
+          9  'Skilled crafts/trades (SL III)'
+          10  'Clerical workers (SL II)'
+          11  'Sales and Service (SL II)'
+          12  'Semi-skilled manual (SL II)'
+          13  'Sales/Service (SL I)'
+          14  'Other manual workers (SL I)'
+         /
+    OCC80P   99  'Not applicable'
+          1  'Managerial/adm. and related'
+          2  'Nat. sciences/engi/mathematics'
+          3  'Soc. sciences and related'
+          4  'Teaching and related occ.'
+          5  'Occ. in medicine and health'
+          6  'Art./literary/recre. and rel.'
+          7  'Clerical and related occ.'
+          8  'Sales occupations'
+          9  'Service occupations'
+          10  'Farm./hort. and animal husb.'
+          11  'Other primary occupations'
+          12  'Processing occupations'
+          13  'Machin/fabric/assemb/repairing'
+          14  'Construction trades occ.'
+          15  'Transp. equip. operating occ.'
+          16  'Other occupations'
+         /
+    OCC71P   99  'Not applicable'
+          1  'Managerial/adm. and related'
+          2  'Nat. sciences/engi/mathematics'
+          3  'Soc. sciences and related'
+          4  'Teaching and related occ.'
+          5  'Occ. in medicine and health'
+          6  'Art./literary/recre. and rel.'
+          7  'Clerical and related occ.'
+          8  'Sales occupations'
+          9  'Service occupations'
+          10  'Farm./hort. and animal husb.'
+          11  'Other primary occupations'
+          12  'Processing occupations'
+          13  'Machin/fabric/assemb/repairing'
+          14  'Construction trades occ.'
+          15  'Transp. equip. operating occ.'
+          16  'Other occupations'
+          17  'Occupation not stated'
+         /
+    IND80P   99  'Not applicable'
+          1  'Agriculture'
+          2  'Other primary industries'
+          3  'Manufacturing'
+          4  'Construction'
+          5  'Transportation and storage'
+          6  'Communication/other utilities'
+          7  'Wholesale trade'
+          8  'Retail trade'
+          9  'Finance, ins. and real estate'
+          10  'Business services'
+          11  'Govt. services:  Federal'
+          12  'Govt. services:  Other'
+          13  'Educational services'
+          14  'Health and social services'
+          15  'Accom/food/beverage services'
+          16  'Other services'
+         /
+    IND70P   99  'Not applicable'
+          1  'Agriculture'
+          2  'Other primary industries'
+          3  'Manufacturing'
+          4  'Construction'
+          5  'Transportation and storage'
+          6  'Communication/other utilities'
+          7  'Wholesale trade'
+          8  'Retail trade'
+          9  'Finance, ins. and real estate'
+          10  'Services to bus. mgt.'
+          11  'Pubadm/Defence:  Federal adm.'
+          12  'Pubadm/Def:  Other public adm'
+          13  'Education and related services'
+          14  'Health and welfare services'
+          15  'Accommodation/food services'
+          16  'Other services'
+          17  'Ind. unspecified or undefined'
+         /
+    TOTINCP   9999999  'Not applicable'
+         /
+    WAGESP   9999999  'Not applicable'
+         /
+    SELFIP   9999999  'Not applicable'
+         /
+    FAMALP   9999999  'Not applicable'
+         /
+    CHDCRP   9999999  'Not applicable'
+         /
+    OASGIP   9999999  'Not applicable'
+         /
+    CQPPBP   9999999  'Not applicable'
+         /
+    UICBNP   9999999  'Not applicable'
+         /
+    GOVTIP   9999999  'Not applicable'
+         /
+    TGOVTP   9999999  'Not applicable'
+         /
+    INVSTP   9999999  'Not applicable'
+         /
+    RETIRP   9999999  'Not applicable'
+         /
+    OTINCP   9999999  'Not applicable'
+         /
+    INCSTP   9  'Not applicable'
+          1  'Total Income not below LICO'
+          2  'Total Income was below LICO'
+         /
+    TENURP   9  'Not applicable'
+          1  'Owned (with or without mort.)'
+          2  'Rented-cash/other or band hsg.'
+         /
+    RCONDP   9  'Not applicable'
+          1  'Condominium'
+          2  'Not a condominium'
+         /
+    OMPP   9999  'Not applicable'
+         /
+    GROSRTP   9999  'Not applicable'
+         /
+    NUHMAINP   9  'Not applicable'
+          1  'One maintainer in the hhld.'
+          2  'Two maintainers in the hhld.'
+          3  'Three or more maintainers'
+         /
+    PRMAINP   9  'Not applicable'
+          1  'Primary household maintainer'
+          2  'Not primary hhld. maintainer'
+         /
+    ROOMP   99  'Not applicable'
+          1  '1 room'
+          2  '2 rooms'
+          3  '3 rooms'
+          4  '4 rooms'
+          5  '5 rooms'
+          6  '6 rooms'
+          7  '7 rooms'
+          8  '8 rooms'
+          9  '9 rooms'
+          10  '10 or more rooms'
+         /
+    CONDWELP   9  'Not applicable'
+          1  'Only regular maint. needed'
+          2  'Minor repairs needed'
+          3  'Major repairs needed'
+         /
+    VALUEP   999999  'Not applicable'
+         /
+MISSING VALUES  CMAPUMFP  ( 999 )/
+                HTYPEP  ( 99 )/
+                UNITSP  ( 9,8 )/
+                HHINCP  ( 99 )/
+                EFSTATP  ( 9 )/
+                EFSIZEP  ( 9,8 )/
+                CFSTATP  ( 99 )/
+                CFSIZEP  ( 9,8 )/
+                PRESCHP  ( 9 )/
+                MSCFINCP  ( 9 )/
+                CFINCP  ( 99 )/
+                AGEP  ( 98 )/
+                MARSTLP  ( 8 )/
+                MARSTHP  ( 8 )/
+                FERTFHP  ( 9 )/
+                RELIGRP  ( 98 )/
+                POBP  ( 98 )/
+                CITIZENP  ( 8 )/
+                IMMPOPP  ( 8 )/
+                YRIMMIGP  ( 98,99 )/
+                IMMIAGEP  ( 99,98 )/
+                ETHNICRP  ( 98 )/
+                DUETHNCP  ( 8,9 )/
+                GEETHNCP  ( 8 )/
+                HUETHNCP  ( 8,9 )/
+                POETHNCP  ( 8,9 )/
+                UKETHNCP  ( 8,9 )/
+                GRETHNCP  ( 8,9 )/
+                ITETHNCP  ( 8,9 )/
+                PRETHNCP  ( 8,9 )/
+                SPETHNCP  ( 8,9 )/
+                JEETHNCP  ( 8,9 )/
+                CAETHNCP  ( 8 )/
+                CHETHNCP  ( 8,9 )/
+                FIETHNCP  ( 8,9 )/
+                VIETHNCP  ( 8,9 )/
+                CBETHNCP  ( 8 )/
+                ABETHNCP  ( 8 )/
+                BAETHNCP  ( 8,9 )/
+                ARETHNCP  ( 8,9 )/
+                WAETHNCP  ( 8,9 )/
+                SOETHNCP  ( 8,9 )/
+                LCETHNCP  ( 8,9 )/
+                MTNP  ( 98 )/
+                HLNP  ( 98 )/
+                NOLABOP  ( 8 )/
+                NOLGERP  ( 8,9 )/
+                NOLNETP  ( 8,9 )/
+                NOLITAP  ( 8,9 )/
+                NOLSPAP  ( 8,9 )/
+                NOLPORP  ( 8,9 )/
+                NOLPOLP  ( 8,9 )/
+                NOLUKRP  ( 8,9 )/
+                NOLGREP  ( 8,9 )/
+                NOLCHIP  ( 8,9 )/
+                NOLVIEP  ( 8,9 )/
+                NOLARAP  ( 8,9 )/
+                NOLPUNP  ( 8,9 )/
+                NOLIRAP  ( 8,9 )/
+                SCHATTP  ( 9 )/
+                HGRADP  ( 9 )/
+                SECGRADP  ( 9 )/
+                HLOSP  ( 98,99 )/
+                TRNUCP  ( 9 )/
+                DGREEP  ( 98,99 )/
+                DGMFSP  ( 99 )/
+                PSUVP  ( 9 )/
+                PSOTP  ( 9 )/
+                TOTSCHP  ( 99 )/
+                MOB5P  ( 9 )/
+                MOB1P  ( 9 )/
+                PROV5P  ( 99 )/
+                PROV1P  ( 99 )/
+                LFACTP  ( 99,98 )/
+                POWP  ( 9 )/
+                COWP  ( 9 )/
+                FPTWKP  ( 9 )/
+                HRSWKP  ( 998,999 )/
+                LSTWKP  ( 9 )/
+                WKSWKP  ( 99 )/
+                OCC91P  ( 99 )/
+                OCC80P  ( 99 )/
+                OCC71P  ( 99 )/
+                IND80P  ( 99 )/
+                IND70P  ( 99 )/
+                TOTINCP  ( 9999999 )/
+                WAGESP  ( 9999999 )/
+                SELFIP  ( 9999999 )/
+                FAMALP  ( 9999999 )/
+                CHDCRP  ( 9999999 )/
+                OASGIP  ( 9999999 )/
+                CQPPBP  ( 9999999 )/
+                UICBNP  ( 9999999 )/
+                GOVTIP  ( 9999999 )/
+                TGOVTP  ( 9999999 )/
+                INVSTP  ( 9999999 )/
+                RETIRP  ( 9999999 )/
+                OTINCP  ( 9999999 )/
+                INCSTP  ( 9 )/
+                TENURP  ( 9 )/
+                RCONDP  ( 9 )/
+                OMPP  ( 9999 )/
+                GROSRTP  ( 9999 )/
+                NUHMAINP  ( 9 )/
+                PRMAINP  ( 9 )/
+                ROOMP  ( 99 )/
+                CONDWELP  ( 9 )/
+                VALUEP  ( 999999 )/
+SAVE OUTFILE=OUT
+EXECUTE
+

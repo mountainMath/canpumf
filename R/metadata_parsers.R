@@ -1607,6 +1607,17 @@ pumf_parse_metadata <- function(version_dir,
     stop("No parseable metadata files found in: ", version_dir)
   }
 
+  # If the registry supplies a bundled English command file (for surveys like
+  # 1991 Census where the downloaded XMF is French-only), promote the bundled
+  # file to eng and demote the downloaded file to fra.
+  reg <- pumf_registry_lookup(basename(dirname(version_dir)),
+                               basename(version_dir))
+  if (!is.null(reg$bundled_eng_sps) && !is.null(formats$spss_mono)) {
+    bundled <- system.file("extdata", reg$bundled_eng_sps, package = "canpumf")
+    if (nchar(bundled) > 0L && file.exists(bundled))
+      formats$spss_mono <- list(eng = bundled, fra = formats$spss_mono$eng)
+  }
+
   # Encoding helpers: NULL means "use parser default".
   enc_spss <- metadata_encoding  %||%  "Latin1"
   # LFS codebook is always CP1252 regardless of metadata_encoding.

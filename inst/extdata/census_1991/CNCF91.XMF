@@ -1,0 +1,1383 @@
+
+// JOB
+/*SERVICE ?
+/*ROUTE PRINT RMT402
+//  EXEC SPSSX
+//IN  DD DSN=
+//OUT  DD DSN=
+//SYSIN  DD *
+DATA LIST   FILE=IN RECORDS=1/
+    PROV      1 -    2  
+    CMAPUMF      3 -    5  
+    CSDPUMF      6 -    9  
+    CFTYPE     10 -   10  
+    CFSTRUC     11 -   11  
+    CFSIZE     12 -   12  
+    NUCHILD     13 -   13  
+    PRESCHF     14 -   14  
+    CHILDA     15 -   15  
+    CHILDB     16 -   16  
+    CHILDC     17 -   17  
+    CHILDD     18 -   18  
+    CHILDE     19 -   19  
+    TOTALC     20 -   26  
+    NUCFINC     27 -   27  
+    NUCFEMPI     28 -   28  
+    WAGESC     29 -   35  
+    SELFIC     36 -   42  
+    FACTC     43 -   49  
+    OASGIC     50 -   56  
+    CQPPBC     57 -   63  
+    UICBNC     64 -   70  
+    OTRTC     71 -   77  
+    TGRTC     78 -   84  
+    INVSTC     85 -   91  
+    RETIRC     92 -   98  
+    OTINCC     99 -  105  
+    CFLOINC    106 -  106  
+    TOTALM    107 -  113  
+    TOTALF    114 -  120  
+    WAGEM    121 -  127  
+    WAGEF    128 -  134  
+    SELFM    135 -  141  
+    SELFF    142 -  148  
+    FACTM    149 -  155  
+    FACTF    156 -  162  
+    OASGM    163 -  169  
+    OASGF    170 -  176  
+    CQPPM    177 -  183  
+    CQPPF    184 -  190  
+    UICBM    191 -  197  
+    UICBF    198 -  204  
+    OTRTM    205 -  211  
+    OTRTF    212 -  218  
+    TGRTM    219 -  225  
+    TGRTF    226 -  232  
+    INVSTM    233 -  239  
+    INVSTF    240 -  246  
+    RETIRM    247 -  253  
+    RETIRF    254 -  260  
+    OTINCM    261 -  267  
+    OTINCF    268 -  274  
+    AGEM    275 -  276  
+    AGEF    277 -  278  
+    MARSTLM    279 -  279  
+    MARSTLF    280 -  280  
+    MARSTHM    281 -  281  
+    MARSTHF    282 -  282  
+    FERTILIT    283 -  284  
+    POBM    285 -  285  
+    POBF    286 -  286  
+    CITZM    287 -  287  
+    CITZF    288 -  288  
+    IMMSTATM    289 -  289  
+    IMMSTATF    290 -  290  
+    YRIMMM    291 -  292  
+    YRIMMF    293 -  294  
+    ETHNICM    295 -  296  
+    ETHNICF    297 -  298  
+    OLNM    299 -  299  
+    OLNF    300 -  300  
+    OLNC    301 -  301  
+    MTNM    302 -  302  
+    MTNF    303 -  303  
+    MTNC    304 -  304  
+    HLNM    305 -  305  
+    HLNF    306 -  306  
+    HLNC    307 -  307  
+    FOLM    308 -  308  
+    FOLF    309 -  309  
+    FOLC    310 -  310  
+    NOLM    311 -  311  
+    NOLF    312 -  312  
+    NOLC    313 -  313  
+    SCHATTM    314 -  314  
+    SCHATTF    315 -  315  
+    HGRADM    316 -  316  
+    HGRADF    317 -  317  
+    SECGRADM    318 -  318  
+    SECGRADF    319 -  319  
+    HLOSM    320 -  321  
+    HLOSF    322 -  323  
+    TRNUCM    324 -  324  
+    TRNUCF    325 -  325  
+    DGMFSM    326 -  327  
+    DGMFSF    328 -  329  
+    TOTSCHM    330 -  331  
+    TOTSCHF    332 -  333  
+    MOB5M    334 -  334  
+    MOB5F    335 -  335  
+    MOB1M    336 -  336  
+    MOB1F    337 -  337  
+    LFACTM    338 -  339  
+    LFACTF    340 -  341  
+    POWM    342 -  342  
+    POWF    343 -  343  
+    COWM    344 -  344  
+    COWF    345 -  345  
+    FPTWKM    346 -  346  
+    FPTWKF    347 -  347  
+    HRSWKM    348 -  350  
+    HRSWKF    351 -  353  
+    LSTWKM    354 -  354  
+    LSTWKF    355 -  355  
+    WKSWKM    356 -  357  
+    WKSWKF    358 -  359  
+    OCC91M    360 -  361  
+    OCC91F    362 -  363  
+    OCC80M    364 -  365  
+    OCC80F    366 -  367  
+    OCC71M    368 -  369  
+    OCC71F    370 -  371  
+    IND80M    372 -  373  
+    IND80F    374 -  375  
+    IND70M    376 -  377  
+    IND70F    378 -  379  
+    TENUREC    380 -  380  
+    RCONDFC    381 -  381  
+    MORGC    382 -  382  
+    OMPC    383 -  386  
+    GROSRTC    387 -  390  
+    NSTIENC    391 -  391  
+    HMAINM    392 -  392  
+    HMAINF    393 -  393  
+    ROOMC    394 -  395  
+    RPAIRC    396 -  396  
+    VALUEC    397 -  402  
+    WEIGHTC    403 -  409  ( 4  )  
+VARIABLE LABELS
+  PROV  'Province' 
+  CMAPUMF  'Census Metropolitan Area (CMA)' 
+  CSDPUMF  'Census Subdivision (CSD)' 
+  CFTYPE  'Census Family Type' 
+  CFSTRUC  'Census Family Structure' 
+  CFSIZE  'Number of Persons in Census Family' 
+  NUCHILD  'Number of Never-married S/D in CF at Home' 
+  PRESCHF  'Presence/Dist. of NevMar. S/D for W/FCLP/FLP in CF' 
+  CHILDA  'No. of NevMar S/D in CF at Home < 6 Years of Age' 
+  CHILDB  'No. of NevMar S/D in CF at Home 6-14 Years of Age' 
+  CHILDC  'No. of NevMar S/D in CF at Home 15-17 Years of Age' 
+  CHILDD  'No. of NevMar S/D in CF at Home 18-24 Years of Age' 
+  CHILDE  'No. of NevMar S/D in CF at Home 25 Years or Over' 
+  TOTALC  'Total Income of CF or Non-family Person' 
+  NUCFINC  'No. of Income Recipients in CF or Non-family Pers.' 
+  NUCFEMPI  'No. of Employment Inc. Recipients in CF or Non-FP' 
+  WAGESC  'Wages and Salaries of CF or Non-family Person' 
+  SELFIC  'Self-employment Income of CF or Non-family Person' 
+  FACTC  'Family All. and Child Tax Credits of CF or NFP' 
+  OASGIC  'OASGIS of CF or Non-family Person' 
+  CQPPBC  'Canada/Quebec PP Benefits of CF or Non-fam. Person' 
+  UICBNC  'Benefits from UI of CF or Non-family Person' 
+  OTRTC  'Other Inc. from Govt. Sources of CF or NonFam Per.' 
+  TGRTC  'Total Govt. Transfer Payments of CF or NonFam Per.' 
+  INVSTC  'Investment Income of CF or Non-family Person' 
+  RETIRC  'Retir Pen., Superann. and Annuit. of CF or NF Per.' 
+  OTINCC  'Other Money Income of CF or Non-family Person' 
+  CFLOINC  'Income Status (86 LICO) of CF or NonFam Person' 
+  TOTALM  'Total Income of H/MCLP/MLP in CF' 
+  TOTALF  'Total Income of W/FCLP/FLP in CF' 
+  WAGEM  'Wages and Salaries of H/MCLP/MLP in CF' 
+  WAGEF  'Wages and Salaries of W/FCLP/FLP in CF' 
+  SELFM  'Self-employment Income of H/MCLP/MLP in CF' 
+  SELFF  'Self-employment Income of W/FCLP/FLP in CF' 
+  FACTM  'Fam All. and Child Tax Crts. of H/MCLP/MLP in CF' 
+  FACTF  'Fam All. and Child Tax Crts. of W/FCLP/FLP in CF' 
+  OASGM  'OAS Pension and GIS of H/MCLP/MLP in CF' 
+  OASGF  'OAS Pension and GIS of W/FCLP/FLP in CF' 
+  CQPPM  'Benefits from C/QPP of H/MCLP/MLP in CF' 
+  CQPPF  'Benefits from C/QPP of W/FCLP/FLP in CF' 
+  UICBM  'Benefits from UI of H/MCLP/MLP in CF' 
+  UICBF  'Benefits from UI of W/FCLP/FLP in CF' 
+  OTRTM  'Other Income from Gov. Sources of H/MCLP/MLP in CF' 
+  OTRTF  'Other Income from Gov. Sources of W/FCLP/FLP in CF' 
+  TGRTM  'Total Govt. Transfer Payments of H/MCLP/MLP in CF' 
+  TGRTF  'Total Govt. Transfer Payments of W/FCLP/FLP in CF' 
+  INVSTM  'Investment Income of H/MCLP/MLP in CF' 
+  INVSTF  'Investment Income of W/FCLP/FLP in CF' 
+  RETIRM  'Ret. Pensions, Super. & Annui. of H/MCLP/MLP in CF' 
+  RETIRF  'Ret. Pensions, Super. & Annui. of W/FCLP/FLP in CF' 
+  OTINCM  'Other Money Income of H/MCLP/MLP in CF' 
+  OTINCF  'Other Money Income of W/FCLP/FLP in CF' 
+  AGEM  'Age of H/MCLP/MLP/Male NF Person (85=85+)' 
+  AGEF  'Age of W/FCLP/FLP/Female NF Person (85=85+)' 
+  MARSTLM  'Legal Marital Status of MCLP/MLP or Male NF Person' 
+  MARSTLF  'Legal Marital Status of FCLP/FLP or Fem. NF Person' 
+  MARSTHM  'Hist. Comp. Ind. of Marstat for H/MCLP/MLP or MNFP' 
+  MARSTHF  'Hist. Comp. Ind. of Marstat for W/FCLP/FLP or FNFP' 
+  FERTILIT  'No. of Children Ever Born to W/FCLP/FLP or FNFP' 
+  POBM  'Place of Birth of H/MCLP/MLP or Male NF Person' 
+  POBF  'Place of Birth of W/FCLP/FLP or Female NF Person' 
+  CITZM  'Cit. Status of H/MCLP/MLP or Male NF Person' 
+  CITZF  'Cit. Status of W/FCLP/FLP or Female NF Person' 
+  IMMSTATM  'Imm. Status of H/MCLP/MLP or Male NF Person' 
+  IMMSTATF  'Imm. Status of W/FCLP/FLP or Female NF Person' 
+  YRIMMM  'Year of Imm. of H/MCLP/MLP or Male NF Person' 
+  YRIMMF  'Year of Imm. of W/FCLP/FLP or Female NF Person' 
+  ETHNICM  'Ethnic Origin of H/MCLP/MLP or Male NF Person' 
+  ETHNICF  'Ethnic Origin of W/FCLP/FLP or Female NF Person' 
+  OLNM  'Official Language of H/MCLP/MLP or Male NF Person' 
+  OLNF  'Official Language of W/FCLP/FLP or Fem. NF Person' 
+  OLNC  'Official Language of Children at Home' 
+  MTNM  'Mother Tongue of H/MCLP/MLP or Male NF Person' 
+  MTNF  'Mother Tongue of W/FCLP/FLP or Female NF Person' 
+  MTNC  'Mother Tongue of Children at Home' 
+  HLNM  'Home Language of H/MCLP/MLP or Male NF Person' 
+  HLNF  'Home Language of W/FCLP/FLP or Female NF Person' 
+  HLNC  'Home Language of Children at Home' 
+  FOLM  'First Official Language Spoken of H/MCLP/MLP/MNFP' 
+  FOLF  'First Official Language Spoken of W/FCLP/FLP/FNFP' 
+  FOLC  'First Official Language of Children at Home' 
+  NOLM  'Knowl. of Non-off/Lang by Husband/MCLP/MLP/MNFM' 
+  NOLF  'Knowl. of Non-off/Lang by Wife/FCLP/FLP/FNFP' 
+  NOLC  'Knowl. of Non-off/Lang by Children at Home' 
+  SCHATTM  'School Attendance of H/MCLP/MLP or Male NF Person' 
+  SCHATTF  'School Attendance of W/FCLP/FLP or Fem. NF Person' 
+  HGRADM  'Highest Grade Elem/Sec. of H/MCLP/MLP/MNF Person' 
+  HGRADF  'Highest Grade Elem/Sec. of W/FCLP/FLP/FNF Person' 
+  SECGRADM  'Sec. School Grad. Cert. of H/MCLP/MLP/Male NFP' 
+  SECGRADF  'Sec. School Grad. Cert. of W/FCLP/FLP/Fem. NFP' 
+  HLOSM  'Highest Level of Sch. of H/MCLP/MLP or Male NFP' 
+  HLOSF  'Highest Level of Sch. of W/FCLP/FLP or Fem. NFP' 
+  TRNUCM  'Trades/Other Non-univ. Cert. of H/MCLP/MLP/MNFP' 
+  TRNUCF  'Trades/Other Non-univ. Cert. of W/FCLP/FLP/FNFP' 
+  DGMFSM  'Major Field of Study of H/MCLP/MLP or Male NFP' 
+  DGMFSF  'Major Field of Study of W/FCLP/FLP or Female NFP' 
+  TOTSCHM  'Total Years of Schooling of H/MCLP/MLP or Male NFP' 
+  TOTSCHF  'Total Years of Schooling of W/FCLP/FLP or Fem. NFP' 
+  MOB5M  'Mobility Status - 5 Years Ago of H/MCLP/MLP/MNFP' 
+  MOB5F  'Mobility Status - 5 Years Ago of W/FCLP/FLP/FNFP' 
+  MOB1M  'Mobility Status - 1 Year Ago of H/MCLP/MLP/MNFP' 
+  MOB1F  'Mobility Status - 1 Year Ago of W/FCLP/FLP/FNFP' 
+  LFACTM  'LF Activity of H/MCLP/MLP or Male NF Person' 
+  LFACTF  'LF Activity of W/FCLP/FLP or Female NF Person' 
+  POWM  'Place of Work of H/MCLP/MLP or Male NF Person' 
+  POWF  'Place of Work of W/FCLP/FLP or Female NF Person' 
+  COWM  'Class of Worker of H/MCLP/MLP or Male NF Person' 
+  COWF  'Class of Worker of W/FCLP/FLP or Female NF Person' 
+  FPTWKM  'FT or PT Weeks Worked in 1990 by H/MCLP/MLP/MNFP' 
+  FPTWKF  'FT or PT Weeks Worked in 1990 by W/FCLP/FLP/FNFP' 
+  HRSWKM  'Hrs Worked in Ref Wk by H/MCLP/MLP/MNFP (100=100+)' 
+  HRSWKF  'Hrs Worked in Ref Wk by W/FCLP/FLP/FNFP (100=100+)' 
+  LSTWKM  'When Last Worked for H/MCLP/MLP or Male NF Person' 
+  LSTWKF  'When Last Worked for W/FCLP/FLP or Fem. NF Person' 
+  WKSWKM  'Weeks Worked in 1990 by H/MCLP/MLP/MNFP' 
+  WKSWKF  'Weeks Worked in 1990 by W/FCLP/FLP/FNFP' 
+  OCC91M  'Occupation (1991 Class.) of H/MCLP/MLP/MNFP' 
+  OCC91F  'Occupation (1991 Class.) of W/FCLP/FLP/FNFP' 
+  OCC80M  'Occupation (1980 Class.) of H/MCLP/MLP/MNFP' 
+  OCC80F  'Occupation (1980 Class.) of W/FCLP/FLP/FNFP' 
+  OCC71M  'Occupation (1971 Class.) of H/MCLP/MLP/MNFP' 
+  OCC71F  'Occupation (1971 Class.) of W/FCLP/FLP/FNFP' 
+  IND80M  'Industry (1980 SIC) of H/MCLP/MLP/MNFP' 
+  IND80F  'Industry (1980 SIC) of W/FCLP/FLP/FNFP' 
+  IND70M  'Industry (1970 SIC) of H/MCLP/MLP/MNFP' 
+  IND70F  'Industry (1970 SIC) of W/FCLP/FLP/FNFP' 
+  TENUREC  'Tenure' 
+  RCONDFC  'Tenure - Condominium' 
+  MORGC  'Presence of Mortgage' 
+  OMPC  'Owners Major Payments (Monthly)' 
+  GROSRTC  'Monthly Gross Rent' 
+  NSTIENC  'Number of Household Maintainers' 
+  HMAINM  'Primary Hhld. Maint. Indicator of H/MCLP/MLP/MNFP' 
+  HMAINF  'Primary Hhld. Maint. Indicator of W/FCLP/FLP/FNFP' 
+  ROOMC  'Number of Rooms' 
+  RPAIRC  'Condition of Dwelling' 
+  VALUEC  'Value of Dwelling' 
+  WEIGHTC  'Weight of Census Family or Non-family Person' 
+VALUE LABELS
+    PROV   10  'Newfoundland'
+          11  'Prince Edward Island'
+          12  'Nova Scotia'
+          13  'New Brunswick'
+          24  'Quebec'
+          35  'Ontario'
+          46  'Manitoba'
+          47  'Saskatchewan'
+          48  'Alberta'
+          59  'British Columbia'
+          60  'Yukon-Northwest Territories'
+         /
+    CMAPUMF   0  'Not applicable'
+          205  'Halifax'
+          421  'Quebec'
+          462  'Montreal'
+          499  'Sherbrooke-433 & Trois-Riv-442'
+          505  'Ottawa-Hull'
+          532  'Oshawa'
+          535  'Toronto'
+          537  'Hamilton'
+          539  'St.Catharines-Niagara'
+          541  'Kitchener'
+          555  'London'
+          559  'Windsor'
+          599  'Sudbury-580 & Thunder Bay-595'
+          602  'Winnipeg'
+          799  'Regina-705 & Saskatoon-725'
+          825  'Calgary'
+          835  'Edmonton'
+          933  'Vancouver'
+          935  'Victoria'
+         /
+    CSDPUMF   0  'Not applicable'
+          4620  'Montreal'
+          4621  'Laval'
+          5050  'Ottawa'
+          5350  'Toronto'
+          5351  'North York'
+          5352  'Scarborough'
+          5353  'Mississauga'
+          5354  'Etobicoke'
+          5370  'Hamilton'
+          8350  'Edmonton'
+          9330  'Vancouver'
+          9331  'Surrey'
+         /
+    CFTYPE   0  'Not applicable'
+          1  'Primary family'
+          2  'Other maintaining family'
+          3  'Non-maintaining family'
+         /
+    CFSTRUC   0  'Not applicable'
+          1  'NowMarC w NevMar. S/D present'
+          2  'NowMarC wo NevMar S/D present'
+          3  'ComLawC w NevMar S/D present'
+          4  'ComLawC wo NevMar S/D present'
+          5  'LoneParFam w male parent'
+          6  'LoneParFam w female parent'
+         /
+    CFSIZE   0  'Not applicable'
+          2  'CF - Two persons'
+          3  'CF - Three persons'
+          4  'CF - Four persons'
+          5  'CF - Five persons'
+          6  'CF - Six persons'
+          7  'CF - Seven persons'
+          8  'CF - Eight or more persons'
+          9  'Not available'
+         /
+    NUCHILD   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One'
+          2  'Two'
+          3  'Three'
+          4  'Four'
+          5  'Five'
+          6  'Six or more'
+         /
+    PRESCHF   0  'Not applicable'
+          1  'No NevMar. S/D present'
+          2  'At least one < 2, none > 5 yr.'
+          3  '0 < 2 yr, at least 1 2-5, 0 >5'
+          4  'At least one < 6, some > 5 yr'
+          5  'None < 6, at least one 6-14 yr'
+          6  'None < 15, at least one >14 yr'
+         /
+    CHILDA   9  'Not applicable'
+          0  'None'
+          1  'One'
+          2  'Two or more'
+         /
+    CHILDB   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One'
+          2  'Two'
+          3  'Three or more'
+         /
+    CHILDC   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One'
+          2  'Two or more'
+         /
+    CHILDD   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One'
+          2  'Two or more'
+         /
+    CHILDE   9  'Not applicable'
+          8  'Not available'
+          0  'None'
+          1  'One'
+          2  'Two or more'
+         /
+    TOTALC   9999999  'Not applicable'
+         /
+    NUCFINC   9  'Not applicable'
+          0  'No recipient'
+          1  'One recipient'
+          2  'Two recipients'
+          3  'Three recipients'
+          4  'Four or more recipients'
+         /
+    NUCFEMPI   9  'Not applicable'
+          0  'No recipient'
+          1  'One recipient'
+          2  'Two recipients'
+          3  'Three recipients'
+          4  'Four or more recipients'
+         /
+    WAGESC   9999999  'Not applicable'
+         /
+    SELFIC   9999999  'Not applicable'
+         /
+    FACTC   9999999  'Not applicable'
+         /
+    OASGIC   9999999  'Not applicable'
+         /
+    CQPPBC   9999999  'Not applicable'
+         /
+    UICBNC   9999999  'Not applicable'
+         /
+    OTRTC   9999999  'Not applicable'
+         /
+    TGRTC   9999999  'Not applicable'
+         /
+    INVSTC   9999999  'Not applicable'
+         /
+    RETIRC   9999999  'Not applicable'
+         /
+    OTINCC   9999999  'Not applicable'
+         /
+    CFLOINC   0  'Not applicable'
+          1  'Total Income not below LICO'
+          2  'Total Income was below LICO'
+         /
+    TOTALM   9999999  'Not applicable'
+         /
+    TOTALF   9999999  'Not applicable'
+         /
+    WAGEM   9999999  'Not applicable'
+         /
+    WAGEF   9999999  'Not applicable'
+         /
+    SELFM   9999999  'Not applicable'
+         /
+    SELFF   9999999  'Not applicable'
+         /
+    FACTM   9999999  'Not applicable'
+         /
+    FACTF   9999999  'Not applicable'
+         /
+    OASGM   9999999  'Not applicable'
+         /
+    OASGF   9999999  'Not applicable'
+         /
+    CQPPM   9999999  'Not applicable'
+         /
+    CQPPF   9999999  'Not applicable'
+         /
+    UICBM   9999999  'Not applicable'
+         /
+    UICBF   9999999  'Not applicable'
+         /
+    OTRTM   9999999  'Not applicable'
+         /
+    OTRTF   9999999  'Not applicable'
+         /
+    TGRTM   9999999  'Not applicable'
+         /
+    TGRTF   9999999  'Not applicable'
+         /
+    INVSTM   9999999  'Not applicable'
+         /
+    INVSTF   9999999  'Not applicable'
+         /
+    RETIRM   9999999  'Not applicable'
+         /
+    RETIRF   9999999  'Not applicable'
+         /
+    OTINCM   9999999  'Not applicable'
+         /
+    OTINCF   9999999  'Not applicable'
+         /
+    AGEM   99  'Not applicable'
+          98  'Not available'
+         /
+    AGEF   99  'Not applicable'
+          98  'Not available'
+         /
+    MARSTLM   0  'Not applicable'
+          1  'Divorced'
+          2  'Legally married (& not sep.)'
+          3  'Legally married and separated'
+          4  'Never married (single)'
+          5  'Widowed'
+          9  'Not available'
+         /
+    MARSTLF   0  'Not applicable'
+          1  'Divorced'
+          2  'Legally married (& not sep.)'
+          3  'Legally married and separated'
+          4  'Never married (single)'
+          5  'Widowed'
+          9  'Not available'
+         /
+    MARSTHM   0  'Not applicable'
+          1  'Divorced'
+          2  'Now married'
+          3  'Separated'
+          4  'Never married (single)'
+          5  'Widowed'
+          9  'Not available'
+         /
+    MARSTHF   0  'Not applicable'
+          1  'Divorced'
+          2  'Now married'
+          3  'Separated'
+          4  'Never married (single)'
+          5  'Widowed'
+          9  'Not available'
+         /
+    FERTILIT   99  'Not applicable'
+          0  'No children ever born alive'
+          1  'One child'
+          2  'Two children'
+          3  'Three children'
+          4  'Four children'
+          5  'Five children'
+          6  'Six children'
+          7  'Seven children'
+          8  'Eight children'
+          9  'Nine or more children'
+         /
+    POBM   0  'Not applicable'
+          1  'Can.: in P/T of residence'
+          2  'Can.: Out of P/T of residence'
+          3  'Out of Can.: Europe'
+          4  'Out of Can.: Middle East/Asia'
+          5  'Other'
+          9  'Not available'
+         /
+    POBF   0  'Not applicable'
+          1  'Can.: In P/T of residence'
+          2  'Can.: Out of P/T of residence'
+          3  'Out of Can.: Europe'
+          4  'Out of Can.: Middle East/Asia'
+          5  'Other'
+          9  'Not available'
+         /
+    CITZM   0  'Not applicable'
+          1  'Can. cit.: Canadian by birth'
+          2  'Can. cit.: Can. by natural.'
+          3  'Non-Canadian citizens'
+          9  'Not available'
+         /
+    CITZF   0  'Not applicable'
+          1  'Can. cit.: Canadian by birth'
+          2  'Can. cit.: Can. by natural.'
+          3  'Non-Canadian citizens'
+          9  'Not available'
+         /
+    IMMSTATM   0  'Not applicable'
+          1  'Non-immigrants'
+          2  'Immigrants'
+          3  'Non-permanent residents'
+          9  'Not available'
+         /
+    IMMSTATF   0  'Not applicable'
+          1  'Non-immigrants'
+          2  'Immigrants'
+          3  'Non-permanent residents'
+          9  'Not available'
+         /
+    YRIMMM   0  'Not applicable'
+          1  'Before 1961'
+          2  '1961-1970'
+          3  '1971-1980'
+          4  '1981-1985'
+          5  '1986'
+          6  '1987'
+          7  '1988'
+          8  '1989'
+          9  '1990'
+          10  '1991'
+          99  'Not available'
+         /
+    YRIMMF   0  'Not applicable'
+          1  'Before 1961'
+          2  '1961-1970'
+          3  '1971-1980'
+          4  '1981-1985'
+          5  '1986'
+          6  '1987'
+          7  '1988'
+          8  '1989'
+          9  '1990'
+          10  '1991'
+          99  'Not available'
+         /
+    ETHNICM   0  'Not applicable'
+          1  'Sing: British origins'
+          2  'Sing: French origins'
+          3  'Sing: Canadian'
+          4  'Sing: Aboriginal origins'
+          5  'Sing: Other single origins'
+          6  'Mult: British only'
+          7  'Mult: British and French'
+          8  'Mult: British and Other'
+          9  'Mult: French and Other'
+          10  'Mult: British, French, Other'
+          11  'Mult: Other multiple responses'
+          99  'Not available'
+         /
+    ETHNICF   0  'Not applicable'
+          1  'Sing: British origins'
+          2  'Sing: French origins'
+          3  'Sing: Canadian'
+          4  'Sing: Aboriginal origins'
+          5  'Sing: Other single origins'
+          6  'Mult: British only'
+          7  'Mult: British and French'
+          8  'Mult: British and Other'
+          9  'Mult: French and Other'
+          10  'Mult: British, French, Other'
+          11  'Mult: Other multiple responses'
+          99  'Not available'
+         /
+    OLNM   0  'Not applicable'
+          1  'English only'
+          2  'French only'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    OLNF   0  'Not applicable'
+          1  'English only'
+          2  'French only'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    OLNC   0  'Not applicable'
+          1  'CF - all child. speak Eng.only'
+          2  'CF - all child. speak Fre.only'
+          3  'CF - all child. speak Eng/Fre.'
+          4  'CF - all child. not speak E/F'
+          5  'CF - all child. speak diff. OL'
+         /
+    MTNM   0  'Not applicable'
+          1  'Sing: English only'
+          2  'Sing: French only'
+          3  'Sing: Other'
+          4  'Mult: English and French'
+          5  'Mult: English and other'
+          6  'Mult: French and other'
+          7  'Mult:English, French and other'
+          8  'Mult: Other'
+         /
+    MTNF   0  'Not applicable'
+          1  'Sing: English only'
+          2  'Sing: French only'
+          3  'Sing: Other'
+          4  'Mult: English and French'
+          5  'Mult: English and other'
+          6  'Mult: French and other'
+          7  'Mult:English, French and other'
+          8  'Mult: Other'
+         /
+    MTNC   0  'Not applicable'
+          1  'CF all child same sing MT-Eng'
+          2  'CF all child same sing MT-Fre'
+          3  'CF all child same sing MT-Oth'
+          4  'CF all child same mult MT-EF'
+          5  'CF all child same mult MT-EOth'
+          6  'CF all child same mult MT-FOth'
+          7  'CF all child same mult MT-EFOt'
+          8  'CF all child same mult MT-Oth'
+          9  'Other census families'
+         /
+    HLNM   0  'Not applicable'
+          1  'Single: English only'
+          2  'Single: French only'
+          3  'Single: Other'
+          4  'Multiple: English and French'
+          5  'Multiple: English and other'
+          6  'Multiple: French and other'
+          7  'Multiple: English,French,other'
+          8  'Other'
+         /
+    HLNF   0  'Not applicable'
+          1  'Single: English only'
+          2  'Single: French only'
+          3  'Single: Other'
+          4  'Multiple: English and French'
+          5  'Multiple: English and other'
+          6  'Multiple: French and other'
+          7  'Multiple: English,French,other'
+          8  'Other'
+         /
+    HLNC   0  'Not applicable'
+          1  'CF all child same sing HL-E'
+          2  'CF all child same sing HL-F'
+          3  'CF all child same sing HL-O'
+          4  'CF all child same mult HL-EF'
+          5  'CF all child same mult HL-EO'
+          6  'CF all child same mult HL-FO'
+          7  'CF all child same mult HL-EFO'
+          8  'CF all child same mult HL-OML'
+          9  'Other census families'
+         /
+    FOLM   0  'Not applicable'
+          1  'English first spoken'
+          2  'French first spoken'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    FOLF   0  'Not applicable'
+          1  'English first spoken'
+          2  'French first spoken'
+          3  'Both English and French'
+          4  'Neither English nor French'
+         /
+    FOLC   0  'Not applicable'
+          1  'CF all child speak Eng. 1st'
+          2  'CF all child speak French 1st'
+          3  'CF all child speak Eng/French'
+          4  'CF all child speak Eng. nor Fr'
+          5  'CF all child speak diff. O/L'
+         /
+    NOLM   0  'Not applicable'
+          1  'One non-off/lang. known'
+          2  'Two non-off/lang. known'
+          3  'Three non-off/lang. known'
+          4  'No non-off/lang. known'
+         /
+    NOLF   0  'Not applicable'
+          1  'One non-off/lang. known'
+          2  'Two non-off/lang. known'
+          3  'Three non-off/lang. known'
+          4  'No non-off/lang. known'
+         /
+    NOLC   0  'Not applicable'
+          1  'CF all child speak 1 non- O/L'
+          2  'CF all child speak 2 non- O/L'
+          3  'CF all child speak 3 non- O/L'
+          4  'CF all child speak no non- O/L'
+          5  'CF all child spk dif# non- O/L'
+         /
+    SCHATTM   0  'Not applicable'
+          1  'Did not attend in past 9 mths.'
+          2  'Attended FT in past 9 months'
+          3  'Attended PT in past 9 months'
+         /
+    SCHATTF   0  'Not applicable'
+          1  'Did not attend in past 9 mths.'
+          2  'Attended FT in past 9 months'
+          3  'Attended PT in past 9 months'
+         /
+    HGRADM   0  'Not applicable'
+          1  'Less than Grade 5'
+          2  'Grades 5 - 8'
+          3  'Grade 9'
+          4  'Grade 10'
+          5  'Grade 11'
+          6  'Grade 12'
+          7  'Grade 13'
+         /
+    HGRADF   0  'Not applicable'
+          1  'Less than Grade 5'
+          2  'Grades 5 - 8'
+          3  'Grade 9'
+          4  'Grade 10'
+          5  'Grade 11'
+          6  'Grade 12'
+          7  'Grade 13'
+         /
+    SECGRADM   0  'Not applicable'
+          1  'WO sec. cert.- WO further trng'
+          2  'WO sec. cert.- W +trng: trades'
+          3  'WO sec. cert.- W +trng: other'
+          4  'W sec. cert.- WO further trng'
+          5  'W sec. cert. - W further trng'
+         /
+    SECGRADF   0  'Not applicable'
+          1  'WO sec. cert.- WO further trng'
+          2  'WO sec. cert.- W +trng: trades'
+          3  'WO sec. cert.- W +trng: other'
+          4  'W sec. cert.- WO further trng'
+          5  'W sec. cert. - W further trng'
+         /
+    HLOSM   0  'Not applicable'
+          1  'Elem/Sec.: Less than Grade 9'
+          2  'Elem/Sec.: Grades 9 - 10'
+          3  'Elem/Sec.: Grades 11 - 13'
+          4  'E/S: Sec. School Grad. Cert.'
+          5  'E/S: Trades cert. or diploma'
+          6  'Oth non-univ: WO trades or oth'
+          7  'Oth non-univ: W trades cert.'
+          8  'Oth non-univ: W other non-univ'
+          9  'Univ: WO cert., diploma or deg'
+          10  'Univ: W cert., diploma, < bach'
+          11  'Univ: W bach. or 1st prof. deg'
+          12  'Univ: W cert./diploma above BA'
+          13  'Univ: W masters degree(s)'
+          14  'Univ: W earned doctorate'
+         /
+    HLOSF   0  'Not applicable'
+          1  'Elem/Sec.: Less than Grade 9'
+          2  'Elem/Sec.: Grades 9 - 10'
+          3  'Elem/Sec.: Grades 11 - 13'
+          4  'E/S: Sec. School Grad. Cert.'
+          5  'E/S: Trades cert. or diploma'
+          6  'Oth non-univ: WO trades or oth'
+          7  'Oth non-univ: W trades cert.'
+          8  'Oth non-univ: W other non-univ'
+          9  'Univ: WO cert., diploma or deg'
+          10  'Univ: W cert., diploma, < bach'
+          11  'Univ: W bach. or 1st prof. deg'
+          12  'Univ: W cert./diploma above BA'
+          13  'Univ: W masters degree(s)'
+          14  'Univ: W earned doctorate'
+         /
+    TRNUCM   0  'Not applicable'
+          1  'Neither trades/other non-univ'
+          2  'Trades cert. only, WO sec.cert'
+          3  'Other non-univ, WO sec.cert'
+          4  'Both tr/oth non-univ, WO sec.'
+          5  'Trades cert. only, W sec.cert'
+          6  'Other non-univ, W sec.cert'
+          7  'Both tr/oth non-univ, W sec.'
+         /
+    TRNUCF   0  'Not applicable'
+          1  'Neither trades/other non-univ'
+          2  'Trades cert. only, WO sec.cert'
+          3  'Other non-univ, WO sec.cert'
+          4  'Both tr/oth non-univ, WO sec.'
+          5  'Trades cert. only, W sec.cert'
+          6  'Other non-univ, W sec.cert'
+          7  'Both tr/oth non-univ, W sec.'
+         /
+    DGMFSM   0  'Not applicable'
+          1  'Educ/recreation/counselling'
+          2  'Fine and applied arts'
+          3  'Humanities and related'
+          4  'Social sciences and related'
+          5  'Comm/management/business adm.'
+          6  'Secretarial science/general'
+          7  'Agri/biological science/tech.'
+          8  'Engineering/applied sciences'
+          9  'Engi/app. science tech/trades'
+          10  'Nursing and nursing assistance'
+          11  'Other health prof/sci/tech'
+          12  'Mathematics/physical sciences'
+          13  'All other'
+          14  'No postsecondary qualification'
+         /
+    DGMFSF   0  'Not applicable'
+          1  'Educ/recreation/counselling'
+          2  'Fine and applied arts'
+          3  'Humanities and related'
+          4  'Social sciences and related'
+          5  'Comm/management/business adm.'
+          6  'Secretarial science/general'
+          7  'Agri/biological science/tech.'
+          8  'Engineering/applied sciences'
+          9  'Engi/app. science tech/trades'
+          10  'Nursing and nursing assistance'
+          11  'Other health prof/sci/tech'
+          12  'Mathematics/physical sciences'
+          13  'All other'
+          14  'No postsecondary qualification'
+         /
+    TOTSCHM   0  'Not applicable'
+          1  'Never or kindergarten only'
+          2  '1-4 years schooling'
+          3  '5-8 years of schooling'
+          4  '9 years of schooling'
+          5  '10 years of schooling'
+          6  '11 years of schooling'
+          7  '12 years of schooling'
+          8  '13 years of schooling'
+          9  '14-17 years of schooling'
+          10  '18 or more years of schooling'
+         /
+    TOTSCHF   0  'Not applicable'
+          1  'Never or kindergarten only'
+          2  '1-4 years schooling'
+          3  '5-8 years of schooling'
+          4  '9 years of schooling'
+          5  '10 years of schooling'
+          6  '11 years of schooling'
+          7  '12 years of schooling'
+          8  '13 years of schooling'
+          9  '14-17 years of schooling'
+          10  '18 or more years of schooling'
+         /
+    MOB5M   0  'Not applicable'
+          1  'Same dwelling'
+          2  'Diff. dwelling, same CSD'
+          3  'Diff. CSD, same CD'
+          4  'Diff. CD, same province'
+          5  'Different province'
+          6  'Outside Canada'
+         /
+    MOB5F   0  'Not applicable'
+          1  'Same dwelling'
+          2  'Diff. dwelling, same CSD'
+          3  'Diff. CSD, same CD'
+          4  'Diff. CD, same province'
+          5  'Different province'
+          6  'Outside Canada'
+         /
+    MOB1M   0  'Not applicable'
+          1  'Same dwelling'
+          2  'Same province/territory'
+          3  'Diff. province/territory'
+          4  'Outside Canada'
+         /
+    MOB1F   0  'Not applicable'
+          1  'Same dwelling'
+          2  'Same province/territory'
+          3  'Diff. province/territory'
+          4  'Outside Canada'
+         /
+    LFACTM   0  'Not applicable'
+          1  'Employed-Worked'
+          2  'Employed-Absent'
+          3  'Unempl.-Lay off-Did not look'
+          4  'Unempl.-Lay off-Looked for FT'
+          5  'Unempl.-Lay off-Looked for PT'
+          6  'Unempl.-New job-Did not look'
+          7  'Unempl.-New job-Looked for FT'
+          8  'Unempl.-New job-Looked for PT'
+          9  'Unempl.-Looked for FT work'
+          10  'Unempl.-Looked for PT work'
+          11  'Not in the LF-Last worked 1991'
+          12  'Not in the LF-Last worked 1990'
+          13  'Not in LF-Last worked pre 1990'
+          14  'Not in the LF-Never worked'
+          99  'Not available'
+         /
+    LFACTF   0  'Not applicable'
+          1  'Employed-Worked'
+          2  'Employed-Absent'
+          3  'Unempl.-Lay off-Did not look'
+          4  'Unempl.-Lay off-Looked for FT'
+          5  'Unempl.-Lay off-Looked for PT'
+          6  'Unempl.-New job-Did not look'
+          7  'Unempl.-New job-Looked for FT'
+          8  'Unempl.-New job-Looked for PT'
+          9  'Unempl.-Looked for FT work'
+          10  'Unempl.-Looked for PT work'
+          11  'Not in the LF-Last worked 1991'
+          12  'Not in the LF-Last worked 1990'
+          13  'Not in LF-Last worked pre 1990'
+          14  'Not in the LF-Never worked'
+          99  'Not available'
+         /
+    POWM   0  'Not applicable'
+          1  'Worked at home'
+          2  'Usual POW in same CSD as resi.'
+          3  'Usual POW in dif.CSD, same P/T'
+          4  'Usual POW in dif.CSD, dif. P/T'
+          5  'Worked outside Canada'
+          6  'No usual place of work'
+         /
+    POWF   0  'Not applicable'
+          1  'Worked at home'
+          2  'Usual POW in same CSD as resi.'
+          3  'Usual POW in dif.CSD, same P/T'
+          4  'Usual POW in dif.CSD, dif. P/T'
+          5  'Worked outside Canada'
+          6  'No usual place of work'
+         /
+    COWM   0  'Not applicable'
+          1  'Pd workers and unpaid fam.work'
+          2  'Pd workers (self-emp. incor)'
+          3  'Self-emp. WO paid help unincor'
+          4  'Self-emp. W paid help unincor'
+         /
+    COWF   0  'Not applicable'
+          1  'Pd workers and unpaid fam.work'
+          2  'Pd workers (self-emp. incor)'
+          3  'Self-emp. WO paid help unincor'
+          4  'Self-emp. W paid help unincor'
+         /
+    FPTWKM   0  'Not applicable'
+          1  'Worked mainly FT weeks in 1990'
+          2  'Worked mainly PT weeks in 1990'
+         /
+    FPTWKF   0  'Not applicable'
+          1  'Worked mainly FT weeks in 1990'
+          2  'Worked mainly PT weeks in 1990'
+         /
+    HRSWKM   999  'Not applicable'
+         /
+    HRSWKF   999  'Not applicable'
+         /
+    LSTWKM   0  'Not applicable'
+          1  'Before 1990'
+          2  'In 1990'
+          3  'In 1991'
+          4  'Never worked in lifetime'
+         /
+    LSTWKF   0  'Not applicable'
+          1  'Before 1990'
+          2  'In 1990'
+          3  'In 1991'
+          4  'Never worked in lifetime'
+         /
+    WKSWKM   99  'Not applicable'
+         /
+    WKSWKF   99  'Not applicable'
+         /
+    OCC91M   0  'Not applicable'
+          1  'Sr. managers (Skill Level IV)'
+          2  'Middle and oth. (SL IV)'
+          3  'Professionals (SL IV)'
+          4  'Semi-prof. & tech. (SL III)'
+          5  'Supervisors (SL III)'
+          6  'Foremen/women (SL III)'
+          7  'Adm. & sr. clerical (SL III)'
+          8  'Sales/service (SL III)'
+          9  'Skilled crafts/trades (SL III)'
+          10  'Clerical workers (SL II)'
+          11  'Sales/service (SL II)'
+          12  'Semi-skilled manual (SL II)'
+          13  'Sales/service (SL I)'
+          14  'Other manual workers (SL I)'
+         /
+    OCC91F   0  'Not applicable'
+          1  'Sr. managers (Skill Level IV)'
+          2  'Middle and oth. (SL IV)'
+          3  'Professionals (SL IV)'
+          4  'Semi-prof. & tech. (SL III)'
+          5  'Supervisors (SL III)'
+          6  'Foremen/women (SL III)'
+          7  'Adm. & Sr. clerical (SL III)'
+          8  'Sales/service (SL III)'
+          9  'Skilled crafts/trades (SL III)'
+          10  'Clerical workers (SL II)'
+          11  'Sales/service (SL II)'
+          12  'Semi-skilled manual (SL II)'
+          13  'Sales/service (SL I)'
+          14  'Other manual workers (SL I)'
+         /
+    OCC80M   0  'Not applicable'
+          1  'Manag./adm. and related occ.'
+          2  'Nat.sci/engineer/mathematics'
+          3  'Soc. sciences and related'
+          4  'Teaching and related'
+          5  'Medicine and health occ.'
+          6  'Artistic/lit/recreational occ.'
+          7  'Clerical and related'
+          8  'Sales occupations'
+          9  'Service occupations'
+          10  'Farm/horticul/animal husbandry'
+          11  'Other primary occupations'
+          12  'Processing occupations'
+          13  'Mach/fabri/assem/repairing'
+          14  'Construction trades occ.'
+          15  'Transport equip. operating occ'
+          16  'Other occupations'
+         /
+    OCC80F   0  'Not applicable'
+          1  'Manag./adm. and related occ.'
+          2  'Nat.sci/engineer/mathematics'
+          3  'Soc. sciences and related'
+          4  'Teaching and related'
+          5  'Medicine and health occ.'
+          6  'Artistic/lit/recreational occ.'
+          7  'Clerical and related'
+          8  'Sales occupations'
+          9  'Service occupations'
+          10  'Farm/horticul/animal husbandry'
+          11  'Other primary occupations'
+          12  'Processing occupations'
+          13  'Mach/fabri/assem/repairing'
+          14  'Construction trades occ.'
+          15  'Transport equip. operating occ'
+          16  'Other occupations'
+         /
+    OCC71M   0  'Not applicable'
+          1  'Manag./adm. and related occ.'
+          2  'Nat.sci/engineer/mathematics'
+          3  'Soc. sciences and related'
+          4  'Teaching and related'
+          5  'Medicine and health occ.'
+          6  'Artistic/lit/recreational occ.'
+          7  'Clerical and related'
+          8  'Sales occupations'
+          9  'Service occupations'
+          10  'Farm/horticul/animal husbandry'
+          11  'Other primary occupations'
+          12  'Processing occupations'
+          13  'Mach/fabri/assem/repairing'
+          14  'Construction trades occ.'
+          15  'Transport equip. operating occ'
+          16  'Other occupations'
+          17  'Not stated'
+         /
+    OCC71F   0  'Not applicable'
+          1  'Manag./adm. and related occ.'
+          2  'Nat.sci/engineer/mathematics'
+          3  'Soc. sciences and related'
+          4  'Teaching and related'
+          5  'Medicine and health occ.'
+          6  'Artistic/lit/recreational occ.'
+          7  'Clerical and related'
+          8  'Sales occupations'
+          9  'Service occupations'
+          10  'Farm/horticul/animal husbandry'
+          11  'Other primary occupations'
+          12  'Processing occupations'
+          13  'Mach/fabri/assem/repairing'
+          14  'Construction trades occ.'
+          15  'Transport equip. operating occ'
+          16  'Other occupations'
+          17  'Not stated'
+         /
+    IND80M   0  'Not applicable'
+          1  'Agriculture'
+          2  'Other primary industries'
+          3  'Manufacturing'
+          4  'Construction'
+          5  'Transportation and storage'
+          6  'Communic. and other utilities'
+          7  'Wholesale trade'
+          8  'Retail trade'
+          9  'Finance, insurance/real estate'
+          10  'Business services'
+          11  'Govt. services:  Federal'
+          12  'Govt. services:  Other'
+          13  'Educational services'
+          14  'Health/social services'
+          15  'Accomm/food/beverage services'
+          16  'Other services'
+         /
+    IND80F   0  'Not applicable'
+          1  'Agriculture'
+          2  'Other primary industries'
+          3  'Manufacturing'
+          4  'Construction'
+          5  'Transportation and storage'
+          6  'Communic. and other utilities'
+          7  'Wholesale trade'
+          8  'Retail trade'
+          9  'Finance, insurance/real estate'
+          10  'Business services'
+          11  'Govt. services:  Federal'
+          12  'Govt. services:  Other'
+          13  'Educational services'
+          14  'Health/social services'
+          15  'Accomm/food/beverage services'
+          16  'Other services'
+         /
+    IND70M   0  'Not applicable'
+          1  'Agriculture'
+          2  'Other primary industries'
+          3  'Manufacturing'
+          4  'Construction'
+          5  'Transportation and storage'
+          6  'Communic. and other utilities'
+          7  'Wholesale trade'
+          8  'Retail trade'
+          9  'Finance/insurance/real estate'
+          10  'Services to business mgt.'
+          11  'Public adm/defence:  Federal'
+          12  'Public adm/defence:  Other'
+          13  'Education and related'
+          14  'Health and welfare services'
+          15  'Accommodation/food services'
+          16  'Other services'
+          17  'Industry unspecified/undefined'
+         /
+    IND70F   0  'Not applicable'
+          1  'Agriculture'
+          2  'Other primary industries'
+          3  'Manufacturing'
+          4  'Construction'
+          5  'Transportation and storage'
+          6  'Communic. and other utilities'
+          7  'Wholesale trade'
+          8  'Retail trade'
+          9  'Finance/insurance/real estate'
+          10  'Services to business mgt.'
+          11  'Public adm/defence:  Federal'
+          12  'Public adm/defence:  Other'
+          13  'Education and related'
+          14  'Health and welfare services'
+          15  'Accommodation/food services'
+          16  'Other services'
+          17  'Industry unspecified/undefined'
+         /
+    TENUREC   1  'Owned (with or wo mortgage)'
+          2  'Rented-cash/oth, band housing'
+         /
+    RCONDFC   0  'Not applicable'
+          1  'Condominium'
+          2  'Not a condominium'
+         /
+    MORGC   0  'Not applicable'
+          1  'Yes'
+          2  'No'
+         /
+    OMPC   9999  'Not applicable'
+         /
+    GROSRTC   9999  'Not applicable'
+         /
+    NSTIENC   1  '1 maintainer in the household'
+          2  '2 maintainers in the household'
+          3  '3 or more maintainers in hhld.'
+         /
+    HMAINM   0  'Not applicable'
+          1  'Primary maintainer'
+          2  'Not a primary maintainer'
+         /
+    HMAINF   0  'Not applicable'
+          1  'Primary maintainer'
+          2  'Not a primary maintainer'
+         /
+    ROOMC   1  '1 room'
+          2  '2 rooms'
+          3  '3 rooms'
+          4  '4 rooms'
+          5  '5 rooms'
+          6  '6 rooms'
+          7  '7 rooms'
+          8  '8 rooms'
+          9  '9 rooms'
+          10  '10 or more rooms'
+         /
+    RPAIRC   1  'Only regular maint. is needed'
+          2  'Minor repairs are needed'
+          3  'Major repairs are needed'
+         /
+    VALUEC   999999  'Not applicable'
+         /
+MISSING VALUES  CMAPUMF  ( 0 )/
+                CSDPUMF  ( 0 )/
+                CFTYPE  ( 0 )/
+                CFSTRUC  ( 0 )/
+                CFSIZE  ( 0,9 )/
+                NUCHILD  ( 9,8 )/
+                PRESCHF  ( 0 )/
+                CHILDA  ( 9,8 )/
+                CHILDB  ( 9,8 )/
+                CHILDC  ( 9,8 )/
+                CHILDD  ( 9,8 )/
+                CHILDE  ( 9,8 )/
+                TOTALC  ( 9999999 )/
+                NUCFINC  ( 9 )/
+                NUCFEMPI  ( 9 )/
+                WAGESC  ( 9999999 )/
+                SELFIC  ( 9999999 )/
+                FACTC  ( 9999999 )/
+                OASGIC  ( 9999999 )/
+                CQPPBC  ( 9999999 )/
+                UICBNC  ( 9999999 )/
+                OTRTC  ( 9999999 )/
+                TGRTC  ( 9999999 )/
+                INVSTC  ( 9999999 )/
+                RETIRC  ( 9999999 )/
+                OTINCC  ( 9999999 )/
+                CFLOINC  ( 0 )/
+                TOTALM  ( 9999999 )/
+                TOTALF  ( 9999999 )/
+                WAGEM  ( 9999999 )/
+                WAGEF  ( 9999999 )/
+                SELFM  ( 9999999 )/
+                SELFF  ( 9999999 )/
+                FACTM  ( 9999999 )/
+                FACTF  ( 9999999 )/
+                OASGM  ( 9999999 )/
+                OASGF  ( 9999999 )/
+                CQPPM  ( 9999999 )/
+                CQPPF  ( 9999999 )/
+                UICBM  ( 9999999 )/
+                UICBF  ( 9999999 )/
+                OTRTM  ( 9999999 )/
+                OTRTF  ( 9999999 )/
+                TGRTM  ( 9999999 )/
+                TGRTF  ( 9999999 )/
+                INVSTM  ( 9999999 )/
+                INVSTF  ( 9999999 )/
+                RETIRM  ( 9999999 )/
+                RETIRF  ( 9999999 )/
+                OTINCM  ( 9999999 )/
+                OTINCF  ( 9999999 )/
+                AGEM  ( 99,98 )/
+                AGEF  ( 99,98 )/
+                MARSTLM  ( 0,9 )/
+                MARSTLF  ( 0,9 )/
+                MARSTHM  ( 0,9 )/
+                MARSTHF  ( 0,9 )/
+                FERTILIT  ( 99 )/
+                POBM  ( 0,9 )/
+                POBF  ( 0,9 )/
+                CITZM  ( 0,9 )/
+                CITZF  ( 0,9 )/
+                IMMSTATM  ( 0,9 )/
+                IMMSTATF  ( 0,9 )/
+                YRIMMM  ( 0,99 )/
+                YRIMMF  ( 0,99 )/
+                ETHNICM  ( 0,99 )/
+                ETHNICF  ( 0,99 )/
+                OLNM  ( 0 )/
+                OLNF  ( 0 )/
+                OLNC  ( 0 )/
+                MTNM  ( 0 )/
+                MTNF  ( 0 )/
+                MTNC  ( 0 )/
+                HLNM  ( 0 )/
+                HLNF  ( 0 )/
+                HLNC  ( 0 )/
+                FOLM  ( 0 )/
+                FOLF  ( 0 )/
+                FOLC  ( 0 )/
+                NOLM  ( 0 )/
+                NOLF  ( 0 )/
+                NOLC  ( 0 )/
+                SCHATTM  ( 0 )/
+                SCHATTF  ( 0 )/
+                HGRADM  ( 0 )/
+                HGRADF  ( 0 )/
+                SECGRADM  ( 0 )/
+                SECGRADF  ( 0 )/
+                HLOSM  ( 0 )/
+                HLOSF  ( 0 )/
+                TRNUCM  ( 0 )/
+                TRNUCF  ( 0 )/
+                DGMFSM  ( 0 )/
+                DGMFSF  ( 0 )/
+                TOTSCHM  ( 0 )/
+                TOTSCHF  ( 0 )/
+                MOB5M  ( 0 )/
+                MOB5F  ( 0 )/
+                MOB1M  ( 0 )/
+                MOB1F  ( 0 )/
+                LFACTM  ( 0,99 )/
+                LFACTF  ( 0,99 )/
+                POWM  ( 0 )/
+                POWF  ( 0 )/
+                COWM  ( 0 )/
+                COWF  ( 0 )/
+                FPTWKM  ( 0 )/
+                FPTWKF  ( 0 )/
+                HRSWKM  ( 999,0 )/
+                HRSWKF  ( 999,0 )/
+                LSTWKM  ( 0 )/
+                LSTWKF  ( 0 )/
+                WKSWKM  ( 99,0 )/
+                WKSWKF  ( 99,0 )/
+                OCC91M  ( 0 )/
+                OCC91F  ( 0 )/
+                OCC80M  ( 0 )/
+                OCC80F  ( 0 )/
+                OCC71M  ( 0,17 )/
+                OCC71F  ( 0,17 )/
+                IND80M  ( 0 )/
+                IND80F  ( 0 )/
+                IND70M  ( 0 )/
+                IND70F  ( 0 )/
+                RCONDFC  ( 0 )/
+                MORGC  ( 0 )/
+                OMPC  ( 9999 )/
+                GROSRTC  ( 9999 )/
+                HMAINM  ( 0 )/
+                HMAINF  ( 0 )/
+                VALUEC  ( 999999 )/
+SAVE OUTFILE=OUT
+EXECUTE
+

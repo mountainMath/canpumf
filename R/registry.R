@@ -24,7 +24,8 @@
                         file_mask         = NULL,
                         data_encoding     = "CP1252",
                         metadata_encoding = "CP1252",
-                        data_fixups       = list()) {
+                        data_fixups       = list(),
+                        bundled_eng_sps   = NULL) {
   list(
     series            = series,
     version           = version,
@@ -36,7 +37,8 @@
     file_mask         = file_mask,
     data_encoding     = data_encoding,
     metadata_encoding = metadata_encoding,
-    data_fixups       = data_fixups
+    data_fixups       = data_fixups,
+    bundled_eng_sps   = bundled_eng_sps
   )
 }
 
@@ -240,11 +242,14 @@
     file_mask   = "^fam\\.dat$",
     data_fixups = .census_fixup_7),
 
-  # 1991: XMF command files are French-only (CP850 encoding).  NOLGREP code 9
-  # ("Sans objet") is absent from the XMF but present in the data.
+  # 1991: downloaded XMF command files are French-only (CP850 encoding).
+  # English XMFs are bundled in inst/extdata/census_1991/ and used as the
+  # English metadata source so both label_en and label_fr are populated.
+  # NOLGREP code 9 ("Sans objet") is absent from both XMF files.
   "Census/1991 (individuals)" = .make_entry("Census", "1991 (individuals)",
     file_mask         = "PUMF91\\.INDIV",
     metadata_encoding = "CP850",
+    bundled_eng_sps   = "census_1991/IND91.XMF",
     data_fixups       = c(.census_fixup_7, list(
       codes_supplement = list(
         NOLGREP = data.frame(val = "9", label_en = "Not applicable",
@@ -255,11 +260,13 @@
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
     file_mask         = "PUMF91\\.HHLD",
     metadata_encoding = "CP850",
+    bundled_eng_sps   = "census_1991/HHOLD91.XMF",
     data_fixups       = .census_fixup_7),
 
   "Census/1991 (families)" = .make_entry("Census", "1991 (families)",
     file_mask         = "PUMF91\\.FAM",
     metadata_encoding = "CP850",
+    bundled_eng_sps   = "census_1991/CNCF91.XMF",
     data_fixups       = .census_fixup_7),
 
   # 1986–1971: fixed-width files extracted from version-specific sub-archives.

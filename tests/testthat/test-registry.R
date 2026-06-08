@@ -10,7 +10,8 @@ test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
 
   expect_named(e, c("series","version","layout_mask","bsw_mask","bsw_file_mask",
                     "bsw_join_key","bsw_drop_cols","file_mask",
-                    "data_encoding","metadata_encoding","data_fixups"),
+                    "data_encoding","metadata_encoding","data_fixups",
+                    "bundled_eng_sps"),
                ignore.order = TRUE)
 
   expect_equal(e$series,        "SFS")
