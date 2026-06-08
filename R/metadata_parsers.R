@@ -1307,7 +1307,8 @@ detect_formats <- function(pumf_dir) {
 
   # 5. SPSS monolithic: .sps file (not split-named), a .txt file with "SPSS"
   #    in its name (e.g. 2001 Census *SPSS.txt), or a .xmf file (e.g. 1991
-  #    Census INDF91.XMF), all verified by VARIABLE LABELS + VALUE LABELS content.
+  #    Census INDF91.XMF), verified by VALUE LABELS content. VARIABLE LABELS
+  #    is optional — some releases (e.g. 2011 Census individuals) omit it.
   if (is.null(result$spss_split)) {
     spss_txt   <- all_files[grepl("spss\\.txt$", all_files, ignore.case = TRUE)]
     xmf_files  <- all_files[grepl("\\.xmf$",     all_files, ignore.case = TRUE)]
@@ -1323,8 +1324,7 @@ detect_formats <- function(pumf_dir) {
     for (sps in head(mono_candidates, 8L)) {
       hdr <- tryCatch(readLines(sps, n = 500L, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
-      if (any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE)) &&
-          any(grepl("VALUE LABELS",    hdr, ignore.case = TRUE, useBytes = TRUE))) {
+      if (any(grepl("VALUE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE))) {
         fra_sps   <- NULL
         fra_cands <- all_spss[grepl(fra_pat, all_spss, ignore.case = TRUE) &
                                !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
