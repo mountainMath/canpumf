@@ -27,13 +27,14 @@
   "2016 (individuals)", "2016 (hierarchical)",
   "2011 (individuals)", "2011 (hierarchical)",
   "2006 (individuals)", "2006 (hierarchical)",
-  "2001 (households)", "2001 (families)"
+  "2001 (individuals)", "2001 (households)", "2001 (families)"
 )
 
 # Census versions where codes_supplement injects manually: map version ->
 # expected warning regex.  Any warning NOT matching this pattern is unexpected.
 .census_supplement_warnings <- list(
-  "2006 (hierarchical)" = "absent from command files"
+  "2006 (hierarchical)" = "absent from command files",
+  "2001 (families)"     = "absent from command files"
 )
 
 .census_any_version <- function() {
@@ -129,6 +130,20 @@ test_that("Census 2006 (hierarchical): registry codes_supplement for MORGH", {
     label = "MORGH codes_supplement should contain code 8")
   expect_true("Not stated" %in% morgh$label_en,
     label = "MORGH code 8 should be labeled 'Not stated'")
+})
+
+test_that("Census 2001 (families): registry codes_supplement for MODEF", {
+  reg   <- canpumf:::pumf_registry_lookup("Census", "2001 (families)")
+  suppl <- reg$data_fixups$codes_supplement
+  expect_false(is.null(suppl),
+    label = "codes_supplement should be defined for Census 2001 (families)")
+  expect_true("MODEF" %in% names(suppl),
+    label = "MODEF should have a codes_supplement entry")
+  modef <- suppl[["MODEF"]]
+  expect_true("7" %in% modef$val,
+    label = "MODEF codes_supplement should contain code 7")
+  expect_true("Other method" %in% modef$label_en,
+    label = "MODEF code 7 should be labeled 'Other method'")
 })
 
 

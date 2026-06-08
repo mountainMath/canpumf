@@ -225,7 +225,12 @@
 
   "Census/2001 (families)" = .make_entry("Census", "2001 (families)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = c(.census_fixup, list(
+      codes_supplement = list(
+        MODEF = data.frame(val="7", label_en="Other method",
+                           label_fr="Autre moyen", stringsAsFactors=FALSE)
+      )
+    ))),
 
   # 1996: data files live in a second-level zip (indiv.zip, hhldv2.zip, famv2.zip)
   # alongside a small test file.  pumf_locate_or_download auto-extracts inner zips;
