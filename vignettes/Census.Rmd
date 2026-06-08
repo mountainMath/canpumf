@@ -22,11 +22,10 @@ library(ggplot2)
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
-For Census data the package currently supports the 2021, 2016, and 2011NHS individuals pumf. These can be ordered from Statisticas Canada via EFT and should be stored in the cache path pointed to in the `canpumf.cache_path` option for the package to find the data.
+The package supports Census PUMF from 1971 through 2021, covering individuals, hierarchical, households, and families variants depending on the year. The 2021 and 2016 files are available via direct download; older years must be ordered through Statistics Canada's EFT portal and placed in the directory pointed to by the `canpumf.cache_path` option.
 
 ```{r}
-census_2021 <- get_pumf("Census",pumf_version="2021") |>
-  label_pumf_data(rename_columns = FALSE)
+census_2021 <- get_pumf("Census",version="2021") 
 ```
 
 

@@ -34,7 +34,9 @@ Suggests:
     scales,
     ggplot2,
     testthat (>= 3.0.0),
-    withr
+    withr,
+    microbenchmark,
+    DiagrammeR
 URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/canpumf/
 BugReports: https://github.com/mountainMath/canpumf/issues
 VignetteBuilder: knitr

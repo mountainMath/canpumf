@@ -59,13 +59,27 @@ lfs_all <- get_pumf("LFS", refresh = "auto")
 
 ## Census data
 
-The canpumf package handles Census individuals PUMF for the 1996 through 2021 censuses. These must be ordered via EFT and placed in the cache directory. The package can then access them via:
+The canpumf package supports Census PUMF from 1971 through 2021. The 2021 and 2016 files are available via direct download; older years must be ordered through Statistics Canada's EFT portal and placed in the cache directory.
 
 ```r
 pumf_2021 <- get_pumf("Census", "2021")
 ```
 
-By default the package loads the *individuals* file. The *hierarchical* file is available for 2006, 2011, and 2016 censuses; *families* or *households* versions are available for 1971, 1976, 1986, 1991, 1996, and 2001.
+By default the package loads the *individuals* file. Available variants by year:
+
+| Years | Variants |
+|---|---|
+| 2021 | individuals, hierarchical |
+| 2016 | individuals, hierarchical |
+| 2011 | individuals (NHS), hierarchical (NHS) |
+| 2006 | individuals, hierarchical |
+| 2001 | individuals, households, families |
+| 1996 | individuals, households, families |
+| 1991 | individuals, households, families |
+| 1986 | individuals, households |
+| 1981 | individuals, households |
+| 1976 | individuals |
+| 1971 | individuals, individuals PR |
 
 ```r
 pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")

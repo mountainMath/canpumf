@@ -139,7 +139,7 @@ ggplot(aes(x=1-age_adjusted, y=`Marital status of respondent`, fill=`Gender of r
 ```{r}
 data_age_adjusted2 %>%
   filter(`Labour force status`=="Employed, at work") %>%
-ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender ofs respondent`)) +
+ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
   scale_x_continuous(labels=scales::percent) +
@@ -183,7 +183,12 @@ unemployment_stats <- lfs_pumf |>
 unemployment_stats |>
   ggplot(aes(x=Date,y=Share,colour=AGE_12)) +
   geom_line() +
-  facet_wrap(~jd)
+  facet_wrap(~jd) +
+  scale_y_continuous(labels=scales::percent_format()) +
+  labs(title="Unemployment by duration of unemployment",
+       y="Unemployment rate",x=NULL,
+       colour="Age group",
+       caption="StatCan LFS (PUMF)")
 ```
 
 
@@ -195,4 +200,30 @@ microbenchmark::microbenchmark(collect(unemployment_stats)) |>
 ```
 
 
+The SEX variable has been recategorized into the GENDER concept starting in 2011, older LFS PUMF data still uses SEX. We can harmonize this by coalescing the values.
+
+
+```{r}
+lfs_pumf |> 
+  filter(LFSSTAT !="Not in labour force") |>
+  mutate(GENDER_SEX=coalesce(GENDER,SEX)) |>
+  mutate(GENDER_SEX=case_when(GENDER_SEX=="Female"~"Women+",
+                              GENDER_SEX=="Male"~"Men+",
+                              TRUE ~ GENDER_SEX)) |>
+  mutate(Date=as.Date(paste0(SURVYEAR,"-",SURVMNTH,"-01"))) |>
+  summarise(Count=sum(FINALWT),.by=c(Date,LFSSTAT,GENDER_SEX)) |>
+  mutate(Share=Count/sum(Count),.by=c(Date,GENDER_SEX)) |>
+  filter(LFSSTAT=="Unemployed") |>
+  ggplot(aes(x=Date,y=Share,colour=GENDER_SEX)) +
+  geom_line() +
+  scale_y_continuous(labels=scales::percent_format()) +
+  labs(title="Unemployment sex/gender",
+       y="Unemployment rate",x=NULL,
+       colour="Gender",
+       caption="StatCan LFS (PUMF)")
+```
+
+```{r}
+lfs_pumf |> close_pumf()
+```
 

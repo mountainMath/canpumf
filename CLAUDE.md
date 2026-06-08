@@ -49,13 +49,13 @@ All standard surveys use an idempotent three-stage pipeline in `R/pipeline.R`:
 
 1. **Stage 1 — `pumf_locate_or_download(series, version, cache_path, refresh)`**: ensures the version directory at `<cache_path>/<series>/<version>/` exists with extracted content.
 2. **Stage 2 — `pumf_parse_metadata(version_dir, layout_mask, metadata_encoding, refresh)`**: detects and parses all metadata formats, merges into canonical CSVs in `<version_dir>/metadata/`.
-3. **Stage 3 — `pumf_build_duckdb(version_dir, series, version, lang, ...)`**: reads data file, joins BSW weights, applies numeric conversion and code labels, writes to `<version_dir>/<series>_<version>.duckdb`. Returns path list; use `pumf_open_duckdb()` to get a lazy tbl.
+3. **Stage 3 — `pumf_build_duckdb(version_dir, series, version, lang, layout_mask, file_mask, refresh)`**: reads data file, joins BSW weights, applies numeric conversion and code labels, writes to `<version_dir>/<series>_<version>.duckdb`. Returns path list; use `pumf_open_duckdb()` to get a lazy tbl.
 
 `pumf_run_pipeline()` chains all three stages using registry config.
 
 #### Data file detection
 
-`.find_pumf_data_file(version_dir, file_mask, prefer_fwf)` selects the data file. The extension pattern is derived from the `file_mask` first (`.csv` → CSV, `.txt`/`.dat` → FWF), falling back to `prefer_fwf`. After finding the file, `is_fwf` is re-determined from the actual file extension — this handles surveys like CHS that ship both a CSV and a TXT file but whose SPSS DATA LIST section also creates a `layout.csv`.
+`.find_pumf_data_file(version_dir, file_mask, prefer_fwf)` selects the data file. The extension pattern is derived from the `file_mask` first (`.csv` → CSV, `.txt`/`.dat` → FWF). When `file_mask` uses an unrecognised extension (e.g. `.INDIV` for the 1991 Census), `ext_pat` is set to `NULL` and all files are searched, with `file_mask` alone selecting the result. The final `is_fwf` decision is made from the actual found file extension and the presence of `layout.csv` — this handles surveys like CHS that ship both a CSV and a TXT file but whose SPSS DATA LIST section also creates a `layout.csv`.
 
 ### LFS longitudinal pipeline (`R/lfs_pipeline.R`)
 
@@ -77,13 +77,24 @@ Six parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
 - `codes.csv` — one row per code value (name, val, label_en, label_fr)
 - `layout.csv` — one row per fixed-width column (name, start, end); absent for CSV-format data
 
-Parsers: `parse_spss_mono()`, `parse_spss_split()`, `parse_sas_cards()`, `parse_lfs_codebook()`, `parse_cpss_csv()`, `parse_spss_sav()`.
+Parsers (in detection priority order):
+1. `parse_lfs_codebook()` — LFS `*codebook.csv`; always read as CP1252
+2. `parse_cpss_csv()` — CPSS `variables.csv`
+3. `parse_sas_cards()` — directory with `.lay` + `.lbe` files
+4. `parse_spss_split()` — directory with `vare`/`vale`/`_i` named `.sps` files
+5. `parse_spss_mono()` — single `.sps`, `*SPSS.txt`, or `.xmf` file containing both `VARIABLE LABELS` and `VALUE LABELS` keywords
+6. `parse_spss_sav()` — binary SPSS `.sav` file (read via haven)
+
+Multiple parsers can fire for the same survey (e.g. split-SPSS for layout/codes and SAS cards for BSW weights). `merge_metadata()` consolidates all results.
 
 Key parsing details:
-- **Sentinel detection**: variables whose only value labels are sentinels (Valid skip, Don't know, Refusal, Not stated) are classified as `numeric`, not `character`, to avoid spurious NA warnings.
+- **Sentinel detection**: variables whose only value labels are sentinel phrases (Not applicable, Not stated, Not in universe, Not available, Valid skip, Refusal, Refused, Don't know, Missing, N/A, Does not apply, Not in scope) are classified as `numeric` with a `missing_low/missing_high` range rather than `character`, to avoid spurious NA warnings when numeric values have no matching label.
 - **Zero-padded codes**: unquoted SPSS numeric codes like `01`, `02` are normalized via `as.numeric()` → `as.character()` so they match bare integer values in CSV data.
 - **Multi-variable VALUE LABELS blocks**: `/VAR1 VAR2 VAR3` headers (possibly spanning continuation lines) are fully parsed so all listed variables receive the code/label pairs.
-- **SPSS DATA LIST decimals**: no annotation → `fmt_type="F"`, `decimals=0` (integer); `(n)` annotation → `decimals=n`; `(Fn.d)` → `decimals=d`.
+- **SPSS DATA LIST column ranges**: spaces around the dash are tolerated in all forms — `129-135`, `129 - 135`, `129-  135` — via `(\\d+)\\s*-\\s*(\\d+)` normalisation before tokenisation. A leading `/` record-group marker on the first variable line is stripped (not discarded) so the variable is retained.
+- **SPSS DATA LIST section terminator**: the section ends at the first blank line, `.` line, or occurrence of `VARIABLE LABELS`, `VALUE LABELS`, `MISSING VALUES`, `FORMATS`, or `EXECUTE` at the start of a line. The keyword check is the reliable terminator for older files (e.g. 1991 XMF) that have no blank line between `DATA LIST` and `VARIABLE LABELS`.
+- **SPSS DATA LIST decimals**: no annotation → `fmt_type="F"`, `decimals=0` (integer); `(A)` or `(An)` → character format; `(n)` → `decimals=n`; `(Fn.d)` → `decimals=d`.
+- **Metadata encoding**: default is `"CP1252"` (superset of Latin-1, handles Windows-era en-dashes and curly quotes). Exceptions: Census 2021 uses `"UTF-8"` (command files shipped as UTF-8); Census 1991 (individuals) uses `"CP850"` (DOS-era IBM Code Page 850). The `detect_formats()` SPSS keyword scan uses `useBytes = TRUE` to tolerate non-UTF-8 bytes without warnings regardless of encoding.
 
 ### Survey registry (`R/registry.R`)
 
@@ -92,7 +103,7 @@ Key parsing details:
 - `bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols` — bootstrap weight join config
 - `file_mask` — data file selector (extension determines CSV vs FWF)
 - `data_encoding`, `metadata_encoding` — encoding overrides
-- `data_fixups` — `str_pad` and `rename` transformations applied before label mapping
+- `data_fixups` — `str_pad` and `rename` transformations applied before label mapping; `na_values` character vector of raw string sentinels that become `NA` for all numeric columns (used for undeclared Census income sentinels)
 
 Surveys without a registry entry use auto-detection.
 

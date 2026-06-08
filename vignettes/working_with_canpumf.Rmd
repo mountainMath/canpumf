@@ -33,7 +33,7 @@ chs_pumf |>
   head(10)
 ```
 
-The data comes outomatically labelled, but column names are left as coded in the data. That makes it easier to work with the data if one is very familiar with the particular survey, but can also be a barrier. In that case one can apply column labels on the fly.
+The data comes automatically labelled, but column names are left as coded in the data. That makes it easier to work with the data if one is very familiar with the particular survey, but can also be a barrier. In that case one can apply column labels on the fly.
 
 
 ```{r}
