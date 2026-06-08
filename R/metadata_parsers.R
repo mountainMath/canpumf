@@ -1115,6 +1115,20 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     tibble::tibble(name = character(), val = character(), label = character())
   fra_val <- read_val_labels(cdf_path)
 
+  # Drop range-notation codes (e.g. "00:06", "045:095") and empty-label codes.
+  # SPSS .cde files use X:Y syntax to label a range of valid values as a group
+  # (e.g. "045:095 'Valid age range'"), but individual data values within that
+  # range cannot be mapped to a single factor level.  Keeping range codes also
+  # suppresses sentinel-only detection, misclassifying numeric variables as
+  # categorical.
+  .drop_range_codes <- function(df) {
+    if (is.null(df) || nrow(df) == 0L) return(df)
+    df[!grepl("^\\d+:\\d+$", df$val) &
+       !is.na(df$label) & nchar(trimws(df$label)) > 0L, ]
+  }
+  eng_val <- .drop_range_codes(eng_val)
+  fra_val <- .drop_range_codes(fra_val)
+
   # ---- Missing values (.mvs) ----
   missing_vals <- if (!is.null(mvs_path)) {
     lines <- .spss_split_read_section(mvs_path, encoding)

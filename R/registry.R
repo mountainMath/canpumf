@@ -97,6 +97,10 @@
   # 2012: no bootstrap weights, no padding fixup
   "SFS/2012" = .make_entry("SFS", "2012"),
 
+  # 2005: no bootstrap weights; SAS cards format (SpssCard/ subdir)
+  "SFS/2005" = .make_entry("SFS", "2005",
+    file_mask = "ec2005ef\\.txt"),
+
   # ---- CIS: Canadian Income Survey ------------------------------------------
   # Data dir contains CIS{year}_PUMF.txt (FWF), CIS{year}_PUMF.csv, Readme.txt
   # and Lisezmoi.txt; file_mask selects the FWF data file unambiguously.

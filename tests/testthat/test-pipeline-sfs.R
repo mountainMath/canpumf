@@ -197,3 +197,73 @@ test_that("pumf_run_pipeline: returns lazy tbl for SFS", {
   expect_s3_class(tbl, "tbl")
   expect_gt(dplyr::collect(tbl) |> nrow(), 5000L)
 })
+
+# ---- Per-version verified tests ---------------------------------------------
+
+# All end-to-end verified versions (import without errors or unexpected warnings)
+.sfs_verified <- c("2023", "2019", "2016", "2012", "2005")
+
+# ---- No-unexpected-warnings loop --------------------------------------------
+
+for (.v in .sfs_verified) {
+  local({
+    ver <- .v
+    test_that(paste0("SFS ", ver, ": pipeline emits no unexpected warnings"), {
+      skip_if_not(.sfs_duckdb_exists(ver),
+                  paste("SFS", ver, "DuckDB not built"))
+
+      warns <- character(0L)
+      withCallingHandlers(
+        {
+          reg <- canpumf:::pumf_registry_lookup("SFS", ver)
+          r   <- canpumf:::pumf_build_duckdb(.sfs_vdir(ver), "SFS", ver,
+                                              lang        = "eng",
+                                              layout_mask = reg$layout_mask)
+          tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+          on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE))
+          dplyr::collect(tbl)
+        },
+        warning = function(w) {
+          warns <<- c(warns, conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
+      )
+      expect_identical(warns, character(0L),
+        label = paste0("SFS ", ver, " should produce no warnings"))
+    })
+  })
+}
+
+# ---- Bilingual label coverage loop ------------------------------------------
+
+for (.v in .sfs_verified) {
+  local({
+    ver <- .v
+    test_that(paste0("SFS ", ver, ": metadata has English and French labels"), {
+      skip_if_not(.sfs_metadata_exists(ver),
+                  paste("SFS", ver, "metadata not parsed"))
+
+      meta <- canpumf:::read_metadata(file.path(.sfs_vdir(ver), "metadata"))
+
+      en_vars <- sum(!is.na(meta$variables$label_en) &
+                       nchar(meta$variables$label_en) > 0L)
+      expect_gt(en_vars, 0L,
+        label = paste0("SFS ", ver, ": should have English variable labels"))
+
+      fr_vars <- sum(!is.na(meta$variables$label_fr) &
+                       nchar(meta$variables$label_fr) > 0L)
+      expect_gt(fr_vars, 0L,
+        label = paste0("SFS ", ver, ": should have French variable labels"))
+
+      en_codes <- sum(!is.na(meta$codes$label_en) &
+                        nchar(meta$codes$label_en) > 0L)
+      expect_gt(en_codes, 0L,
+        label = paste0("SFS ", ver, ": should have English code labels"))
+
+      fr_codes <- sum(!is.na(meta$codes$label_fr) &
+                        nchar(meta$codes$label_fr) > 0L)
+      expect_gt(fr_codes, 0L,
+        label = paste0("SFS ", ver, ": should have French code labels"))
+    })
+  })
+}
