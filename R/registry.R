@@ -40,25 +40,27 @@
   )
 }
 
-# Census of Population income variables use 8-digit sentinel codes that are
-# not declared in any machine-readable command file.  Confirmed for 2021 from
-# the PUMF User Guide: every 8-char quantitative variable (CapGn, CHDBN,
-# CHLDC, COVID_ERB, CQPPB, EICBN, EmpIn, GovtI, GTRfs, IncTax, Invst,
-# MrkInc, OASGI, OtInc, Retir, SempI, TotInc, TotInc_AT, Value, Wages) uses:
-#   99999999 = not applicable  (e.g. persons aged < 15)
-#   88888888 = not available
-# The 4-char SHELCO variable has no sentinel ("ranges from 0 to the maximum"),
-# and cannot contain an 8-digit value regardless.
-# Applying these na_values to all numeric columns is safe: any column narrower
-# than 8 chars cannot produce a false positive, only a false negative (its
-# own sentinel, e.g. "999999" for a 6-char field, would go unhandled).
+# Census of Population income variables use undeclared sentinel codes.
+# The sentinel width matches the income field width, which changed across years:
 #
-# Scope: applied to 2001–2021 where the 8-char income field format is
-# established.  Earlier years (1996 and before) used narrower income fields
-# with different-length sentinels and should be verified separately before
-# adding na_values.
-.census_na  <- c("99999999", "88888888")
-.census_fixup <- list(na_values = .census_na)
+#   2016–2021: 8-char income fields (EmpIn, MrkInc, TotInc, Value, …)
+#     99999999 = not applicable  (e.g. persons aged < 15)
+#     88888888 = not available
+#
+#   2006–2011: 7-char income fields (same variables, narrower layout)
+#     9999999  = not applicable
+#     8888888  = not available
+#
+# Do NOT combine these into one vector: "9999999" applied to 8-char fields
+# would treat a valid $9,999,999 income (stored as " 9999999", trimmed to
+# "9999999") as NA.
+#
+# 2001 and earlier: field widths unverified — .census_fixup_8 is applied as
+# a placeholder but may need revision once those files are confirmed.
+.census_fixup_8 <- list(na_values = c("99999999", "88888888"))
+.census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
+# Backward-compatible alias used by 2001 entries (field widths unverified).
+.census_fixup   <- .census_fixup_8
 
 # SFS 2016/2019/2023: three categorical columns arrive as "1" / "2" instead of
 # "01" / "02" — the SPSS command files expect the zero-padded forms.
@@ -177,23 +179,23 @@
     file_mask   = "\\.dat",
     data_fixups = .census_fixup),
 
-  # 2011 NHS: fixed-width .dat
+  # 2011 NHS: fixed-width .dat, 7-char income fields
   "Census/2011 (individuals)" = .make_entry("Census", "2011 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_7),
 
   "Census/2011 (hierarchical)" = .make_entry("Census", "2011 (hierarchical)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_7),
 
-  # 2006: fixed-width .dat; individuals file may be in an "Individual file" subdir
+  # 2006: fixed-width .dat, 7-char income fields
   "Census/2006 (individuals)" = .make_entry("Census", "2006 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_7),
 
   "Census/2006 (hierarchical)" = .make_entry("Census", "2006 (hierarchical)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_7),
 
   # 2001: fixed-width .dat; three file types
   "Census/2001 (individuals)" = .make_entry("Census", "2001 (individuals)",
