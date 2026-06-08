@@ -23,7 +23,7 @@
                         bsw_drop_cols     = character(0L),
                         file_mask         = NULL,
                         data_encoding     = "CP1252",
-                        metadata_encoding = "Latin1",
+                        metadata_encoding = "CP1252",
                         data_fixups       = list()) {
   list(
     series            = series,
@@ -148,7 +148,7 @@
   # ---- Census of Population -------------------------------------------------
   # 2021 and 2016 are downloadable. Older years are EFT-only (user deposits zip).
   # All Census files use CP1252-encoded data; 2021 uses UTF-8 metadata (command
-  # files shipped as UTF-8), older years use CP1252/Latin1 metadata.
+  # files shipped as UTF-8), older years use CP1252 metadata.
   #
   # Income variables (8-char-wide fields: CHDBN, COVID_ERB, CQPPB, CapGn, ChldC,
   # EICBN, EmpIn, GovtI, GTRfs, IncTax, Invst, MrkInc, OASGI, OtInc, Retir,
