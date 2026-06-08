@@ -659,8 +659,10 @@ pumf_build_duckdb <- function(version_dir,
     for (vname in names(reg$data_fixups$codes_supplement)) {
       extra <- reg$data_fixups$codes_supplement[[vname]]
       extra$name <- vname
+      vlabel   <- variables$label_en[variables$name == vname]
+      vdesc    <- if (length(vlabel) == 1L && !is.na(vlabel)) paste0(" (", vlabel, ")") else ""
       injected <- paste0(extra$val, "=", extra$label_en, collapse = "; ")
-      warning("Variable ", vname, ": value label(s) absent from command files, ",
+      warning("Variable ", vname, vdesc, ": value label(s) absent from command files, ",
               "injecting manually: ", injected, call. = FALSE)
       codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
     }
