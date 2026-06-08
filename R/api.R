@@ -223,33 +223,48 @@ label_pumf_columns <- function(tbl) {
   cache_path <- prov$cache_path
   lang       <- prov$lang %||% "eng"
 
-  # For LFS with version = NULL, pick the first loaded version to read metadata.
-  if (series == "LFS" && is.null(version)) {
+  label_col <- if (lang == "eng") "label_en" else "label_fr"
+
+  # For LFS, the shared lfs_eng/lfs_fra table accumulates columns from all
+  # loaded versions.  A variable like GENDER was only introduced in 2020+, so
+  # reading a single (older) version's metadata would leave it unlabelled.
+  # Solution: read all version metadata directories in chronological order and
+  # stack them; keep the last (most-recent) label for each variable name.
+  if (series == "LFS") {
     db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
     if (!file.exists(db_path))
       stop("LFS database not found at '", db_path, "'.", call. = FALSE)
-    con_tmp  <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
-    versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
+    con_tmp     <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+    all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
       DBI::dbGetQuery(
         con_tmp,
-        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth LIMIT 1")$version
+        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
     else character(0L)
     DBI::dbDisconnect(con_tmp, shutdown = TRUE)
-    if (length(versions) == 0L)
+    if (length(all_versions) == 0L)
       stop("No LFS versions found in the database.", call. = FALSE)
-    version <- versions[[1L]]
+
+    all_vars <- purrr::map(all_versions, function(v) {
+      md <- file.path(cache_path, "LFS", v, "metadata")
+      if (!dir.exists(md)) return(NULL)
+      tryCatch(read_metadata(md)$variables, error = function(e) NULL)
+    })
+    all_vars <- do.call(rbind, all_vars[!vapply(all_vars, is.null, logical(1L))])
+
+    if (is.null(all_vars) || nrow(all_vars) == 0L)
+      stop("No LFS metadata found in any version directory.", call. = FALSE)
+
+    # Later versions override earlier ones for the same variable name
+    variables <- all_vars[!duplicated(all_vars$name, fromLast = TRUE), , drop = FALSE]
+  } else {
+    version_dir <- file.path(cache_path, series, version)
+    meta_dir    <- file.path(version_dir, "metadata")
+    if (!dir.exists(meta_dir))
+      stop("Metadata directory not found: '", meta_dir, "'. ",
+           "Run get_pumf(\"", series, "\", \"", version, "\") first.",
+           call. = FALSE)
+    variables <- read_metadata(meta_dir)$variables
   }
-
-  version_dir <- file.path(cache_path, series, version)
-  meta_dir    <- file.path(version_dir, "metadata")
-  if (!dir.exists(meta_dir))
-    stop("Metadata directory not found: '", meta_dir, "'. ",
-         "Run get_pumf(\"", series, "\", \"", version, "\") first.",
-         call. = FALSE)
-
-  meta      <- read_metadata(meta_dir)
-  variables <- meta$variables
-  label_col <- if (lang == "eng") "label_en" else "label_fr"
 
   var_labels <- variables[!is.na(variables[[label_col]]),
                            c("name", label_col), drop = FALSE]
