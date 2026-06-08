@@ -415,14 +415,34 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   }
 
   # Normalize single-quoted label strings -> double quotes.
-  # A line uses single-quote labels if it ends with '...' and has no double quotes.
-  sq <- grepl("'[^']*'\\s*\\.?\\s*$", lines) &
+  # Allow any mix of trailing '.' and '/' after the closing quote, e.g.:
+  #   CODE 'label' /          (2006 Census: block separator on same line)
+  #   CODE 'label' / .        (2006 Census: last block + section terminator)
+  #   CODE 'label' .          (2021 Census: section terminator)
+  sq <- grepl("'[^']*'(\\s*[./])*\\s*$", lines) &
         !grepl('"', lines, fixed = TRUE) &
         !grepl("^\\s*/\\*", lines)            # skip comments
   lines[sq] <- gsub("'", '"', lines[sq])
 
-  # Strip trailing ' .' that some 2021-style lines use as section terminators
+  # Strip trailing '.' that some 2021-style lines use as section terminators
   lines <- gsub('"\\s*\\.$', '"', lines)
+
+  # Expand trailing-'/' code lines into (code-line, bare-'/') pairs.
+  # Census 2006 SPSS files end the last code of each variable block with
+  # CODE "label" / or CODE "label" / . on the same line; split into the
+  # clean code line plus a separator so group detection works correctly.
+  trailing_sep <- grepl('".*\\s*/[./\\s]*$', lines) & !grepl("^/", lines)
+  if (any(trailing_sep)) {
+    expanded <- vector("list", length(lines))
+    for (i in seq_along(lines)) {
+      if (trailing_sep[[i]]) {
+        expanded[[i]] <- c(sub("\\s*/[./\\s]*$", "", lines[[i]]), "/")
+      } else {
+        expanded[[i]] <- lines[[i]]
+      }
+    }
+    lines <- unlist(expanded, use.names = FALSE)
+  }
 
   tibble::tibble(clean = trimws(lines))
 }
