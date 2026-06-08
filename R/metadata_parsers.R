@@ -13,7 +13,10 @@
 .sentinel_pat <- paste0(
   "(?i)^(not (applicable|stated|in (the )?universe|available)|",
   "valid skip|refusal|refused|don.?t know|missing|n/a|does not apply|",
-  "not in scope)$"
+  "not in scope|",
+  # French equivalents (1991 Census XMF is French-only)
+  "sans objet|non (disponible|déclaré|applicable)|",
+  "ne s.?applique pas|inconnu|manquant)$"
 )
 
 # Identify variables whose value labels are ALL sentinel labels.
@@ -365,7 +368,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # the missing_low or fmt_type rules.  Drop their codes entries (the missing
   # range captures the sentinel info; keeping them would cause spurious
   # "unmatched value" warnings in .apply_code_labels).
-  sentinel_info    <- .detect_sentinel_only(codes, label_col = "label_en")
+  sentinel_info    <- .detect_sentinel_only(codes, label_col = "label")
   sentinel_names   <- names(sentinel_info)
   truly_categorical <- setdiff(unique(codes$name), sentinel_names)
   codes            <- codes[!codes$name %in% sentinel_names, ]
@@ -511,9 +514,21 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     if (length(var_names) == 0L || code_start > ge)
       return(tibble::tibble(name = character(), val = character(), label = character()))
 
+    # 1991-style XMF: variable name and first code appear on the same header
+    # line, e.g. "    SEXP   1  \"Femme\"".  The while loop above never fires
+    # because first_line already contains a double-quote, so code_start = s+1
+    # and the first code is left stranded on the header line.  Detect this by
+    # checking whether first_line contains a quote, then strip the leading
+    # identifier(s) and prepend the remainder as the first code line.
+    inline_code <- if (grepl('"', first_line, fixed = TRUE)) {
+      bare <- trimws(sub("^([A-Za-z][A-Za-z0-9_]*\\s+)+", "", first_line))
+      if (nchar(bare) > 0L && grepl('"', bare, fixed = TRUE)) bare else character(0L)
+    } else character(0L)
+
     code_lines <- lines[seq(code_start, ge)]
     code_lines <- code_lines[!grepl("^/", code_lines)]
     code_lines <- code_lines[nchar(code_lines) > 0L]
+    code_lines <- c(inline_code, code_lines)
 
     if (length(code_lines) == 0L)
       return(tibble::tibble(name = character(), val = character(), label = character()))

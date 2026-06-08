@@ -209,6 +209,27 @@ pumf_locate_or_download <- function(series,
     robust_unzip(zip_path, exdir = version_dir)
   }
 
+  # Step 5: extract any inner zips found in subdirectories.
+  # Some StatCan Census releases (e.g. 1996) store the real data file in a
+  # second-level zip (e.g. indiv/indiv.zip, hhld/hhldv2.zip) alongside a small
+  # test file.  Detect and extract these automatically.
+  inner_zips <- list.files(version_dir, pattern = "\\.zip$",
+                            ignore.case = TRUE, recursive = TRUE,
+                            full.names = TRUE)
+  # Exclude the top-level download zip itself
+  inner_zips <- inner_zips[dirname(inner_zips) != version_dir]
+  for (iz in inner_zips) {
+    target_dir <- dirname(iz)
+    contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
+                            error = function(e) character(0L))
+    already_done <- length(contents) > 0L &&
+      all(file.exists(file.path(target_dir, contents)))
+    if (!already_done) {
+      message("Extracting inner zip ", basename(iz), " ...")
+      .unzip_impl(iz, target_dir)
+    }
+  }
+
   invisible(version_dir)
 }
 

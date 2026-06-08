@@ -225,34 +225,42 @@
     file_mask   = "\\.dat",
     data_fixups = .census_fixup),
 
-  # 1996: 7-char income fields (confirmed from SPSS DATA LIST), same sentinels
-  # as 2001-2011.  1991 and earlier unverified.
+  # 1996: data files live in a second-level zip (indiv.zip, hhldv2.zip, famv2.zip)
+  # alongside a small test file.  pumf_locate_or_download auto-extracts inner zips;
+  # file_mask targets the real data file to avoid matching the test file.
   "Census/1996 (individuals)" = .make_entry("Census", "1996 (individuals)",
-    file_mask   = "\\.dat",
+    file_mask   = "^indiv\\.dat$",
     data_fixups = .census_fixup_7),
 
   "Census/1996 (households)" = .make_entry("Census", "1996 (households)",
-    file_mask   = "\\.dat",
+    file_mask   = "^hhldv2\\.dat$",
     data_fixups = .census_fixup_7),
 
   "Census/1996 (families)" = .make_entry("Census", "1996 (families)",
-    file_mask   = "\\.dat",
+    file_mask   = "^fam\\.dat$",
     data_fixups = .census_fixup_7),
 
-  # 1991: data file is PUMF91.INDIV (individuals); metadata in INDF91.XMF (SPSS,
-  # French-only). Households/families file masks TBD when tested.
-  # Metadata encoded in IBM CP850 (DOS-era encoding, not CP1252/Latin-1).
-  # Income fields confirmed 7-char wide (e.g. TOTINCP 127-133).
+  # 1991: XMF command files are French-only (CP850 encoding).  NOLGREP code 9
+  # ("Sans objet") is absent from the XMF but present in the data.
   "Census/1991 (individuals)" = .make_entry("Census", "1991 (individuals)",
     file_mask         = "PUMF91\\.INDIV",
     metadata_encoding = "CP850",
-    data_fixups       = .census_fixup_7),
+    data_fixups       = c(.census_fixup_7, list(
+      codes_supplement = list(
+        NOLGREP = data.frame(val = "9", label_en = "Not applicable",
+                             label_fr = "Sans objet", stringsAsFactors = FALSE)
+      )
+    ))),
 
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
-    file_mask   = "\\.(dat|DAT|txt)"),
+    file_mask         = "PUMF91\\.HHLD",
+    metadata_encoding = "CP850",
+    data_fixups       = .census_fixup_7),
 
   "Census/1991 (families)" = .make_entry("Census", "1991 (families)",
-    file_mask   = "\\.(dat|DAT|txt)"),
+    file_mask         = "PUMF91\\.FAM",
+    metadata_encoding = "CP850",
+    data_fixups       = .census_fixup_7),
 
   # 1986–1971: fixed-width files extracted from version-specific sub-archives.
   # 1981 data files use a .DAT extension; 1971 has CMA and PR level variants.
