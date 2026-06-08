@@ -20,7 +20,7 @@ test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
   expect_equal(e$bsw_join_key,  "PEFAMID")
   expect_equal(e$bsw_drop_cols, "PWEIGHT")
   expect_equal(e$data_encoding,     "CP1252")
-  expect_equal(e$metadata_encoding, "Latin1")
+  expect_equal(e$metadata_encoding, "CP1252")
 })
 
 test_that("pumf_registry_lookup: SFS str_pad fixup present for 2016/2019/2023", {
@@ -89,10 +89,10 @@ test_that("pumf_registry_lookup: Census fixed-width versions have .dat file_mask
   }
 })
 
-test_that("pumf_registry_lookup: older Census versions have Latin1 metadata encoding", {
+test_that("pumf_registry_lookup: older Census versions have CP1252 metadata encoding", {
   for (v in c("2016 (individuals)", "2011 (individuals)", "2006 (individuals)")) {
     e <- canpumf:::pumf_registry_lookup("Census", v)
-    expect_equal(e$metadata_encoding, "Latin1",
+    expect_equal(e$metadata_encoding, "CP1252",
                  label = paste0("Census/", v, " metadata_encoding"))
   }
 })
