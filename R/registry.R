@@ -61,16 +61,6 @@
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
 .census_fixup   <- .census_fixup_7   # alias; most FWF years use 7-char fields
 
-# SFS 2016/2019/2023: three categorical columns arrive as "1" / "2" instead of
-# "01" / "02" — the SPSS command files expect the zero-padded forms.
-.sfs_pad_fixup <- list(
-  str_pad = list(
-    list(cols  = c("PASRBUYG", "PASRDWNG", "PASRMPFG"),
-         width = 2L,
-         side  = "left",
-         pad   = "0")
-  )
-)
 
 .pumf_registry <- list(
 
@@ -84,8 +74,7 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF\\.txt",
-    data_fixups   = .sfs_pad_fixup),
+    file_mask     = "EFAM_PUMF\\.txt"),
 
   "SFS/2019" = .make_entry("SFS", "2019",
     layout_mask   = "EFAM_PUMF",
@@ -93,8 +82,7 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF",
-    data_fixups   = .sfs_pad_fixup),
+    file_mask     = "EFAM_PUMF"),
 
   "SFS/2016" = .make_entry("SFS", "2016",
     layout_mask   = "EFAM_PUMF",
@@ -102,11 +90,20 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF",
-    data_fixups   = .sfs_pad_fixup),
+    file_mask     = "EFAM_PUMF"),
 
   # 2012: no bootstrap weights, no padding fixup
   "SFS/2012" = .make_entry("SFS", "2012"),
+
+  # ---- CIS: Canadian Income Survey ------------------------------------------
+  # Data dir contains CIS{year}_PUMF.txt (FWF), CIS{year}_PUMF.csv, Readme.txt
+  # and Lisezmoi.txt; file_mask selects the FWF data file unambiguously.
+
+  "CIS/2022" = .make_entry("CIS", "2022", file_mask = "PUMF\\.txt"),
+  "CIS/2021" = .make_entry("CIS", "2021", file_mask = "PUMF\\.txt"),
+  "CIS/2020" = .make_entry("CIS", "2020", file_mask = "PUMF\\.txt"),
+  "CIS/2019" = .make_entry("CIS", "2019", file_mask = "PUMF\\.txt"),
+  "CIS/2018" = .make_entry("CIS", "2018", file_mask = "PUMF\\.txt"),
 
   # ---- CHS: Canadian Housing Survey ----------------------------------------
 

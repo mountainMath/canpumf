@@ -85,17 +85,20 @@ By default the package loads the *individuals* file. Available variants by year:
 pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 ```
 
-## Other PUMF
+## Verified datasets
 
-The package makes an attempt to parse other PUMF files. It has been successfully used with:
+The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked **direct download** can be fetched automatically by `get_pumf()`; others must be placed in the cache directory via Statistics Canada's EFT portal.
 
-* CHS 2018, 2021, 2022
-* ITS 2017
-* VTS 2018
-* TSRC 2017
-* Covid Series 3
-* SFS 2019
-* SHS 2019
+| Survey | Series | Verified versions | Direct download |
+|---|---|---|:---:|
+| Labour Force Survey | LFS | 2006–2025 (annual); 2026-01 to 2026-05 (monthly) | ✓ |
+| Census of Population | Census | 2021 (individuals), 2016 (hierarchical), 2011 (hierarchical), 2006 (individuals) | 2016 & 2021 only |
+| Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
+| Survey of Financial Security | SFS | 2023 | ✓ |
+| Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
+| Canadian Income Survey | CIS | 2018–2022 | ✓ |
+
+Additional Census variants (hierarchical/individuals for 2016, 2011, 2006; all variants for 2001, 1996, 1991, 1986, 1981, 1976, 1971) and other SFS vintages (2012, 2016, 2019) are registered with specific parsing configuration but have not yet been end-to-end tested from this machine.
 
 ### Cite **canpumf**
 

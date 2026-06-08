@@ -1,7 +1,5 @@
 # Integration tests for the Survey of Financial Security (SFS) pipeline.
 # SFS uses SPSS split-file format with a bootstrap weights (BSW) FWF file.
-# The str_pad fixup (PASRBUYG, PASRDWNG, PASRMPFG) must fire before label
-# mapping so the zero-padded codes match those in the SPSS command files.
 # These tests run against data already in the user's canpumf cache.
 
 .sfs_cache <- function() getOption("canpumf.cache_path", "")
@@ -52,27 +50,6 @@ test_that("SFS: pumf_parse_metadata produces canonical CSVs", {
               label = "Expected age or weight variable in SFS metadata")
 })
 
-test_that("SFS: str_pad fixup columns appear in codes metadata", {
-  v <- .sfs_bsw_version()
-  skip_if(is.null(v), "No SFS version with BSW in cache")
-  skip_if_not(.sfs_metadata_exists(v), "SFS metadata not parsed")
-
-  meta   <- canpumf:::read_metadata(file.path(.sfs_vdir(v), "metadata"))
-  padded <- c("PASRBUYG", "PASRDWNG", "PASRMPFG")
-  present <- intersect(padded, unique(meta$codes$name))
-  skip_if(length(present) == 0L, "Padded columns not in SFS codes (version may differ)")
-
-  # Codes for padded columns should use zero-padded vals ("01", "02", ...)
-  for (col in present) {
-    col_codes <- meta$codes[meta$codes$name == col, ]
-    if (nrow(col_codes) > 0L) {
-      # All non-trivial vals should be width ≥ 2 (zero-padded)
-      short <- col_codes$val[nchar(col_codes$val) < 2L & col_codes$val != ""]
-      expect_equal(length(short), 0L,
-        label = paste0(col, " codes should be zero-padded in metadata"))
-    }
-  }
-})
 
 
 # ---- Stage 3: DuckDB build --------------------------------------------------

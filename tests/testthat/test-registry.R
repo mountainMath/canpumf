@@ -23,18 +23,6 @@ test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
   expect_equal(e$metadata_encoding, "CP1252")
 })
 
-test_that("pumf_registry_lookup: SFS str_pad fixup present for 2016/2019/2023", {
-  for (v in c("2016", "2019", "2023")) {
-    e <- canpumf:::pumf_registry_lookup("SFS", v)
-    expect_true(!is.null(e$data_fixups$str_pad),
-                label = paste0("SFS/", v, " has str_pad fixup"))
-    pad_spec <- e$data_fixups$str_pad[[1]]
-    expect_setequal(pad_spec$cols, c("PASRBUYG", "PASRDWNG", "PASRMPFG"))
-    expect_equal(pad_spec$width, 2L)
-    expect_equal(pad_spec$side,  "left")
-    expect_equal(pad_spec$pad,   "0")
-  }
-})
 
 test_that("pumf_registry_lookup: SFS/2012 has no BSW and no fixup", {
   e <- canpumf:::pumf_registry_lookup("SFS", "2012")

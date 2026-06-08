@@ -437,6 +437,15 @@ pumf_locate_or_download <- function(series,
     lvls      <- unique(labels[valid])
 
     raw_vals  <- data[[col]]
+    # FWF data preserves zero-padding verbatim ("01", "02") while unquoted
+    # SPSS codes are normalized via as.numeric() ("01" -> "1") but quoted ones
+    # are kept as-is ("01"). Normalize both sides when all keys are integers so
+    # the representation is consistent regardless of quoting style.
+    if (length(lookup) > 0L && all(grepl("^-?[0-9]+$", names(lookup)))) {
+      names(lookup) <- as.character(as.integer(names(lookup)))
+      num      <- suppressWarnings(as.integer(raw_vals))
+      raw_vals <- ifelse(!is.na(raw_vals) & !is.na(num), as.character(num), raw_vals)
+    }
     unmatched <- unique(raw_vals[!raw_vals %in% c(names(lookup), NA_character_)])
     if (length(unmatched) > 0L)
       warning("Variable ", col, ": ", length(unmatched),
