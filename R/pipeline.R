@@ -262,7 +262,7 @@ pumf_locate_or_download <- function(series,
     "\\.csv$"
   # Subdirectory names that hold metadata/layout but not data
   excl_pat <- paste0(
-    "/(metadata|SPSS|Command|Syntax|Layout|SpssCard|",
+    "/(metadata|SPSS|SAS|STATA|Command|Syntax|Layout|SpssCard|",
     "Reading[_ ]cards|Documents|canpumf)/")
 
   all_files  <- list.files(version_dir, recursive = TRUE, full.names = TRUE)

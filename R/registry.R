@@ -84,7 +84,7 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF"),
+    file_mask     = "EFAM_PUMF\\.txt"),
 
   "SFS/2016" = .make_entry("SFS", "2016",
     layout_mask   = "EFAM_PUMF",
@@ -92,7 +92,7 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF"),
+    file_mask     = "EFAM_PUMF\\.txt"),
 
   # 2012: no bootstrap weights, no padding fixup
   "SFS/2012" = .make_entry("SFS", "2012"),
