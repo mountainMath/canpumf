@@ -139,8 +139,15 @@ robust_unzip <- function(path, exdir) {
   # strip .zip from the colliding directory name, then move into exdir.
   top_entries   <- tryCatch(utils::unzip(path, list = TRUE)$Name,
                              error = function(e) character(0L))
+  # Some StatCan zips store filenames in CP1252 without the UTF-8 flag,
+  # so top_entries may contain bytes invalid in the UTF-8 locale.
+  # useBytes=TRUE matches the ASCII "/" without attempting encoding
+  # translation, silencing spurious "input string is invalid" warnings.
   top_dirs      <- unique(sub("/.*", "/", grep("/", top_entries,
-                                               value = TRUE, fixed = TRUE)))
+                                               value    = TRUE,
+                                               fixed    = TRUE,
+                                               useBytes = TRUE),
+                              useBytes = TRUE))
   has_collision <- paste0(zip_name, "/") %in% top_dirs
 
   if (has_collision) {
