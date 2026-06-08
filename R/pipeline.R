@@ -178,7 +178,7 @@ pumf_locate_or_download <- function(series,
 
   if (is.null(zip_path) && !is_extracted) {
     collection <- list_canpumf_collection()
-    row <- dplyr::filter(collection,
+    row <- filter(collection,
                          .data$Acronym == series,
                          .data$Version == version)
     if (nrow(row) == 0L) {
@@ -612,7 +612,7 @@ pumf_build_duckdb <- function(version_dir,
       drop_cols <- intersect(reg$bsw_drop_cols, names(bsw))
       if (length(drop_cols) > 0L)
         bsw <- bsw[, !names(bsw) %in% drop_cols, drop = FALSE]
-      data <- dplyr::left_join(data, bsw, by = reg$bsw_join_key)
+      data <- left_join(data, bsw, by = reg$bsw_join_key)
     }
   }
 
@@ -668,7 +668,7 @@ pumf_open_duckdb <- function(db_path, table_name, read_only = TRUE) {
     DBI::dbDisconnect(con, shutdown = TRUE)
     stop("Table '", table_name, "' not found in ", db_path, ".")
   }
-  dplyr::tbl(con, table_name)
+  tbl(con, table_name)
 }
 
 

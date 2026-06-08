@@ -138,7 +138,7 @@ get_pumf <- function(series     = NULL,
   # Resolve single-version non-LFS series so table_name and db_path are known.
   if (series != "LFS" && is.null(version)) {
     collection <- list_canpumf_collection()
-    rows <- dplyr::filter(collection, .data$Acronym == series)
+    rows <- filter(collection, .data$Acronym == series)
     if (nrow(rows) == 0L)
       stop("Unknown series '", series,
            "'. Check list_canpumf_collection() for available series.")
@@ -174,7 +174,7 @@ get_pumf <- function(series     = NULL,
       DBI::dbDisconnect(con, shutdown = TRUE)
       stop("Table '", table_name, "' not found in ", db_path, ".")
     }
-    tbl <- dplyr::tbl(con, table_name)
+    tbl <- tbl(con, table_name)
   }
 
   # For LFS, pumf_open_duckdb returns the whole shared lfs_eng/lfs_fra table.
@@ -183,9 +183,9 @@ get_pumf <- function(series     = NULL,
     if (!is.null(version)) {
       survyear <- .lfs_survyear(version)
       survmnth <- .lfs_survmnth(version)
-      tbl <- dplyr::filter(tbl, .data$SURVYEAR == survyear)
+      tbl <- filter(tbl, .data$SURVYEAR == survyear)
       if (!is.na(survmnth))
-        tbl <- dplyr::filter(tbl, .data$SURVMNTH == survmnth)
+        tbl <- filter(tbl, .data$SURVMNTH == survmnth)
     }
     # ensure nicer order
     cn <- colnames(tbl)
@@ -193,9 +193,9 @@ get_pumf <- function(series     = NULL,
       isex <- which(cn=="SEX")
       igender <- which(cn=="GENDER")
       if (isex>igender) {
-        tbl <- dplyr::relocate(tbl,"SEX",.before="GENDER")
+        tbl <- relocate(tbl,"SEX",.before="GENDER")
       } else {
-        tbl <- dplyr::relocate(tbl,"GENDER",.after="SEX")
+        tbl <- relocate(tbl,"GENDER",.after="SEX")
       }
     }
   }
@@ -297,7 +297,7 @@ label_pumf_columns <- function(tbl) {
   if (nrow(var_labels) == 0L) return(tbl)
 
   rename_map <- stats::setNames(var_labels$name, var_labels$label)
-  dplyr::rename(tbl, !!!rename_map)
+  rename(tbl, !!!rename_map)
 }
 
 

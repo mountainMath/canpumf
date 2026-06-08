@@ -189,7 +189,8 @@ get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
 
 
 #' @import dplyr
-#' @importFrom stats setNames
+#' @importFrom stats setNames na.omit
+#' @importFrom utils head
 #' @import stringr
 #' @import readr
 #' @importFrom rlang .data

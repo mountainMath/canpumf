@@ -275,23 +275,23 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
   if (!is.null(fra_sps_path)) {
     fra <- .spss_mono_single(fra_sps_path, encoding)
-    variables <- dplyr::left_join(
-      dplyr::rename(eng$variables, label_en = "label"),
-      dplyr::select(fra$variables, "name", label_fr = "label"),
+    variables <- left_join(
+      rename(eng$variables, label_en = "label"),
+      select(fra$variables, "name", label_fr = "label"),
       by = "name"
     )
-    codes <- dplyr::left_join(
-      dplyr::rename(eng$codes, label_en = "label"),
-      dplyr::select(fra$codes, "name", "val", label_fr = "label"),
+    codes <- left_join(
+      rename(eng$codes, label_en = "label"),
+      select(fra$codes, "name", "val", label_fr = "label"),
       by = c("name", "val")
     )
   } else {
-    variables <- dplyr::mutate(
-      dplyr::rename(eng$variables, label_en = "label"),
+    variables <- mutate(
+      rename(eng$variables, label_en = "label"),
       label_fr = NA_character_
     )
-    codes <- dplyr::mutate(
-      dplyr::rename(eng$codes, label_en = "label"),
+    codes <- mutate(
+      rename(eng$codes, label_en = "label"),
       label_fr = NA_character_
     )
   }
@@ -374,10 +374,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   in_data_list <- if (!is.null(layout)) layout$name else character(0L)
 
   variables <- variable_labels |>
-    dplyr::left_join(formats,      by = "name") |>
-    dplyr::left_join(missing_vals, by = "name") |>
-    dplyr::mutate(
-      type = dplyr::case_when(
+    left_join(formats,      by = "name") |>
+    left_join(missing_vals, by = "name") |>
+    mutate(
+      type = case_when(
         .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
         !is.na(.data$missing_low)                        ~ "numeric",
@@ -385,9 +385,9 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
         .data$name %in% in_data_list                     ~ "numeric",
         TRUE                                             ~ "character"
       ),
-      decimals = dplyr::if_else(.data$type == "character", NA_integer_, .data$decimals)
+      decimals = if_else(.data$type == "character", NA_integer_, .data$decimals)
     ) |>
-    dplyr::select("name", "label", "type", "decimals", "missing_low", "missing_high")
+    select("name", "label", "type", "decimals", "missing_low", "missing_high")
 
   list(variables = variables, codes = codes, layout = layout)
 }
@@ -435,16 +435,16 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     return(tibble::tibble(name = character(), label = character()))
 
   tibble::tibble(value = trimws(lines)) |>
-    dplyr::mutate(
+    mutate(
       name  = sub("\\s.*", "", .data$value),
       label = {
         m <- stringr::str_match(.data$value, '"([^"]+)"')
-        dplyr::if_else(!is.na(m[, 1L]), m[, 2L], sub("^[A-Za-z0-9_]+\\s+", "", .data$value))
+        if_else(!is.na(m[, 1L]), m[, 2L], sub("^[A-Za-z0-9_]+\\s+", "", .data$value))
       }
     ) |>
-    dplyr::filter(grepl("^[A-Za-z][A-Za-z0-9_]*$", .data$name),
+    filter(grepl("^[A-Za-z][A-Za-z0-9_]*$", .data$name),
                   nchar(trimws(.data$label)) > 0) |>
-    dplyr::select("name", "label")
+    select("name", "label")
 }
 
 
@@ -499,7 +499,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
       return(tibble::tibble(name = character(), val = character(), label = character()))
 
     codes_df <- tibble::tibble(line = code_lines) |>
-      dplyr::mutate(
+      mutate(
         all_q   = stringr::str_extract_all(.data$line, '"[^"]*"'),
         first_q = vapply(.data$all_q,
                          function(x) if (length(x) > 0L) x[[1L]] else NA_character_,
@@ -508,7 +508,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
                          function(x) if (length(x) > 0L) x[[length(x)]] else NA_character_,
                          character(1L)),
         is_q    = grepl('^"', trimws(.data$line)),
-        raw_val = dplyr::if_else(
+        raw_val = if_else(
           .data$is_q,
           gsub('^"|"$', "", .data$first_q),
           trimws(sub('".*', "", .data$line))
@@ -518,23 +518,23 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
         # and avoids integer overflow for large sentinel values (e.g. 99999999996).
         # R's as.character() renders whole-number doubles without ".0" ("1.0"→"1").
         # Quoted codes (character variables) are kept verbatim.
-        val = dplyr::if_else(
+        val = if_else(
           .data$is_q,
           .data$raw_val,
           {
             num <- suppressWarnings(as.numeric(.data$raw_val))
-            dplyr::if_else(!is.na(num), as.character(num), .data$raw_val)
+            if_else(!is.na(num), as.character(num), .data$raw_val)
           }
         ),
         label = gsub('^"|"$', "", .data$last_q)
       ) |>
-      dplyr::filter(!is.na(.data$label), nchar(.data$val) > 0L) |>
-      dplyr::select("val", "label")
+      filter(!is.na(.data$label), nchar(.data$val) > 0L) |>
+      select("val", "label")
 
     # Replicate the code/label pairs for every variable in this header block
     purrr::map_df(var_names, function(vn)
-      dplyr::mutate(codes_df, name = vn)) |>
-      dplyr::select("name", "val", "label")
+      mutate(codes_df, name = vn)) |>
+      select("name", "val", "label")
   })
 }
 
@@ -553,15 +553,15 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   parts <- trimws(parts[nchar(trimws(parts)) > 0L])
 
   tibble::tibble(part = parts) |>
-    dplyr::mutate(
+    mutate(
       name     = stringr::str_match(.data$part, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
       fmt_raw  = stringr::str_match(.data$part, "\\(([A-Za-z][^)]*)\\)")[, 2L],
       fmt_type = toupper(substr(.data$fmt_raw, 1L, 1L)),
       decimals = as.integer(
         stringr::str_match(.data$fmt_raw, "\\d+\\.(\\d+)")[, 2L])
     ) |>
-    dplyr::filter(!is.na(.data$name)) |>
-    dplyr::select("name", "fmt_type", "decimals")
+    filter(!is.na(.data$name)) |>
+    select("name", "fmt_type", "decimals")
 }
 
 
@@ -573,21 +573,21 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
                           missing_low = double(), missing_high = double()))
 
   tibble::tibble(value = trimws(lines)) |>
-    dplyr::mutate(
+    mutate(
       name        = stringr::str_match(.data$value, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
       miss_str    = stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L]
     ) |>
-    dplyr::filter(!is.na(.data$name), !is.na(.data$miss_str)) |>
-    dplyr::mutate(
+    filter(!is.na(.data$name), !is.na(.data$miss_str)) |>
+    mutate(
       missing_low  = as.numeric(
         stringr::str_match(.data$miss_str, "^([\\d.]+)")[, 2L]),
-      missing_high = dplyr::if_else(
+      missing_high = if_else(
         grepl("THRU", .data$miss_str, ignore.case = TRUE),
         as.numeric(stringr::str_match(.data$miss_str, "THRU\\s+([\\d.]+)")[, 2L]),
         .data$missing_low
       )
     ) |>
-    dplyr::select("name", "missing_low", "missing_high")
+    select("name", "missing_low", "missing_high")
 }
 
 
@@ -738,10 +738,10 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
                   else character(0L)
 
   variables <- eng_var |>
-    dplyr::left_join(layout_result$formats, by = "name") |>
-    dplyr::left_join(missing_vals,           by = "name") |>
-    dplyr::mutate(
-      type = dplyr::case_when(
+    left_join(layout_result$formats, by = "name") |>
+    left_join(missing_vals,           by = "name") |>
+    mutate(
+      type = case_when(
         .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
         !is.na(.data$missing_low)                        ~ "numeric",
@@ -749,30 +749,30 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
         .data$name %in% in_data_list                     ~ "numeric",
         TRUE                                             ~ "character"
       ),
-      decimals = dplyr::if_else(.data$type == "character", NA_integer_, .data$decimals)
+      decimals = if_else(.data$type == "character", NA_integer_, .data$decimals)
     )
 
   # ---- Merge bilingual labels ----
   if (!is.null(fra_var)) {
-    variables <- dplyr::left_join(
-      dplyr::rename(variables, label_en = "label"),
-      dplyr::select(fra_var, "name", label_fr = "label"),
+    variables <- left_join(
+      rename(variables, label_en = "label"),
+      select(fra_var, "name", label_fr = "label"),
       by = "name"
     )
   } else {
-    variables <- dplyr::rename(variables, label_en = "label") |>
-      dplyr::mutate(label_fr = NA_character_)
+    variables <- rename(variables, label_en = "label") |>
+      mutate(label_fr = NA_character_)
   }
 
   if (!is.null(fra_val)) {
-    codes <- dplyr::left_join(
-      dplyr::rename(eng_val, label_en = "label"),
-      dplyr::select(fra_val, "name", "val", label_fr = "label"),
+    codes <- left_join(
+      rename(eng_val, label_en = "label"),
+      select(fra_val, "name", "val", label_fr = "label"),
       by = c("name", "val")
     )
   } else {
-    codes <- dplyr::rename(eng_val, label_en = "label") |>
-      dplyr::mutate(label_fr = NA_character_)
+    codes <- rename(eng_val, label_en = "label") |>
+      mutate(label_fr = NA_character_)
   }
 
   variables <- variables[, c("name", "label_en", "label_fr", "type", "decimals",
@@ -823,19 +823,19 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     if (!is.null(layout)) {
       at_lines <- lines[grepl("^@\\d+", lines)]
       fmt_df <- tibble::tibble(value = at_lines) |>
-        dplyr::mutate(
+        mutate(
           name     = stringr::str_match(.data$value,
                        "^@\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-          fmt_type = dplyr::if_else(grepl("\\$", .data$value), "A", "F"),
+          fmt_type = if_else(grepl("\\$", .data$value), "A", "F"),
           # Decimal count from "n.d" numeric format (e.g. "10.4" -> 4); NA for character
-          decimals = dplyr::if_else(
+          decimals = if_else(
             grepl("\\$", .data$value),
             NA_integer_,
             as.integer(stringr::str_match(.data$value, "\\s+\\d+\\.(\\d+)\\s*$")[, 2L])
           )
         ) |>
-        dplyr::filter(!is.na(.data$name)) |>
-        dplyr::select("name", "fmt_type", "decimals")
+        filter(!is.na(.data$name)) |>
+        select("name", "fmt_type", "decimals")
     } else {
       fmt_df <- tibble::tibble(name = character(), fmt_type = character(),
                                decimals = integer())
@@ -862,17 +862,17 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   #   (n)         → numeric, n decimal places  (e.g. "(4)" → 4 decimals)
   #   (Fn.d)      → numeric, d decimal places  (e.g. "(F8.2)" → 2 decimals)
   annot_df <- tibble::tibble(value = section) |>
-    dplyr::mutate(
+    mutate(
       name     = stringr::str_match(.data$value, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
       annot    = stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L],
-      fmt_type = dplyr::case_when(
+      fmt_type = case_when(
         trimws(.data$annot) == "A"            ~ "A",
         grepl("^A\\d*$", trimws(.data$annot)) ~ "A",
         grepl("^\\d+$", trimws(.data$annot))  ~ "F",
         is.na(.data$annot)                    ~ "F",
         TRUE                                  ~ NA_character_
       ),
-      decimals = suppressWarnings(dplyr::case_when(
+      decimals = suppressWarnings(case_when(
         is.na(.data$annot)                           ~ 0L,
         grepl("^\\d+$", trimws(.data$annot))         ~
           as.integer(trimws(.data$annot)),
@@ -882,8 +882,8 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
         TRUE                                         ~ NA_integer_
       ))
     ) |>
-    dplyr::filter(!is.na(.data$name)) |>
-    dplyr::select("name", "fmt_type", "decimals")
+    filter(!is.na(.data$name)) |>
+    select("name", "fmt_type", "decimals")
 
   # Detect sub-format: @pos (SAS input) vs NAME start-end (reading card)
   has_at <- any(grepl("^@", section))
@@ -904,7 +904,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   if (length(at_lines) == 0L) return(NULL)
 
   tibble::tibble(value = at_lines) |>
-    dplyr::mutate(
+    mutate(
       start   = as.integer(stringr::str_match(.data$value, "^@(\\d+)")[, 2L]),
       name    = stringr::str_match(.data$value,
                                    "^@\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
@@ -915,8 +915,8 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
                                    "\\s+(\\$[^.]+\\.|[0-9]+\\.[0-9]*)\\s*$")[, 2L],
       end     = .data$start + .data$size - 1L
     ) |>
-    dplyr::filter(!is.na(.data$name), !is.na(.data$start)) |>
-    dplyr::select("name", "start", "end")
+    filter(!is.na(.data$name), !is.na(.data$start)) |>
+    select("name", "start", "end")
 }
 
 
@@ -982,7 +982,7 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     if (is.null(path)) return(NULL)
     lines <- .spss_split_read_section(path, encoding)
     df    <- .spss_parse_var_labels(lines)
-    dplyr::mutate(df, name = toupper(.data$name))   # normalise to uppercase
+    mutate(df, name = toupper(.data$name))   # normalise to uppercase
   }
 
   eng_var <- read_var_labels(lbe_path) %||%
@@ -994,7 +994,7 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     if (is.null(path)) return(NULL)
     lines <- .spss_split_read_section(path, encoding)
     df    <- .spss_parse_val_labels(lines)
-    dplyr::mutate(df, name = toupper(.data$name))
+    mutate(df, name = toupper(.data$name))
   }
 
   eng_val <- read_val_labels(cde_path) %||%
@@ -1005,7 +1005,7 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
   missing_vals <- if (!is.null(mvs_path)) {
     lines <- .spss_split_read_section(mvs_path, encoding)
     df    <- .spss_parse_missing(lines)
-    dplyr::mutate(df, name = toupper(.data$name))
+    mutate(df, name = toupper(.data$name))
   } else {
     tibble::tibble(name = character(), missing_low = double(), missing_high = double())
   }
@@ -1021,17 +1021,17 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
   # Ensure formats tibble has decimals column (defensively)
   if (!"decimals" %in% names(layout_result$formats))
     layout_result$formats$decimals <- NA_integer_
-  fmt_df <- dplyr::mutate(layout_result$formats, name = toupper(.data$name))
+  fmt_df <- mutate(layout_result$formats, name = toupper(.data$name))
 
   # Variables with a layout entry but no explicit 'A' format type are numeric.
   in_data_list <- if (!is.null(layout_result$layout))
     toupper(layout_result$layout$name) else character(0L)
 
   variables <- eng_var |>
-    dplyr::left_join(fmt_df,       by = "name") |>
-    dplyr::left_join(missing_vals, by = "name") |>
-    dplyr::mutate(
-      type = dplyr::case_when(
+    left_join(fmt_df,       by = "name") |>
+    left_join(missing_vals, by = "name") |>
+    mutate(
+      type = case_when(
         .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
         !is.na(.data$missing_low)                        ~ "numeric",
@@ -1039,34 +1039,34 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
         .data$name %in% in_data_list                     ~ "numeric",
         TRUE                                             ~ "character"
       ),
-      decimals = dplyr::if_else(.data$type == "character", NA_integer_, .data$decimals)
+      decimals = if_else(.data$type == "character", NA_integer_, .data$decimals)
     )
 
   # ---- Merge bilingual labels ----
   if (!is.null(fra_var)) {
-    variables <- dplyr::left_join(
-      dplyr::rename(variables, label_en = "label"),
-      dplyr::select(fra_var, "name", label_fr = "label"),
+    variables <- left_join(
+      rename(variables, label_en = "label"),
+      select(fra_var, "name", label_fr = "label"),
       by = "name"
     )
   } else {
-    variables <- dplyr::rename(variables, label_en = "label") |>
-      dplyr::mutate(label_fr = NA_character_)
+    variables <- rename(variables, label_en = "label") |>
+      mutate(label_fr = NA_character_)
   }
 
   if (!is.null(fra_val)) {
-    codes <- dplyr::left_join(
-      dplyr::rename(eng_val, label_en = "label"),
-      dplyr::select(fra_val, "name", "val", label_fr = "label"),
+    codes <- left_join(
+      rename(eng_val, label_en = "label"),
+      select(fra_val, "name", "val", label_fr = "label"),
       by = c("name", "val")
     )
   } else {
-    codes <- dplyr::rename(eng_val, label_en = "label") |>
-      dplyr::mutate(label_fr = NA_character_)
+    codes <- rename(eng_val, label_en = "label") |>
+      mutate(label_fr = NA_character_)
   }
 
   layout <- if (!is.null(layout_result$layout))
-    dplyr::mutate(layout_result$layout, name = toupper(.data$name))
+    mutate(layout_result$layout, name = toupper(.data$name))
   else
     NULL
 
@@ -1560,7 +1560,7 @@ parse_spss_sav <- function(sav_path) {
 
   # Type from format leading letter: A = character, F/N/E/G = numeric
   fmt_letter <- toupper(substr(fmt_spss, 1L, 1L))
-  type <- dplyr::case_when(
+  type <- case_when(
     fmt_letter == "A"                      ~ "character",
     fmt_letter %in% c("F", "N", "E", "G") ~ "numeric",
     TRUE                                   ~ "character"

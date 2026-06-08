@@ -343,7 +343,7 @@
               "double-counted.", call. = FALSE)
   }
 
-  data <- dplyr::bind_rows(lapply(data_files, function(p) {
+  data <- bind_rows(lapply(data_files, function(p) {
     df <- readr::read_csv(p,
                            col_types = readr::cols(.default = "c"),
                            locale    = readr::locale(encoding = "CP1252"),
@@ -375,11 +375,11 @@
     stop("Table '", data_tbl, "' does not exist in ", db_path,
          ". No LFS data has been loaded yet.")
   }
-  tbl <- dplyr::tbl(con, data_tbl)
+  tbl <- tbl(con, data_tbl)
   if (!is.null(survyear)) {
-    tbl <- dplyr::filter(tbl, .data$SURVYEAR == survyear)
+    tbl <- filter(tbl, .data$SURVYEAR == survyear)
     if (!is.na(survmnth))
-      tbl <- dplyr::filter(tbl, .data$SURVMNTH == survmnth)
+      tbl <- filter(tbl, .data$SURVMNTH == survmnth)
   }
   tbl
 }

@@ -272,7 +272,7 @@ add_bootstrap_weights <- function(pumf_data,
     bsw <- lapply(split_weights,\(wt_batch){
       bwc <- length(wt_batch)
       perm <-  as.data.frame(replicate(bwc, sample(rows,replace = TRUE))) |>
-        dplyr::as_tibble() |>
+        as_tibble() |>
         setNames(wt_batch)
       draw <- perm |>
         tidyr::pivot_longer(everything()) |>
@@ -296,15 +296,15 @@ add_bootstrap_weights <- function(pumf_data,
 
     for (i in seq(1,bootstrap_weight_count)) {
       bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
-      wt <- dplyr::tibble(!!bootstrap_weight_column:=pull(pumf_data,weight_column)) %>%
-        dplyr::mutate(rn=row_number()) %>%
-        dplyr::left_join(tibble(rn=sample(seq(1,n),n,replace=TRUE)) %>%
-                           dplyr::count(.data$rn), by="rn") %>%
-        dplyr::mutate(n=coalesce(.data$n,0)) %>%
-        dplyr::mutate(!!bootstrap_weight_column:=!!as.name(bootstrap_weight_column)*.data$n) %>%
-        dplyr::select(bootstrap_weight_column)
+      wt <- tibble(!!bootstrap_weight_column:=pull(pumf_data,weight_column)) %>%
+        mutate(rn=row_number()) %>%
+        left_join(tibble(rn=sample(seq(1,n),n,replace=TRUE)) %>%
+                           count(.data$rn), by="rn") %>%
+        mutate(n=coalesce(.data$n,0)) %>%
+        mutate(!!bootstrap_weight_column:=!!as.name(bootstrap_weight_column)*.data$n) %>%
+        select(bootstrap_weight_column)
       pumf_data <- pumf_data %>%
-        dplyr::bind_cols(wt)
+        bind_cols(wt)
     }
   }
   pumf_data
@@ -375,7 +375,7 @@ get_pumf_connection <- function(series     = NULL,
   } else {
     if (is.null(version)) {
       collection <- list_canpumf_collection()
-      rows <- dplyr::filter(collection, .data$Acronym == series)
+      rows <- filter(collection, .data$Acronym == series)
       if (nrow(rows) == 0L)
         stop("Unknown series '", series,
              "'. Check list_canpumf_collection() for available series.")

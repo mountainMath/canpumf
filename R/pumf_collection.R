@@ -15,10 +15,10 @@ list_census_collection <- function() {
          Version=pumf_data |> rvest::html_text(),
          `Survey Number`="3901",
          url=paste0("https://www150.statcan.gc.ca/n1/pub/98m0001x/",pumf_data |> rvest::html_attr("href"))) |>
-    dplyr::mutate(Year=stringr::str_extract(.data$Version,"\\d{4}")) |>
-    dplyr::mutate(type=gsub(" .+","",.data$Version)) |>
-    dplyr::mutate(Version=paste0(.data$Year," (",tolower(.data$type),")")) |>
-    dplyr::select(-"Year",-"type")
+    mutate(Year=stringr::str_extract(.data$Version,"\\d{4}")) |>
+    mutate(type=gsub(" .+","",.data$Version)) |>
+    mutate(Version=paste0(.data$Year," (",tolower(.data$type),")")) |>
+    select(-"Year",-"type")
 }
 
 list_pumf_collection <- function(){
@@ -80,9 +80,9 @@ list_canpumf_collection <- function(){
     rvest::html_nodes(xpath="//a")
   d<-d[rvest::html_text(d)=="CSV"]
   lfs_versions <- tibble(Acronym="LFS",url=rvest::html_attr(d,"href")) %>%
-    dplyr::mutate(url=ifelse(substr(.data$url,1,4)=="http",url,paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/",.data$url))) %>%
-    dplyr::mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist) %>%
-    dplyr::mutate(Version=coalesce(.data$Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
+    mutate(url=ifelse(substr(.data$url,1,4)=="http",url,paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/",.data$url))) %>%
+    mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist) %>%
+    mutate(Version=coalesce(.data$Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
 
   # Pre-2006 LFS PUMF monthly releases are EFT-only.  Scrape the catalogue
   # index to discover which year/month combinations StatCan has published.
@@ -100,12 +100,12 @@ list_canpumf_collection <- function(){
       Version = paste0(m[eft, 2L], "-",
                         formatC(month[eft], width = 2L, flag = "0")),
       url     = "(EFT)"
-    ) |> dplyr::distinct()
+    ) |> distinct()
   }, error = function(e) {
     tibble::tibble(Acronym = character(0L), Version = character(0L),
                    url     = character(0L))
   })
-  lfs_versions <- dplyr::bind_rows(lfs_versions, lfs_eft_versions)
+  lfs_versions <- bind_rows(lfs_versions, lfs_eft_versions)
 
   sfs_versions <- tibble(Acronym="SFS",
                          Version=c("1999","2005","2012","2016","2019","2023"),
@@ -205,10 +205,10 @@ list_available_lfs_pumf_versions <- function(){
   d <- tibble::tibble(
     url  = paste0(base_url, rvest::html_attr(ts,"href")),
     Date = gsub(" \\| PUMF: CSV","", rvest::html_attr(ts,"title"))) |>
-    dplyr::mutate(version = dplyr::case_when(
+    mutate(version = case_when(
       grepl("^\\d{4}$",.data$Date) ~ .data$Date,
       TRUE ~ strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m"))) |>
-    dplyr::select(.data$Date, .data$version, .data$url)
+    select("Date", "version", "url")
 
   Sys.setlocale("LC_TIME", lct)
   d
