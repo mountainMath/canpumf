@@ -338,6 +338,31 @@ pumf_locate_or_download <- function(series,
   }
 
   # FWF BSW: need column positions from the BSW-specific SPSS command files.
+  # Fallback: some surveys (e.g. SHS 2019/2021) ship the BSW layout as a SAS
+  # @pos .txt file co-located with the BSW data rather than in the SPSS cards
+  # directory. Parse it directly if the SPSS path yielded no layout.
+  if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
+    layout_txts <- list.files(dirname(bsw_path),
+                               pattern    = "layout.*\\.txt$",
+                               full.names = TRUE, ignore.case = TRUE)
+    layout_txts <- layout_txts[layout_txts != bsw_path]
+    for (lf in layout_txts) {
+      lr <- tryCatch(.spss_split_parse_layout(lf, data_encoding),
+                     error = function(e) NULL)
+      if (!is.null(lr) && !is.null(lr$layout) && nrow(lr$layout) > 0L) {
+        lr$layout$name <- toupper(lr$layout$name)
+        vars_df <- lr$formats
+        vars_df$name         <- toupper(vars_df$name)
+        vars_df$type         <- ifelse(vars_df$fmt_type == "A", "character", "numeric")
+        vars_df$missing_low  <- NA_real_
+        vars_df$missing_high <- NA_real_
+        bsw_parsed <- list(layout    = lr$layout,
+                           variables = vars_df[, c("name", "type", "decimals",
+                                                    "missing_low", "missing_high")])
+        break
+      }
+    }
+  }
   if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
     warning("Could not determine BSW column layout for mask '", reg$bsw_mask,
             "'; bootstrap weights will not be joined.")
@@ -615,7 +640,7 @@ pumf_build_duckdb <- function(version_dir,
     data <- .apply_data_fixups(data, reg$data_fixups)
 
   # Step 6: BSW join
-  if (!is.null(reg) && !is.null(reg$bsw_mask) && !is.null(reg$bsw_join_key)) {
+  if (!is.null(reg) && !is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key)) {
     bsw <- .read_bsw_data(version_dir, reg, data_enc)
     if (!is.null(bsw)) {
       drop_cols <- intersect(reg$bsw_drop_cols, names(bsw))

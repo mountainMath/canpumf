@@ -821,11 +821,11 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     layout <- .sas_parse_at_layout(lines)
     # Derive fmt_type and decimals from the format spec after the variable name
     if (!is.null(layout)) {
-      at_lines <- lines[grepl("^@\\d+", lines)]
+      at_lines <- lines[grepl("^@\\s*\\d+", lines)]
       fmt_df <- tibble::tibble(value = at_lines) |>
         mutate(
           name     = stringr::str_match(.data$value,
-                       "^@\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
+                       "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
           fmt_type = if_else(grepl("\\$", .data$value), "A", "F"),
           # Decimal count from "n.d" numeric format (e.g. "10.4" -> 4); NA for character
           decimals = if_else(
@@ -900,14 +900,14 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 # Input:  character vector of lines like "@1 CASEID $CHAR6." or "@6 WEIGHT 10.4"
 # Output: tibble(name, start, end)
 .sas_parse_at_layout <- function(lines) {
-  at_lines <- lines[grepl("^@\\d+", lines)]
+  at_lines <- lines[grepl("^@\\s*\\d+", lines)]
   if (length(at_lines) == 0L) return(NULL)
 
   tibble::tibble(value = at_lines) |>
     mutate(
-      start   = as.integer(stringr::str_match(.data$value, "^@(\\d+)")[, 2L]),
+      start   = as.integer(stringr::str_match(.data$value, "^@\\s*(\\d+)")[, 2L]),
       name    = stringr::str_match(.data$value,
-                                   "^@\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
+                                   "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
       # Size: from $CHARn. (character) or n.d (numeric)
       size    = as.integer(stringr::str_match(
         .data$value, "\\$?(?:CHAR)?(\\d+)\\.")[, 2L]),

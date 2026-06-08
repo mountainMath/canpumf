@@ -127,15 +127,29 @@
 
   # ---- SHS: Survey of Household Spending ------------------------------------
 
-  # 2019: fixed-width flatfile; metadata is in SAS reading cards format.
-  # bsw_join_key is not documented in the existing code; "PUMFID" is the
-  # standard StatCan respondent ID and likely correct here too.
+  # 2017: Interview and Diary files in same directory; layout_mask selects the
+  # Interview reading cards. BSW layout is a SAS @pos .txt co-located with data.
+  "SHS/2017" = .make_entry("SHS", "2017",
+    layout_mask   = "Interview",
+    bsw_file_mask = "interview_bsw_flatfile\\.txt",
+    bsw_join_key  = "CASEID",
+    file_mask     = "interview_flatfile\\.txt"),
+
+  # 2019: fixed-width flatfile; BSW layout is a SAS @pos .txt co-located with data.
   "SHS/2019" = .make_entry("SHS", "2019",
     layout_mask   = "shs2019_flatfile",
     bsw_mask      = "_bsw_flatfile",
-    bsw_file_mask = "_bsw_flatfile",
-    bsw_join_key  = "PUMFID",
-    file_mask     = "pumf_shs2019\\.txt"),
+    bsw_file_mask = "bsw_flatfile\\.txt",
+    bsw_join_key  = "CASEID",
+    file_mask     = "shs2019_flatfile\\.txt"),
+
+  # 2021: SPSS split-file format; BSW layout is a SAS @pos .txt file co-located
+  # with the BSW data (not in the SPSS cards dir); fallback in .read_bsw_data
+  # handles this automatically. Join key is CASEID (uppercased from "CaseID").
+  "SHS/2021" = .make_entry("SHS", "2021",
+    bsw_file_mask = "bsw_flatfile\\.txt",
+    bsw_join_key  = "CASEID",
+    file_mask     = "PUMF_SHS_2021\\.txt"),
 
   # ---- ITS: International Travel Survey -------------------------------------
   # No ITS-specific parsing quirks discovered yet; entries are placeholders
