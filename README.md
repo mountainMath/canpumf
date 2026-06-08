@@ -16,65 +16,64 @@ remotes::install_github("mountainmath/canpumf")
 ## Documentation
 Please consult the [documentation and example articles](https://mountainmath.github.io/canpumf/) for further information.
 
-StatCan publishes an [official guide to the Labour Force Surve](https://www150.statcan.gc.ca/n1/en/catalogue/71-543-G) for different vintages of the [LFS](https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&SDDS=3701).
+StatCan publishes an [official guide to the Labour Force Survey](https://www150.statcan.gc.ca/n1/en/catalogue/71-543-G) for different vintages of the [LFS](https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&SDDS=3701).
 
 ## Cache path
 
-PUMF data can be large and should be cached locally. For this purpose users should set the options variable canpumf.cache_path to a directory where the data can be stored via `options(canpumf.cache_path="<your local path>")` in your `.Rprofile`, alternatively the path can be specified with every call.
+PUMF data can be large and should be cached locally. Set the `canpumf.cache_path` option to a local directory via `options(canpumf.cache_path="<your local path>")` in your `.Rprofile`. Without this, data is stored in `tempdir()` for the session only.
 
 ## Basic usage
-Some PUMF data is available from StatCan via direct download, this data can be directly accessed via the `get_pumf()` function. In other cases, PUMF data has to be ordered via EFT and shuold be deposited in the cache directory so `get_pumf()` function can find it. The `label_pumf_data()` function parses metadata and labels the data with human-readable labels.
+
+Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.
+
+`get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
+
+Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
+
+```r
+tbl <- get_pumf("LFS", "2022") |>
+  label_pumf_columns()
+```
+
+When done querying, release the DuckDB connection with `close_pumf(tbl)`.
 
 ## LFS data
-For LFS data, the data is orgnaized by year except for the current year where it’s organized by month. To access the data for 2022 you would use:
 
-```
-lfs_2022 <- get_pumf("LFS","2022")
+LFS data is organized by year, except for the current year where it is organized by month. To access data for a specific year:
+
+```r
+lfs_2022 <- get_pumf("LFS", "2022")
 ```
 
-This will download the 2022 LFS pumf data if needed, parse it, load labelled PUMF data into a DuckDB database and hand back a connection to the data table. To load all LFS data that has been downloaded and parsed into the DuckDB database simply drop the `version` argument and write:
+This downloads the 2022 LFS PUMF data if needed, parses it, loads labeled data into a shared DuckDB database, and returns a lazy tbl filtered to 2022. To access all LFS data currently in the local database:
 
-```
+```r
 lfs_all_local <- get_pumf("LFS")
 ```
 
-To ensure that the local database contains all availabel LFS data set the `refresh = 'auto'` option, this will check for availability of the latest (and older) LFS versions and import all the ones not currently in the database before handing back the database connection:
+To ensure the local database contains all available LFS versions, use `refresh = "auto"`. This checks StatCan for versions not yet in the database and imports them:
 
+```r
+lfs_all <- get_pumf("LFS", refresh = "auto")
 ```
-lfs_all <- get_pumf("LFS", refresh='auto')
-```
-
-StatCan unfortunately does not provide standardized metadata for PUMF files, but the canpumf package also parses the SPSS Command Files in order to allow for automated labelling of the data. To label the data with human-readable labels use
-
-```
-lfs_2022_labelled <- lfs_2022 |>
-  label_pumf_data()
-```
-
-Sometimes for people familiar with the data the standard column names the PUMF data comes with are more convenient to work with than the long human-readable names, in this case you can use `label_pumf_data(rename_columns=FALSE)` to only label the column categories.
-
-Care should be taken with identifying codes for unavailable or unapplicable data in numeric columns, these aren’t provided in machine readable format for most PUMF data and have to be handled manually. Always refer to the PUMF data dictionaries.
 
 ## Census data
-The canpumf package can currently handle the Census individuals PUMF for the 1996 through 2021 censuses. These have to be ordered via EFT and places into the canpumf cache path, with a directory name equal to the original filename that data came with via EFT that contains the product identifier and census year so the package can find the data. It can then be accessed via:
 
-```
-pumf_2021 <- get_pumf("Census","2021") |>
-  label_pumf_data()
+The canpumf package handles Census individuals PUMF for the 1996 through 2021 censuses. These must be ordered via EFT and placed in the cache directory. The package can then access them via:
+
+```r
+pumf_2021 <- get_pumf("Census", "2021")
 ```
 
-By default the package will load the *individuals* file, 
-the *hierarchical* is availabel for the 2006, 2011, 2016 censuses, the *families* or *households* versions are available for the 1971, 1976, 1986, 1991, 1996, and 2001 censuses.
+By default the package loads the *individuals* file. The *hierarchical* file is available for 2006, 2011, and 2016 censuses; *families* or *households* versions are available for 1971, 1976, 1986, 1991, 1996, and 2001.
 
-```
-pumf_h_2016 <- get_pumf("Census","2016 (hierarchical)") |>
-  label_pumf_data()
+```r
+pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 ```
 
 ## Other PUMF
-The package makes an attempt to parse other PUMF files.
 
-The code may need further refinements to work with all StatCan PUMF files. It has been successfully tried with the following PUMF files:
+The package makes an attempt to parse other PUMF files. It has been successfully used with:
 
 * CHS 2018, 2021, 2022
 * ITS 2017
@@ -88,17 +87,15 @@ The code may need further refinements to work with all StatCan PUMF files. It ha
 
 If you wish to cite the `canpumf` package in your work:
 
-  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.3.1.
+  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.0.
 
 A BibTeX entry for LaTeX users is
 ```
   @Manual{,
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
-    year = {2024},
-    note = {R package version 0.3.1},
+    year = {2026},
+    note = {R package version 0.5.0},
     url = {https://mountainmath.github.io/canpumf/},
   }
 ```
-
-

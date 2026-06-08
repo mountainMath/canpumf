@@ -25,15 +25,23 @@ devtools::check()
 pkgdown::build_site()
 ```
 
-Tests live in `tests/testthat/`. There is no `R/local_test.R`-style ad-hoc testing — all tests run via `devtools::test()`.
+Tests live in `tests/testthat/`. All tests run via `devtools::test()`. `R/local_test.R` is an ad-hoc scratch file and is not part of the test suite.
+
+## Public API
+
+### Primary entry points (`R/api.R`)
+
+1. **`get_pumf(series, version, lang="eng", ...)`** — main entry point. Runs all three pipeline stages and returns a lazy `dplyr::tbl()` backed by DuckDB. Values come pre-labeled (factors with human-readable levels). Call `dplyr::collect()` for a local tibble. For LFS, delegates to `lfs_get_pumf()`. Registers connection provenance so `label_pumf_columns()` works downstream.
+2. **`label_pumf_columns(tbl)`** — renames tbl columns from short coded names (e.g. `PHHSIZE`) to human-readable variable labels (e.g. `"Household size"`). Works on any tbl returned by `get_pumf()`, including after dplyr filters. Looks up survey provenance from the connection registry.
+3. **`close_pumf(tbl)`** — disconnects the DuckDB connection backing a lazy tbl. Only needed before writing (e.g. `refresh = TRUE`) to the same file from another tbl.
+4. **`pumf_metadata(series, version, ...)`** — runs Stage 1+2 only; returns the canonical metadata list (`variables`, `codes`, `layout`).
+5. **`open_pumf_documentation(series, version, ...)`** — scans the cache directory for PDF/TXT docs and opens them in the browser.
+
+### Connection provenance registry (`R/api.R`)
+
+`get_pumf()` registers `(series, version, cache_path, lang)` in a package-level environment keyed by the DuckDB connection's C++ external-pointer address. This key is stable across R copies of the S4 connection wrapper (R's copy-on-modify would silently lose attrs set directly on the wrapper). `label_pumf_columns()` uses `.pumf_lookup_con()` to retrieve this provenance; `close_pumf()` removes it.
 
 ## Architecture
-
-### Data access flow (new DuckDB pipeline — `duckdb` branch)
-
-1. **`get_pumf(series, version, lang="eng", ...)`** — main entry point. Runs all three pipeline stages and returns a lazy `dplyr::tbl()` backed by DuckDB. Call `dplyr::collect()` for a local tibble. For LFS, delegates to `lfs_get_pumf()`.
-2. **`pumf_metadata(series, version, ...)`** — runs Stage 1+2 only; returns the bilingual canonical metadata list (variables, codes, layout).
-3. **`open_pumf_documentation(series, version, ...)`** — scans the cache directory for PDF/TXT docs and opens them in the browser.
 
 ### Three-stage pipeline (non-LFS)
 
@@ -41,17 +49,26 @@ All standard surveys use an idempotent three-stage pipeline in `R/pipeline.R`:
 
 1. **Stage 1 — `pumf_locate_or_download(series, version, cache_path, refresh)`**: ensures the version directory at `<cache_path>/<series>/<version>/` exists with extracted content.
 2. **Stage 2 — `pumf_parse_metadata(version_dir, layout_mask, metadata_encoding, refresh)`**: detects and parses all metadata formats, merges into canonical CSVs in `<version_dir>/metadata/`.
-3. **Stage 3 — `pumf_build_duckdb(version_dir, series, version, lang, ...)`**: reads data, joins BSW weights, applies labels, writes to `<version_dir>/<series>_<version>.duckdb`. Returns path list; use `pumf_open_duckdb()` to get a lazy tbl.
+3. **Stage 3 — `pumf_build_duckdb(version_dir, series, version, lang, ...)`**: reads data file, joins BSW weights, applies numeric conversion and code labels, writes to `<version_dir>/<series>_<version>.duckdb`. Returns path list; use `pumf_open_duckdb()` to get a lazy tbl.
 
 `pumf_run_pipeline()` chains all three stages using registry config.
+
+#### Data file detection
+
+`.find_pumf_data_file(version_dir, file_mask, prefer_fwf)` selects the data file. The extension pattern is derived from the `file_mask` first (`.csv` → CSV, `.txt`/`.dat` → FWF), falling back to `prefer_fwf`. After finding the file, `is_fwf` is re-determined from the actual file extension — this handles surveys like CHS that ship both a CSV and a TXT file but whose SPSS DATA LIST section also creates a `layout.csv`.
 
 ### LFS longitudinal pipeline (`R/lfs_pipeline.R`)
 
 LFS uses a single shared DuckDB at `<cache_path>/LFS/LFS.duckdb` accumulating all versions:
-- `lfs_eng` and `lfs_fra` tables store labeled rows (VARCHAR categoricals, not ENUM)
+- `lfs_eng` and `lfs_fra` tables store labeled rows (VARCHAR/ENUM categoricals)
 - `lfs_versions` tracking table records what has been downloaded and parsed
 - Annual versions supersede monthly versions for the same year
-- Schema evolution: `ALTER TABLE ADD COLUMN` when new versions add variables
+- Schema evolution: `ALTER TABLE ADD COLUMN` / `ALTER COLUMN SET DATA TYPE` when new versions add or change variables
+- `get_pumf("LFS", version)` returns the full shared table **filtered** to the requested year (and month for monthly versions); `get_pumf("LFS")` returns the full unfiltered table
+
+#### `label_pumf_columns()` for LFS
+
+Because the shared `lfs_eng/lfs_fra` schema is the union of all loaded versions, variables introduced in later years (e.g. `GENDER` added ~2020) are absent from older versions' `variables.csv`. `label_pumf_columns()` therefore reads and merges `variables.csv` from **every** loaded version directory in chronological order, with the most-recent label winning on conflicts.
 
 ### Metadata parsers (`R/metadata_parsers.R`)
 
@@ -62,12 +79,18 @@ Six parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
 
 Parsers: `parse_spss_mono()`, `parse_spss_split()`, `parse_sas_cards()`, `parse_lfs_codebook()`, `parse_cpss_csv()`, `parse_spss_sav()`.
 
+Key parsing details:
+- **Sentinel detection**: variables whose only value labels are sentinels (Valid skip, Don't know, Refusal, Not stated) are classified as `numeric`, not `character`, to avoid spurious NA warnings.
+- **Zero-padded codes**: unquoted SPSS numeric codes like `01`, `02` are normalized via `as.numeric()` → `as.character()` so they match bare integer values in CSV data.
+- **Multi-variable VALUE LABELS blocks**: `/VAR1 VAR2 VAR3` headers (possibly spanning continuation lines) are fully parsed so all listed variables receive the code/label pairs.
+- **SPSS DATA LIST decimals**: no annotation → `fmt_type="F"`, `decimals=0` (integer); `(n)` annotation → `decimals=n`; `(Fn.d)` → `decimals=d`.
+
 ### Survey registry (`R/registry.R`)
 
 `pumf_registry_lookup(series, version)` returns per-survey configuration:
 - `layout_mask` — SPSS file disambiguation for split-file surveys
 - `bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols` — bootstrap weight join config
-- `file_mask` — data file selector
+- `file_mask` — data file selector (extension determines CSV vs FWF)
 - `data_encoding`, `metadata_encoding` — encoding overrides
 - `data_fixups` — `str_pad` and `rename` transformations applied before label mapping
 
@@ -99,19 +122,20 @@ Cache layout:
 
 ### Key files
 
-- `R/api.R` — `get_pumf()`, `pumf_metadata()` (public entry points)
-- `R/pipeline.R` — Stage 1 (`pumf_locate_or_download`), Stage 3 (`pumf_build_duckdb`, `pumf_open_duckdb`), `pumf_run_pipeline`
+- `R/api.R` — `get_pumf()`, `label_pumf_columns()`, `close_pumf()`, `pumf_metadata()`, connection provenance registry
+- `R/pipeline.R` — Stage 1 (`pumf_locate_or_download`), Stage 3 (`pumf_build_duckdb`, `pumf_open_duckdb`), `pumf_run_pipeline`, `.find_pumf_data_file`, `.read_bsw_data`
 - `R/lfs_pipeline.R` — `lfs_get_pumf()` and LFS-specific helpers
 - `R/registry.R` — `pumf_registry_lookup()`, `pumf_registry_keys()`
 - `R/metadata_parsers.R` — all six parsers, `detect_formats()`, `merge_metadata()`, `pumf_parse_metadata()`, `read_metadata()`, `write_metadata()`
-- `R/helpers.R` — `robust_unzip()`, `pumf_layout_dir()`, `find_unique_layout_file()`, import declarations
+- `R/helpers.R` — `robust_unzip()`, import declarations
 - `R/pumf_collection.R` — `list_canpumf_collection()`, `list_available_lfs_pumf_versions()`
 - `R/pumf_documentation.R` — `open_pumf_documentation()`
-- `R/pumf.R` — deprecated legacy functions (`label_pumf_data`, `convert_pumf_numeric_columns`, `read_pumf_data`, etc.) kept for backward compatibility
+- `R/pumf.R` — deprecated legacy functions kept for backward compatibility
 
 ### Deprecated functions (keep with warning, remove in next major version)
 
 - `get_pumf_connection()` → use `get_pumf()`
-- `label_pumf_data()`, `label_pumf_columns()`, `convert_pumf_numeric_columns()`, `guess_numeric_pumf_columns()` → handled automatically by new pipeline
+- `label_pumf_data()` → data is already labeled by `get_pumf()`; use `label_pumf_columns()` if column renaming is needed
+- `convert_pumf_numeric_columns()`, `guess_numeric_pumf_columns()` → handled automatically by the pipeline
 - `read_pumf_data()` → use `get_pumf()` or `pumf_metadata()`; kept for manual-deposit use cases
 - Old parameter names `pumf_series`, `pumf_version`, `pumf_cache_path` → use `series`, `version`, `cache_path`
