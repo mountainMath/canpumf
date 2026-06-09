@@ -29,7 +29,14 @@
   "2006 (individuals)", "2006 (hierarchical)",
   "2001 (individuals)", "2001 (households)", "2001 (families)",
   "1996 (individuals)", "1996 (households)", "1996 (families)",
-  "1991 (individuals)", "1991 (households)", "1991 (families)"
+  "1991 (individuals)", "1991 (households)", "1991 (families)",
+  # Bundled-archive years (single zip per year, all types share source dir)
+  "1986/individuals", "1986/households", "1986/families",
+  "1981/individuals", "1981/households",
+  "1976/individuals", "1976/households", "1976/families",
+  "1971/individuals_prov", "1971/individuals_cma",
+  "1971/households_prov", "1971/households_cma",
+  "1971/families_prov",   "1971/families_cma"
 )
 
 # Census versions where codes_supplement injects manually: map version ->
@@ -40,7 +47,16 @@
   "1991 (individuals)"   = "absent from command files",
   # 2021 individuals: StatCan's UTF-8 command file omits French variable labels
   # for 74 of 144 variables — a known upstream gap, not a parser bug.
-  "2021 (individuals)"   = "no French translation"
+  "2021 (individuals)"   = "no French translation",
+  # 1981 individuals: 3 minor SPS gaps — PROV blank record, FAOCC81 code 17,
+  # and WKACTMA codes 11/12 are present in data but absent from VALUE LABELS.
+  "1981/individuals"     = "Variable (PROV|FAOCC81|WKACTMA): \\d+ unmatched",
+  # 1971: a handful of code 0 entries missing from VALUE LABELS in some types,
+  # and one blank GEOCODE record.
+  "1971/individuals_cma" = "Variable (TYPE66|TYPE71): \\d+ unmatched",
+  "1971/households_prov" = "Variable (GEOCODE|SUBSAMPL): \\d+ unmatched",
+  "1971/households_cma"  = "Variable SUBSAMPL: \\d+ unmatched",
+  "1971/families_prov"   = "Variable CMACODE: \\d+ unmatched"
 )
 
 .census_any_version <- function() {

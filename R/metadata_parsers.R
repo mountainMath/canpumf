@@ -14,6 +14,10 @@
   "(?i)^(not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
+  # Zero-value labels: older Census files label code 0 as "ZERO", "ZERO HOURS",
+  # "ZERO WEEKS", etc.  These describe the numeric zero and indicate the variable
+  # is a continuous quantity, not a category.
+  "zero(\\s+\\w+)*|",
   # French equivalents (1991 Census XMF is French-only; GSS uses "Non demandé")
   "sans objet|non (disponible|déclaré|applicable)|",
   "ne s.?applique pas|inconnu|manquant|non demandé|hors .chantillon)$"
@@ -322,7 +326,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   var_labels_pos  <- is_kw("^VARIABLE LABELS\\s*$")
   val_labels_pos  <- is_kw("^VALUE LABELS\\s*$")
   formats_pos     <- is_kw("^FORMATS\\s*$|^VARIABLE FORMATS\\s*$")
-  missing_pos     <- is_kw("^MISSING VALUES\\s*$")
+  # "^MISSING VALUES($|\\s)" catches both "MISSING VALUES\n" (modern files where the
+  # keyword is alone on its own line) and "MISSING VALUES  VAR  (0)/\n"
+  # (older files like 1976/1981 where the first variable follows on the same line).
+  missing_pos     <- is_kw("^MISSING VALUES($|\\s)")
   data_list_pos   <- is_kw("^DATA LIST")
   period_pos      <- is_kw("^\\.\\s*$")
   # Any of these marks the end of the previous section
@@ -356,8 +363,15 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # ---- MISSING VALUES ----
   missing_vals <- tibble::tibble(name = character(),
                                  missing_low = double(), missing_high = double())
-  if (length(missing_pos) > 0)
-    missing_vals <- .spss_parse_missing(section_lines(missing_pos[1]))
+  if (length(missing_pos) > 0) {
+    # Older SPS files (e.g. 1976/1981 Census) put the first variable on the same
+    # line as the keyword: "MISSING VALUES  CMA  ( 0 )/".  Capture any inline
+    # content after the keyword and prepend it to the section lines.
+    miss_inline <- trimws(sub("^MISSING VALUES\\s*", "", spss$clean[missing_pos[1]]))
+    miss_lines  <- c(if (nchar(miss_inline) > 0L) miss_inline else character(0L),
+                     section_lines(missing_pos[1]))
+    missing_vals <- .spss_parse_missing(miss_lines)
+  }
 
   # ---- DATA LIST (layout) ----
   layout <- NULL

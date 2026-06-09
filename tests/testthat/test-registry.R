@@ -128,7 +128,7 @@ test_that("pumf_resolve_version: Census bare year aliases to individuals", {
   expect_equal(canpumf:::pumf_resolve_version("Census", "2016"),
                "2016 (individuals)")
   expect_equal(canpumf:::pumf_resolve_version("Census", "1971"),
-               "1971 (individuals)")
+               "1971/individuals_prov")
 })
 
 test_that("pumf_resolve_version: Census full version string unchanged", {
