@@ -702,6 +702,24 @@ pumf_build_duckdb <- function(version_dir,
     variables$type[variables$name %in% fn] <- "numeric"
     codes <- codes[!codes$name %in% fn, ]
   }
+
+  # Promote numeric → character for variables that have non-sentinel codes
+  # (e.g. binary indicators 0=Yes/1=No from a PDF dictionary where the data
+  # format file did not use an (A) annotation). Mirrors the inverse of
+  # detect_sentinel_only: if NOT all codes are sentinels, the variable carries
+  # real categorical labels and should go through .apply_code_labels().
+  if (nrow(codes) > 0L) {
+    sentinel_only_vars <- names(canpumf:::.detect_sentinel_only(codes, label_col))
+    coded_vars         <- unique(codes$name)
+    non_sentinel_coded <- setdiff(coded_vars, sentinel_only_vars)
+    promote_to_char    <- intersect(
+      variables$name[variables$type == "numeric"],
+      non_sentinel_coded
+    )
+    if (length(promote_to_char) > 0L)
+      variables$type[variables$name %in% promote_to_char] <- "character"
+  }
+
   data <- .apply_numeric_conversion(data, variables, na_values = na_vals)
   data <- .apply_code_labels(data, codes, label_col)
 

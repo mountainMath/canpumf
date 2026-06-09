@@ -74,18 +74,19 @@ Because the shared `lfs_eng/lfs_fra` schema is the union of all loaded versions,
 
 ### Metadata parsers (`R/metadata_parsers.R`)
 
-Six parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
+Seven parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
 - `variables.csv` — one row per variable (name, label_en, label_fr, type, decimals, missing_low, missing_high)
 - `codes.csv` — one row per code value (name, val, label_en, label_fr)
 - `layout.csv` — one row per fixed-width column (name, start, end); absent for CSV-format data
 
-Parsers (in detection priority order):
+Parsers (in detection priority order — highest first):
 1. `parse_lfs_codebook()` — LFS `*codebook.csv`; always read as CP1252
 2. `parse_cpss_csv()` — CPSS `variables.csv`
 3. `parse_sas_cards()` — directory with `.lay` + `.lbe` files
 4. `parse_spss_split()` — directory with `vare`/`vale`/`_i` named `.sps` files
-5. `parse_spss_mono()` — single `.sps`, `*SPSS.txt`, or `.xmf` file whose content contains `VALUE LABELS` or `DATA LIST`. `VARIABLE LABELS` is optional (e.g. Census 2011 individuals). DATA LIST-only files (e.g. SFS 1999) produce a table with correct column types but no human-readable labels.
+5. `parse_spss_mono()` — single `.sps`, `*SPSS.txt`, or `.xmf` file whose content contains `VALUE LABELS` or `DATA LIST`. `VARIABLE LABELS` is optional (e.g. Census 2011 individuals). DATA LIST-only files (e.g. SFS 1999) produce layout+type info but no human-readable labels; labels are supplemented by `parse_pdf_dictionary()` (parser 7) when available.
 6. `parse_spss_sav()` — binary SPSS `.sav` file (read via haven)
+7. `parse_pdf_dictionary()` — StatCan PDF Data Dictionary (`*Dictionary.pdf`); extracts variable long-names and code-value labels. Requires `pdftools`. Positions in the PDF differ from the PUMF flat file so this parser produces only `variables` and `codes` (no `layout`). Used as a label-only fallback for surveys like SFS 1999 where the SPSS command file is DATA LIST-only. Only fires when `pdftools` is installed and a matching PDF is found under the version directory.
 
 Multiple parsers can fire for the same survey (e.g. split-SPSS for layout/codes and SAS cards for BSW weights). `merge_metadata()` consolidates all results.
 
@@ -96,7 +97,8 @@ Key parsing details:
 - **SPSS DATA LIST column ranges**: spaces around the dash are tolerated in all forms — `129-135`, `129 - 135`, `129-  135` — via `(\\d+)\\s*-\\s*(\\d+)` normalisation before tokenisation. A leading `/` record-group marker on the first variable line is stripped (not discarded) so the variable is retained.
 - **SPSS DATA LIST section terminator**: the section ends at the first blank line, `.` line, or occurrence of `VARIABLE LABELS`, `VALUE LABELS`, `MISSING VALUES`, `FORMATS`, or `EXECUTE` at the start of a line. The keyword check is the reliable terminator for older files (e.g. 1991 XMF) that have no blank line between `DATA LIST` and `VARIABLE LABELS`.
 - **SPSS DATA LIST decimals**: no annotation → `fmt_type="F"`, `decimals=0` (integer); `(A)` or `(An)` → character format; `(n)` → `decimals=n`; `(Fn.d)` → `decimals=d`.
-- **DATA LIST-only SPSS files**: `_spss_parse_data_list` returns an `is_char` flag per column (derived from `(A)` annotations in the raw section lines). When a SPSS file has `DATA LIST` but no `VARIABLE LABELS` or `VALUE LABELS` (e.g. SFS 1999), `.spss_mono_single` falls back to populating `variables.csv` from the layout type info: `(A)` columns → `type="character"`, others → `type="numeric"`. Labels are all `NA`. This produces a fully importable DuckDB table with raw codes but no human-readable factor levels.
+- **DATA LIST-only SPSS files**: When a SPSS file has `DATA LIST` but no `VARIABLE LABELS` or `VALUE LABELS` (e.g. SFS 1999), `.spss_mono_single` populates `variables.csv` from layout type info: `(A)` columns → `type="character"`, others → `type="numeric"`. Labels are all `NA` but are filled in from `parse_pdf_dictionary()` when a `*Dictionary.pdf` is present.
+- **PDF dictionary parser**: `parse_pdf_dictionary()` / `.parse_pdf_dict_single()` parses the standard StatCan bilingual PDF dictionary format. Variable blocks start with `<name>  Position: N  Character/Numeric(w)`. Sections: `Long name:` / `Long nom:` (variable label), `Codes:` / `Domaine:` (French equivalent) (code-value labels), `Reserved Codes:` / `Codes Réservés:` (sentinel codes → `missing_low/missing_high`), `Range:` (numeric range or code-like entries). Requires `pdftools` in Suggests.
 - **Metadata encoding**: default is `"CP1252"` (superset of Latin-1, handles Windows-era en-dashes and curly quotes). Exceptions: Census 2021 uses `"UTF-8"` (command files shipped as UTF-8); Census 1991 (individuals) uses `"CP850"` (DOS-era IBM Code Page 850). The `detect_formats()` SPSS keyword scan uses `useBytes = TRUE` to tolerate non-UTF-8 bytes without warnings regardless of encoding.
 
 ### Survey registry (`R/registry.R`)
@@ -140,7 +142,7 @@ Cache layout:
 - `R/pipeline.R` — Stage 1 (`pumf_locate_or_download`), Stage 3 (`pumf_build_duckdb`, `pumf_open_duckdb`), `pumf_run_pipeline`, `.find_pumf_data_file`, `.read_bsw_data`
 - `R/lfs_pipeline.R` — `lfs_get_pumf()` and LFS-specific helpers
 - `R/registry.R` — `pumf_registry_lookup()`, `pumf_registry_keys()`
-- `R/metadata_parsers.R` — all six parsers, `detect_formats()`, `merge_metadata()`, `pumf_parse_metadata()`, `read_metadata()`, `write_metadata()`
+- `R/metadata_parsers.R` — all seven parsers, `detect_formats()`, `merge_metadata()`, `pumf_parse_metadata()`, `read_metadata()`, `write_metadata()`
 - `R/helpers.R` — `robust_unzip()`, import declarations
 - `R/pumf_collection.R` — `list_canpumf_collection()`, `list_available_lfs_pumf_versions()`
 - `R/pumf_documentation.R` — `open_pumf_documentation()`

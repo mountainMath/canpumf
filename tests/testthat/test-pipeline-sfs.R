@@ -339,10 +339,11 @@ for (.v in .sfs_verified) {
 }
 
 
-# ---- SFS 1999: DATA LIST-only SPSS file (no variable/value labels) ----------
-# SFS 1999 ships only a DATA LIST in its SPSS file, so variables.csv has column
-# names and types but no human-readable labels.  It is tested separately from
-# the labelled-survey loops above.
+# ---- SFS 1999: DATA LIST SPSS + PDF Dictionary for labels --------------------
+# SFS 1999 ships only a DATA LIST in its SPSS file (no VALUE/VARIABLE LABELS).
+# Variable and code labels come from the PDF Data Dictionary; only the English
+# PDF is bundled in the download, so label_fr is NA for all variables.
+# Tested separately from the bilingual-parity loops above.
 
 test_that("SFS 1999: full pipeline emits no unexpected warnings", {
   skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
@@ -396,4 +397,54 @@ test_that("SFS 1999: table has expected row and column counts", {
     label = "WEIGHT column expected in SFS 1999")
   expect_true("WNETWPT" %in% names(result),
     label = "WNETWPT (total net worth) expected in SFS 1999")
+})
+
+test_that("SFS 1999: PDF dictionary labels applied (English only)", {
+  skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
+              "SFS 1999 not extracted in cache")
+  skip_if_not(.sfs_metadata_exists("1999"), "SFS 1999 metadata not parsed")
+
+  meta <- canpumf:::read_metadata(file.path(.sfs_vdir("1999"), "metadata"))
+
+  # All 80 variables should have English labels from the PDF dictionary
+  expect_equal(sum(!is.na(meta$variables$label_en)), 80L,
+    label = "SFS 1999: all 80 variables should have English labels")
+
+  # PVRES25 should have province codes
+  pvres <- meta$codes[meta$codes$name == "PVRES25", ]
+  expect_true(any(pvres$label_en == "Ontario"),
+    label = "PVRES25 should have province labels from PDF dictionary")
+
+  # DVFMCOMP should have family composition codes
+  dvfm <- meta$codes[meta$codes$name == "DVFMCOMP", ]
+  expect_true(any(grepl("Couples", dvfm$label_en, ignore.case = TRUE)),
+    label = "DVFMCOMP should have family composition labels")
+})
+
+test_that("SFS 1999: binary indicator variables are categorical", {
+  skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
+              "SFS 1999 not extracted in cache")
+  skip_if_not(.sfs_metadata_exists("1999"), "SFS 1999 metadata not parsed")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+
+  r   <- canpumf:::pumf_build_duckdb(.sfs_vdir("1999"), "SFS", "1999",
+                                      lang = "eng", db_path = tmp, refresh = TRUE)
+  tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+  on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE), add = TRUE)
+  result <- dplyr::collect(tbl)
+
+  # Indicator variables promoted from numeric to categorical
+  for (col in c("ECFSZ0004", "ECFSZ0517", "ECFSZ1824",
+                "ECFSZ2544", "ECFSZ4564", "ECFSZ65PL")) {
+    expect_true(is.factor(result[[col]]),
+      label = paste0(col, " should be a factor (binary indicator)"))
+    expect_true("Yes" %in% levels(result[[col]]),
+      label = paste0(col, " should have 'Yes' level"))
+  }
+
+  # Financial variables with only sentinel codes stay numeric
+  expect_true(is.numeric(result$FMSZ27),
+    label = "FMSZ27 (family size) should stay numeric")
 })

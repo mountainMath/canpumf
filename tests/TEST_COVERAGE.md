@@ -52,7 +52,7 @@ which cached versions are exercised.
 | Census | `test-pipeline-census.R` | 2021 (ind.), 2021 (hier.), 2016 (ind.), 2016 (hier.), 2011 (ind.), 2011 (hier.), 2006 (ind.), 2006 (hier.), 2001 (ind./hh/fam), 1996 (ind./hh/fam), 1991 (ind./hh/fam) | ✓ | ✓ | ✓ | 2021 (ind.) warns "no French translation" for 74/144 variables — allowed |
 | GSS | `test-pipeline-gss.R` | 2018, 2012, 2007, 1996 | ✓ | ✓ | ✓ | 2007 warns "no French translation" for ~925/951 variables — allowed |
 | SFS | `test-pipeline-sfs.R` | 2023, 2019, 2016, 2012, 2005 | ✓ | ✓ | ✓ | BSW join tested for 2016/2019/2023 |
-| SFS 1999 | `test-pipeline-sfs.R` | 1999 | ✓ | — | — | DATA LIST-only SPSS file; no labels; row count (15 933) and column count (80) asserted |
+| SFS 1999 | `test-pipeline-sfs.R` | 1999 | ✓ | ✓ | — | DATA LIST-only SPSS + PDF dictionary (`parse_pdf_dictionary`) for labels; English-only (no French PDF bundled in the download); row count (15 933) and column count (80) asserted; PDF-derived labels verified |
 | CHS | `test-pipeline-chs.R` | First of: 2022, 2021, 2018 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested; bilingual tests use whichever version is in cache |
 | SHS | `test-pipeline-shs.R` | First of: 2021, 2019, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested |
 | CIS | `test-pipeline-cis.R` | First of: 2022, 2021, 2020, 2019, 2018 | ✓\* | — | ✓ | Stage 2 smoke-test |

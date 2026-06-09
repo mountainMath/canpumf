@@ -11,12 +11,12 @@
 # than a genuine category.  Used by all parsers to distinguish sentinel-only
 # variables (→ numeric with a missing range) from truly categorical ones.
 .sentinel_pat <- paste0(
-  "(?i)^(not (applicable|stated|asked|in (the )?universe|available)( [(][^)]*[)])?|",
+  "(?i)^(not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
   # French equivalents (1991 Census XMF is French-only; GSS uses "Non demandé")
   "sans objet|non (disponible|déclaré|applicable)|",
-  "ne s.?applique pas|inconnu|manquant|non demandé)$"
+  "ne s.?applique pas|inconnu|manquant|non demandé|hors .chantillon)$"
 )
 
 # Identify variables whose value labels are ALL sentinel labels.
@@ -1536,6 +1536,20 @@ detect_formats <- function(pumf_dir) {
     if (length(sav_files) > 0L) result$spss_sav <- sav_files[[1L]]
   }
 
+  # 8. StatCan PDF data dictionary (e.g. SFS 1999).  Only used as a label
+  #    fallback — positions in the PDF differ from the PUMF file; layout always
+  #    comes from the SAS/SPSS command file.  Fires when a *Dictionary.pdf is
+  #    found anywhere under version_dir and pdftools is available.
+  eng_dict_pdf <- all_files[grepl("Dictionary\\.pdf$", all_files, ignore.case = TRUE)]
+  if (length(eng_dict_pdf) > 0L &&
+      requireNamespace("pdftools", quietly = TRUE)) {
+    fra_dict_pdf <- all_files[grepl("Dictionnaire\\.pdf$", all_files, ignore.case = TRUE)]
+    result$pdf_dict <- list(
+      eng = eng_dict_pdf[[1L]],
+      fra = if (length(fra_dict_pdf) > 0L) fra_dict_pdf[[1L]] else NULL
+    )
+  }
+
   # 7. SAS DATA step LABEL statements (e.g. 2011 Census individuals).
   #    Supplement when the primary parser lacks variable labels — scan for .SAS
   #    files containing "LABEL varname =" lines.
@@ -1577,7 +1591,7 @@ merge_metadata <- function(parsed_list) {
   if (length(parsed_list) == 1L) return(parsed_list[[1L]])
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
-                      "lfs_csv", "cpss_csv")
+                      "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict")
   ordered  <- c(intersect(priority_order, names(parsed_list)),
                 setdiff(names(parsed_list), priority_order))
   parsed_list <- parsed_list[ordered]
@@ -1756,6 +1770,10 @@ pumf_parse_metadata <- function(version_dir,
                                                 fra_path = formats$sas_labels$fra,
                                                 encoding = metadata_encoding %||% "CP1252")
 
+  if (!is.null(formats$pdf_dict))
+    parsed$pdf_dict <- parse_pdf_dictionary(formats$pdf_dict$eng,
+                                             fra_pdf = formats$pdf_dict$fra)
+
   metadata <- merge_metadata(parsed)
 
   dir.create(metadata_dir, showWarnings = FALSE, recursive = TRUE)
@@ -1840,4 +1858,222 @@ parse_spss_sav <- function(sav_path) {
   if (is.null(codes)) codes <- empty_codes()
 
   list(variables = variables, codes = codes, layout = NULL)
+}
+
+
+# ============================================================
+# StatCan PDF data dictionary parser (e.g. SFS 1999)
+# ============================================================
+
+# Internal: parse one language from a StatCan PDF Data Dictionary.
+# Returns list(variables, codes, layout=NULL).
+# "Codes:" / "Domaine:" sections produce regular codes.
+# "Reserved Codes:" / "Codes Réservés:" sections produce reserved codes whose
+# numeric values set missing_low/missing_high on the variable.
+# "Range:" with a "lo:hi" value is a numeric range (no codes); "Range:" with
+# value-label pairs is treated like "Codes:".
+.parse_pdf_dict_single <- function(pdf_path, lang) {
+  pages <- pdftools::pdf_text(pdf_path)
+  lines <- unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+
+  # Strip page headers, footers, and theme lines
+  skip_rx <- paste0(
+    "(?i)(^\\s*\\d{4}/\\d{2}/\\d{2}\\s+TH[E\\xc8]M",
+    "|SFS DATA DICTIONARY",
+    "|DICTIONNAIRE DE DONN",
+    "|EXTERNAL CROSS-SECTIONAL",
+    "|FICHIER EXTERNE TRANS",
+    "|^\\s*Theme.Sub-theme:",
+    "|^\\s*Th.+me.Sous-th.+me:)"
+  )
+  lines <- lines[!grepl(skip_rx, lines, perl = TRUE)]
+
+  # Variable header: 1 leading space + NAME + spaces + "Position:"
+  var_rx <- "^ ([A-Z][A-Z0-9_.]+)\\s+Position:"
+  starts <- which(grepl(var_rx, lines))
+  if (length(starts) == 0L) return(NULL)
+
+  label_key <- if (lang == "eng") "Long name:" else "Long nom:"
+
+  vars_list  <- vector("list", length(starts))
+  codes_list <- vector("list", length(starts))
+
+  for (i in seq_along(starts)) {
+    s   <- starts[i]
+    e   <- if (i < length(starts)) starts[i + 1L] - 1L else length(lines)
+    blk <- lines[s:e]
+
+    name <- regmatches(blk[1L], regexpr("[A-Z][A-Z0-9_.]+", blk[1L]))
+    type <- if (grepl("Character", blk[1L], ignore.case = TRUE)) "character" else "numeric"
+
+    ln_i  <- grep(label_key, blk, fixed = TRUE)
+    label <- if (length(ln_i) > 0L)
+      trimws(sub(paste0(".*", label_key, "\\s*"), "", blk[ln_i[1L]],
+                 ignore.case = TRUE, perl = TRUE))
+    else NA_character_
+
+    state       <- "other"
+    is_reserved <- FALSE
+    cur_val     <- NA_character_
+    cur_lbl     <- NA_character_
+    code_rows   <- list()
+
+    flush_code <- function() {
+      if (!is.na(cur_val))
+        code_rows[[length(code_rows) + 1L]] <<-
+          list(val = cur_val, label = cur_lbl, reserved = is_reserved)
+      cur_val <<- NA_character_
+      cur_lbl <<- NA_character_
+    }
+
+    try_parse_code <- function(txt) {
+      m <- regmatches(txt,
+                      regexec("^([A-Za-z0-9:.]+)\\s{2,}(.+)$",
+                              trimws(txt), perl = TRUE))[[1L]]
+      if (length(m) == 3L) {
+        flush_code()
+        cur_val <<- m[2L]
+        cur_lbl <<- trimws(m[3L])
+      } else if (!is.na(cur_val) && nchar(trimws(txt)) > 0L) {
+        cur_lbl <<- paste(cur_lbl, trimws(txt))
+      }
+    }
+
+    for (j in seq_along(blk)[-1L]) {
+      ln <- blk[j]
+
+      # "Reserved Codes:" / "Codes Réservés:" — must be checked before plain "Codes:"
+      if (grepl("reserv.*codes?|codes?.*r.serv|Codes.*R.serv",
+                ln, ignore.case = TRUE, perl = TRUE)) {
+        flush_code(); state <- "reserved"; is_reserved <- TRUE
+        rest <- trimws(sub(
+          "^.*(?:Reserved Codes?:|Codes? R.serv.s?:)\\s*", "",
+          ln, ignore.case = TRUE, perl = TRUE))
+        if (nchar(rest) > 0L) try_parse_code(rest)
+        next
+      }
+
+      # "Codes:" or "Domaine:" (French equivalent for code-like value lists)
+      if (grepl("^\\s+(Codes:|Domaine:)\\s*", ln, ignore.case = TRUE)) {
+        flush_code(); state <- "codes"; is_reserved <- FALSE
+        rest <- trimws(sub("^.*(?:Codes:|Domaine:)\\s*", "", ln,
+                           ignore.case = TRUE, perl = TRUE))
+        if (nchar(rest) > 0L) try_parse_code(rest)
+        next
+      }
+
+      # "Range:" — numeric lo:hi skipped; value-label pairs treated as codes
+      if (grepl("^\\s+Range:\\s*", ln, ignore.case = TRUE)) {
+        flush_code()
+        rest <- trimws(sub("^.*Range:\\s*", "", ln, ignore.case = TRUE, perl = TRUE))
+        if (grepl("^\\d+:\\d+$", rest)) {
+          state <- "other"
+        } else {
+          state <- "range"; is_reserved <- FALSE
+          if (nchar(rest) > 0L) try_parse_code(rest)
+        }
+        next
+      }
+
+      # Known non-code section headers — exit code-collecting state
+      if (grepl(
+        "^\\s+(Long name:|Long nom:|Description:|Population:|Format:|Plage:|Etendue:)",
+        ln, ignore.case = TRUE)) {
+        flush_code(); state <- "other"; next
+      }
+
+      if (state %in% c("codes", "reserved", "range")) {
+        rest <- trimws(ln)
+        if (nchar(rest) == 0L) { flush_code(); state <- "other"; next }
+        try_parse_code(rest)
+      }
+    }
+    flush_code()
+
+    # Compute missing range ONLY from reserved codes whose labels match
+    # sentinel phrases (e.g. "Not Stated", "Don't Know", "Not Applicable").
+    # Some StatCan PDFs put real category labels (e.g. "Yes", "No") under
+    # "Reserved Codes:" alongside sentinels; using all reserved codes as the
+    # missing range would incorrectly mask those real values.
+    resv_rows     <- Filter(function(r) r$reserved, code_rows)
+    resv_sentinel <- Filter(function(r) {
+      grepl(.sentinel_pat, trimws(r$label), perl = TRUE)
+    }, resv_rows)
+    resv_num <- suppressWarnings(as.numeric(
+      vapply(resv_sentinel, `[[`, character(1L), "val")))
+    resv_num <- resv_num[!is.na(resv_num)]
+
+    vars_list[[i]] <- tibble::tibble(
+      name         = name,
+      label_en     = if (lang == "eng") label else NA_character_,
+      label_fr     = if (lang == "fra") label else NA_character_,
+      type         = type,
+      decimals     = NA_integer_,
+      missing_low  = if (length(resv_num) > 0L) min(resv_num) else NA_real_,
+      missing_high = if (length(resv_num) > 0L) max(resv_num) else NA_real_
+    )
+
+    if (length(code_rows) > 0L) {
+      codes_list[[i]] <- tibble::tibble(
+        name     = name,
+        val      = vapply(code_rows, `[[`, character(1L), "val"),
+        label_en = if (lang == "eng")
+          vapply(code_rows, `[[`, character(1L), "label")
+        else rep(NA_character_, length(code_rows)),
+        label_fr = if (lang == "fra")
+          vapply(code_rows, `[[`, character(1L), "label")
+        else rep(NA_character_, length(code_rows))
+      )
+    }
+  }
+
+  list(
+    variables = dplyr::bind_rows(vars_list),
+    codes     = dplyr::bind_rows(codes_list),
+    layout    = NULL
+  )
+}
+
+#' Parse a StatCan PDF Data Dictionary for variable and code labels
+#'
+#' Extracts variable long-names and code-value labels from the bilingual PDF
+#' data dictionaries shipped with some older StatCan PUMF releases (e.g. SFS
+#' 1999).  Positions in the PDF do not match the PUMF flat file; this parser
+#' produces only \code{variables} and \code{codes} (no \code{layout}).
+#'
+#' @param eng_pdf Path to the English \emph{Dictionary.pdf}.
+#' @param fra_pdf Optional path to the French \emph{Dictionnaire.pdf}.
+#' @return Named list with elements \code{variables}, \code{codes},
+#'   \code{layout} (always \code{NULL}).
+#' @keywords internal
+parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
+  eng <- .parse_pdf_dict_single(eng_pdf, "eng")
+  if (is.null(eng)) return(NULL)
+
+  if (!is.null(fra_pdf)) {
+    fra <- .parse_pdf_dict_single(fra_pdf, "fra")
+    if (!is.null(fra)) {
+      # Merge French variable labels
+      merged_vars <- merge(
+        eng$variables,
+        fra$variables[c("name", "label_fr")],
+        by = "name", all.x = TRUE, suffixes = c("", ".fra")
+      )
+      merged_vars$label_fr     <- merged_vars$label_fr.fra
+      merged_vars$label_fr.fra <- NULL
+      eng$variables <- tibble::as_tibble(merged_vars)
+
+      # Merge French code labels
+      merged_codes <- merge(
+        eng$codes,
+        fra$codes[c("name", "val", "label_fr")],
+        by = c("name", "val"), all.x = TRUE, suffixes = c("", ".fra")
+      )
+      merged_codes$label_fr     <- merged_codes$label_fr.fra
+      merged_codes$label_fr.fra <- NULL
+      eng$codes <- tibble::as_tibble(merged_codes)
+    }
+  }
+
+  eng
 }
