@@ -300,23 +300,21 @@
       )
     ))),
 
-  # 1996: single EFT bundle with second-level zips per type (indiv.zip,
-  # hhldv2.zip, famv2.zip) alongside a small test file.  Deposit the outer zip
-  # once in Census/1996 (individuals)/; households and families read source
-  # files from there via bundle_source.  Inner zips are auto-extracted.
+  # 1996: separate EFT archive per type.  Each outer zip contains a
+  # second-level zip (indiv.zip, hhldv2.zip, famv2.zip) alongside a small test
+  # file; pumf_locate_or_download auto-extracts inner zips.  file_mask avoids
+  # matching the test file.
   "Census/1996 (individuals)" = .make_entry("Census", "1996 (individuals)",
     file_mask   = "^indiv\\.dat$",
     data_fixups = .census_fixup_7),
 
   "Census/1996 (households)" = .make_entry("Census", "1996 (households)",
-    bundle_source = "1996 (individuals)",
-    file_mask     = "^hhldv2\\.dat$",
-    data_fixups   = .census_fixup_7),
+    file_mask   = "^hhldv2\\.dat$",
+    data_fixups = .census_fixup_7),
 
   "Census/1996 (families)" = .make_entry("Census", "1996 (families)",
-    bundle_source = "1996 (individuals)",
-    file_mask     = "^fam\\.dat$",
-    data_fixups   = .census_fixup_7),
+    file_mask   = "^fam\\.dat$",
+    data_fixups = .census_fixup_7),
 
   # 1991: separate EFT archive per type (individuals / households / families).
   # Each type must be deposited in its own version directory.  The downloaded
