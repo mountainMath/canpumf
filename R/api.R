@@ -642,6 +642,223 @@ add_pumf_bootstrap_weights <- function(tbl,
 }
 
 
+# ---- pumf_bsw_info ----------------------------------------------------------
+
+#' Summarise bootstrap weight tables present in a PUMF DuckDB database
+#'
+#' Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
+#' tables created by [add_pumf_bootstrap_weights()] and returns a summary
+#' tibble with one row per BSW table found.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
+#'   [add_pumf_bootstrap_weights()].
+#'
+#' @return A tibble (invisibly when empty) with columns:
+#'   \describe{
+#'     \item{`weight_col`}{The weight column the BSW table was built from
+#'       (matched back to the case used in the main survey table).}
+#'     \item{`bsw_table`}{Name of the DuckDB table storing the weights.}
+#'     \item{`view_name`}{Name of the DuckDB VIEW joining survey + BSW.}
+#'     \item{`view_exists`}{Whether the companion VIEW is present.}
+#'     \item{`n_replicates`}{Number of bootstrap replicate columns.}
+#'     \item{`size_mb`}{Estimated table size in megabytes (from DuckDB
+#'       metadata; `NA` when unavailable).}
+#'   }
+#' @export
+pumf_bsw_info <- function(tbl) {
+  if (is.data.frame(tbl))
+    stop("pumf_bsw_info() requires a DuckDB-backed lazy tbl from get_pumf(). ",
+         "For in-memory data frames, inspect column names directly.",
+         call. = FALSE)
+
+  con <- tbl$src$con
+  if (is.null(con) || !DBI::dbIsValid(con))
+    stop("The connection backing 'tbl' is no longer valid.", call. = FALSE)
+
+  prov <- .pumf_lookup_con(con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+
+  series     <- prov$series
+  version    <- prov$version
+  cache_path <- prov$cache_path
+  lang       <- prov$lang %||% "eng"
+  table_name <- .pumf_table_name(series, version, lang)
+  db_path    <- .pumf_db_path(series, version, cache_path)
+
+  all_objs   <- DBI::dbListTables(con)
+  bsw_tables <- sort(all_objs[grepl("^pumf_bsw", all_objs)])
+
+  empty <- tibble::tibble(
+    weight_col   = character(0L),
+    bsw_table    = character(0L),
+    view_name    = character(0L),
+    view_exists  = logical(0L),
+    n_replicates = integer(0L),
+    size_mb      = numeric(0L)
+  )
+
+  if (length(bsw_tables) == 0L) {
+    message("No bootstrap weight tables found in '", basename(db_path), "'.")
+    return(invisible(empty))
+  }
+
+  # Estimated table sizes from DuckDB catalogue (bytes → MB).
+  size_df <- tryCatch(
+    DBI::dbGetQuery(con,
+      "SELECT table_name, estimated_size FROM duckdb_tables()"),
+    error = function(e)
+      data.frame(table_name = character(0L), estimated_size = numeric(0L))
+  )
+
+  # Column names of the main survey table, for case-preserving weight_col lookup.
+  main_cols <- tryCatch(DBI::dbListFields(con, table_name), error = function(e) character(0L))
+
+  rows <- lapply(bsw_tables, function(bt) {
+    # Derive weight_col and view name from table name convention.
+    # "pumf_bsw_wstpwgt" → weight suffix "wstpwgt"; view "eng_bsw_wstpwgt".
+    wc_lower <- sub("^pumf_bsw_?", "", bt)   # "" for legacy "pumf_bsw"
+    vn       <- paste0(table_name, "_", sub("^pumf_", "", bt))
+
+    # Restore proper case by matching against main table columns.
+    wc_match <- main_cols[tolower(main_cols) == wc_lower]
+    wc       <- if (length(wc_match) == 1L) wc_match else wc_lower
+
+    cols  <- tryCatch(DBI::dbListFields(con, bt), error = function(e) character(0L))
+    n_rep <- max(0L, as.integer(length(cols) - 1L))   # minus the ID column
+
+    sz_row  <- size_df[size_df$table_name == bt, , drop = FALSE]
+    size_mb <- if (nrow(sz_row) == 1L)
+      round(sz_row$estimated_size[[1L]] / 1e6, 2)
+    else
+      NA_real_
+
+    tibble::tibble(
+      weight_col   = wc,
+      bsw_table    = bt,
+      view_name    = vn,
+      view_exists  = vn %in% all_objs,
+      n_replicates = n_rep,
+      size_mb      = size_mb
+    )
+  })
+
+  do.call(rbind, rows)
+}
+
+
+# ---- remove_pumf_bootstrap_weights ------------------------------------------
+
+#' Remove bootstrap weight tables and views from a PUMF DuckDB database
+#'
+#' Drops the bootstrap weight table(s) created by [add_pumf_bootstrap_weights()]
+#' and their companion VIEWs from the DuckDB file.  When all BSW tables have
+#' been removed and the main survey table has a `pumf_row_id` column (added
+#' automatically by [add_pumf_bootstrap_weights()] when no natural key was
+#' available), that column is also dropped.
+#'
+#' Like [add_pumf_bootstrap_weights()], this function requires brief exclusive
+#' write access: the read-only connection backing `tbl` is shut down, the
+#' tables are dropped, and a fresh read-only connection is returned.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
+#'   [add_pumf_bootstrap_weights()].
+#' @param weight_col Name of the weight column whose BSW table should be
+#'   removed (e.g. `"WSTPWGT"`).  If `NULL` (default), **all** bootstrap
+#'   weight tables (and their companion VIEWs) are removed.
+#'
+#' @return A lazy `dplyr::tbl()` backed by the original physical survey table
+#'   (without BSW columns).
+#' @export
+remove_pumf_bootstrap_weights <- function(tbl, weight_col = NULL) {
+  if (is.data.frame(tbl))
+    stop("remove_pumf_bootstrap_weights() requires a DuckDB-backed lazy tbl. ",
+         "For in-memory data frames, drop BSW columns directly, e.g.: ",
+         "df[, !grepl(\"^BSW[0-9]+$\", names(df))]",
+         call. = FALSE)
+
+  con <- tbl$src$con
+  if (is.null(con) || !DBI::dbIsValid(con))
+    stop("The connection backing 'tbl' is no longer valid.", call. = FALSE)
+
+  prov <- .pumf_lookup_con(con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+
+  series     <- prov$series
+  version    <- prov$version
+  cache_path <- prov$cache_path
+  lang       <- prov$lang %||% "eng"
+  table_name <- .pumf_table_name(series, version, lang)
+  db_path    <- .pumf_db_path(series, version, cache_path)
+
+  # Identify which BSW tables to remove.
+  all_objs   <- DBI::dbListTables(con)
+  bsw_tables <- all_objs[grepl("^pumf_bsw", all_objs)]
+
+  if (!is.null(weight_col)) {
+    target <- paste0("pumf_bsw_", tolower(weight_col))
+    if (!target %in% bsw_tables)
+      stop("No bootstrap weight table found for weight_col '", weight_col,
+           "'. Use pumf_bsw_info() to see what is present.", call. = FALSE)
+    bsw_tables <- target
+  }
+
+  if (length(bsw_tables) == 0L) {
+    message("No bootstrap weight tables to remove from '", basename(db_path), "'.")
+    return(tbl)
+  }
+
+  # Acquire exclusive write access (same pattern as add_pumf_bootstrap_weights).
+  rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
+     envir = .pumf_con_registry, inherits = FALSE)
+  tryCatch(connections::connection_close(con), error = function(e) NULL)
+  if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
+
+  rw_con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = FALSE)
+  on.exit(
+    if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
+    add = TRUE
+  )
+
+  for (bt in bsw_tables) {
+    vn <- paste0(table_name, "_", sub("^pumf_", "", bt))
+    if (vn %in% DBI::dbListTables(rw_con)) {
+      message("Dropping view '", vn, "'...")
+      DBI::dbExecute(rw_con, sprintf('DROP VIEW IF EXISTS "%s"', vn))
+    }
+    message("Dropping bootstrap weight table '", bt, "'...")
+    DBI::dbExecute(rw_con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
+  }
+
+  # When no BSW tables remain, also remove pumf_row_id from the main table —
+  # it was added only to serve as a BSW join key.
+  remaining_bsw <- DBI::dbListTables(rw_con)
+  remaining_bsw <- remaining_bsw[grepl("^pumf_bsw", remaining_bsw)]
+  if (length(remaining_bsw) == 0L &&
+      "pumf_row_id" %in% DBI::dbListFields(rw_con, table_name)) {
+    message("Removing 'pumf_row_id' column from '", table_name, "'...")
+    DBI::dbExecute(rw_con,
+      sprintf('ALTER TABLE "%s" DROP COLUMN pumf_row_id', table_name))
+  }
+
+  DBI::dbDisconnect(rw_con, shutdown = TRUE)
+
+  # Reopen read-only on the physical table (no BSW view).
+  new_tbl <- pumf_open_duckdb(db_path, table_name, read_only = TRUE)
+  .pumf_register_con(new_tbl$src$con, series, version, cache_path, lang)
+  connections::connection_view(
+    new_tbl$src$con,
+    connection_code = paste0('canpumf::get_pumf("', series, '", "', version, '")'),
+    name = paste0(series, " (", version, ") PUMF")
+  )
+
+  new_tbl
+}
+
+
 # ---- pumf_metadata ----------------------------------------------------------
 
 #' Download and parse PUMF metadata without building a DuckDB table
