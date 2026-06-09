@@ -37,7 +37,10 @@
 .census_supplement_warnings <- list(
   "2006 (hierarchical)"  = "absent from command files",
   "2001 (families)"      = "absent from command files",
-  "1991 (individuals)"   = "absent from command files"
+  "1991 (individuals)"   = "absent from command files",
+  # 2021 individuals: StatCan's UTF-8 command file omits French variable labels
+  # for 74 of 144 variables — a known upstream gap, not a parser bug.
+  "2021 (individuals)"   = "no French translation"
 )
 
 .census_any_version <- function() {
@@ -207,30 +210,38 @@ test_that("Census 1991 (individuals): English labels from bundled XMF are genuin
 })
 
 
-# ---- Stage 3: per-version pipeline tests ------------------------------------
+# ---- Full pipeline tests (Stage 2 + Stage 3) --------------------------------
 
-# One test per verified version: collect from existing DuckDB and check for
-# unexpected warnings during build.  pumf_build_duckdb skips re-building when
-# the table already exists (refresh=FALSE), so on already-built caches these
-# tests verify that collect() itself is warning-free.  On fresh caches they
-# additionally cover the build step.
+# One test per verified version: re-parse metadata (Stage 2) and rebuild the
+# DuckDB into a temp file (Stage 3).  Using refresh=TRUE + a temp db_path means
+# every run exercises the full import path — encoding bugs, sentinel detection,
+# force_numeric, codes_supplement — regardless of what is cached on disk.
 
 for (.v in .census_verified) {
   local({
     ver <- .v
     pat <- .census_supplement_warnings[[ver]]   # NULL for most versions
 
-    test_that(paste0("Census ", ver, ": pipeline emits no unexpected warnings"), {
-      skip_if_not(.census_duckdb_exists(ver),
-                  paste("Census", ver, "DuckDB not built"))
+    test_that(paste0("Census ", ver, ": full pipeline emits no unexpected warnings"), {
+      skip_if_not(.census_extracted(ver),
+                  paste("Census", ver, "not extracted in cache"))
 
+      reg  <- canpumf:::pumf_registry_lookup("Census", ver)
+      tmp  <- tempfile(fileext = ".duckdb")
+      con  <- NULL
       warns <- character(0L)
+
       withCallingHandlers(
         {
+          canpumf:::pumf_parse_metadata(.census_vdir(ver),
+                                         metadata_encoding = reg$metadata_encoding,
+                                         refresh           = TRUE)
           r   <- canpumf:::pumf_build_duckdb(.census_vdir(ver), "Census", ver,
-                                              lang = "eng")
+                                              lang    = "eng",
+                                              db_path = tmp,
+                                              refresh = TRUE)
           tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
-          on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE))
+          con <<- tbl$src$con
           dplyr::collect(tbl)
         },
         warning = function(w) {
@@ -239,13 +250,16 @@ for (.v in .census_verified) {
         }
       )
 
+      if (!is.null(con)) DBI::dbDisconnect(con, shutdown = TRUE)
+      unlink(tmp)
+
       if (!is.null(pat)) {
         unexpected <- warns[!grepl(pat, warns)]
-        expect_identical(unexpected, character(0L))
-        # If DuckDB was just built (not a skip), check the supplement fired
-        # (we can't reliably test this on pre-built caches)
+        expect_identical(unexpected, character(0L),
+          label = paste0("Census ", ver, ": unexpected warnings"))
       } else {
-        expect_identical(warns, character(0L))
+        expect_identical(warns, character(0L),
+          label = paste0("Census ", ver, ": should have no warnings"))
       }
     })
   })

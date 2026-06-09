@@ -203,24 +203,33 @@ test_that("pumf_run_pipeline: returns lazy tbl for SFS", {
 # All end-to-end verified versions (import without errors or unexpected warnings)
 .sfs_verified <- c("2023", "2019", "2016", "2012", "2005")
 
-# ---- No-unexpected-warnings loop --------------------------------------------
+# ---- Full pipeline loop (Stage 2 + Stage 3) ---------------------------------
 
 for (.v in .sfs_verified) {
   local({
     ver <- .v
-    test_that(paste0("SFS ", ver, ": pipeline emits no unexpected warnings"), {
-      skip_if_not(.sfs_duckdb_exists(ver),
-                  paste("SFS", ver, "DuckDB not built"))
+    test_that(paste0("SFS ", ver, ": full pipeline emits no unexpected warnings"), {
+      skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir(ver)),
+                  paste("SFS", ver, "not extracted in cache"))
 
+      reg  <- canpumf:::pumf_registry_lookup("SFS", ver)
+      tmp  <- tempfile(fileext = ".duckdb")
+      con  <- NULL
       warns <- character(0L)
+
       withCallingHandlers(
         {
-          reg <- canpumf:::pumf_registry_lookup("SFS", ver)
+          canpumf:::pumf_parse_metadata(.sfs_vdir(ver),
+                                         layout_mask       = reg$layout_mask,
+                                         metadata_encoding = reg$metadata_encoding,
+                                         refresh           = TRUE)
           r   <- canpumf:::pumf_build_duckdb(.sfs_vdir(ver), "SFS", ver,
                                               lang        = "eng",
-                                              layout_mask = reg$layout_mask)
+                                              layout_mask = reg$layout_mask,
+                                              db_path     = tmp,
+                                              refresh     = TRUE)
           tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
-          on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE))
+          con <<- tbl$src$con
           dplyr::collect(tbl)
         },
         warning = function(w) {
@@ -228,6 +237,10 @@ for (.v in .sfs_verified) {
           invokeRestart("muffleWarning")
         }
       )
+
+      if (!is.null(con)) DBI::dbDisconnect(con, shutdown = TRUE)
+      unlink(tmp)
+
       expect_identical(warns, character(0L),
         label = paste0("SFS ", ver, " should produce no warnings"))
     })

@@ -278,14 +278,17 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
   if (!is.null(fra_sps_path)) {
     fra <- .spss_mono_single(fra_sps_path, encoding)
+    # Deduplicate on the key columns before joining: some surveys (e.g. GSS 1996)
+    # define the same variable in multiple VALUE LABELS sub-blocks with
+    # inconsistent codes.  Keep only the first occurrence per (name[,val]).
     variables <- left_join(
-      rename(eng$variables, label_en = "label"),
-      select(fra$variables, "name", label_fr = "label"),
+      dplyr::distinct(rename(eng$variables, label_en = "label"), name, .keep_all = TRUE),
+      dplyr::distinct(select(fra$variables, "name", label_fr = "label"), name, .keep_all = TRUE),
       by = "name"
     )
     codes <- left_join(
-      rename(eng$codes, label_en = "label"),
-      select(fra$codes, "name", "val", label_fr = "label"),
+      dplyr::distinct(rename(eng$codes, label_en = "label"), name, val, .keep_all = TRUE),
+      dplyr::distinct(select(fra$codes, "name", "val", label_fr = "label"), name, val, .keep_all = TRUE),
       by = c("name", "val")
     )
   } else {

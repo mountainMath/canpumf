@@ -578,13 +578,16 @@ pumf_build_duckdb <- function(version_dir,
                                lang        = "eng",
                                layout_mask = NULL,
                                file_mask   = NULL,
-                               refresh     = FALSE) {
+                               refresh     = FALSE,
+                               db_path     = NULL) {
   stopifnot(lang %in% c("eng", "fra"))
 
   # Step 1: DuckDB path and table name
-  db_file    <- paste0(series, "_",
-                       gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
-  db_path    <- file.path(version_dir, db_file)
+  if (is.null(db_path)) {
+    db_file <- paste0(series, "_",
+                      gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
+    db_path <- file.path(version_dir, db_file)
+  }
   table_name <- if (is.null(layout_mask)) lang
                 else paste0(lang, "_", layout_mask)
   result     <- list(db_path = db_path, table_name = table_name)
