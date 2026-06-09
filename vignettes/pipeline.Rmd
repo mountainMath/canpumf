@@ -154,7 +154,7 @@ survey** (e.g. SPSS split for layout/codes and SAS cards for BSW weights).
 | 2 | **CPSS variables CSV** | filename is exactly `variables.csv` |
 | 3 | **SAS reading cards** | directory contains both a `.lay` and a `.lbe` file |
 | 4 | **SPSS split-file** | any `.sps` file whose name ends in `vare`, `vale`, or `_i` |
-| 5 | **SPSS monolithic** | `.sps` file, `*SPSS.txt` file, or `.xmf` file whose first 500 lines contain both `VARIABLE LABELS` and `VALUE LABELS` (checked with `useBytes = TRUE` to tolerate CP850/Latin-1 data) |
+| 5 | **SPSS monolithic** | `.sps` file, `*SPSS.txt` file, or `.xmf` file whose content contains `VALUE LABELS` **or `DATA LIST`** (checked with `useBytes = TRUE` to tolerate CP850/Latin-1 data); `VARIABLE LABELS` is optional |
 | 6 | **SPSS `.sav`** | a `.sav` binary file readable by haven |
 
 Detection for case 5 also searches for a parallel French file — any candidate
@@ -164,9 +164,13 @@ in the same set whose path includes `/fran` or `/french` (case-insensitive).
 
 #### SPSS monolithic (`parse_spss_mono`)
 
-Handles the single-file SPSS format used by Census (2001–2021), SHS, and
-others.  The file contains `DATA LIST`, `VARIABLE LABELS`, `VALUE LABELS`, and
-sometimes `MISSING VALUES` and `FORMATS` sections.
+Handles the single-file SPSS format used by Census (2001–2021), SFS 1999,
+SHS, and others.  The file typically contains `DATA LIST`, `VARIABLE LABELS`,
+`VALUE LABELS`, and sometimes `MISSING VALUES` and `FORMATS` sections.
+`VARIABLE LABELS` is optional (e.g. Census 2011 individuals omits it).
+Older releases like SFS 1999 have only `DATA LIST` with no label sections at
+all — these produce a fully importable table with raw codes but no
+human-readable factor levels.
 
 Key parsing details:
 
@@ -182,6 +186,11 @@ Key parsing details:
   `MISSING VALUES`, `FORMATS`, or `EXECUTE` at the start of a line.  The
   keyword check is the reliable terminator for older files (e.g. 1991 XMF)
   that have no blank line between `DATA LIST` and `VARIABLE LABELS`.
+
+- **DATA LIST type annotations** — the `(A)` suffix after a column range marks
+  a character-type variable.  The parser records an `is_char` flag per column
+  and uses it to populate `variables.csv` types when no `VARIABLE LABELS`
+  section is present.
 
 - **Sentinel detection** — variables whose only VALUE LABELS are sentinel
   phrases ("Not applicable", "Valid skip", "Don't know", etc.) are classified

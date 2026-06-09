@@ -101,6 +101,11 @@
   "SFS/2005" = .make_entry("SFS", "2005",
     file_mask = "ec2005ef\\.txt"),
 
+  # 1999: DATA LIST-only SPSS file (no VARIABLE/VALUE LABELS); no bootstrap
+  # weights; FWF data file is in the DATA/ subdirectory.
+  "SFS/1999" = .make_entry("SFS", "1999",
+    file_mask = "ec1999ef\\.sdf"),
+
   # ---- CIS: Canadian Income Survey ------------------------------------------
   # Data dir contains CIS{year}_PUMF.txt (FWF), CIS{year}_PUMF.csv, Readme.txt
   # and Lisezmoi.txt; file_mask selects the FWF data file unambiguously.

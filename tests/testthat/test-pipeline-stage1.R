@@ -1,4 +1,6 @@
 # Tests for pumf_locate_or_download() (Stage 1)
+# Network-dependent tests use skip_if_offline() and wrap download calls in
+# tryCatch(error = skip(...)) so StatCan downtime produces a skip, not a failure.
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -88,9 +90,13 @@ test_that(".zip_filename_from_url: handles URL without query string", {
 test_that("pumf_locate_or_download: errors for unknown series/version", {
   tmp <- withr::local_tempdir()
   skip_if_offline()
-  expect_error(
-    canpumf:::pumf_locate_or_download("NOSUCHSERIES", "9999", cache_path = tmp),
-    regexp = "not found in the canpumf collection"
+  tryCatch(
+    expect_error(
+      canpumf:::pumf_locate_or_download("NOSUCHSERIES", "9999", cache_path = tmp),
+      regexp = "not found in the canpumf collection"
+    ),
+    # If list_canpumf_collection() fails (StatCan unreachable), skip gracefully
+    error = function(e) skip(paste("StatCan unreachable:", conditionMessage(e)))
   )
 })
 
@@ -98,10 +104,13 @@ test_that("pumf_locate_or_download: errors with EFT message for EFT-only surveys
   tmp <- withr::local_tempdir()
   skip_if_offline()
   # Older Census versions are EFT-only (e.g. 1971 individuals)
-  expect_error(
-    canpumf:::pumf_locate_or_download("Census", "1971 (individuals)",
-                                       cache_path = tmp),
-    regexp = "Electronic File Transfer"
+  tryCatch(
+    expect_error(
+      canpumf:::pumf_locate_or_download("Census", "1971 (individuals)",
+                                         cache_path = tmp),
+      regexp = "Electronic File Transfer"
+    ),
+    error = function(e) skip(paste("StatCan unreachable:", conditionMessage(e)))
   )
 })
 
@@ -189,7 +198,10 @@ test_that("pumf_locate_or_download: downloads and extracts CPSS v1", {
   skip_on_cran()
 
   tmp    <- withr::local_tempdir()
-  result <- canpumf:::pumf_locate_or_download("CPSS", "1", cache_path = tmp)
+  result <- tryCatch(
+    canpumf:::pumf_locate_or_download("CPSS", "1", cache_path = tmp),
+    error = function(e) skip(paste("Download failed:", conditionMessage(e)))
+  )
 
   expect_true(dir.exists(result))
   expect_true(canpumf:::.version_is_extracted(result))

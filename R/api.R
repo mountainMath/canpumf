@@ -204,6 +204,12 @@ get_pumf <- function(series     = NULL,
   # connection's stable C++ pointer address.
   .pumf_register_con(tbl$src$con, series, version, cache_path, lang)
 
+  connections::connection_view(tbl$src$con,
+                               connection_code=paste0('canpumf::get_pumf("',series,'", "',version,'")'),
+                               #host="canpumf",
+                               name=paste0(series," (",version,") PUMF"))
+
+
   tbl
 }
 
@@ -321,7 +327,8 @@ close_pumf <- function(tbl) {
   con <- tbl$src$con
   if (!is.null(con) && DBI::dbIsValid(con)) {
     rm(list = format(con@conn_ref), envir = .pumf_con_registry, inherits = FALSE)
-    DBI::dbDisconnect(con, shutdown = TRUE)
+    connections::connection_close(con)
+    #DBI::dbDisconnect(con, shutdown = TRUE)
   }
   invisible(NULL)
 }

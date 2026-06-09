@@ -27,6 +27,8 @@ pkgdown::build_site()
 
 Tests live in `tests/testthat/`. All tests run via `devtools::test()`. `R/local_test.R` is an ad-hoc scratch file and is not part of the test suite.
 
+**When adding or changing tests**, keep `tests/TEST_COVERAGE.md` in sync: update the coverage matrix row for the affected survey, and update the **Verified datasets** table in `README.md` to match what the registry and test suite actually cover. The registry (`R/registry.R`), the test suite, and the README verified-datasets table are the three sources of truth — they must agree.
+
 ## Public API
 
 ### Primary entry points (`R/api.R`)
@@ -82,7 +84,7 @@ Parsers (in detection priority order):
 2. `parse_cpss_csv()` — CPSS `variables.csv`
 3. `parse_sas_cards()` — directory with `.lay` + `.lbe` files
 4. `parse_spss_split()` — directory with `vare`/`vale`/`_i` named `.sps` files
-5. `parse_spss_mono()` — single `.sps`, `*SPSS.txt`, or `.xmf` file containing both `VARIABLE LABELS` and `VALUE LABELS` keywords
+5. `parse_spss_mono()` — single `.sps`, `*SPSS.txt`, or `.xmf` file whose content contains `VALUE LABELS` or `DATA LIST`. `VARIABLE LABELS` is optional (e.g. Census 2011 individuals). DATA LIST-only files (e.g. SFS 1999) produce a table with correct column types but no human-readable labels.
 6. `parse_spss_sav()` — binary SPSS `.sav` file (read via haven)
 
 Multiple parsers can fire for the same survey (e.g. split-SPSS for layout/codes and SAS cards for BSW weights). `merge_metadata()` consolidates all results.
@@ -94,6 +96,7 @@ Key parsing details:
 - **SPSS DATA LIST column ranges**: spaces around the dash are tolerated in all forms — `129-135`, `129 - 135`, `129-  135` — via `(\\d+)\\s*-\\s*(\\d+)` normalisation before tokenisation. A leading `/` record-group marker on the first variable line is stripped (not discarded) so the variable is retained.
 - **SPSS DATA LIST section terminator**: the section ends at the first blank line, `.` line, or occurrence of `VARIABLE LABELS`, `VALUE LABELS`, `MISSING VALUES`, `FORMATS`, or `EXECUTE` at the start of a line. The keyword check is the reliable terminator for older files (e.g. 1991 XMF) that have no blank line between `DATA LIST` and `VARIABLE LABELS`.
 - **SPSS DATA LIST decimals**: no annotation → `fmt_type="F"`, `decimals=0` (integer); `(A)` or `(An)` → character format; `(n)` → `decimals=n`; `(Fn.d)` → `decimals=d`.
+- **DATA LIST-only SPSS files**: `_spss_parse_data_list` returns an `is_char` flag per column (derived from `(A)` annotations in the raw section lines). When a SPSS file has `DATA LIST` but no `VARIABLE LABELS` or `VALUE LABELS` (e.g. SFS 1999), `.spss_mono_single` falls back to populating `variables.csv` from the layout type info: `(A)` columns → `type="character"`, others → `type="numeric"`. Labels are all `NA`. This produces a fully importable DuckDB table with raw codes but no human-readable factor levels.
 - **Metadata encoding**: default is `"CP1252"` (superset of Latin-1, handles Windows-era en-dashes and curly quotes). Exceptions: Census 2021 uses `"UTF-8"` (command files shipped as UTF-8); Census 1991 (individuals) uses `"CP850"` (DOS-era IBM Code Page 850). The `detect_formats()` SPSS keyword scan uses `useBytes = TRUE` to tolerate non-UTF-8 bytes without warnings regardless of encoding.
 
 ### Survey registry (`R/registry.R`)

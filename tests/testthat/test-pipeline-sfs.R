@@ -182,6 +182,28 @@ test_that("SFS: eng and fra tables coexist in same DuckDB", {
   expect_true(DBI::dbExistsTable(con, r_fra$table_name))
 })
 
+test_that("SFS: eng/fra bilingual parity", {
+  v <- .sfs_bsw_version()
+  skip_if(is.null(v), "No SFS version with BSW in cache")
+  skip_if_not(.sfs_metadata_exists(v), "SFS metadata not parsed")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+
+  reg   <- canpumf:::pumf_registry_lookup("SFS", v)
+  r_eng <- canpumf:::pumf_build_duckdb(.sfs_vdir(v), "SFS", v,
+                                        lang = "eng", layout_mask = reg$layout_mask,
+                                        db_path = tmp, refresh = TRUE)
+  r_fra <- canpumf:::pumf_build_duckdb(.sfs_vdir(v), "SFS", v,
+                                        lang = "fra", layout_mask = reg$layout_mask,
+                                        db_path = tmp, refresh = TRUE)
+
+  eng <- .collect_pumf_table(tmp, r_eng$table_name)
+  fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+  expect_pumf_bilingual_parity(eng, fra, label = paste0("SFS ", v))
+})
+
 # ---- pumf_run_pipeline convenience ------------------------------------------
 
 test_that("pumf_run_pipeline: returns lazy tbl for SFS", {
@@ -280,3 +302,98 @@ for (.v in .sfs_verified) {
     })
   })
 }
+
+
+# ---- Bilingual parity (per verified version) --------------------------------
+
+for (.v in .sfs_verified) {
+  local({
+    ver <- .v
+    test_that(paste0("SFS ", ver, ": eng/fra bilingual parity"), {
+      skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir(ver)),
+                  paste("SFS", ver, "not extracted in cache"))
+      skip_if_not(.sfs_metadata_exists(ver),
+                  paste("SFS", ver, "metadata not parsed"))
+
+      tmp <- tempfile(fileext = ".duckdb")
+      on.exit(unlink(tmp), add = TRUE)
+
+      reg   <- canpumf:::pumf_registry_lookup("SFS", ver)
+      r_eng <- canpumf:::pumf_build_duckdb(.sfs_vdir(ver), "SFS", ver,
+                                            lang        = "eng",
+                                            layout_mask = reg$layout_mask,
+                                            db_path     = tmp,
+                                            refresh     = TRUE)
+      r_fra <- canpumf:::pumf_build_duckdb(.sfs_vdir(ver), "SFS", ver,
+                                            lang        = "fra",
+                                            layout_mask = reg$layout_mask,
+                                            db_path     = tmp,
+                                            refresh     = TRUE)
+
+      eng <- .collect_pumf_table(tmp, r_eng$table_name)
+      fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+      expect_pumf_bilingual_parity(eng, fra, label = paste0("SFS ", ver))
+    })
+  })
+}
+
+
+# ---- SFS 1999: DATA LIST-only SPSS file (no variable/value labels) ----------
+# SFS 1999 ships only a DATA LIST in its SPSS file, so variables.csv has column
+# names and types but no human-readable labels.  It is tested separately from
+# the labelled-survey loops above.
+
+test_that("SFS 1999: full pipeline emits no unexpected warnings", {
+  skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
+              "SFS 1999 not extracted in cache")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+  warns <- character(0L)
+
+  withCallingHandlers(
+    {
+      canpumf:::pumf_parse_metadata(.sfs_vdir("1999"), refresh = TRUE)
+      r   <- canpumf:::pumf_build_duckdb(.sfs_vdir("1999"), "SFS", "1999",
+                                          lang = "eng", db_path = tmp, refresh = TRUE)
+      tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+      con <<- tbl$src$con
+      dplyr::collect(tbl)
+    },
+    warning = function(w) {
+      warns <<- c(warns, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  if (exists("con") && !is.null(con)) DBI::dbDisconnect(con, shutdown = TRUE)
+
+  expect_identical(warns, character(0L),
+    label = "SFS 1999 should produce no warnings")
+})
+
+test_that("SFS 1999: table has expected row and column counts", {
+  skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
+              "SFS 1999 not extracted in cache")
+  skip_if_not(.sfs_metadata_exists("1999"), "SFS 1999 metadata not parsed")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+
+  r   <- canpumf:::pumf_build_duckdb(.sfs_vdir("1999"), "SFS", "1999",
+                                      lang = "eng", db_path = tmp, refresh = TRUE)
+  tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+  on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE), add = TRUE)
+  result <- dplyr::collect(tbl)
+
+  expect_equal(nrow(result), 15933L,
+    label = "SFS 1999 should have 15933 respondents")
+  expect_equal(ncol(result), 80L,
+    label = "SFS 1999 should have 80 variables")
+  expect_true("ECFKEY" %in% names(result),
+    label = "ECFKEY (family identifier) expected in SFS 1999")
+  expect_true("WEIGHT" %in% names(result),
+    label = "WEIGHT column expected in SFS 1999")
+  expect_true("WNETWPT" %in% names(result),
+    label = "WNETWPT (total net worth) expected in SFS 1999")
+})

@@ -409,6 +409,45 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     ) |>
     select("name", "label", "type", "decimals", "missing_low", "missing_high")
 
+  # For DATA LIST-only files (no VARIABLE LABELS at all), populate variables
+  # from the layout so that column types are preserved.  Only activate when
+  # VARIABLE LABELS is entirely absent — for well-labeled surveys (Census, GSS,
+  # etc.) some DATA LIST variables may legitimately lack labels, and adding them
+  # here would trigger spurious "no French translation" warnings.
+  if (!is.null(layout) && length(var_labels_pos) == 0L) {
+    missing_names <- setdiff(layout$name, variables$name)
+    if (length(missing_names) > 0L) {
+      # Detect character-type variables from (A) annotations in the raw DATA
+      # LIST section lines (done here rather than in _spss_parse_data_list so
+      # that function's return value stays a plain (name, start, end) tibble).
+      dl_char_vars <- character(0L)
+      if (length(data_list_pos) > 0L) {
+        dl_sec <- spss$clean[seq(data_list_pos[1L] + 1L, length(spss$clean))]
+        end_dl <- which(grepl(
+          "^\\.$|^$|^VARIABLE LABELS|^VALUE LABELS|^MISSING VALUES|^FORMATS|^EXECUTE",
+          dl_sec, ignore.case = TRUE))[1L]
+        if (!is.na(end_dl)) dl_sec <- dl_sec[seq_len(end_dl - 1L)]
+        dl_sec <- dl_sec[grepl("[A-Za-z]", dl_sec)]
+        dl_sec <- dl_sec[!grepl("^DATA LIST|^FILE HANDLE|^GET DATA|^FILE=",
+                                 dl_sec, ignore.case = TRUE)]
+        for (ln in dl_sec) {
+          m <- regmatches(ln, regexpr("^([A-Za-z][A-Za-z0-9_]*)", trimws(ln)))
+          if (length(m) == 1L && grepl("\\(A", ln, ignore.case = TRUE))
+            dl_char_vars <- c(dl_char_vars, m)
+        }
+      }
+      extra <- tibble::tibble(
+        name         = missing_names,
+        label        = NA_character_,
+        type         = if_else(missing_names %in% dl_char_vars, "character", "numeric"),
+        decimals     = NA_integer_,
+        missing_low  = NA_real_,
+        missing_high = NA_real_
+      )
+      variables <- bind_rows(variables, extra)
+    }
+  }
+
   list(variables = variables, codes = codes, layout = layout)
 }
 
@@ -699,7 +738,8 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   }
 
   if (length(rows) == 0L) return(NULL)
-  tibble::as_tibble(do.call(rbind, lapply(rows, as.data.frame, stringsAsFactors = FALSE)))
+  tibble::as_tibble(do.call(rbind, lapply(rows, as.data.frame,
+                                           stringsAsFactors = FALSE)))
 }
 
 
@@ -1452,7 +1492,15 @@ detect_formats <- function(pumf_dir) {
     for (sps in head(mono_eng, 8L)) {
       hdr <- tryCatch(readLines(sps, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
-      if (any(grepl("VALUE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE))) {
+      has_val_labels <- any(grepl("VALUE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE))
+      has_data_list  <- any(grepl("DATA LIST",    hdr, ignore.case = TRUE, useBytes = TRUE))
+      # Accept VALUE LABELS files always (original behaviour).
+      # Accept DATA LIST-only files only when no richer source (SAS cards,
+      # SPSS split) was already detected — avoids picking up layout-only SPSS
+      # files that co-exist with SAS cards for the same survey (e.g. Census 2011).
+      data_list_only_ok <- has_data_list && is.null(result$sas_cards) &&
+                           is.null(result$spss_split)
+      if (has_val_labels || data_list_only_ok) {
         fra_cands <- all_spss[.is_fra(all_spss) &
                                !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
                                        all_spss, ignore.case = TRUE)]
@@ -1546,6 +1594,13 @@ merge_metadata <- function(parsed_list) {
     all_v <- all_v[order(all_v$name, all_v$.src), ]
     rows  <- lapply(split(all_v, all_v$name), function(grp) {
       row <- grp[1L, , drop = FALSE]
+      # Fill label_en from lower-priority source when highest-priority has NA.
+      # Allows a DATA LIST-only spss_mono (no variable labels) to coexist with
+      # a sas_labels source that supplies the actual labels (e.g. Census 2011).
+      if (is.na(row$label_en)) {
+        en <- grp$label_en[!is.na(grp$label_en)]
+        if (length(en) > 0L) row$label_en <- en[[1L]]
+      }
       if (is.na(row$label_fr)) {
         fr <- grp$label_fr[!is.na(grp$label_fr)]
         if (length(fr) > 0L) row$label_fr <- fr[[1L]]

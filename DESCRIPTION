@@ -27,7 +27,8 @@ Imports:
     DBI,
     duckdb  (>= 1.5.2),
     duckplyr  (>= 1.2.1),
-    haven
+    haven,
+    connections
 Suggests:
     rmarkdown,
     knitr,

@@ -129,3 +129,22 @@ test_that("CIS: pumf_run_pipeline returns lazy tbl without warnings", {
     dplyr::collect(tbl)
   })
 })
+
+test_that("CIS: eng/fra bilingual parity", {
+  v <- .cis_any_version()
+  skip_if(is.null(v), "No CIS version in cache")
+  skip_if_not(.cis_metadata_exists(v), "CIS metadata not parsed")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+
+  r_eng <- canpumf:::pumf_build_duckdb(.cis_vdir(v), "CIS", v,
+                                        lang = "eng", db_path = tmp, refresh = TRUE)
+  r_fra <- canpumf:::pumf_build_duckdb(.cis_vdir(v), "CIS", v,
+                                        lang = "fra", db_path = tmp, refresh = TRUE)
+
+  eng <- .collect_pumf_table(tmp, r_eng$table_name)
+  fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+  expect_pumf_bilingual_parity(eng, fra, label = paste0("CIS ", v))
+})

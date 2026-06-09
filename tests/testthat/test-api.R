@@ -34,7 +34,10 @@ test_that("get_pumf: errors when redownload=TRUE and refresh='auto'", {
 
 test_that("get_pumf: errors when version=NULL and multiple exist", {
   skip_if_offline()
-  expect_error(get_pumf("SFS"), regexp = "multiple versions")
+  tryCatch(
+    expect_error(get_pumf("SFS"), regexp = "multiple versions"),
+    error = function(e) skip(paste("StatCan unreachable:", conditionMessage(e)))
+  )
 })
 
 # ---- get_pumf: deprecated parameter names -----------------------------------

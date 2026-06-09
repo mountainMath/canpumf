@@ -331,6 +331,36 @@ test_that("Census fra table: uses French labels", {
 })
 
 
+# ---- Bilingual parity (per verified version) --------------------------------
+
+for (.v in .census_verified) {
+  local({
+    ver <- .v
+    test_that(paste0("Census ", ver, ": eng/fra bilingual parity"), {
+      skip_if_not(.census_extracted(ver),
+                  paste("Census", ver, "not extracted in cache"))
+      skip_if_not(.census_metadata_exists(ver),
+                  paste("Census", ver, "metadata not parsed"))
+
+      tmp <- tempfile(fileext = ".duckdb")
+      on.exit(unlink(tmp), add = TRUE)
+
+      r_eng <- suppressWarnings(
+        canpumf:::pumf_build_duckdb(.census_vdir(ver), "Census", ver,
+                                     lang = "eng", db_path = tmp, refresh = TRUE))
+      r_fra <- suppressWarnings(
+        canpumf:::pumf_build_duckdb(.census_vdir(ver), "Census", ver,
+                                     lang = "fra", db_path = tmp, refresh = TRUE))
+
+      eng <- .collect_pumf_table(tmp, r_eng$table_name)
+      fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+      expect_pumf_bilingual_parity(eng, fra, label = paste0("Census ", ver))
+    })
+  })
+}
+
+
 # ---- Version-specific data fixup tests --------------------------------------
 
 test_that("Census 2021: RELIGION_DER renamed to RELIG", {

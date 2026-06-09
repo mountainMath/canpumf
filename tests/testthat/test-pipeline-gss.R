@@ -101,3 +101,33 @@ for (.v in .gss_verified) {
     })
   })
 }
+
+
+# ---- Bilingual parity (per verified version) --------------------------------
+
+for (.v in .gss_verified) {
+  local({
+    ver <- .v
+    test_that(paste0("GSS ", ver, ": eng/fra bilingual parity"), {
+      skip_if_not(canpumf:::.version_is_extracted(.gss_vdir(ver)),
+                  paste("GSS", ver, "not extracted in cache"))
+      skip_if_not(file.exists(file.path(.gss_vdir(ver), "metadata", "variables.csv")),
+                  paste("GSS", ver, "metadata not parsed"))
+
+      tmp <- tempfile(fileext = ".duckdb")
+      on.exit(unlink(tmp), add = TRUE)
+
+      r_eng <- suppressWarnings(
+        canpumf:::pumf_build_duckdb(.gss_vdir(ver), "GSS", ver,
+                                     lang = "eng", db_path = tmp, refresh = TRUE))
+      r_fra <- suppressWarnings(
+        canpumf:::pumf_build_duckdb(.gss_vdir(ver), "GSS", ver,
+                                     lang = "fra", db_path = tmp, refresh = TRUE))
+
+      eng <- .collect_pumf_table(tmp, r_eng$table_name)
+      fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+      expect_pumf_bilingual_parity(eng, fra, label = paste0("GSS ", ver))
+    })
+  })
+}

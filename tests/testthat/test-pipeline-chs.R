@@ -177,3 +177,25 @@ test_that("CHS: eng and fra tables coexist in same DuckDB", {
   expect_true(DBI::dbExistsTable(con, r_eng$table_name))
   expect_true(DBI::dbExistsTable(con, r_fra$table_name))
 })
+
+test_that("CHS: eng/fra bilingual parity", {
+  v <- .chs_any_version()
+  skip_if(is.null(v), "No CHS version in cache")
+  skip_if_not(.chs_metadata_exists(v), "CHS metadata not parsed")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+
+  reg   <- canpumf:::pumf_registry_lookup("CHS", v)
+  r_eng <- canpumf:::pumf_build_duckdb(.chs_vdir(v), "CHS", v,
+                                        lang = "eng", layout_mask = reg$layout_mask,
+                                        db_path = tmp, refresh = TRUE)
+  r_fra <- canpumf:::pumf_build_duckdb(.chs_vdir(v), "CHS", v,
+                                        lang = "fra", layout_mask = reg$layout_mask,
+                                        db_path = tmp, refresh = TRUE)
+
+  eng <- .collect_pumf_table(tmp, r_eng$table_name)
+  fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+  expect_pumf_bilingual_parity(eng, fra, label = paste0("CHS ", v))
+})

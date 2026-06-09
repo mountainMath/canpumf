@@ -137,3 +137,22 @@ test_that("SHS: pumf_run_pipeline returns lazy tbl without warnings", {
     dplyr::collect(tbl)
   })
 })
+
+test_that("SHS: eng/fra bilingual parity", {
+  v <- .shs_any_version()
+  skip_if(is.null(v), "No SHS version in cache")
+  skip_if_not(.shs_metadata_exists(v), "SHS metadata not parsed")
+
+  tmp <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(tmp), add = TRUE)
+
+  r_eng <- canpumf:::pumf_build_duckdb(.shs_vdir(v), "SHS", v,
+                                        lang = "eng", db_path = tmp, refresh = TRUE)
+  r_fra <- canpumf:::pumf_build_duckdb(.shs_vdir(v), "SHS", v,
+                                        lang = "fra", db_path = tmp, refresh = TRUE)
+
+  eng <- .collect_pumf_table(tmp, r_eng$table_name)
+  fra <- .collect_pumf_table(tmp, r_fra$table_name)
+
+  expect_pumf_bilingual_parity(eng, fra, label = paste0("SHS ", v))
+})
