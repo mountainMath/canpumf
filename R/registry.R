@@ -330,7 +330,6 @@
     file_mask         = "PUMF91\\.INDIV",
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/IND91.XMF",
-    bundle_sps_mask   = "IND91",
     data_fixups       = c(.census_fixup_7, list(
       codes_supplement = list(
         NOLGREP = data.frame(val = "9", label_en = "Not applicable",

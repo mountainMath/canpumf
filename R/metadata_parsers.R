@@ -1737,8 +1737,11 @@ pumf_parse_metadata <- function(version_dir,
     version_dir
   }
 
-  formats <- detect_formats(source_dir,
-                             sps_mask = reg$bundle_sps_mask)
+  # Only apply bundle_sps_mask when actually reading from a shared source
+  # directory — not when version_dir itself is the source (primary entry or
+  # legacy per-type deposit), where the mask could filter out the right file.
+  effective_sps_mask <- if (!identical(source_dir, version_dir)) reg$bundle_sps_mask else NULL
+  formats <- detect_formats(source_dir, sps_mask = effective_sps_mask)
   if (length(formats) == 0L) {
     stop("No parseable metadata files found in: ", source_dir)
   }
