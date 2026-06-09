@@ -11,7 +11,8 @@ pumf_build_duckdb(
   lang = "eng",
   layout_mask = NULL,
   file_mask = NULL,
-  refresh = FALSE
+  refresh = FALSE,
+  db_path = NULL
 )
 }
 \arguments{
