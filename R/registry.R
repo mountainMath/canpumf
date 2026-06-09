@@ -25,7 +25,9 @@
                         data_encoding     = "CP1252",
                         metadata_encoding = "CP1252",
                         data_fixups       = list(),
-                        bundled_eng_sps   = NULL) {
+                        bundled_eng_sps   = NULL,
+                        bundle_source     = NULL,
+                        bundle_sps_mask   = NULL) {
   list(
     series            = series,
     version           = version,
@@ -38,7 +40,9 @@
     data_encoding     = data_encoding,
     metadata_encoding = metadata_encoding,
     data_fixups       = data_fixups,
-    bundled_eng_sps   = bundled_eng_sps
+    bundled_eng_sps   = bundled_eng_sps,
+    bundle_source     = bundle_source,
+    bundle_sps_mask   = bundle_sps_mask
   )
 }
 
@@ -296,29 +300,37 @@
       )
     ))),
 
-  # 1996: data files live in a second-level zip (indiv.zip, hhldv2.zip, famv2.zip)
-  # alongside a small test file.  pumf_locate_or_download auto-extracts inner zips;
-  # file_mask targets the real data file to avoid matching the test file.
+  # 1996: single EFT bundle with second-level zips per type (indiv.zip,
+  # hhldv2.zip, famv2.zip) alongside a small test file.  Deposit the outer zip
+  # once in Census/1996 (individuals)/; households and families read source
+  # files from there via bundle_source.  Inner zips are auto-extracted.
   "Census/1996 (individuals)" = .make_entry("Census", "1996 (individuals)",
     file_mask   = "^indiv\\.dat$",
     data_fixups = .census_fixup_7),
 
   "Census/1996 (households)" = .make_entry("Census", "1996 (households)",
-    file_mask   = "^hhldv2\\.dat$",
-    data_fixups = .census_fixup_7),
+    bundle_source = "1996 (individuals)",
+    file_mask     = "^hhldv2\\.dat$",
+    data_fixups   = .census_fixup_7),
 
   "Census/1996 (families)" = .make_entry("Census", "1996 (families)",
-    file_mask   = "^fam\\.dat$",
-    data_fixups = .census_fixup_7),
+    bundle_source = "1996 (individuals)",
+    file_mask     = "^fam\\.dat$",
+    data_fixups   = .census_fixup_7),
 
-  # 1991: downloaded XMF command files are French-only (CP850 encoding).
-  # English XMFs are bundled in inst/extdata/census_1991/ and used as the
-  # English metadata source so both label_en and label_fr are populated.
+  # 1991: single EFT bundle containing PUMF91.INDIV, PUMF91.HHLD, PUMF91.FAM
+  # plus one French-only XMF command file per type (CP850 encoding).  English
+  # XMFs are bundled in inst/extdata/census_1991/ so both languages are populated.
+  # Deposit the bundle zip once in Census/1991 (individuals)/; households and
+  # families read source files from there via bundle_source.
+  # bundle_sps_mask ensures detect_formats() sees only the correct per-type XMF
+  # from the shared directory (avoids picking up the wrong type's command file).
   # NOLGREP code 9 ("Sans objet") is absent from both XMF files.
   "Census/1991 (individuals)" = .make_entry("Census", "1991 (individuals)",
     file_mask         = "PUMF91\\.INDIV",
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/IND91.XMF",
+    bundle_sps_mask   = "IND91",
     data_fixups       = c(.census_fixup_7, list(
       codes_supplement = list(
         NOLGREP = data.frame(val = "9", label_en = "Not applicable",
@@ -327,12 +339,16 @@
     ))),
 
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
+    bundle_source     = "1991 (individuals)",
+    bundle_sps_mask   = "HHOLD",
     file_mask         = "PUMF91\\.HHLD",
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/HHOLD91.XMF",
     data_fixups       = .census_fixup_7),
 
   "Census/1991 (families)" = .make_entry("Census", "1991 (families)",
+    bundle_source     = "1991 (individuals)",
+    bundle_sps_mask   = "CNCF",
     file_mask         = "PUMF91\\.FAM",
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/CNCF91.XMF",
@@ -346,11 +362,16 @@
   "Census/1986 (households)" = .make_entry("Census", "1986 (households)",
     file_mask   = "\\.(txt|DAT)"),
 
+  # 1981: single EFT bundle containing individuals and households files.
+  # Deposit the zip once in Census/1981 (individuals)/; households reads from
+  # there via bundle_source.  The file_mask values below are placeholders —
+  # check the actual filenames in the extracted bundle and update accordingly.
   "Census/1981 (individuals)" = .make_entry("Census", "1981 (individuals)",
     file_mask   = "\\.(txt|DAT)"),
 
   "Census/1981 (households)" = .make_entry("Census", "1981 (households)",
-    file_mask   = "\\.(txt|DAT)"),
+    bundle_source = "1981 (individuals)",
+    file_mask     = "\\.(txt|DAT)"),
 
   "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
     file_mask   = "\\.(txt|DAT)"),

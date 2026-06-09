@@ -1427,13 +1427,20 @@ parse_cpss_csv <- function(variables_path, encoding = "Latin1") {
 #'   \code{list(eng = ..., fra = ...)} where \code{fra} is \code{NULL} when no
 #'   French file is found.
 #' @keywords internal
-detect_formats <- function(pumf_dir) {
+detect_formats <- function(pumf_dir, sps_mask = NULL) {
   result <- list()
   all_files <- list.files(pumf_dir, recursive = TRUE, full.names = TRUE)
   # Exclude the metadata/ output directory so we don't treat our own output as input
   meta_prefix <- file.path(normalizePath(pumf_dir, mustWork = FALSE), "metadata")
   all_files   <- all_files[!startsWith(normalizePath(all_files, mustWork = FALSE),
                                         meta_prefix)]
+  # For bundled-archive versions with multiple per-type command files in the
+  # same directory, sps_mask filters which SPSS/XMF files are visible so the
+  # right type's command file is selected.
+  if (!is.null(sps_mask)) {
+    is_spss  <- grepl("\\.(sps|xmf)$", all_files, ignore.case = TRUE)
+    all_files <- all_files[!is_spss | grepl(sps_mask, all_files, ignore.case = TRUE)]
+  }
 
   # 1. LFS codebook.csv (may be prefixed, e.g. LFS_PUMF_EPA_FGMD_codebook.csv)
   cb <- all_files[grepl("(?i)codebook\\.csv$", basename(all_files), perl = TRUE)]
@@ -1717,16 +1724,28 @@ pumf_parse_metadata <- function(version_dir,
     return(invisible(metadata_dir))
   }
 
-  formats <- detect_formats(version_dir)
+  # Determine where command/data source files live.  For bundled-archive
+  # versions the raw files are in a sibling version directory; metadata CSV
+  # outputs are always written to this version's own metadata/ subdirectory.
+  reg <- pumf_registry_lookup(basename(dirname(version_dir)),
+                               basename(version_dir))
+  source_dir <- if (!is.null(reg) && !is.null(reg$bundle_source)) {
+    bundle_dir <- file.path(dirname(version_dir), reg$bundle_source)
+    # Fall back to version_dir when it has content (legacy per-type deposit).
+    if (.version_is_extracted(bundle_dir)) bundle_dir else version_dir
+  } else {
+    version_dir
+  }
+
+  formats <- detect_formats(source_dir,
+                             sps_mask = reg$bundle_sps_mask)
   if (length(formats) == 0L) {
-    stop("No parseable metadata files found in: ", version_dir)
+    stop("No parseable metadata files found in: ", source_dir)
   }
 
   # If the registry supplies a bundled English command file (for surveys like
   # 1991 Census where the downloaded XMF is French-only), promote the bundled
   # file to eng and demote the downloaded file to fra.
-  reg <- pumf_registry_lookup(basename(dirname(version_dir)),
-                               basename(version_dir))
   if (!is.null(reg$bundled_eng_sps) && !is.null(formats$spss_mono)) {
     bundled <- system.file("extdata", reg$bundled_eng_sps, package = "canpumf")
     if (nchar(bundled) > 0L && file.exists(bundled))

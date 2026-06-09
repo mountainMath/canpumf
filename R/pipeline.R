@@ -144,6 +144,69 @@ pumf_locate_or_download <- function(series,
                                     refresh    = FALSE,
                                     redownload = FALSE) {
   version_dir <- file.path(cache_path, series, version)
+  reg         <- pumf_registry_lookup(series, version)
+
+  # ---- Bundled-archive branch ------------------------------------------------
+  # Some EFT Census releases ship individuals, households, and families together
+  # in a single archive.  Secondary version entries (households, families) carry
+  # a bundle_source registry field that names the sibling version directory where
+  # the shared bundle lives.  All source files are read from there; this version's
+  # directory is used only for metadata CSVs and the DuckDB output.
+  if (!is.null(reg$bundle_source) &&
+      !.version_is_extracted(version_dir) &&
+      is.null(.find_version_zip(version_dir))) {
+    # Bundle branch: version_dir is empty, so source files must come from the
+    # shared bundle directory.  If version_dir already has content (legacy
+    # per-type deposit), fall through to the standard path below.
+    source_dir <- file.path(cache_path, series, reg$bundle_source)
+
+    if (redownload)
+      warning(series, " ", version, " uses a shared bundle; redownload is not ",
+              "applicable here — deposit the zip in '", reg$bundle_source,
+              "' and re-run with refresh = TRUE if needed.", call. = FALSE)
+
+    # Clear this version's outputs on refresh (does not touch the shared bundle).
+    if ((refresh || redownload) && dir.exists(version_dir)) {
+      for (p in list.files(version_dir, pattern = "\\.duckdb",
+                           ignore.case = TRUE, full.names = TRUE)) {
+        if (!unlink(p))
+          warning("Could not delete '", basename(p), "'. ",
+                  "Close connections with close_pumf() first.", call. = FALSE)
+      }
+      meta_dir <- file.path(version_dir, "metadata")
+      if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
+    }
+
+    # Ensure the shared bundle is extracted in source_dir.
+    if (!.version_is_extracted(source_dir)) {
+      bzip <- .find_version_zip(source_dir)
+      if (is.null(bzip)) {
+        src_row <- filter(list_canpumf_collection(),
+                          .data$Acronym == series,
+                          .data$Version == reg$bundle_source)
+        src_url <- if (nrow(src_row) > 0L) src_row$url[[1L]] else "(EFT)"
+        if (identical(src_url, "(EFT)")) {
+          stop(series, " ", version, " uses a shared bundle from '",
+               reg$bundle_source, "' which has not been deposited yet.\n",
+               "Place the bundle zip in:\n  ", source_dir, call. = FALSE)
+        }
+        dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
+        bzip <- file.path(source_dir, .zip_filename_from_url(src_url))
+        message("Downloading shared bundle for ", series, " ", reg$bundle_source, " ...")
+        old_timeout <- getOption("timeout")
+        options(timeout = max(600L, old_timeout))
+        on.exit(options(timeout = old_timeout), add = TRUE)
+        utils::download.file(src_url, bzip, mode = "wb", quiet = FALSE)
+      }
+      message("Extracting ", basename(bzip), " ...")
+      robust_unzip(bzip, exdir = source_dir)
+    }
+    .extract_inner_zips(source_dir)
+
+    dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
+    return(invisible(version_dir))
+  }
+  # ---- End bundled-archive branch --------------------------------------------
 
   # Step 2a: redownload — wipe the entire version directory (zip, extracted
   # content, DuckDB, metadata) so the download/extract cycle starts fresh.
@@ -210,14 +273,18 @@ pumf_locate_or_download <- function(series,
   }
 
   # Step 5: extract any inner zips found in subdirectories.
-  # Some StatCan Census releases (e.g. 1996) store the real data file in a
-  # second-level zip (e.g. indiv/indiv.zip, hhld/hhldv2.zip) alongside a small
-  # test file.  Detect and extract these automatically.
-  inner_zips <- list.files(version_dir, pattern = "\\.zip$",
+  .extract_inner_zips(version_dir)
+
+  invisible(version_dir)
+}
+
+# Extract any second-level zips found under `dir` (used by 1996 Census bundles
+# and re-used for the bundle_source path in bundled-archive versions).
+.extract_inner_zips <- function(dir) {
+  inner_zips <- list.files(dir, pattern = "\\.zip$",
                             ignore.case = TRUE, recursive = TRUE,
                             full.names = TRUE)
-  # Exclude the top-level download zip itself
-  inner_zips <- inner_zips[dirname(inner_zips) != version_dir]
+  inner_zips <- inner_zips[dirname(inner_zips) != dir]
   for (iz in inner_zips) {
     target_dir <- dirname(iz)
     contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
@@ -229,8 +296,7 @@ pumf_locate_or_download <- function(series,
       .unzip_impl(iz, target_dir)
     }
   }
-
-  invisible(version_dir)
+  invisible(NULL)
 }
 
 
@@ -634,7 +700,17 @@ pumf_build_duckdb <- function(version_dir,
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
   eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
 
-  data_path <- .find_pumf_data_file(version_dir, eff_mask, prefer_fwf = !is.null(layout))
+  # For bundled-archive versions, raw data and BSW files live in the shared
+  # source directory; metadata CSVs and DuckDB stay in version_dir.
+  # Fall back to version_dir when it has content (legacy per-type deposit).
+  source_dir <- if (!is.null(reg$bundle_source)) {
+    bundle_dir <- file.path(dirname(version_dir), reg$bundle_source)
+    if (.version_is_extracted(bundle_dir)) bundle_dir else version_dir
+  } else {
+    version_dir
+  }
+
+  data_path <- .find_pumf_data_file(source_dir, eff_mask, prefer_fwf = !is.null(layout))
   # FWF only when layout exists AND the actual data file is not CSV.
   # Some surveys (e.g. CHS) ship both a CSV and a TXT file; the SPSS DATA LIST
   # section creates a layout.csv, but data must be read from the CSV.
@@ -668,7 +744,7 @@ pumf_build_duckdb <- function(version_dir,
 
   # Step 6: BSW join
   if (!is.null(reg) && !is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key)) {
-    bsw <- .read_bsw_data(version_dir, reg, data_enc)
+    bsw <- .read_bsw_data(source_dir, reg, data_enc)
     if (!is.null(bsw)) {
       drop_cols <- intersect(reg$bsw_drop_cols, names(bsw))
       if (length(drop_cols) > 0L)
