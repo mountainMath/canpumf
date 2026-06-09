@@ -1430,10 +1430,10 @@ parse_cpss_csv <- function(variables_path, encoding = "Latin1") {
 detect_formats <- function(pumf_dir, sps_mask = NULL) {
   result <- list()
   all_files <- list.files(pumf_dir, recursive = TRUE, full.names = TRUE)
-  # Exclude the metadata/ output directory so we don't treat our own output as input
-  meta_prefix <- file.path(normalizePath(pumf_dir, mustWork = FALSE), "metadata")
-  all_files   <- all_files[!startsWith(normalizePath(all_files, mustWork = FALSE),
-                                        meta_prefix)]
+  # Exclude metadata/ output directories at any depth (covers both
+  # <pumf_dir>/metadata/ for standalone deposits and <pumf_dir>/<type>/metadata/
+  # for bundled-archive years where sibling types may already be built).
+  all_files <- all_files[!grepl("/metadata/", all_files, fixed = TRUE)]
   # For bundled-archive versions with multiple per-type command files in the
   # same directory, sps_mask filters which SPSS/XMF files are visible so the
   # right type's command file is selected.

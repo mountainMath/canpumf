@@ -326,11 +326,12 @@ pumf_locate_or_download <- function(series,
   else
     "\\.csv$"
   # Subdirectory names that hold metadata/layout but not data.
-  # Also exclude *_CMA directories (e.g. 1986_individuals_CMA/) which contain
-  # CMA-level data sub-files that duplicate the national-level basenames.
+  # Also exclude *_CMA and *_PR directories (e.g. 1986_individuals_CMA/,
+  # 1971_individuals_PR/) which hold geographic-subset data files that duplicate
+  # the national-level basenames once inner zips are extracted.
   excl_pat <- paste0(
     "/(metadata|SPSS|SAS|STATA|Command|Syntax|Layout|SpssCard|",
-    "Reading[_ ]cards|Documents|canpumf|[^/]+_CMA)/")
+    "Reading[_ ]cards|Documents|canpumf|[^/]+_CMA|[^/]+_PR)/")
 
   all_files  <- list.files(version_dir, recursive = TRUE, full.names = TRUE)
   candidates <- if (!is.null(ext_pat))

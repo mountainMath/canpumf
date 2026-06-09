@@ -344,15 +344,24 @@
     bundled_eng_sps   = "census_1991/CNCF91.XMF",
     data_fixups       = .census_fixup_7),
 
-  # 1986–1981: single EFT bundle per year containing all file types.
-  # Deposit the zip in Census/1986/ (or Census/1981/); each type reads raw
-  # files from that parent directory and writes its own metadata + DuckDB into
-  # the type subdirectory (Census/1986/individuals/, etc.).
+  # 1986–1971: single EFT bundle per year containing all file types.
+  # Deposit the bundle zip in Census/<year>/; each type reads raw files from
+  # that parent directory and writes its own metadata + DuckDB into the type
+  # subdirectory (Census/<year>/<type>/).
   #
   # bundle_sps_mask selects the correct per-type SPSS files from the shared dir.
-  # 1986 SPSS files: ind86_eng/fre.sps, hhld86_eng/fre.sps, c1986fam/r1986fam.sps
-  # 1986 data files: INDIV86.DAT, HHLD86.DAT, FAM86.DAT
-  # 1981 data files: update file_mask once actual bundle filenames are confirmed.
+  #
+  # 1986: SPSS files ind86_eng/fre.sps, hhld86_eng/fre.sps, c1986fam/r1986fam.sps
+  #        data files INDIV86.DAT, HHLD86.DAT, FAM86.DAT
+  # 1981: SPSS files ind81_eng/fre.sps (individuals), hhmdf81_eng/fre.sps (households)
+  #        data files INDMDF81.DAT, HHMDF81.DAT  (no families file in bundle)
+  # 1976: SPSS files indiv76_eng/fre.sps, hhld76eng/fre.sps, fam76eng/fre.sps
+  #        data files indiv76.txt, hhld76.txt, fam76.txt (extracted from inner zips)
+  # 1971: SPSS files indiv71_cma_eng/fre.sps, indiv71_prov_eng/fre.sps,
+  #                   hhld71_cma_eng/fre.sps,  hhld71_prov_eng/fre.sps,
+  #                   fam71_cma_eng/fre.sps,   fam71_prov_eng/fre.sps
+  #        data files Indiv71_cma.txt/indiv71_prov.txt, hhld71_cma.txt/hhld71_prov.txt,
+  #                   fam71_cma.txt/fam71_prov.txt  (extracted from inner zips)
   "Census/1986/individuals" = .make_entry("Census", "1986/individuals",
     bundle_sps_mask = "ind86",
     file_mask       = "^INDIV86\\.DAT$",
@@ -369,20 +378,52 @@
     data_fixups     = .census_fixup_7),
 
   "Census/1981/individuals" = .make_entry("Census", "1981/individuals",
-    file_mask   = "\\.(txt|DAT)"),   # TODO: tighten once bundle filenames are known
+    bundle_sps_mask = "ind81",
+    file_mask       = "^INDMDF81\\.DAT$",
+    data_fixups     = .census_fixup_7),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",
-    file_mask   = "\\.(txt|DAT)"),   # TODO: tighten once bundle filenames are known
+    bundle_sps_mask = "hhmdf81",
+    file_mask       = "^HHMDF81\\.DAT$",
+    data_fixups     = .census_fixup_7),
 
-  "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
-    file_mask   = "\\.(txt|DAT)"),
+  "Census/1976/individuals" = .make_entry("Census", "1976/individuals",
+    bundle_sps_mask = "indiv76",
+    file_mask       = "^indiv76\\.txt$"),
 
-  "Census/1971 (individuals)" = .make_entry("Census", "1971 (individuals)",
-    file_mask   = "\\.(txt|DAT)"),
+  "Census/1976/households" = .make_entry("Census", "1976/households",
+    bundle_sps_mask = "hhld76",
+    file_mask       = "^hhld76\\.txt$"),
 
-  "Census/1971 (individuals PR)" = .make_entry("Census", "1971 (individuals PR)",
-    file_mask   = "\\.(txt|DAT)",
-    data_fixups = .census_fixup)
+  "Census/1976/families" = .make_entry("Census", "1976/families",
+    bundle_sps_mask = "fam76",
+    file_mask       = "^fam76\\.txt$"),
+
+  # 1971 has separate CMA (Census Metropolitan Area) and provincial (prov)
+  # variants for each file type; both come from the same bundle zip.
+  "Census/1971/individuals_prov" = .make_entry("Census", "1971/individuals_prov",
+    bundle_sps_mask = "indiv71_prov",
+    file_mask       = "^indiv71_prov\\.txt$"),
+
+  "Census/1971/individuals_cma" = .make_entry("Census", "1971/individuals_cma",
+    bundle_sps_mask = "indiv71_cma",
+    file_mask       = "^indiv71_cma\\.txt$"),
+
+  "Census/1971/households_prov" = .make_entry("Census", "1971/households_prov",
+    bundle_sps_mask = "hhld71_prov",
+    file_mask       = "^hhld71_prov\\.txt$"),
+
+  "Census/1971/households_cma" = .make_entry("Census", "1971/households_cma",
+    bundle_sps_mask = "hhld71_cma",
+    file_mask       = "^hhld71_cma\\.txt$"),
+
+  "Census/1971/families_prov" = .make_entry("Census", "1971/families_prov",
+    bundle_sps_mask = "fam71_prov",
+    file_mask       = "^fam71_prov\\.txt$"),
+
+  "Census/1971/families_cma" = .make_entry("Census", "1971/families_cma",
+    bundle_sps_mask = "fam71_cma",
+    file_mask       = "^fam71_cma\\.txt$")
 )
 
 #' Resolve version aliases
@@ -402,6 +443,9 @@ pumf_resolve_version <- function(series, version) {
     # "year (individuals)".  Check which format the registry has.
     if (!is.null(.pumf_registry[[paste0("Census/", version, "/individuals")]]))
       return(paste0(version, "/individuals"))
+    # 1971 has no plain "individuals" variant; default to provincial.
+    if (!is.null(.pumf_registry[[paste0("Census/", version, "/individuals_prov")]]))
+      return(paste0(version, "/individuals_prov"))
     return(paste0(version, " (individuals)"))
   }
   version
