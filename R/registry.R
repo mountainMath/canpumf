@@ -318,13 +318,10 @@
     file_mask     = "^fam\\.dat$",
     data_fixups   = .census_fixup_7),
 
-  # 1991: single EFT bundle containing PUMF91.INDIV, PUMF91.HHLD, PUMF91.FAM
-  # plus one French-only XMF command file per type (CP850 encoding).  English
-  # XMFs are bundled in inst/extdata/census_1991/ so both languages are populated.
-  # Deposit the bundle zip once in Census/1991 (individuals)/; households and
-  # families read source files from there via bundle_source.
-  # bundle_sps_mask ensures detect_formats() sees only the correct per-type XMF
-  # from the shared directory (avoids picking up the wrong type's command file).
+  # 1991: separate EFT archive per type (individuals / households / families).
+  # Each type must be deposited in its own version directory.  The downloaded
+  # XMF files are French-only (CP850); English XMFs are bundled in
+  # inst/extdata/census_1991/ so both label_en and label_fr are populated.
   # NOLGREP code 9 ("Sans objet") is absent from both XMF files.
   "Census/1991 (individuals)" = .make_entry("Census", "1991 (individuals)",
     file_mask         = "PUMF91\\.INDIV",
@@ -338,16 +335,12 @@
     ))),
 
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
-    bundle_source     = "1991 (individuals)",
-    bundle_sps_mask   = "HHOLD",
     file_mask         = "PUMF91\\.HHLD",
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/HHOLD91.XMF",
     data_fixups       = .census_fixup_7),
 
   "Census/1991 (families)" = .make_entry("Census", "1991 (families)",
-    bundle_source     = "1991 (individuals)",
-    bundle_sps_mask   = "CNCF",
     file_mask         = "PUMF91\\.FAM",
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/CNCF91.XMF",
