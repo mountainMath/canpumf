@@ -464,16 +464,26 @@
     }
   )
 
-  .assert_duckdb_writable(db_path)
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
-  .lfs_ensure_versions_table(con)
-  loaded <- DBI::dbGetQuery(con, "SELECT version FROM lfs_versions")$version
-  DBI::dbDisconnect(con, shutdown = TRUE)
+  # Read what's already loaded via a read-only connection — no write needed yet.
+  loaded <- character(0L)
+  if (file.exists(db_path)) {
+    con_ro <- tryCatch(
+      DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE),
+      error = function(e) NULL
+    )
+    if (!is.null(con_ro)) {
+      if (DBI::dbExistsTable(con_ro, "lfs_versions"))
+        loaded <- DBI::dbGetQuery(con_ro, "SELECT version FROM lfs_versions")$version
+      DBI::dbDisconnect(con_ro, shutdown = TRUE)
+    }
+  }
 
   to_add <- setdiff(available$version, loaded)
   if (length(to_add) == 0L) {
     message("LFS database is up to date.")
   } else {
+    # Write access is needed — check for a locked connection before starting.
+    .assert_duckdb_writable(db_path)
     message("Loading ", length(to_add), " LFS version(s): ",
             paste(to_add, collapse = ", "))
     for (v in to_add) {
