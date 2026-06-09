@@ -147,25 +147,21 @@ pumf_locate_or_download <- function(series,
   reg         <- pumf_registry_lookup(series, version)
 
   # ---- Bundled-archive branch ------------------------------------------------
-  # Some EFT Census releases ship individuals, households, and families together
-  # in a single archive.  Secondary version entries (households, families) carry
-  # a bundle_source registry field that names the sibling version directory where
-  # the shared bundle lives.  All source files are read from there; this version's
-  # directory is used only for metadata CSVs and the DuckDB output.
-  if (!is.null(reg$bundle_source) &&
+  # Version strings containing "/" (e.g. "1986/individuals") indicate that raw
+  # data and command files live in the PARENT directory (the bundle dir), while
+  # version_dir is used only for per-type metadata CSVs and the DuckDB file.
+  # The bundle dir is simply dirname(version_dir).
+  if (grepl("/", version, fixed = TRUE) &&
       !.version_is_extracted(version_dir) &&
       is.null(.find_version_zip(version_dir))) {
-    # Bundle branch: version_dir is empty, so source files must come from the
-    # shared bundle directory.  If version_dir already has content (legacy
-    # per-type deposit), fall through to the standard path below.
-    source_dir <- file.path(cache_path, series, reg$bundle_source)
+    source_dir <- dirname(version_dir)   # e.g. <cache>/Census/1986/
 
     if (redownload)
-      warning(series, " ", version, " uses a shared bundle; redownload is not ",
-              "applicable here — deposit the zip in '", reg$bundle_source,
-              "' and re-run with refresh = TRUE if needed.", call. = FALSE)
+      warning(series, " ", version, " uses a shared bundle; only per-type ",
+              "outputs (DuckDB + metadata) are cleared. Re-deposit the bundle ",
+              "zip in '", source_dir, "' if needed.", call. = FALSE)
 
-    # Clear this version's outputs on refresh (does not touch the shared bundle).
+    # Clear only this type's outputs on refresh (never touch the shared bundle).
     if ((refresh || redownload) && dir.exists(version_dir)) {
       for (p in list.files(version_dir, pattern = "\\.duckdb",
                            ignore.case = TRUE, full.names = TRUE)) {
@@ -181,18 +177,21 @@ pumf_locate_or_download <- function(series,
     if (!.version_is_extracted(source_dir)) {
       bzip <- .find_version_zip(source_dir)
       if (is.null(bzip)) {
-        src_row <- filter(list_canpumf_collection(),
-                          .data$Acronym == series,
-                          .data$Version == reg$bundle_source)
+        # Check if the bundle year has a download URL (most EFT years do not).
+        bundle_year <- sub("/.*", "", version)
+        src_row <- tryCatch(
+          filter(list_canpumf_collection(),
+                 .data$Acronym == series, .data$Version == bundle_year),
+          error = function(e) tibble::tibble()
+        )
         src_url <- if (nrow(src_row) > 0L) src_row$url[[1L]] else "(EFT)"
         if (identical(src_url, "(EFT)")) {
-          stop(series, " ", version, " uses a shared bundle from '",
-               reg$bundle_source, "' which has not been deposited yet.\n",
-               "Place the bundle zip in:\n  ", source_dir, call. = FALSE)
+          stop(series, " ", version, " is part of a bundled EFT archive.\n",
+               "Deposit the bundle zip in:\n  ", source_dir, call. = FALSE)
         }
         dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
         bzip <- file.path(source_dir, .zip_filename_from_url(src_url))
-        message("Downloading shared bundle for ", series, " ", reg$bundle_source, " ...")
+        message("Downloading shared bundle for ", series, " ", bundle_year, " ...")
         old_timeout <- getOption("timeout")
         options(timeout = max(600L, old_timeout))
         on.exit(options(timeout = old_timeout), add = TRUE)
@@ -326,10 +325,12 @@ pumf_locate_or_download <- function(series,
     "\\.(txt|dat)$"
   else
     "\\.csv$"
-  # Subdirectory names that hold metadata/layout but not data
+  # Subdirectory names that hold metadata/layout but not data.
+  # Also exclude *_CMA directories (e.g. 1986_individuals_CMA/) which contain
+  # CMA-level data sub-files that duplicate the national-level basenames.
   excl_pat <- paste0(
     "/(metadata|SPSS|SAS|STATA|Command|Syntax|Layout|SpssCard|",
-    "Reading[_ ]cards|Documents|canpumf)/")
+    "Reading[_ ]cards|Documents|canpumf|[^/]+_CMA)/")
 
   all_files  <- list.files(version_dir, recursive = TRUE, full.names = TRUE)
   candidates <- if (!is.null(ext_pat))
@@ -700,15 +701,13 @@ pumf_build_duckdb <- function(version_dir,
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
   eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
 
-  # For bundled-archive versions, raw data and BSW files live in the shared
-  # source directory; metadata CSVs and DuckDB stay in version_dir.
-  # Fall back to version_dir when it has content (legacy per-type deposit).
-  source_dir <- if (!is.null(reg$bundle_source)) {
-    bundle_dir <- file.path(dirname(version_dir), reg$bundle_source)
-    if (.version_is_extracted(bundle_dir)) bundle_dir else version_dir
-  } else {
+  # For bundled-archive versions (version contains "/"), raw data and BSW files
+  # live in dirname(version_dir); metadata CSVs and DuckDB stay in version_dir.
+  source_dir <- if (grepl("/", version, fixed = TRUE) &&
+                    .version_is_extracted(dirname(version_dir)))
+    dirname(version_dir)
+  else
     version_dir
-  }
 
   data_path <- .find_pumf_data_file(source_dir, eff_mask, prefer_fwf = !is.null(layout))
   # FWF only when layout exists AND the actual data file is not CSV.

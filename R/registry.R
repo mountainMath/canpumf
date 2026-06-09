@@ -344,24 +344,35 @@
     bundled_eng_sps   = "census_1991/CNCF91.XMF",
     data_fixups       = .census_fixup_7),
 
-  # 1986–1971: fixed-width files extracted from version-specific sub-archives.
-  # 1981 data files use a .DAT extension; 1971 has CMA and PR level variants.
-  "Census/1986 (individuals)" = .make_entry("Census", "1986 (individuals)",
-    file_mask   = "\\.(txt|DAT)"),
+  # 1986–1981: single EFT bundle per year containing all file types.
+  # Deposit the zip in Census/1986/ (or Census/1981/); each type reads raw
+  # files from that parent directory and writes its own metadata + DuckDB into
+  # the type subdirectory (Census/1986/individuals/, etc.).
+  #
+  # bundle_sps_mask selects the correct per-type SPSS files from the shared dir.
+  # 1986 SPSS files: ind86_eng/fre.sps, hhld86_eng/fre.sps, c1986fam/r1986fam.sps
+  # 1986 data files: INDIV86.DAT, HHLD86.DAT, FAM86.DAT
+  # 1981 data files: update file_mask once actual bundle filenames are confirmed.
+  "Census/1986/individuals" = .make_entry("Census", "1986/individuals",
+    bundle_sps_mask = "ind86",
+    file_mask       = "^INDIV86\\.DAT$",
+    data_fixups     = .census_fixup_7),
 
-  "Census/1986 (households)" = .make_entry("Census", "1986 (households)",
-    file_mask   = "\\.(txt|DAT)"),
+  "Census/1986/households" = .make_entry("Census", "1986/households",
+    bundle_sps_mask = "hhld86",
+    file_mask       = "^HHLD86\\.DAT$",
+    data_fixups     = .census_fixup_7),
 
-  # 1981: single EFT bundle containing individuals and households files.
-  # Deposit the zip once in Census/1981 (individuals)/; households reads from
-  # there via bundle_source.  The file_mask values below are placeholders —
-  # check the actual filenames in the extracted bundle and update accordingly.
-  "Census/1981 (individuals)" = .make_entry("Census", "1981 (individuals)",
-    file_mask   = "\\.(txt|DAT)"),
+  "Census/1986/families" = .make_entry("Census", "1986/families",
+    bundle_sps_mask = "fam",
+    file_mask       = "^FAM86\\.DAT$",
+    data_fixups     = .census_fixup_7),
 
-  "Census/1981 (households)" = .make_entry("Census", "1981 (households)",
-    bundle_source = "1981 (individuals)",
-    file_mask     = "\\.(txt|DAT)"),
+  "Census/1981/individuals" = .make_entry("Census", "1981/individuals",
+    file_mask   = "\\.(txt|DAT)"),   # TODO: tighten once bundle filenames are known
+
+  "Census/1981/households" = .make_entry("Census", "1981/households",
+    file_mask   = "\\.(txt|DAT)"),   # TODO: tighten once bundle filenames are known
 
   "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
     file_mask   = "\\.(txt|DAT)"),
@@ -386,8 +397,13 @@
 #' @keywords internal
 pumf_resolve_version <- function(series, version) {
   if (is.null(version)) return(NULL)
-  if (series == "Census" && grepl("^\\d{4}$", version))
+  if (series == "Census" && grepl("^\\d{4}$", version)) {
+    # Bundled years use "year/individuals"; separate-archive years use
+    # "year (individuals)".  Check which format the registry has.
+    if (!is.null(.pumf_registry[[paste0("Census/", version, "/individuals")]]))
+      return(paste0(version, "/individuals"))
     return(paste0(version, " (individuals)"))
+  }
   version
 }
 

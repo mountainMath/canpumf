@@ -1724,22 +1724,30 @@ pumf_parse_metadata <- function(version_dir,
     return(invisible(metadata_dir))
   }
 
-  # Determine where command/data source files live.  For bundled-archive
-  # versions the raw files are in a sibling version directory; metadata CSV
-  # outputs are always written to this version's own metadata/ subdirectory.
-  reg <- pumf_registry_lookup(basename(dirname(version_dir)),
-                               basename(version_dir))
-  source_dir <- if (!is.null(reg) && !is.null(reg$bundle_source)) {
-    bundle_dir <- file.path(dirname(version_dir), reg$bundle_source)
-    # Fall back to version_dir when it has content (legacy per-type deposit).
-    if (.version_is_extracted(bundle_dir)) bundle_dir else version_dir
-  } else {
-    version_dir
+  # Derive series and version from the directory path for registry lookup.
+  # Standard layout:  <cache>/<series>/<version>/
+  #   → series = basename(dirname(version_dir)), version = basename(version_dir)
+  # Bundled layout:   <cache>/<series>/<year>/<type>/
+  #   → series = basename(dirname(dirname(version_dir)))
+  #   → version = "<year>/<type>"  (the parent is a year, not a series name)
+  path_series  <- basename(dirname(version_dir))
+  path_version <- basename(version_dir)
+  if (grepl("^\\d{4}", path_series)) {
+    path_version <- paste0(path_series, "/", path_version)
+    path_series  <- basename(dirname(dirname(version_dir)))
   }
+  reg <- pumf_registry_lookup(path_series, path_version)
 
-  # Only apply bundle_sps_mask when actually reading from a shared source
-  # directory — not when version_dir itself is the source (primary entry or
-  # legacy per-type deposit), where the mask could filter out the right file.
+  # For bundled versions the shared raw files are in dirname(version_dir);
+  # metadata CSV output always goes to this version's own metadata/ subdir.
+  source_dir <- if (grepl("/", path_version, fixed = TRUE) &&
+                    .version_is_extracted(dirname(version_dir)))
+    dirname(version_dir)
+  else
+    version_dir
+
+  # Apply bundle_sps_mask only when reading from the shared bundle dir so it
+  # cannot accidentally filter out the right file for standalone deposits.
   effective_sps_mask <- if (!identical(source_dir, version_dir)) reg$bundle_sps_mask else NULL
   formats <- detect_formats(source_dir, sps_mask = effective_sps_mask)
   if (length(formats) == 0L) {
