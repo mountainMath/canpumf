@@ -134,6 +134,7 @@
   "CIS/2020" = .make_entry("CIS", "2020", file_mask = "PUMF\\.txt"),
   "CIS/2019" = .make_entry("CIS", "2019", file_mask = "PUMF\\.txt"),
   "CIS/2018" = .make_entry("CIS", "2018", file_mask = "PUMF\\.txt"),
+  "CIS/2017" = .make_entry("CIS", "2017", file_mask = "PUMF\\.txt"),
 
   # ---- CHS: Canadian Housing Survey ----------------------------------------
 

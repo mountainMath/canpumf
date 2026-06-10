@@ -18,7 +18,7 @@
 }
 
 .cis_any_version <- function() {
-  for (v in c("2022", "2021", "2020", "2019", "2018")) {
+  for (v in c("2022", "2021", "2020", "2019", "2018", "2017")) {
     if (canpumf:::.version_is_extracted(.cis_vdir(v))) return(v)
   }
   NULL

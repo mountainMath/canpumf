@@ -117,15 +117,13 @@ list_canpumf_collection <- function(){
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2023-eng.zip"))
   cis_versions <- tibble(Acronym="CIS",
-                         Version=c("2022", "2021", "2020", "2019", "2018"), #"2017"),
+                         Version=c("2022", "2021", "2020", "2019", "2018", "2017"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/72m0003x/2024001/2022.zip",
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2024001/2021.zip",
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2023002/2020.zip",
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2021001/2019.zip",
-                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2021001/2018-eng.zip"#,
-                               # stll some problems with 2017, come back to that later
-                               #"https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2019001/2017-eng.zip"
-                               ))
+                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2021001/2018-eng.zip",
+                               "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2019001/2017-eng.zip"))
 
   gss_versions <- tibble(Acronym="GSS",
                              Version=c("1996", "2007", "2012", "2018"),
@@ -178,7 +176,7 @@ list_canpumf_collection <- function(){
                        Version=paste0(seq(1971,last_eft_year,5)," (households)"),
                        url="(EFT)"),
                 tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(1971,pmin(1996,last_eft_year),5)," (families)"),
+                       Version=paste0(c(1971L, 1976L, seq(1986L, pmin(1996L, last_eft_year), 5L)), " (families)"),
                        url="(EFT)"))
   }
   result |>

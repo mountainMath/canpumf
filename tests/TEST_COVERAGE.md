@@ -51,6 +51,7 @@ which cached versions are exercised.
 | Survey | File | Versions tested | W | L | P | Notes |
 |---|---|---|:---:|:---:|:---:|---|
 | Census | `test-pipeline-census.R` | 2021 (ind.), 2021 (hier.), 2016 (ind.), 2016 (hier.), 2011 (ind.), 2011 (hier.), 2006 (ind.), 2006 (hier.), 2001 (ind./hh/fam), 1996 (ind./hh/fam), 1991 (ind./hh/fam) | ✓ | ✓ | ✓ | 2021 (ind.) warns "no French translation" for 74/144 variables — allowed |
+| Census (EFT) | `test-pipeline-census.R` | 1986 (ind./hh/fam), 1981 (ind./hh), 1976 (ind./hh/fam), 1971 (ind./hh/fam — prov and cma variants) | ✓ | ✓ | ✓ | 1986/families, 1976/households, 1976/families: English-only (no French labels); 1981/individuals warns swapped column names; 1971 (cma-individuals, prov-families): warns "absent from command files" for codes_supplement injections |
 | GSS | `test-pipeline-gss.R` | 2018, 2012, 2007, 1996 | ✓ | ✓ | ✓ | 2007 warns "no French translation" for ~925/951 variables — allowed |
 | SFS | `test-pipeline-sfs.R` | 2023, 2019, 2016, 2012, 2005 | ✓ | ✓ | ✓ | BSW join tested for 2016/2019/2023 |
 | SFS 1999 | `test-pipeline-sfs.R` | 1999 | ✓ | ✓ | — | DATA LIST-only SPSS + PDF dictionary (`parse_pdf_dictionary`) for labels; English-only (no French PDF bundled in the download); row count (15 933) and column count (80) asserted; PDF-derived labels verified |
@@ -59,7 +60,7 @@ which cached versions are exercised.
 | CCAHS | `test-pipeline-ccahs.R` | 1 | ✓ | ✓ | ✓ | BSW join tested (PUMFID key, WGT_PUMF dropped from BSW side) |
 | ITS | `test-pipeline-its.R` | 2018, 2019 | ✓ | ✓ | ✓ | |
 | SHS | `test-pipeline-shs.R` | First of: 2021, 2019, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested |
-| CIS | `test-pipeline-cis.R` | First of: 2022, 2021, 2020, 2019, 2018 | ✓\* | — | ✓ | Stage 2 smoke-test |
+| CIS | `test-pipeline-cis.R` | First of: 2022, 2021, 2020, 2019, 2018, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test |
 | CPSS | `test-pipeline-cpss.R` | v1 (Stage 1 only†); v2–6 (full) | ✓ | — | ✓ | Cache-gated (`skip_if_not(.cpss_extracted(), ...)`); †v1 has no machine-readable codebook so Stage 2/3 are skipped; Stage 1 download tested in `test-pipeline-stage1.R` |
 | LFS | `test-pipeline-lfs.R` | Synthetic (all); real cache if present | ✓\* | — | — | 47 tests; synthetic fixtures cover schema evolution, ENUM types, version filters, fra labels |
 
