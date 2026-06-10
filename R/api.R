@@ -204,11 +204,6 @@ get_pumf <- function(series     = NULL,
   # connection's stable C++ pointer address.
   .pumf_register_con(tbl$src$con, series, version, cache_path, lang)
 
-  connections::connection_view(tbl$src$con,
-                               connection_code=paste0('canpumf::get_pumf("',series,'", "',version,'")'),
-                               #host="canpumf",
-                               name=paste0(series," (",version,") PUMF"))
-
 
   tbl
 }
@@ -327,8 +322,7 @@ close_pumf <- function(tbl) {
   con <- tbl$src$con
   if (!is.null(con) && DBI::dbIsValid(con)) {
     rm(list = format(con@conn_ref), envir = .pumf_con_registry, inherits = FALSE)
-    connections::connection_close(con)
-    #DBI::dbDisconnect(con, shutdown = TRUE)
+    DBI::dbDisconnect(con, shutdown = TRUE)
   }
   invisible(NULL)
 }
@@ -545,10 +539,6 @@ add_pumf_bootstrap_weights <- function(tbl,
   # is required before a true write connection can be opened.
   rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
      envir = .pumf_con_registry, inherits = FALSE)
-  tryCatch(
-    connections::connection_close(con),
-    error = function(e) NULL
-  )
   if (DBI::dbIsValid(con))
     DBI::dbDisconnect(con, shutdown = TRUE)
 
@@ -610,11 +600,6 @@ add_pumf_bootstrap_weights <- function(tbl,
   }
 
   .pumf_register_con(ro_con, series, version, cache_path, lang)
-  connections::connection_view(
-    ro_con,
-    connection_code = paste0('canpumf::get_pumf("', series, '", "', version, '")'),
-    name = paste0(series, " (", version, ") PUMF + BSW (", weight_col, ")")
-  )
 
   new_tbl
 }
@@ -814,7 +799,6 @@ remove_pumf_bootstrap_weights <- function(tbl, weight_col = NULL) {
   # Acquire exclusive write access (same pattern as add_pumf_bootstrap_weights).
   rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
      envir = .pumf_con_registry, inherits = FALSE)
-  tryCatch(connections::connection_close(con), error = function(e) NULL)
   if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
 
   rw_con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = FALSE)
@@ -849,11 +833,6 @@ remove_pumf_bootstrap_weights <- function(tbl, weight_col = NULL) {
   # Reopen read-only on the physical table (no BSW view).
   new_tbl <- pumf_open_duckdb(db_path, table_name, read_only = TRUE)
   .pumf_register_con(new_tbl$src$con, series, version, cache_path, lang)
-  connections::connection_view(
-    new_tbl$src$con,
-    connection_code = paste0('canpumf::get_pumf("', series, '", "', version, '")'),
-    name = paste0(series, " (", version, ") PUMF")
-  )
 
   new_tbl
 }
