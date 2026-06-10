@@ -188,8 +188,33 @@
 
   # 2007 (cycle 21): monolithic SPSS (two variants — main and short);
   # detect_formats picks c21pumf_main_Spss_Eng.sps (the complete one).
+  # 2007 (cycle 21): monolithic SPSS (multiple small VARIABLE/VALUE LABELS
+  # blocks, one per module). The SAS cards file provides full 951-variable
+  # coverage. ~44 continuous count/age/amount variables have integer group codes
+  # in VALUE LABELS that conflict with raw continuous data — force_numeric
+  # prevents valid data from becoming NA.
   "GSS/2007" = .make_entry("GSS", "2007",
-    file_mask = "C21PUMFM\\.DAT"),
+    file_mask   = "C21PUMFM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "NO_GRNDCHDC", "MAR_Q101C",  "AGE_LSTPDWKC", "MAR_Q174C",
+      "WKWEHOHR_C",  "AGE_STARTWK_L12MTHC", "MAR_Q370", "MAR_Q470",
+      "CCW_Q165C",   "RPR_Q100",   "SIP_Q120",   "CTC_Q165C",
+      "CAR_Q140C",   "CAR_Q320C",  "AGE_CRP_BEGC",
+      "ICG_Q140C",   "ICG_Q150C",
+      "AGE_CGP_Q110C", "AGE_CGP_Q115C", "AGE_CGP_BEGC",
+      "AGE_CGI_01_BEGC", "AGE_CGI_01_ENDC",
+      "AGE_CGI_02_BEGC", "AGE_CGI_02_ENDC",
+      "AGE_CGI_03_BEGC", "AGE_CGI_03_ENDC",
+      "AGE_CGI_04_BEGC", "AGE_CGI_04_ENDC",
+      "AGE_CGI_05_BEGC", "AGE_CGI_05_ENDC",
+      "AGE_HLE_BEG_C",   "AGE_HLE_END_C",   "AGE_HLE_DISC_C",
+      "AGE_EAH_BEG_C",   "AGE_EAH_END_C",   "AGE_EAH_DISC_C",
+      "AGE_SMK_DAILY_BEGC", "AGE_SMK_OCCA_BEGC",
+      "YEARSMKDAILY", "YEARSMKoccasion",
+      "MPT_Q090C", "TLE_Q120C", "TLE_Q130C", "TLE_Q230C",
+      "MAR_Q383C", "MAR_Q482C", "MAR_Q483C",
+      "AGE_CGP_ENDC"
+    ))),
 
   # 2012 (cycle 26): monolithic SPSS; data in Data Files ASCII/.
   # 27 count/age variables have boundary labels (e.g. "100 hours or more",

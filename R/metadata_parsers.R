@@ -351,14 +351,25 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   }
 
   # ---- VARIABLE LABELS ----
+  # Aggregate ALL VARIABLE LABELS sections. Most files have one, but some
+  # surveys (e.g. GSS 2007) split labels across many small blocks.
   variable_labels <- tibble::tibble(name = character(), label = character())
-  if (length(var_labels_pos) > 0)
-    variable_labels <- .spss_parse_var_labels(section_lines(var_labels_pos[1]))
+  if (length(var_labels_pos) > 0) {
+    blocks <- lapply(var_labels_pos, function(pos)
+      .spss_parse_var_labels(section_lines(pos)))
+    variable_labels <- do.call(rbind, blocks)
+    variable_labels <- variable_labels[!duplicated(variable_labels$name), ]
+  }
 
   # ---- VALUE LABELS ----
+  # Aggregate ALL VALUE LABELS sections for the same reason.
   codes <- tibble::tibble(name = character(), val = character(), label = character())
-  if (length(val_labels_pos) > 0)
-    codes <- .spss_parse_val_labels(section_lines(val_labels_pos[1]))
+  if (length(val_labels_pos) > 0) {
+    blocks <- lapply(val_labels_pos, function(pos)
+      .spss_parse_val_labels(section_lines(pos)))
+    codes <- do.call(rbind, blocks)
+    codes <- codes[!duplicated(paste(codes$name, codes$val)), ]
+  }
 
   # ---- FORMATS ----
   formats <- tibble::tibble(name = character(), fmt_type = character(),
@@ -391,6 +402,13 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # the missing_low or fmt_type rules.  Drop their codes entries (the missing
   # range captures the sentinel info; keeping them would cause spurious
   # "unmatched value" warnings in .apply_code_labels).
+  # Variables with non-zero decimal annotation in the DATA LIST are continuous;
+  # drop their codes early so they are not included in truly_categorical, which
+  # would otherwise override the numeric type rule that follows.
+  dl_dec_early <- if (!is.null(layout)) attr(layout, "dl_decimals") else integer(0L)
+  dl_has_dec_early <- names(dl_dec_early)[dl_dec_early > 0L]
+  codes <- codes[!codes$name %in% dl_has_dec_early, ]
+
   sentinel_info    <- .detect_sentinel_only(codes, label_col = "label")
   sentinel_names   <- names(sentinel_info)
   truly_categorical <- setdiff(unique(codes$name), sentinel_names)
@@ -409,6 +427,11 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
   # Variables in DATA LIST without an explicit 'A' format type are numeric in SPSS.
   in_data_list <- if (!is.null(layout)) layout$name else character(0L)
+  # Variables with non-zero decimal places in the DATA LIST annotation are
+  # continuous numerics even when they also have categorical VALUE LABELS (e.g.
+  # GSS 2007 AGE_*C variables that document integer groupings but store real ages).
+  dl_dec   <- if (!is.null(layout)) attr(layout, "dl_decimals") else integer(0L)
+  dl_has_dec <- names(dl_dec)[dl_dec > 0L]
 
   variables <- variable_labels |>
     left_join(formats,         by = "name") |>
@@ -418,6 +441,9 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
       missing_low  = coalesce(.data$missing_low,  .data$missing_low_sentinel),
       missing_high = coalesce(.data$missing_high, .data$missing_high_sentinel),
       type = case_when(
+        # DATA LIST decimal annotation overrides VALUE LABELS classification:
+        # a variable declared with decimal places is continuous, not categorical.
+        .data$name %in% dl_has_dec                       ~ "numeric",
         .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
         !is.na(.data$missing_low)                        ~ "numeric",
@@ -425,7 +451,8 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
         .data$name %in% in_data_list                     ~ "numeric",
         TRUE                                             ~ "character"
       ),
-      decimals = if_else(.data$type == "character", NA_integer_, .data$decimals)
+      decimals = if_else(.data$type == "character", NA_integer_,
+                         coalesce(.data$decimals, dl_dec[.data$name]))
     ) |>
     select("name", "label", "type", "decimals", "missing_low", "missing_high")
 
@@ -731,6 +758,20 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # them to "11-18" before extracting tokens.
   all_text <- paste(gsub("\\.\\s*$", "", section), collapse = " ")
   all_text <- gsub("(\\d+)\\s*-\\s*(\\d+)", "\\1-\\2", all_text)  # "11-  18" or "11 - 18" -> "11-18"
+
+  # Extract decimal annotations: "VARNAME range (n)" where n is a digit count.
+  # Parenthesised annotations are stripped by the tokeniser below, so we capture
+  # them in a pre-pass.  Only numeric-format annotations (pure digits) indicate
+  # decimal places; (A...) forms indicate character type and are handled later.
+  dec_matches <- stringr::str_match_all(
+    all_text,
+    "([A-Za-z][A-Za-z0-9_]*)\\s+(?:\\d+-\\d+|\\d+)\\s+\\((\\d+)\\)"
+  )[[1L]]
+  dl_dec <- if (nrow(dec_matches) > 0L)
+    stats::setNames(as.integer(dec_matches[, 3L]), dec_matches[, 2L])
+  else
+    integer(0L)
+
   tokens <- stringr::str_extract_all(
     all_text, "[A-Za-z][A-Za-z0-9_]*|\\d+-\\d+|\\d+"
   )[[1L]]
@@ -758,8 +799,12 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   }
 
   if (length(rows) == 0L) return(NULL)
-  tibble::as_tibble(do.call(rbind, lapply(rows, as.data.frame,
-                                           stringsAsFactors = FALSE)))
+  out <- tibble::as_tibble(do.call(rbind, lapply(rows, as.data.frame,
+                                                  stringsAsFactors = FALSE)))
+  # Attach decimal info as an attribute so the caller can override type
+  # determination for variables declared with non-zero decimal places.
+  attr(out, "dl_decimals") <- dl_dec
+  out
 }
 
 
@@ -1510,11 +1555,16 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
       spss_txt,
       xmf_files
     )
-    # French indicators: /français/, /french/, /francais/, /-Fr/ directories,
-    # or file suffixes _F.sps / _Fre.sps / _Fref.sps (case-insensitive).
+    # French indicators: /français/, /french/, /francais/, /-Fr/ directories;
+    # file suffixes _F.sps / _Fre.sps / _Fref.sps (underscore + F);
+    # bare fre.sps suffix (e.g. fam76fre.sps, no underscore);
+    # SPSS/SAS language suffix _SpssF.sps / _SPSSF.sps / _SasF.sas (StatCan
+    # bilingual releases like SGVP 2000–2010 use E/F letter to mark language).
     .is_fra <- function(paths) {
       grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
-      grepl("(?i)_[Ff](re?f?)?\\.sps$", basename(paths), perl = TRUE)
+      grepl("(?i)_[Ff](re?f?)?\\.sps$",  basename(paths), perl = TRUE) |
+      grepl("(?i)fre\\.sps$",            basename(paths), perl = TRUE) |
+      grepl("(?i)(spss|sas)[Ff]\\.sps$", basename(paths), perl = TRUE)
     }
     all_spss     <- c(sps_files, spss_txt, xmf_files)
     # Exclude likely-French files from English candidates
@@ -1535,6 +1585,34 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
         fra_cands <- all_spss[.is_fra(all_spss) &
                                !grepl("(vare|vale|varf|valf|miss|_i)\\.sps$",
                                        all_spss, ignore.case = TRUE)]
+        # When no French candidate was found by name but exactly one other
+        # mono candidate exists (e.g. Census 1986 c/r prefix naming), fall
+        # back to content-based detection: the candidate with more accented
+        # characters is the French file.
+        if (length(fra_cands) == 0L) {
+          other <- setdiff(mono_candidates[!.is_fra(mono_candidates)], sps)
+          if (length(other) == 1L) {
+            count_accented <- function(path) {
+              raw <- tryCatch(readBin(path, "raw", n = 8000L),
+                              error = function(e) raw(0L))
+              sum(raw >= as.raw(0xC0))
+            }
+            if (count_accented(other[[1L]]) > count_accented(sps))
+              fra_cands <- other[[1L]]
+          }
+        }
+        # Prefer French candidates that carry VALUE LABELS over DATA LIST-only
+        # ones — avoids pairing with a layout-only French file when a richer
+        # French command file exists (e.g. GSS 2007 has two French .sps files;
+        # only C21PUMF_Spss_Fre.sps has VALUE LABELS).
+        if (length(fra_cands) > 1L) {
+          fra_with_labels <- fra_cands[vapply(fra_cands, function(f) {
+            txt <- tryCatch(readLines(f, warn = FALSE, encoding = "latin1"),
+                            error = function(e) character(0L))
+            any(grepl("VALUE LABELS", txt, ignore.case = TRUE, useBytes = TRUE))
+          }, logical(1L))]
+          if (length(fra_with_labels) > 0L) fra_cands <- fra_with_labels
+        }
         result$spss_mono <- list(eng = sps,
                                   fra = if (length(fra_cands) > 0L) fra_cands[[1L]] else NULL)
         break
@@ -1581,13 +1659,19 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
     )
   }
 
-  # 7. SAS DATA step LABEL statements (e.g. 2011 Census individuals).
+  # 7. SAS DATA step LABEL statements (e.g. 2011 Census individuals, GSS 2007).
   #    Supplement when the primary parser lacks variable labels — scan for .SAS
   #    files containing "LABEL varname =" lines.
   if (is.null(result$sas_cards)) {
     sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
-    fra_sas   <- sas_files[grepl("/(fran|french)", sas_files, ignore.case = TRUE)]
-    eng_sas   <- sas_files[!grepl("/(fran|french)", sas_files, ignore.case = TRUE)]
+    # Same French-indicator logic as for SPSS but for .sas extension.
+    .is_fra_sas <- function(paths) {
+      grepl("/(fran|french)",           paths, ignore.case = TRUE) |
+      grepl("(?i)_[Ff](re?f?)?[.]sas$", basename(paths), perl = TRUE) |
+      grepl("(?i)fre[.]sas$",           basename(paths), perl = TRUE)
+    }
+    fra_sas   <- sas_files[.is_fra_sas(sas_files)]
+    eng_sas   <- sas_files[!.is_fra_sas(sas_files)]
     for (sf in head(eng_sas, 4L)) {
       snippet <- tryCatch(readLines(sf, warn = FALSE, encoding = "latin1"),
                           error = function(e) character(0L))
