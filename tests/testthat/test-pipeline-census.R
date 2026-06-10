@@ -48,9 +48,9 @@
   # 2021 individuals: StatCan's UTF-8 command file omits French variable labels
   # for 74 of 144 variables — a known upstream gap, not a parser bug.
   "2021 (individuals)"   = "no French translation",
-  # 1981 individuals: 3 minor SPS gaps — PROV blank record, FAOCC81 code 17,
-  # and WKACTMA codes 11/12 are present in data but absent from VALUE LABELS.
-  "1981/individuals"     = "Variable (PROV|FAOCC81|WKACTMA): \\d+ unmatched",
+  # 1981 individuals: FAOCC81/WKACTMA gaps fixed via codes_supplement (→ emit
+  # "absent from command files" warnings), plus 1 blank PROV record (data artifact).
+  "1981/individuals"     = "Variable PROV: \\d+ unmatched|absent from command files",
   # 1971: a handful of code 0 entries missing from VALUE LABELS in some types,
   # and one blank GEOCODE record.
   "1971/individuals_cma" = "Variable (TYPE66|TYPE71): \\d+ unmatched",

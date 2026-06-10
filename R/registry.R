@@ -380,7 +380,25 @@
   "Census/1981/individuals" = .make_entry("Census", "1981/individuals",
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
-    data_fixups     = .census_fixup_7),
+    data_fixups     = c(.census_fixup_7, list(
+      # WKACTMA (male work activity) was documented with 10 codes in the SPS but
+      # the data contains codes 11 and 12 matching WKACTFA's extended scheme:
+      #   11 = worked 49-52 weeks full-time, 12 = worked 49-52 weeks part-time.
+      # FAOCC81 (female occupation 1981) has code 17 in the data; MISSING VALUES
+      # for MAOCC81 explicitly declares 17 as user-missing, so treat it the same.
+      codes_supplement = list(
+        WKACTMA = data.frame(
+          val      = c("11", "12"),
+          label_en = c("WORKED 49-52 WEEKS FULL-TIME (EXT)",
+                       "WORKED 49-52 WEEKS PART-TIME (EXT)"),
+          label_fr = c("A TRAVAILLÉ DE 49 À 52 SEMAINES À PLEIN TEMPS (EXT)",
+                       "A TRAVAILLÉ DE 49 À 52 SEMAINES À TEMPS PARTIEL (EXT)"),
+          stringsAsFactors = FALSE),
+        FAOCC81 = data.frame(
+          val = "17", label_en = "Not applicable", label_fr = "Sans objet",
+          stringsAsFactors = FALSE)
+      )
+    ))),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",
     bundle_sps_mask = "hhmdf81",
