@@ -762,13 +762,15 @@ pumf_build_duckdb <- function(version_dir,
     names(data) <- toupper(names(data))
   }
 
-  # Drop trailing junk rows: FWF files often end with \r\n\x1a (DOS EOF marker),
-  # which produces a last row with exactly one non-NA field ("\x1a" in col 1)
-  # and NAs everywhere else.  Pure trailing-newline artifacts produce all-NA rows.
-  # At this point all columns are raw character, so any real row has all fields
-  # populated; fewer than 2 non-NA values means the row is garbage.
-  junk <- rowSums(!is.na(data)) < 2L
-  if (any(junk)) data <- data[!junk, ]
+  # Drop trailing junk rows from FWF files: older StatCan archives end with
+  # \r\n\x1a (DOS EOF marker), producing a last row with exactly one non-NA
+  # field ("\x1a" in col 1) and NAs everywhere else.  Only applied to FWF
+  # files — CSV parsers handle trailing newlines correctly, and small fixtures
+  # with few columns would be incorrectly filtered otherwise.
+  if (is_fwf) {
+    junk <- rowSums(!is.na(data)) < 2L
+    if (any(junk)) data <- data[!junk, ]
+  }
 
   # Apply pre-label data fixups (str_pad, column renames) from registry
   if (!is.null(reg) && length(reg$data_fixups) > 0L)

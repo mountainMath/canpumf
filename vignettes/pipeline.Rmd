@@ -23,20 +23,19 @@ separately at the end.
 ```{r pipeline-diagram, echo=FALSE, fig.width=9, fig.height=7, out.width="100%"}
 if (requireNamespace("DiagrammeR", quietly = TRUE)) {
   DiagrammeR::mermaid("
-flowchart TD
-    A([\"get_pumf(series, version, lang)\"]) --> LFS{series == LFS?}
-    LFS -->|yes| LFSP[/lfs_get_pumf/]
+graph TD
+    A[get_pumf series version lang] --> LFS{series == LFS?}
+    LFS -->|yes| LFSP[lfs_get_pumf]
     LFS -->|no| S1
 
-    subgraph S1[\"Stage 1 — locate / download\"]
-      direction TB
-      CHK{version dir\\nexists?}
-      CHK -->|yes, not refresh| EXTR{zip already\\nextracted?}
-      CHK -->|no / refresh| COL[\"look up collection URL\"]
+    subgraph S1 Stage 1 locate download
+      CHK{version dir exists?}
+      CHK -->|yes, not refresh| EXTR{zip already extracted?}
+      CHK -->|no / refresh| COL[look up collection URL]
       COL --> EFT{EFT-only?}
-      EFT -->|yes| ERR([\"stop: deposit zip manually\"])
-      EFT -->|no| DL[\"download zip\"]
-      DL --> UZ[\"robust_unzip\"]
+      EFT -->|yes| ERR[stop: deposit zip manually]
+      EFT -->|no| DL[download zip]
+      DL --> UZ[robust_unzip]
       UZ --> EXTR
       EXTR -->|yes| S2
       EXTR -->|no| UZ
@@ -44,46 +43,46 @@ flowchart TD
 
     S1 --> S2
 
-    subgraph S2[\"Stage 2 — parse metadata\"]
-      direction TB
-      MC{metadata/\\nalready exists?}
+    subgraph S2 Stage 2 parse metadata
+      MC{metadata already exists?}
       MC -->|yes, not refresh| S3
-      MC -->|no / refresh| DF[\"detect_formats()\"]
-      DF --> P1{\"LFS\\ncodebook.csv?\"}
-      DF --> P2{\"CPSS\\nvariables.csv?\"}
-      DF --> P3{\"SAS cards\\n(.lay + .lbe)?\"}
-      DF --> P4{\"SPSS split\\n(vare/vale/_i.sps)?\"}
-      DF --> P5{\"SPSS mono\\n(.sps / *SPSS.txt / .xmf)?\"}
-      DF --> P6{\"SPSS .sav?\"}
-      P1 & P2 & P3 & P4 & P5 & P6 --> MRG[\"merge_metadata()\"]
-      MRG --> WR[\"write variables.csv\\ncodes.csv  layout.csv\"]
+      MC -->|no / refresh| DF[detect_formats]
+      DF --> P1{LFS codebook.csv?}
+      DF --> P2{CPSS variables.csv?}
+      DF --> P3{SAS cards .lay plus .lbe?}
+      DF --> P4{SPSS split vare/vale/_i.sps?}
+      DF --> P5{SPSS mono .sps / SPSS.txt / .xmf?}
+      DF --> P6{SPSS .sav?}
+      DF --> P7{PDF Dictionary?}
+      P1 & P2 & P3 & P4 & P5 & P6 & P7 --> MRG[merge_metadata]
+      MRG --> WR[write variables.csv codes.csv layout.csv]
     end
 
     S2 --> S3
 
-    subgraph S3[\"Stage 3 — build DuckDB\"]
-      direction TB
-      TB{\"table already\\nin DuckDB?\"}
+    subgraph S3 Stage 3 build DuckDB
+      TB{table already in DuckDB?}
       TB -->|yes, not refresh| OD
-      TB -->|no / refresh| FF[\"find data file\"]
-      FF --> FWF{\"layout.csv\\nexists and file\\nnot .csv?\"}
-      FWF -->|yes — FWF| RFW[\"read_fwf()\"]
-      FWF -->|no — CSV| RCS[\"read_csv()\"]
-      RFW & RCS --> FX[\"apply data fixups\\n(str_pad, rename)\"]
-      FX --> BSW{BSW mask\\nin registry?}
-      BSW -->|yes| RBW[\"join bootstrap weights\"]
+      TB -->|no / refresh| FF[find data file]
+      FF --> FWF{layout.csv exists and file not .csv?}
+      FWF -->|yes FWF| RFW[read_fwf]
+      FWF -->|no CSV| RCS[read_csv]
+      RFW & RCS --> JNK[drop trailing junk rows]
+      JNK --> FX[apply data fixups str_pad rename cols_swap]
+      FX --> BSW{BSW mask in registry?}
+      BSW -->|yes| RBW[join bootstrap weights]
       BSW -->|no| NC
-      RBW --> NC[\"numeric conversion\\n(missing ranges + na_values)\"]
-      NC --> CL[\"code labels → factors\"]
-      CL --> WD[\"write DuckDB table\"]
-      WD --> EN[\"enforce ENUM types\"]
-      EN --> OD[\"open read-only connection\"]
+      RBW --> NC[numeric conversion missing ranges + na_values]
+      NC --> CL[code labels to factors]
+      CL --> WD[write DuckDB table]
+      WD --> EN[enforce ENUM types]
+      EN --> OD[open read-only connection]
     end
 
-    S3 --> REG[\"register provenance\\n(series, version, lang)\"]
-    REG --> TBL([\"return lazy dplyr::tbl()\"])
+    S3 --> REG[register provenance series version lang]
+    REG --> TBL[return lazy dplyr tbl]
 
-  ", height = 620)
+  ", height = 650)
 } else {
   cat("Install DiagrammeR to render this diagram: install.packages('DiagrammeR')")
 }
@@ -134,6 +133,26 @@ content before any parsing begins.
      (General Purpose Bit Flag bit 11).  `grep`/`sub` calls on zip entry names
      use `useBytes = TRUE` to avoid "invalid in this locale" warnings.
 
+### Version resolution
+
+`pumf_resolve_version()` canonicalises Census version strings before any
+registry lookup.  Any string starting with a four-digit year is parsed
+flexibly: the file type is detected by grepping for `"hierarchical"`,
+`"household"`, or `"famil"` (defaulting to `"individuals"`), and CMA vs
+provincial by grepping for `"cma"`.  The registry is then probed to determine
+the correct canonical format for that year.
+
+Examples:
+
+| User input | Resolved |
+|---|---|
+| `"2021"` | `"2021 (individuals)"` |
+| `"1971"` | `"1971/individuals_prov"` |
+| `"1971 CMA"` | `"1971/individuals_cma"` |
+| `"1971 households CMA"` | `"1971/households_cma"` |
+| `"1986 families"` | `"1986/families"` |
+| `"2001 households"` | `"2001 (households)"` |
+
 ---
 
 ## Stage 2 — Parse metadata
@@ -156,6 +175,7 @@ survey** (e.g. SPSS split for layout/codes and SAS cards for BSW weights).
 | 4 | **SPSS split-file** | any `.sps` file whose name ends in `vare`, `vale`, or `_i` |
 | 5 | **SPSS monolithic** | `.sps` file, `*SPSS.txt` file, or `.xmf` file whose content contains `VALUE LABELS` **or `DATA LIST`** (checked with `useBytes = TRUE` to tolerate CP850/Latin-1 data); `VARIABLE LABELS` is optional |
 | 6 | **SPSS `.sav`** | a `.sav` binary file readable by haven |
+| 7 | **PDF Data Dictionary** | `*Dictionary.pdf` present and `pdftools` installed; supplements label-only surveys where the SPSS file has `DATA LIST` but no `VARIABLE LABELS` or `VALUE LABELS` |
 
 Detection for case 5 also searches for a parallel French file — any candidate
 in the same set whose path includes `/fran` or `/french` (case-insensitive).
@@ -193,10 +213,10 @@ Key parsing details:
   section is present.
 
 - **Sentinel detection** — variables whose only VALUE LABELS are sentinel
-  phrases ("Not applicable", "Valid skip", "Don't know", etc.) are classified
-  as `numeric` with a `missing_low/missing_high` range, not as `character`.
-  This prevents spurious NA warnings when numeric values fall outside the label
-  set.
+  phrases ("Not applicable", "Valid skip", "Don't know", "Data not available",
+  etc.) are classified as `numeric` with a `missing_low/missing_high` range,
+  not as `character`.  This prevents spurious NA warnings when numeric values
+  fall outside the label set.
 
 - **Zero-padded codes** — unquoted SPSS numeric codes like `01`, `02` are
   normalised via `as.numeric()` → `as.character()` so they match bare integer
@@ -236,6 +256,19 @@ if the registry overrides).
 
 Haven is used for binary `.sav` files when no text-format command file is
 available.  This is a fallback for surveys that do not ship SPSS syntax.
+
+#### PDF Data Dictionary (`parse_pdf_dictionary`)
+
+StatCan PDF Data Dictionaries follow a standard bilingual format.  Variable
+blocks start with `<name>  Position: N  Character/Numeric(w)`.  The parser
+extracts variable long-names (`Long name:` / `Long nom:`) and code-value
+labels (`Codes:` / `Domaine:`).  Reserved codes (`Reserved Codes:` /
+`Codes Réservés:`) set `missing_low/missing_high` ranges.
+
+This parser produces only `variables` and `codes` (no `layout`), and fires
+only when `pdftools` is installed and a matching `*Dictionary.pdf` is found.
+It is used as a label-only supplement for surveys like SFS 1999 where the SPSS
+file is `DATA LIST`-only.
 
 ### Metadata encoding
 
@@ -310,6 +343,14 @@ Both paths read all columns as character (`col_types = cols(.default = "c")`)
 to preserve leading zeros and avoid premature type coercion.  Numeric
 conversion happens explicitly in the next step.
 
+### Trailing junk row removal (FWF only)
+
+After reading a fixed-width file, any row where fewer than two columns are
+non-NA is dropped.  FWF files from older StatCan archives often end with
+`\r\n\x1a` (a DOS EOF marker), which the FWF reader interprets as a
+one-character row with a single non-NA field; this step removes it silently.
+CSV files are not affected — CSV parsers handle trailing newlines correctly.
+
 ### Data fixups (pre-label)
 
 Registry `data_fixups` entries are applied to the raw character data before
@@ -321,6 +362,21 @@ label mapping:
 - **`rename`** — rename a column; applied only when the old name is present
   (safe for surveys that ship in multiple release variants, e.g. Census 2021
   RELIG/RELIGION_DER).
+- **`cols_swap`** — named character vector `c(A = "B", C = "D")` swapping
+  pairs of column names.  Used for surveys where the DATA LIST variable names
+  are transposed relative to the PDF documentation (e.g. WKACTMA/WKACTFA and
+  FAOCC81/MAOCC81 in Census 1981 individuals).
+- **`force_numeric`** — character vector of column names to treat as numeric
+  regardless of how many VALUE LABELS are declared.  Used when a variable is an
+  integer index that the SPSS file mis-classifies as categorical (e.g. SUBSAMPL
+  in Census 1971).
+- **`codes_supplement`** — named list of `data.frame`s injecting code-label
+  rows absent from the SPSS command files.  Each data frame has columns `val`,
+  `label_en`, `label_fr`.  Setting `label_en = NA` marks a value as
+  intentionally missing (silences the "unmatched raw value" warning without
+  introducing a spurious factor level).
+- **`na_values`** — character vector of raw string sentinels that become `NA`
+  for all numeric columns (used for undeclared Census income sentinels).
 
 ### Bootstrap weight join (BSW)
 
@@ -360,8 +416,12 @@ field would incorrectly NA out a valid $9,999,999 income value (stored as
 
 `apply_code_labels()` maps raw character values to R factors using
 `codes.csv`.  The factor levels are the complete ordered set from the codes
-table, not just the values present in the data.  Unmatched raw values become
-`NA` with a warning that shows the first five offending values.
+table, not just the values present in the data.
+
+Unmatched raw values become `NA` with a warning showing the first five
+offending values.  An exception is made for values that appear in `codes.csv`
+with `label_en = NA` (injected via `codes_supplement`): these are treated as
+*intentionally* NA and silently produce `NA` factor entries without a warning.
 
 When `lang = "fra"`, any missing French label falls back per-row to the
 English label.
@@ -383,10 +443,10 @@ language tables in the same session.
 
 ## LFS pipeline
 
-The LFS is handled by `lfs_get_pumf()` (delegated from `get_pumf()`).  Instead
-of one DuckDB per version, all LFS versions share a single
-`<cache_path>/LFS/LFS.duckdb` with accumulating tables `lfs_eng` and
-`lfs_fra`.
+The LFS is handled by `lfs_get_pumf()` (delegated directly from `get_pumf()`
+without going through `get_pumf_connection()`).  Instead of one DuckDB per
+version, all LFS versions share a single `<cache_path>/LFS/LFS.duckdb` with
+accumulating tables `lfs_eng` and `lfs_fra`.
 
 Key differences from the standard pipeline:
 
@@ -402,6 +462,11 @@ Key differences from the standard pipeline:
 - **Version tracking** — a `lfs_versions` table in the shared DuckDB records
   which versions have been downloaded and parsed, so `refresh = "auto"`
   downloads only new versions.
+
+- **Read-only fast path** — when the requested version is already in the
+  database, `lfs_get_pumf()` opens only a read-only connection and returns
+  immediately.  No write lock is acquired unless new data actually needs to be
+  written.
 
 - **`get_pumf()` return** — when a specific version is requested, the function
   applies a `dplyr::filter()` on `SURVYEAR` (and `SURVMNTH` for monthly
@@ -451,4 +516,4 @@ auto-detection with defaults.
 | `bsw_file_mask` | filename pattern for the BSW data file | `NULL` |
 | `bsw_join_key` | column(s) to join BSW onto the main data | `NULL` |
 | `bsw_drop_cols` | BSW columns to drop before joining | `character(0)` |
-| `data_fixups` | list of `str_pad`, `rename`, `na_values` transforms | `list()` |
+| `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `codes_supplement`, `na_values` transforms | `list()` |
