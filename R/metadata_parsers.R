@@ -14,13 +14,19 @@
   "(?i)^(not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
-  # Zero-value labels: older Census files label code 0 as "ZERO", "ZERO HOURS",
-  # "ZERO WEEKS", etc.  These describe the numeric zero and indicate the variable
-  # is a continuous quantity, not a category.
-  "zero(\\s+\\w+)*|",
+  # Zero-value labels: variables label code 0 with phrases meaning "zero of this
+  # quantity" to indicate a continuous variable, not a category.
+  # English: "ZERO", "ZERO HOURS", "ZERO WEEKS", "None", "No hours", "No donations", …
+  # French:  "Aucun", "Aucune heure", "Aucun don", …
+  "zero(\\s+\\w+)*|none|no\\s+\\w+(\\s+\\w+)*|",
   # French equivalents (1991 Census XMF is French-only; GSS uses "Non demandé")
-  "sans objet|non (disponible|déclaré|applicable)|",
-  "ne s.?applique pas|inconnu|manquant|non demandé|hors .chantillon)$"
+  # "(ne )?s'applique pas" covers both the full form and the older abbreviated
+  # form "S'APPLIQUE PAS" (used in pre-2004 SGVP and other older surveys).
+  # "ne sait pas" = "don't know"; "refus$" = "refusal" (older files use bare
+  # "REFUS"); "enchaîn" = "enchaînement valide" (valid skip in older files).
+  "sans objet|non (disponible|déclaré|applicable)|aucun(e)?(\\s+\\w+)*|",
+  "(ne )?s.?applique pas|ne sait pas|refus$|enchaîn|",
+  "inconnu|manquant|non demandé|hors .chantillon)$"
 )
 
 # Identify variables whose value labels are ALL sentinel labels.
@@ -1480,11 +1486,15 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
     result$sas_cards <- dirname(chosen_lbe)
   }
 
-  # 4. SPSS split: directory containing vare/vale/_i named .sps files
+  # 4. SPSS split: directory containing vare/vale/_i named .sps files.
+  # Prefer a directory that has vare/vale files (full split set) over one with
+  # only _i.sps (e.g. a BSW layout in a parent directory), to avoid
+  # picking the wrong directory when both exist at different levels.
   sps_files  <- all_files[grepl("\\.sps$", all_files, ignore.case = TRUE)]
   split_sps  <- sps_files[grepl("(vare|vale|_i)\\.sps$", sps_files, ignore.case = TRUE)]
   if (length(split_sps) > 0L) {
-    result$spss_split <- dirname(split_sps[[1L]])
+    vare_vale <- split_sps[grepl("(vare|vale)\\.sps$", split_sps, ignore.case = TRUE)]
+    result$spss_split <- dirname(if (length(vare_vale) > 0L) vare_vale[[1L]] else split_sps[[1L]])
   }
 
   # 5. SPSS monolithic: .sps file (not split-named), a .txt file with "SPSS"
@@ -1760,9 +1770,15 @@ pumf_parse_metadata <- function(version_dir,
   else
     version_dir
 
-  # Apply bundle_sps_mask only when reading from the shared bundle dir so it
-  # cannot accidentally filter out the right file for standalone deposits.
-  effective_sps_mask <- if (!identical(source_dir, version_dir)) reg$bundle_sps_mask else NULL
+  # For bundled archives: bundle_sps_mask filters which SPSS files are visible
+  # so Census/LFS year-type combinations don't cross-contaminate.
+  # For standalone deposits with layout_mask: apply it as sps_mask so that
+  # surveys with multiple SPSS file sets (e.g. SGVP MAIN vs GIVING subset)
+  # pick the right one.  sps_mask only filters SPSS files, not data files.
+  effective_sps_mask <- if (!identical(source_dir, version_dir))
+    reg$bundle_sps_mask
+  else
+    reg$layout_mask
   formats <- detect_formats(source_dir, sps_mask = effective_sps_mask)
   if (length(formats) == 0L) {
     stop("No parseable metadata files found in: ", source_dir)

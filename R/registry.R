@@ -63,6 +63,11 @@
 #
 # 1986 and earlier: field widths unverified — omitted from na_values until
 # confirmed from user guides.
+# SGVP: HSDSIZEC ("household size", top-coded at 6+ persons) and CHH0014C
+# ("children 0-14", top-coded at 3+) have boundary labels alongside unlabeled
+# lower values; force_numeric prevents those values from becoming NAs.
+.sgvp_fixup <- list(force_numeric = c("HSDSIZEC", "CHH0014C"))
+
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
 .census_fixup   <- .census_fixup_7   # alias; most FWF years use 7-char fields
@@ -226,11 +231,87 @@
       )
     )),
 
+  # ---- CCAHS: Canadian COVID-19 Antibody and Health Survey ------------------
+  # Split-SPSS layout (CCAHS_PUMF_{i,vale,vare,valf,varf,miss}.sps).
+  # Both a CSV and a TXT data file are shipped; use the CSV to avoid ambiguity.
+  # BSW file is ccahs_bsw_pumf.csv; WGT_PUMF appears in both main and BSW so
+  # it is dropped from BSW before joining.
+  "CCAHS/1" = .make_entry("CCAHS", "1",
+    layout_mask   = "CCAHS_PUMF",
+    bsw_mask      = "bsw",
+    bsw_file_mask = "ccahs_bsw_pumf\\.csv",
+    bsw_join_key  = "PUMFID",
+    bsw_drop_cols = "WGT_PUMF",
+    file_mask     = "ccahs_pumf\\.csv"),
+
+  # ---- SGVP: GSS Giving, Volunteering and Participating ---------------------
+  "SGVP/2023" = .make_entry("SGVP", "2023",
+    file_mask   = "GVP_DBP_2023_PUMF_FMGD\\.txt",
+    data_fixups = .sgvp_fixup),
+
+  # 2018 (cycle 33): split-SPSS in Syntax_Syntaxe/SPSS/.
+  # GSS33PUMF_label.txt is a GTAB file, not the data; explicit file_mask needed.
+  # layout_mask selects the split SPSS files (GSS33PUMF_vare/vale/etc.).
+  # DSCORE is a continuous donor-propensity score with no VALUE LABELS.
+  # BRTHMACR value 9 is undocumented (1 row); suppress via NA codes_supplement.
+  "SGVP/2018" = .make_entry("SGVP", "2018",
+    layout_mask = "GSS33PUMF",
+    file_mask   = "GSS33PUMF\\.txt$",
+    data_fixups = list(
+      force_numeric    = c("HSDSIZEC", "CHH0014C", "DSCORE"),
+      codes_supplement = list(
+        BRTHMACR = data.frame(val = "9", label_en = NA_character_,
+                              label_fr = NA_character_,
+                              stringsAsFactors = FALSE)
+      )
+    )),
+
+  # 2013 (cycle 27): monolithic SPSS (GSSC27GVPpumf_e.sps + French pair).
+  "SGVP/2013" = .make_entry("SGVP", "2013",
+    file_mask   = "GVP_PUMF_MAIN\\.txt",
+    data_fixups = .sgvp_fixup),
+
+  # 2010 (cycle 22): monolithic SPSS; MAIN file only (GS subset excluded).
+  # layout_mask filters to the MAIN SPSS so the GIVING subset SPSS is ignored.
+  "SGVP/2010" = .make_entry("SGVP", "2010",
+    layout_mask = "_MAIN_",
+    file_mask   = "CSGVP2010_MAIN_PUMF\\.txt$",
+    data_fixups = .sgvp_fixup),
+
+  # 2007 (cycle 17): same layout as 2010.
+  "SGVP/2007" = .make_entry("SGVP", "2007",
+    layout_mask = "_MAIN_",
+    file_mask   = "CSGVP2007_MAIN_PUMF\\.txt$",
+    data_fixups = .sgvp_fixup),
+
+  # 2004 (cycle 13): same layout; readme/lisezmoi.txt files excluded via mask.
+  "SGVP/2004" = .make_entry("SGVP", "2004",
+    layout_mask = "_MAIN_",
+    file_mask   = "CSGVP2004_MAIN_PUMF\\.txt$",
+    data_fixups = .sgvp_fixup),
+
+  # 2000 (cycle 9): MAIN file; Readme/Lisezmoi excluded via mask.
+  "SGVP/2000" = .make_entry("SGVP", "2000",
+    layout_mask = "_MAIN_",
+    file_mask   = "NSGVP2000_MAIN_PUMF\\.txt",
+    data_fixups = .sgvp_fixup),
+
+  # 1997 (cycle 4): three separate PUMF files (SGVP = combined main file).
+  # SAS text files also present; layout_mask and file_mask select the SGVP main.
+  # AQ03 (org-type count) has code 0="0" (numeric string, not a sentinel phrase)
+  # alongside unlabeled values 1–15; force_numeric preserves those counts.
+  "SGVP/1997" = .make_entry("SGVP", "1997",
+    layout_mask = "_SGVP_",
+    file_mask   = "NSGVP1997_SGVP_PUMF\\.txt",
+    data_fixups = list(force_numeric = c("HSDSIZEC", "CHH0014C", "AQ03"))),
+
   # ---- ITS: International Travel Survey -------------------------------------
-  # No ITS-specific parsing quirks discovered yet; entries are placeholders
-  # so Stage 1 can find these versions in the collection without error.
-  "ITS/2018" = .make_entry("ITS", "2018"),
-  "ITS/2019" = .make_entry("ITS", "2019"),
+  # Split-SPSS layout (VTS_<year>_PUMF_{i,vale,vare,valf,varf,miss}.sps) in
+  # Layout_Cards/.  Explicit file_mask avoids picking up the README.txt.
+  "ITS/2018" = .make_entry("ITS", "2018",
+    file_mask = "VTS_2018_PUMF\\.txt"),
+  "ITS/2019" = .make_entry("ITS", "2019",
+    file_mask = "VTS_2019_PUMF\\.txt"),
 
   # ---- Census of Population -------------------------------------------------
   # 2021 and 2016 are downloadable. Older years are EFT-only (user deposits zip).
