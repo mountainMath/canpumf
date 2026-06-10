@@ -209,6 +209,52 @@ get_pumf <- function(series     = NULL,
 }
 
 
+# ---- shared metadata helper -------------------------------------------------
+
+# Read the variables tibble for a tbl returned by get_pumf().
+# Returns a data.frame(name, label_en, label_fr, type, ...) from metadata/.
+.pumf_read_variables <- function(tbl) {
+  prov <- .pumf_lookup_con(tbl$src$con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  series     <- prov$series
+  version    <- prov$version
+  cache_path <- prov$cache_path
+
+  if (series == "LFS") {
+    db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
+    if (!file.exists(db_path))
+      stop("LFS database not found at '", db_path, "'.", call. = FALSE)
+    con_tmp <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+    all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
+      DBI::dbGetQuery(
+        con_tmp,
+        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
+    else character(0L)
+    DBI::dbDisconnect(con_tmp, shutdown = TRUE)
+    if (length(all_versions) == 0L)
+      stop("No LFS versions found in the database.", call. = FALSE)
+    all_vars <- purrr::map(all_versions, function(v) {
+      md <- file.path(cache_path, "LFS", v, "metadata")
+      if (!dir.exists(md)) return(NULL)
+      tryCatch(read_metadata(md)$variables, error = function(e) NULL)
+    })
+    all_vars  <- do.call(rbind, all_vars[!vapply(all_vars, is.null, logical(1L))])
+    if (is.null(all_vars) || nrow(all_vars) == 0L)
+      stop("No LFS metadata found in any version directory.", call. = FALSE)
+    all_vars[!duplicated(all_vars$name, fromLast = TRUE), , drop = FALSE]
+  } else {
+    meta_dir <- file.path(cache_path, series, version, "metadata")
+    if (!dir.exists(meta_dir))
+      stop("Metadata directory not found: '", meta_dir, "'. ",
+           "Run get_pumf(\"", series, "\", \"", version, "\") first.",
+           call. = FALSE)
+    read_metadata(meta_dir)$variables
+  }
+}
+
+
 # ---- label_pumf_columns -----------------------------------------------------
 
 #' Rename PUMF table columns to human-readable variable labels
@@ -228,57 +274,13 @@ get_pumf <- function(series     = NULL,
 #' @return A lazy `dplyr::tbl()` with renamed columns.
 #' @export
 label_pumf_columns <- function(tbl) {
-  prov <- .pumf_lookup_con(tbl$src$con)
+  prov      <- .pumf_lookup_con(tbl$src$con)
   if (is.null(prov))
     stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
          call. = FALSE)
-  series     <- prov$series
-  version    <- prov$version
-  cache_path <- prov$cache_path
-  lang       <- prov$lang %||% "eng"
-
+  lang      <- prov$lang %||% "eng"
   label_col <- if (lang == "eng") "label_en" else "label_fr"
-
-  # For LFS, the shared lfs_eng/lfs_fra table accumulates columns from all
-  # loaded versions.  A variable like GENDER was only introduced in 2020+, so
-  # reading a single (older) version's metadata would leave it unlabelled.
-  # Solution: read all version metadata directories in chronological order and
-  # stack them; keep the last (most-recent) label for each variable name.
-  if (series == "LFS") {
-    db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
-    if (!file.exists(db_path))
-      stop("LFS database not found at '", db_path, "'.", call. = FALSE)
-    con_tmp     <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
-    all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
-      DBI::dbGetQuery(
-        con_tmp,
-        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
-    else character(0L)
-    DBI::dbDisconnect(con_tmp, shutdown = TRUE)
-    if (length(all_versions) == 0L)
-      stop("No LFS versions found in the database.", call. = FALSE)
-
-    all_vars <- purrr::map(all_versions, function(v) {
-      md <- file.path(cache_path, "LFS", v, "metadata")
-      if (!dir.exists(md)) return(NULL)
-      tryCatch(read_metadata(md)$variables, error = function(e) NULL)
-    })
-    all_vars <- do.call(rbind, all_vars[!vapply(all_vars, is.null, logical(1L))])
-
-    if (is.null(all_vars) || nrow(all_vars) == 0L)
-      stop("No LFS metadata found in any version directory.", call. = FALSE)
-
-    # Later versions override earlier ones for the same variable name
-    variables <- all_vars[!duplicated(all_vars$name, fromLast = TRUE), , drop = FALSE]
-  } else {
-    version_dir <- file.path(cache_path, series, version)
-    meta_dir    <- file.path(version_dir, "metadata")
-    if (!dir.exists(meta_dir))
-      stop("Metadata directory not found: '", meta_dir, "'. ",
-           "Run get_pumf(\"", series, "\", \"", version, "\") first.",
-           call. = FALSE)
-    variables <- read_metadata(meta_dir)$variables
-  }
+  variables <- .pumf_read_variables(tbl)
 
   var_labels <- variables[!is.na(variables[[label_col]]),
                            c("name", label_col), drop = FALSE]
@@ -299,6 +301,23 @@ label_pumf_columns <- function(tbl) {
 
   rename_map <- stats::setNames(var_labels$name, var_labels$label)
   rename(tbl, !!!rename_map)
+}
+
+
+# ---- pumf_var_labels --------------------------------------------------------
+
+#' Retrieve variable labels as a tibble
+#'
+#' Returns a tibble mapping short coded column names to their human-readable
+#' variable labels, as a handy reference without renaming the table.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
+#' @return A tibble with columns `name` (coded column name), `label_en`, and
+#'   `label_fr`.  Rows are in survey-metadata order.
+#' @export
+pumf_var_labels <- function(tbl) {
+  variables <- .pumf_read_variables(tbl)
+  tibble::as_tibble(variables[, c("name", "label_en", "label_fr"), drop = FALSE])
 }
 
 

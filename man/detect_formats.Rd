@@ -4,7 +4,7 @@
 \alias{detect_formats}
 \title{Detect parseable metadata formats in a PUMF directory tree}
 \usage{
-detect_formats(pumf_dir)
+detect_formats(pumf_dir, sps_mask = NULL)
 }
 \arguments{
 \item{pumf_dir}{Top-level version directory (i.e. the directory that
