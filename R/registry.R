@@ -67,6 +67,11 @@
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
 .census_fixup   <- .census_fixup_7   # alias; most FWF years use 7-char fields
 
+# 1971: SUBSAMPL is an integer sub-sample index (0 for households, 1–5 for
+# individuals/families), but all six SPSS files only declare code 1 → 'one'.
+# Force it to numeric so the integer values come through correctly.
+.census_fixup_1971 <- list(force_numeric = "SUBSAMPL")
+
 
 .pumf_registry <- list(
 
@@ -414,34 +419,71 @@
   # variants for each file type; both come from the same bundle zip.
   "Census/1971/individuals_prov" = .make_entry("Census", "1971/individuals_prov",
     bundle_sps_mask = "indiv71_prov",
-    file_mask       = "^indiv71_prov\\.txt$"),
+    file_mask       = "^indiv71_prov\\.txt$",
+    data_fixups     = .census_fixup_1971),
 
   "Census/1971/individuals_cma" = .make_entry("Census", "1971/individuals_cma",
     bundle_sps_mask = "indiv71_cma",
-    file_mask       = "^indiv71_cma\\.txt$"),
+    file_mask       = "^indiv71_cma\\.txt$",
+    data_fixups     = c(.census_fixup_1971, list(
+      # TYPE66/TYPE71: value 0 ("Data not available") is absent from the SPSS
+      # VALUE LABELS; confirmed from PDF documentation.
+      codes_supplement = list(
+        TYPE66 = data.frame(val = "0", label_en = "Data not available",
+                            label_fr = "Données non disponibles",
+                            stringsAsFactors = FALSE),
+        TYPE71 = data.frame(val = "0", label_en = "Data not available",
+                            label_fr = "Données non disponibles",
+                            stringsAsFactors = FALSE)
+      )
+    ))),
 
   "Census/1971/households_prov" = .make_entry("Census", "1971/households_prov",
     bundle_sps_mask = "hhld71_prov",
-    file_mask       = "^hhld71_prov\\.txt$"),
+    file_mask       = "^hhld71_prov\\.txt$",
+    data_fixups     = .census_fixup_1971),
 
   "Census/1971/households_cma" = .make_entry("Census", "1971/households_cma",
     bundle_sps_mask = "hhld71_cma",
-    file_mask       = "^hhld71_cma\\.txt$"),
+    file_mask       = "^hhld71_cma\\.txt$",
+    data_fixups     = .census_fixup_1971),
 
   "Census/1971/families_prov" = .make_entry("Census", "1971/families_prov",
     bundle_sps_mask = "fam71_prov",
-    file_mask       = "^fam71_prov\\.txt$"),
+    file_mask       = "^fam71_prov\\.txt$",
+    data_fixups     = c(.census_fixup_1971, list(
+      # CMACODE is always 000 in the provincial file (no CMA detail); the SPSS
+      # VALUE LABELS only list 008/021 (Montreal/Toronto from the CMA file), so
+      # 000 would otherwise warn as unmatched.
+      codes_supplement = list(
+        CMACODE = data.frame(val = "000", label_en = NA_character_,
+                             label_fr = NA_character_,
+                             stringsAsFactors = FALSE)
+      )
+    ))),
 
   "Census/1971/families_cma" = .make_entry("Census", "1971/families_cma",
     bundle_sps_mask = "fam71_cma",
-    file_mask       = "^fam71_cma\\.txt$")
+    file_mask       = "^fam71_cma\\.txt$",
+    data_fixups     = .census_fixup_1971)
 )
 
 #' Resolve version aliases
 #'
-#' Canonicalises user-supplied version strings.  Currently the only alias is
-#' for the Census of Population: a bare four-digit year (e.g. `"2021"`)
-#' resolves to `"<year> (individuals)"`.
+#' Canonicalises user-supplied version strings for Census of Population.
+#' Any string starting with a four-digit year is parsed flexibly: the file
+#' type is detected by grepping for "hierarchical", "household", or "famil"
+#' (defaulting to "individuals"), and CMA vs provincial by grepping for "cma".
+#' The registry is then probed to find the correct canonical format for that
+#' year (e.g. `"1971/households_cma"`, `"1986/households"`, or
+#' `"2001 (households)"`).
+#'
+#' Examples of accepted inputs (case-insensitive keywords):
+#' - `"2021"` → `"2021 (individuals)"`
+#' - `"1971"` → `"1971/individuals_prov"`
+#' - `"1971 CMA"` → `"1971/individuals_cma"`
+#' - `"1971 households CMA"` → `"1971/households_cma"`
+#' - `"1986 families"` → `"1986/families"`
 #'
 #' @param series survey series acronym
 #' @param version raw version string supplied by the caller, or `NULL`
@@ -449,15 +491,25 @@
 #' @keywords internal
 pumf_resolve_version <- function(series, version) {
   if (is.null(version)) return(NULL)
-  if (series == "Census" && grepl("^\\d{4}$", version)) {
-    # Bundled years use "year/individuals"; separate-archive years use
-    # "year (individuals)".  Check which format the registry has.
-    if (!is.null(.pumf_registry[[paste0("Census/", version, "/individuals")]]))
-      return(paste0(version, "/individuals"))
-    # 1971 has no plain "individuals" variant; default to provincial.
-    if (!is.null(.pumf_registry[[paste0("Census/", version, "/individuals_prov")]]))
-      return(paste0(version, "/individuals_prov"))
-    return(paste0(version, " (individuals)"))
+  if (series == "Census" && grepl("^\\d{4}", version)) {
+    year <- substr(version, 1L, 4L)
+
+    type <- if (grepl("hierarchical", version, ignore.case = TRUE)) "hierarchical"
+            else if (grepl("household",    version, ignore.case = TRUE)) "households"
+            else if (grepl("famil",        version, ignore.case = TRUE)) "families"
+            else "individuals"
+
+    is_cma <- grepl("cma", version, ignore.case = TRUE)
+
+    if (is_cma) {
+      k <- paste0(year, "/", type, "_cma")
+      if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
+    }
+    k <- paste0(year, "/", type, "_prov")
+    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
+    k <- paste0(year, "/", type)
+    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
+    return(paste0(year, " (", type, ")"))
   }
   version
 }

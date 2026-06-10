@@ -48,15 +48,13 @@
   # 2021 individuals: StatCan's UTF-8 command file omits French variable labels
   # for 74 of 144 variables — a known upstream gap, not a parser bug.
   "2021 (individuals)"   = "no French translation",
-  # 1981 individuals: two pairs of DATA LIST names transposed (WKACTMA/WKACTFA,
-  # FAOCC81/MAOCC81) and 1 blank PROV record (data artifact).
+  # 1981 individuals: three pairs of DATA LIST names transposed (WKACTMA/WKACTFA,
+  # FAOCC81/MAOCC81, FALFACT/MALFACT) and 1 blank PROV record (data artifact).
   "1981/individuals"     = "Variable PROV: \\d+ unmatched|names swapped",
-  # 1971: a handful of code 0 entries missing from VALUE LABELS in some types,
-  # and one blank GEOCODE record.
-  "1971/individuals_cma" = "Variable (TYPE66|TYPE71): \\d+ unmatched",
-  "1971/households_prov" = "Variable (GEOCODE|SUBSAMPL): \\d+ unmatched",
-  "1971/households_cma"  = "Variable SUBSAMPL: \\d+ unmatched",
-  "1971/families_prov"   = "Variable CMACODE: \\d+ unmatched"
+  # 1971: codes_supplement injects missing value-0 labels for TYPE66/TYPE71 (CMA
+  # individuals) and CMACODE (provincial families).
+  "1971/individuals_cma" = "absent from command files",
+  "1971/families_prov"   = "absent from command files"
 )
 
 .census_any_version <- function() {

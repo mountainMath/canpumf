@@ -11,7 +11,7 @@
 # than a genuine category.  Used by all parsers to distinguish sentinel-only
 # variables (→ numeric with a missing range) from truly categorical ones.
 .sentinel_pat <- paste0(
-  "(?i)^(not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|",
+  "(?i)^(not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
   # Zero-value labels: older Census files label code 0 as "ZERO", "ZERO HOURS",

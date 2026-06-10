@@ -572,6 +572,9 @@ pumf_locate_or_download <- function(series,
     valid     <- !is.na(labels)
     lookup    <- stats::setNames(labels[valid], col_codes$val[valid])
     lvls      <- unique(labels[valid])
+    # Codes listed with NA labels are intentionally NA (e.g. "not in this file
+    # variant") — track them separately so they don't trigger the unmatched warning.
+    na_coded  <- col_codes$val[!valid]
 
     raw_vals  <- data[[col]]
     # FWF data preserves zero-padding verbatim ("01", "02") while unquoted
@@ -580,10 +583,11 @@ pumf_locate_or_download <- function(series,
     # the representation is consistent regardless of quoting style.
     if (length(lookup) > 0L && all(grepl("^-?[0-9]+$", names(lookup)))) {
       names(lookup) <- as.character(as.integer(names(lookup)))
+      na_coded      <- as.character(suppressWarnings(as.integer(na_coded)))
       num      <- suppressWarnings(as.integer(raw_vals))
       raw_vals <- ifelse(!is.na(raw_vals) & !is.na(num), as.character(num), raw_vals)
     }
-    unmatched <- unique(raw_vals[!raw_vals %in% c(names(lookup), NA_character_)])
+    unmatched <- unique(raw_vals[!raw_vals %in% c(names(lookup), NA_character_, na_coded)])
     if (length(unmatched) > 0L)
       warning("Variable ", col, ": ", length(unmatched),
               " unmatched raw value(s) become NA: ",
@@ -757,6 +761,14 @@ pumf_build_duckdb <- function(version_dir,
     )
     names(data) <- toupper(names(data))
   }
+
+  # Drop trailing junk rows: FWF files often end with \r\n\x1a (DOS EOF marker),
+  # which produces a last row with exactly one non-NA field ("\x1a" in col 1)
+  # and NAs everywhere else.  Pure trailing-newline artifacts produce all-NA rows.
+  # At this point all columns are raw character, so any real row has all fields
+  # populated; fewer than 2 non-NA values means the row is garbage.
+  junk <- rowSums(!is.na(data)) < 2L
+  if (any(junk)) data <- data[!junk, ]
 
   # Apply pre-label data fixups (str_pad, column renames) from registry
   if (!is.null(reg) && length(reg$data_fixups) > 0L)

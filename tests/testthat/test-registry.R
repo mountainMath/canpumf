@@ -131,6 +131,23 @@ test_that("pumf_resolve_version: Census bare year aliases to individuals", {
                "1971/individuals_prov")
 })
 
+test_that("pumf_resolve_version: Census flexible type and CMA keywords", {
+  # CMA shorthand forms
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1971/cma"),
+               "1971/individuals_cma")
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1971/households/cma"),
+               "1971/households_cma")
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1971/families/cma"),
+               "1971/families_cma")
+  # Natural-language flexible forms
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1971 households CMA"),
+               "1971/households_cma")
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1986 families"),
+               "1986/families")
+  expect_equal(canpumf:::pumf_resolve_version("Census", "2001 households"),
+               "2001 (households)")
+})
+
 test_that("pumf_resolve_version: Census full version string unchanged", {
   expect_equal(canpumf:::pumf_resolve_version("Census", "2021 (individuals)"),
                "2021 (individuals)")
