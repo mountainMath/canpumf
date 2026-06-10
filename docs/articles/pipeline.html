@@ -6,6 +6,11 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <title>canpumf Pipeline Architecture • canpumf</title>
+<!-- favicons --><link rel="icon" type="image/png" sizes="96x96" href="../favicon-96x96.png">
+<link rel="icon" type="”image/svg+xml”" href="../favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="../apple-touch-icon.png">
+<link rel="icon" sizes="any" href="../favicon.ico">
+<link rel="manifest" href="../site.webmanifest">
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <link href="../deps/bootstrap-5.3.1/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.1/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
@@ -58,8 +63,7 @@
 <script src="pipeline_files/mermaid-0.3.0/dist/mermaid.slim.min.js"></script><link href="pipeline_files/DiagrammeR-styles-0.2/styles.css" rel="stylesheet">
 <script src="pipeline_files/chromatography-0.1/chromatography.js"></script><script src="pipeline_files/DiagrammeR-binding-1.0.12/DiagrammeR.js"></script><div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
-
-      <h1>canpumf Pipeline Architecture</h1>
+      <img src="../logo.png" class="logo" alt=""><h1>canpumf Pipeline Architecture</h1>
             
       
       <small class="dont-index">Source: <a href="https://github.com/mountainMath/canpumf/blob/HEAD/vignettes/pipeline.Rmd" class="external-link"><code>vignettes/pipeline.Rmd</code></a></small>
@@ -77,8 +81,8 @@ the end.</p>
 <div class="section level2">
 <h2 id="high-level-flow">High-level flow<a class="anchor" aria-label="anchor" href="#high-level-flow"></a>
 </h2>
-<div id="htmlwidget-ac96cb3ee4656e2e9ec3" style="width:100%;height:620px;" class="DiagrammeR html-widget"></div>
-<script type="application/json" data-for="htmlwidget-ac96cb3ee4656e2e9ec3">{"x":{"diagram":"\nflowchart TD\n    A([\"get_pumf(series, version, lang)\"]) --> LFS{series == LFS?}\n    LFS -->|yes| LFSP[/lfs_get_pumf/]\n    LFS -->|no| S1\n\n    subgraph S1[\"Stage 1 — locate / download\"]\n      direction TB\n      CHK{version dir\\nexists?}\n      CHK -->|yes, not refresh| EXTR{zip already\\nextracted?}\n      CHK -->|no / refresh| COL[\"look up collection URL\"]\n      COL --> EFT{EFT-only?}\n      EFT -->|yes| ERR([\"stop: deposit zip manually\"])\n      EFT -->|no| DL[\"download zip\"]\n      DL --> UZ[\"robust_unzip\"]\n      UZ --> EXTR\n      EXTR -->|yes| S2\n      EXTR -->|no| UZ\n    end\n\n    S1 --> S2\n\n    subgraph S2[\"Stage 2 — parse metadata\"]\n      direction TB\n      MC{metadata/\\nalready exists?}\n      MC -->|yes, not refresh| S3\n      MC -->|no / refresh| DF[\"detect_formats()\"]\n      DF --> P1{\"LFS\\ncodebook.csv?\"}\n      DF --> P2{\"CPSS\\nvariables.csv?\"}\n      DF --> P3{\"SAS cards\\n(.lay + .lbe)?\"}\n      DF --> P4{\"SPSS split\\n(vare/vale/_i.sps)?\"}\n      DF --> P5{\"SPSS mono\\n(.sps / *SPSS.txt / .xmf)?\"}\n      DF --> P6{\"SPSS .sav?\"}\n      P1 & P2 & P3 & P4 & P5 & P6 --> MRG[\"merge_metadata()\"]\n      MRG --> WR[\"write variables.csv\\ncodes.csv  layout.csv\"]\n    end\n\n    S2 --> S3\n\n    subgraph S3[\"Stage 3 — build DuckDB\"]\n      direction TB\n      TB{\"table already\\nin DuckDB?\"}\n      TB -->|yes, not refresh| OD\n      TB -->|no / refresh| FF[\"find data file\"]\n      FF --> FWF{\"layout.csv\\nexists and file\\nnot .csv?\"}\n      FWF -->|yes — FWF| RFW[\"read_fwf()\"]\n      FWF -->|no — CSV| RCS[\"read_csv()\"]\n      RFW & RCS --> FX[\"apply data fixups\\n(str_pad, rename)\"]\n      FX --> BSW{BSW mask\\nin registry?}\n      BSW -->|yes| RBW[\"join bootstrap weights\"]\n      BSW -->|no| NC\n      RBW --> NC[\"numeric conversion\\n(missing ranges + na_values)\"]\n      NC --> CL[\"code labels → factors\"]\n      CL --> WD[\"write DuckDB table\"]\n      WD --> EN[\"enforce ENUM types\"]\n      EN --> OD[\"open read-only connection\"]\n    end\n\n    S3 --> REG[\"register provenance\\n(series, version, lang)\"]\n    REG --> TBL([\"return lazy dplyr::tbl()\"])\n\n  "},"evals":[],"jsHooks":[]}</script><hr>
+<div id="htmlwidget-ac96cb3ee4656e2e9ec3" style="width:1200px;height:650px;" class="DiagrammeR html-widget"></div>
+<script type="application/json" data-for="htmlwidget-ac96cb3ee4656e2e9ec3">{"x":{"diagram":"\ngraph TD\n    A[get_pumf series version lang] --> LFS{series == LFS?}\n    LFS -->|yes| LFSP[lfs_get_pumf]\n    LFS -->|no| S1\n\n    subgraph S1 Stage 1 locate download\n      CHK{version dir exists?}\n      CHK -->|yes, not refresh| EXTR{zip already extracted?}\n      CHK -->|no / refresh| COL[look up collection URL]\n      COL --> EFT{EFT-only?}\n      EFT -->|yes| ERR[stop: deposit zip manually]\n      EFT -->|no| DL[download zip]\n      DL --> UZ[robust_unzip]\n      UZ --> EXTR\n      EXTR -->|yes| S2\n      EXTR -->|no| UZ\n    end\n\n    S1 --> S2\n\n    subgraph S2 Stage 2 parse metadata\n      MC{metadata already exists?}\n      MC -->|yes, not refresh| S3\n      MC -->|no / refresh| DF[detect_formats]\n      DF --> P1{LFS codebook.csv?}\n      DF --> P2{CPSS variables.csv?}\n      DF --> P3{SAS cards .lay plus .lbe?}\n      DF --> P4{SPSS split vare/vale/_i.sps?}\n      DF --> P5{SPSS mono .sps / SPSS.txt / .xmf?}\n      DF --> P6{SPSS .sav?}\n      DF --> P7{PDF Dictionary?}\n      P1 & P2 & P3 & P4 & P5 & P6 & P7 --> MRG[merge_metadata]\n      MRG --> WR[write variables.csv codes.csv layout.csv]\n    end\n\n    S2 --> S3\n\n    subgraph S3 Stage 3 build DuckDB\n      TB{table already in DuckDB?}\n      TB -->|yes, not refresh| OD\n      TB -->|no / refresh| FF[find data file]\n      FF --> FWF{layout.csv exists and file not .csv?}\n      FWF -->|yes FWF| RFW[read_fwf]\n      FWF -->|no CSV| RCS[read_csv]\n      RFW & RCS --> JNK[drop trailing junk rows]\n      JNK --> FX[apply data fixups str_pad rename cols_swap]\n      FX --> BSW{BSW mask in registry?}\n      BSW -->|yes| RBW[join bootstrap weights]\n      BSW -->|no| NC\n      RBW --> NC[numeric conversion missing ranges + na_values]\n      NC --> CL[code labels to factors]\n      CL --> WD[write DuckDB table]\n      WD --> EN[enforce ENUM types]\n      EN --> OD[open read-only connection]\n    end\n\n    S3 --> REG[register provenance series version lang]\n    REG --> TBL[return lazy dplyr tbl]\n\n  "},"evals":[],"jsHooks":[]}</script><hr>
 </div>
 <div class="section level2">
 <h2 id="stage-1-locate-or-download">Stage 1 — Locate or download<a class="anchor" aria-label="anchor" href="#stage-1-locate-or-download"></a>
@@ -131,7 +135,51 @@ warnings.</li>
 </ul>
 </li>
 </ol>
+<div class="section level3">
+<h3 id="version-resolution">Version resolution<a class="anchor" aria-label="anchor" href="#version-resolution"></a>
+</h3>
+<p><code><a href="../reference/pumf_resolve_version.html">pumf_resolve_version()</a></code> canonicalises Census version
+strings before any registry lookup. Any string starting with a
+four-digit year is parsed flexibly: the file type is detected by
+grepping for <code>"hierarchical"</code>, <code>"household"</code>, or
+<code>"famil"</code> (defaulting to <code>"individuals"</code>), and CMA
+vs provincial by grepping for <code>"cma"</code>. The registry is then
+probed to determine the correct canonical format for that year.</p>
+<p>Examples:</p>
+<table class="table">
+<thead><tr class="header">
+<th>User input</th>
+<th>Resolved</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>"2021"</code></td>
+<td><code>"2021 (individuals)"</code></td>
+</tr>
+<tr class="even">
+<td><code>"1971"</code></td>
+<td><code>"1971/individuals_prov"</code></td>
+</tr>
+<tr class="odd">
+<td><code>"1971 CMA"</code></td>
+<td><code>"1971/individuals_cma"</code></td>
+</tr>
+<tr class="even">
+<td><code>"1971 households CMA"</code></td>
+<td><code>"1971/households_cma"</code></td>
+</tr>
+<tr class="odd">
+<td><code>"1986 families"</code></td>
+<td><code>"1986/families"</code></td>
+</tr>
+<tr class="even">
+<td><code>"2001 households"</code></td>
+<td><code>"2001 (households)"</code></td>
+</tr>
+</tbody>
+</table>
 <hr>
+</div>
 </div>
 <div class="section level2">
 <h2 id="stage-2-parse-metadata">Stage 2 — Parse metadata<a class="anchor" aria-label="anchor" href="#stage-2-parse-metadata"></a>
@@ -198,6 +246,16 @@ file</td>
 <td><strong>SPSS <code>.sav</code></strong></td>
 <td>a <code>.sav</code> binary file readable by haven</td>
 </tr>
+<tr class="odd">
+<td>7</td>
+<td><strong>PDF Data Dictionary</strong></td>
+<td>
+<code>*Dictionary.pdf</code> present and <code>pdftools</code>
+installed; supplements label-only surveys where the SPSS file has
+<code>DATA LIST</code> but no <code>VARIABLE LABELS</code> or
+<code>VALUE LABELS</code>
+</td>
+</tr>
 </tbody>
 </table>
 <p>Detection for case 5 also searches for a parallel French file — any
@@ -244,10 +302,10 @@ uses it to populate <code>variables.csv</code> types when no
 <code>VARIABLE LABELS</code> section is present.</p></li>
 <li><p><strong>Sentinel detection</strong> — variables whose only VALUE
 LABELS are sentinel phrases (“Not applicable”, “Valid skip”, “Don’t
-know”, etc.) are classified as <code>numeric</code> with a
-<code>missing_low/missing_high</code> range, not as
-<code>character</code>. This prevents spurious NA warnings when numeric
-values fall outside the label set.</p></li>
+know”, “Data not available”, etc.) are classified as
+<code>numeric</code> with a <code>missing_low/missing_high</code> range,
+not as <code>character</code>. This prevents spurious NA warnings when
+numeric values fall outside the label set.</p></li>
 <li><p><strong>Zero-padded codes</strong> — unquoted SPSS numeric codes
 like <code>01</code>, <code>02</code> are normalised via
 <code><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric()</a></code> → <code><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character()</a></code> so they match
@@ -299,6 +357,24 @@ overrides).</p>
 <p>Haven is used for binary <code>.sav</code> files when no text-format
 command file is available. This is a fallback for surveys that do not
 ship SPSS syntax.</p>
+</div>
+<div class="section level4">
+<h4 id="pdf-data-dictionary-parse_pdf_dictionary">PDF Data Dictionary (<code>parse_pdf_dictionary</code>)<a class="anchor" aria-label="anchor" href="#pdf-data-dictionary-parse_pdf_dictionary"></a>
+</h4>
+<p>StatCan PDF Data Dictionaries follow a standard bilingual format.
+Variable blocks start with
+<code>&lt;name&gt;  Position: N  Character/Numeric(w)</code>. The parser
+extracts variable long-names (<code>Long name:</code> /
+<code>Long nom:</code>) and code-value labels (<code>Codes:</code> /
+<code>Domaine:</code>). Reserved codes (<code>Reserved Codes:</code> /
+<code>Codes Réservés:</code>) set <code>missing_low/missing_high</code>
+ranges.</p>
+<p>This parser produces only <code>variables</code> and
+<code>codes</code> (no <code>layout</code>), and fires only when
+<code>pdftools</code> is installed and a matching
+<code>*Dictionary.pdf</code> is found. It is used as a label-only
+supplement for surveys like SFS 1999 where the SPSS file is
+<code>DATA LIST</code>-only.</p>
 </div>
 </div>
 <div class="section level3">
@@ -440,6 +516,16 @@ zeros and avoid premature type coercion. Numeric conversion happens
 explicitly in the next step.</p>
 </div>
 <div class="section level3">
+<h3 id="trailing-junk-row-removal-fwf-only">Trailing junk row removal (FWF only)<a class="anchor" aria-label="anchor" href="#trailing-junk-row-removal-fwf-only"></a>
+</h3>
+<p>After reading a fixed-width file, any row where fewer than two
+columns are non-NA is dropped. FWF files from older StatCan archives
+often end with <code>\r\n\x1a</code> (a DOS EOF marker), which the FWF
+reader interprets as a one-character row with a single non-NA field;
+this step removes it silently. CSV files are not affected — CSV parsers
+handle trailing newlines correctly.</p>
+</div>
+<div class="section level3">
 <h3 id="data-fixups-pre-label">Data fixups (pre-label)<a class="anchor" aria-label="anchor" href="#data-fixups-pre-label"></a>
 </h3>
 <p>Registry <code>data_fixups</code> entries are applied to the raw
@@ -453,6 +539,29 @@ leading zeros in some CSV formats (e.g. SFS).</li>
 <strong><code>rename</code></strong> — rename a column; applied only
 when the old name is present (safe for surveys that ship in multiple
 release variants, e.g. Census 2021 RELIG/RELIGION_DER).</li>
+<li>
+<strong><code>cols_swap</code></strong> — named character vector
+<code>c(A = "B", C = "D")</code> swapping pairs of column names. Used
+for surveys where the DATA LIST variable names are transposed relative
+to the PDF documentation (e.g. WKACTMA/WKACTFA and FAOCC81/MAOCC81 in
+Census 1981 individuals).</li>
+<li>
+<strong><code>force_numeric</code></strong> — character vector of
+column names to treat as numeric regardless of how many VALUE LABELS are
+declared. Used when a variable is an integer index that the SPSS file
+mis-classifies as categorical (e.g. SUBSAMPL in Census 1971).</li>
+<li>
+<strong><code>codes_supplement</code></strong> — named list of
+<code>data.frame</code>s injecting code-label rows absent from the SPSS
+command files. Each data frame has columns <code>val</code>,
+<code>label_en</code>, <code>label_fr</code>. Setting
+<code>label_en = NA</code> marks a value as intentionally missing
+(silences the “unmatched raw value” warning without introducing a
+spurious factor level).</li>
+<li>
+<strong><code>na_values</code></strong> — character vector of raw
+string sentinels that become <code>NA</code> for all numeric columns
+(used for undeclared Census income sentinels).</li>
 </ul>
 </div>
 <div class="section level3">
@@ -526,8 +635,13 @@ DATA LIST sections):</p>
 <p><code>apply_code_labels()</code> maps raw character values to R
 factors using <code>codes.csv</code>. The factor levels are the complete
 ordered set from the codes table, not just the values present in the
-data. Unmatched raw values become <code>NA</code> with a warning that
-shows the first five offending values.</p>
+data.</p>
+<p>Unmatched raw values become <code>NA</code> with a warning showing
+the first five offending values. An exception is made for values that
+appear in <code>codes.csv</code> with <code>label_en = NA</code>
+(injected via <code>codes_supplement</code>): these are treated as
+<em>intentionally</em> NA and silently produce <code>NA</code> factor
+entries without a warning.</p>
 <p>When <code>lang = "fra"</code>, any missing French label falls back
 per-row to the English label.</p>
 </div>
@@ -553,11 +667,12 @@ in the same session.</p>
 <div class="section level2">
 <h2 id="lfs-pipeline">LFS pipeline<a class="anchor" aria-label="anchor" href="#lfs-pipeline"></a>
 </h2>
-<p>The LFS is handled by <code><a href="../reference/lfs_get_pumf.html">lfs_get_pumf()</a></code> (delegated from
-<code><a href="../reference/get_pumf.html">get_pumf()</a></code>). Instead of one DuckDB per version, all LFS
-versions share a single <code>&lt;cache_path&gt;/LFS/LFS.duckdb</code>
-with accumulating tables <code>lfs_eng</code> and
-<code>lfs_fra</code>.</p>
+<p>The LFS is handled by <code><a href="../reference/lfs_get_pumf.html">lfs_get_pumf()</a></code> (delegated directly
+from <code><a href="../reference/get_pumf.html">get_pumf()</a></code> without going through
+<code><a href="../reference/get_pumf_connection.html">get_pumf_connection()</a></code>). Instead of one DuckDB per version,
+all LFS versions share a single
+<code>&lt;cache_path&gt;/LFS/LFS.duckdb</code> with accumulating tables
+<code>lfs_eng</code> and <code>lfs_fra</code>.</p>
 <p>Key differences from the standard pipeline:</p>
 <ul>
 <li><p><strong>Schema evolution</strong> — when a new LFS version adds a
@@ -572,6 +687,10 @@ supersedes the monthly rows for that year.</p></li>
 table in the shared DuckDB records which versions have been downloaded
 and parsed, so <code>refresh = "auto"</code> downloads only new
 versions.</p></li>
+<li><p><strong>Read-only fast path</strong> — when the requested version
+is already in the database, <code><a href="../reference/lfs_get_pumf.html">lfs_get_pumf()</a></code> opens only a
+read-only connection and returns immediately. No write lock is acquired
+unless new data actually needs to be written.</p></li>
 <li><p><strong><code><a href="../reference/get_pumf.html">get_pumf()</a></code> return</strong> — when a specific
 version is requested, the function applies a
 <code><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">dplyr::filter()</a></code> on <code>SURVYEAR</code> (and
@@ -668,7 +787,8 @@ without an entry use auto-detection with defaults.</p>
 <tr class="odd">
 <td><code>data_fixups</code></td>
 <td>list of <code>str_pad</code>, <code>rename</code>,
-<code>na_values</code> transforms</td>
+<code>cols_swap</code>, <code>force_numeric</code>,
+<code>codes_supplement</code>, <code>na_values</code> transforms</td>
 <td><code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code></td>
 </tr>
 </tbody>

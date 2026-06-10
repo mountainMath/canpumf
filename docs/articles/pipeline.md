@@ -60,6 +60,27 @@ parsing begins.
       entry names use `useBytes = TRUE` to avoid “invalid in this
       locale” warnings.
 
+### Version resolution
+
+[`pumf_resolve_version()`](https://mountainmath.github.io/canpumf/reference/pumf_resolve_version.md)
+canonicalises Census version strings before any registry lookup. Any
+string starting with a four-digit year is parsed flexibly: the file type
+is detected by grepping for `"hierarchical"`, `"household"`, or
+`"famil"` (defaulting to `"individuals"`), and CMA vs provincial by
+grepping for `"cma"`. The registry is then probed to determine the
+correct canonical format for that year.
+
+Examples:
+
+| User input              | Resolved                  |
+|-------------------------|---------------------------|
+| `"2021"`                | `"2021 (individuals)"`    |
+| `"1971"`                | `"1971/individuals_prov"` |
+| `"1971 CMA"`            | `"1971/individuals_cma"`  |
+| `"1971 households CMA"` | `"1971/households_cma"`   |
+| `"1986 families"`       | `"1986/families"`         |
+| `"2001 households"`     | `"2001 (households)"`     |
+
 ------------------------------------------------------------------------
 
 ## Stage 2 — Parse metadata
@@ -84,6 +105,7 @@ parser(s) apply. **Multiple parsers can fire for the same survey**
 | 4 | **SPSS split-file** | any `.sps` file whose name ends in `vare`, `vale`, or `_i` |
 | 5 | **SPSS monolithic** | `.sps` file, `*SPSS.txt` file, or `.xmf` file whose content contains `VALUE LABELS` **or `DATA LIST`** (checked with `useBytes = TRUE` to tolerate CP850/Latin-1 data); `VARIABLE LABELS` is optional |
 | 6 | **SPSS `.sav`** | a `.sav` binary file readable by haven |
+| 7 | **PDF Data Dictionary** | `*Dictionary.pdf` present and `pdftools` installed; supplements label-only surveys where the SPSS file has `DATA LIST` but no `VARIABLE LABELS` or `VALUE LABELS` |
 
 Detection for case 5 also searches for a parallel French file — any
 candidate in the same set whose path includes `/fran` or `/french`
@@ -124,10 +146,10 @@ Key parsing details:
   `VARIABLE LABELS` section is present.
 
 - **Sentinel detection** — variables whose only VALUE LABELS are
-  sentinel phrases (“Not applicable”, “Valid skip”, “Don’t know”, etc.)
-  are classified as `numeric` with a `missing_low/missing_high` range,
-  not as `character`. This prevents spurious NA warnings when numeric
-  values fall outside the label set.
+  sentinel phrases (“Not applicable”, “Valid skip”, “Don’t know”, “Data
+  not available”, etc.) are classified as `numeric` with a
+  `missing_low/missing_high` range, not as `character`. This prevents
+  spurious NA warnings when numeric values fall outside the label set.
 
 - **Zero-padded codes** — unquoted SPSS numeric codes like `01`, `02`
   are normalised via
@@ -171,6 +193,20 @@ Latin-1 (CP1252 if the registry overrides).
 Haven is used for binary `.sav` files when no text-format command file
 is available. This is a fallback for surveys that do not ship SPSS
 syntax.
+
+#### PDF Data Dictionary (`parse_pdf_dictionary`)
+
+StatCan PDF Data Dictionaries follow a standard bilingual format.
+Variable blocks start with `<name> Position: N Character/Numeric(w)`.
+The parser extracts variable long-names (`Long name:` / `Long nom:`) and
+code-value labels (`Codes:` / `Domaine:`). Reserved codes
+(`Reserved Codes:` / `Codes Réservés:`) set `missing_low/missing_high`
+ranges.
+
+This parser produces only `variables` and `codes` (no `layout`), and
+fires only when `pdftools` is installed and a matching `*Dictionary.pdf`
+is found. It is used as a label-only supplement for surveys like SFS
+1999 where the SPSS file is `DATA LIST`-only.
 
 ### Metadata encoding
 
@@ -247,6 +283,15 @@ Both paths read all columns as character
 premature type coercion. Numeric conversion happens explicitly in the
 next step.
 
+### Trailing junk row removal (FWF only)
+
+After reading a fixed-width file, any row where fewer than two columns
+are non-NA is dropped. FWF files from older StatCan archives often end
+with `\r\n\x1a` (a DOS EOF marker), which the FWF reader interprets as a
+one-character row with a single non-NA field; this step removes it
+silently. CSV files are not affected — CSV parsers handle trailing
+newlines correctly.
+
 ### Data fixups (pre-label)
 
 Registry `data_fixups` entries are applied to the raw character data
@@ -258,6 +303,22 @@ before label mapping:
 - **`rename`** — rename a column; applied only when the old name is
   present (safe for surveys that ship in multiple release variants,
   e.g. Census 2021 RELIG/RELIGION_DER).
+- **`cols_swap`** — named character vector `c(A = "B", C = "D")`
+  swapping pairs of column names. Used for surveys where the DATA LIST
+  variable names are transposed relative to the PDF documentation
+  (e.g. WKACTMA/WKACTFA and FAOCC81/MAOCC81 in Census 1981 individuals).
+- **`force_numeric`** — character vector of column names to treat as
+  numeric regardless of how many VALUE LABELS are declared. Used when a
+  variable is an integer index that the SPSS file mis-classifies as
+  categorical (e.g. SUBSAMPL in Census 1971).
+- **`codes_supplement`** — named list of `data.frame`s injecting
+  code-label rows absent from the SPSS command files. Each data frame
+  has columns `val`, `label_en`, `label_fr`. Setting `label_en = NA`
+  marks a value as intentionally missing (silences the “unmatched raw
+  value” warning without introducing a spurious factor level).
+- **`na_values`** — character vector of raw string sentinels that become
+  `NA` for all numeric columns (used for undeclared Census income
+  sentinels).
 
 ### Bootstrap weight join (BSW)
 
@@ -301,9 +362,13 @@ The two sets are kept separate: applying the 7-digit sentinel to an
 
 `apply_code_labels()` maps raw character values to R factors using
 `codes.csv`. The factor levels are the complete ordered set from the
-codes table, not just the values present in the data. Unmatched raw
-values become `NA` with a warning that shows the first five offending
-values.
+codes table, not just the values present in the data.
+
+Unmatched raw values become `NA` with a warning showing the first five
+offending values. An exception is made for values that appear in
+`codes.csv` with `label_en = NA` (injected via `codes_supplement`):
+these are treated as *intentionally* NA and silently produce `NA` factor
+entries without a warning.
 
 When `lang = "fra"`, any missing French label falls back per-row to the
 English label.
@@ -329,8 +394,10 @@ conflicts when building both language tables in the same session.
 
 The LFS is handled by
 [`lfs_get_pumf()`](https://mountainmath.github.io/canpumf/reference/lfs_get_pumf.md)
-(delegated from
-[`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)).
+(delegated directly from
+[`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
+without going through
+[`get_pumf_connection()`](https://mountainmath.github.io/canpumf/reference/get_pumf_connection.md)).
 Instead of one DuckDB per version, all LFS versions share a single
 `<cache_path>/LFS/LFS.duckdb` with accumulating tables `lfs_eng` and
 `lfs_fra`.
@@ -349,6 +416,12 @@ Key differences from the standard pipeline:
 - **Version tracking** — a `lfs_versions` table in the shared DuckDB
   records which versions have been downloaded and parsed, so
   `refresh = "auto"` downloads only new versions.
+
+- **Read-only fast path** — when the requested version is already in the
+  database,
+  [`lfs_get_pumf()`](https://mountainmath.github.io/canpumf/reference/lfs_get_pumf.md)
+  opens only a read-only connection and returns immediately. No write
+  lock is acquired unless new data actually needs to be written.
 
 - **[`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
   return** — when a specific version is requested, the function applies
@@ -405,4 +478,4 @@ entry use auto-detection with defaults.
 | `bsw_file_mask` | filename pattern for the BSW data file | `NULL` |
 | `bsw_join_key` | column(s) to join BSW onto the main data | `NULL` |
 | `bsw_drop_cols` | BSW columns to drop before joining | `character(0)` |
-| `data_fixups` | list of `str_pad`, `rename`, `na_values` transforms | [`list()`](https://rdrr.io/r/base/list.html) |
+| `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `codes_supplement`, `na_values` transforms | [`list()`](https://rdrr.io/r/base/list.html) |

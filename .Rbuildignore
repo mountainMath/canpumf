@@ -16,3 +16,4 @@ documentation/duckdb_plan.md
 documentation/*
 ^tools$
 ^R/hex_sticker.R
+^\.github$
