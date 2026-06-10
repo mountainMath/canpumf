@@ -3,6 +3,16 @@
 ``` r
 
 library(canpumf)
+#> The duckplyr package is configured to fall back to dplyr when it encounters an
+#> incompatibility. Fallback events can be collected and uploaded for analysis to
+#> guide future development. By default, data will be collected but no data will
+#> be uploaded.
+#> ℹ Automatic fallback uploading is not controlled and therefore disabled, see
+#>   `?duckplyr::fallback()`.
+#> ✔ Number of reports ready for upload: 3.
+#> → Review with `duckplyr::fallback_review()`, upload with
+#>   `duckplyr::fallback_upload()`.
+#> ℹ Configure automatic uploading with `duckplyr::fallback_config()`.
 library(dplyr)
 #> 
 #> Attaching package: 'dplyr'
@@ -16,15 +26,15 @@ library(ggplot2)
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
-For Census data the package currently supports the 2021, 2016, and
-2011NHS individuals pumf. These can be ordered from Statisticas Canada
-via EFT and should be stored in the cache path pointed to in the
-`canpumf.cache_path` option for the package to find the data.
+The package supports Census PUMF from 1971 through 2021, covering
+individuals, hierarchical, households, and families variants depending
+on the year. The 2021 and 2016 files are available via direct download;
+older years must be ordered through Statistics Canada’s EFT portal and
+placed in the directory pointed to by the `canpumf.cache_path` option.
 
 ``` r
 
-census_2021 <- get_pumf("Census",pumf_version="2021") |>
-  label_pumf_data(rename_columns = FALSE)
+census_2021 <- get_pumf("Census",version="2021") 
 ```
 
 As a simple applicartion we look at household maintainer rates by age
@@ -47,6 +57,9 @@ census_2021 |>
        y="Age group",
        x="Household maintainer rate",
        caption="StatCan Census 2021 PUMF") 
+#> Warning: Missing values are always removed in SQL aggregation functions.
+#> Use `na.rm = TRUE` to silence this warning
+#> This warning is displayed once every 8 hours.
 ```
 
 ![](Census_files/figure-html/unnamed-chunk-3-1.png)

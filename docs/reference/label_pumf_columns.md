@@ -1,32 +1,30 @@
-# Rename to human readable column names
+# Rename PUMF table columns to human-readable variable labels
 
-Rename to human readable column names
+Takes a lazy \`dplyr::tbl()\` returned by \[get_pumf()\] and returns the
+same lazy table with column names replaced by the variable labels from
+the survey metadata (e.g. \`PHHSIZE\` → \`"Household size"\`).
 
 ## Usage
 
 ``` r
-label_pumf_columns(
-  pumf_data,
-  pumf_base_path = attr(pumf_data, "pumf_base_path"),
-  layout_mask = attr(pumf_data, "layout_mask")
-)
+label_pumf_columns(tbl)
 ```
 
 ## Arguments
 
-- pumf_data:
+- tbl:
 
-  pumf data file
-
-- pumf_base_path:
-
-  optional base path, guessed from attributes on `pumf_data`
-
-- layout_mask:
-
-  optional layout mask in case there are several layout files, guessed
-  from attributes on `layout_mask`
+  A lazy \`dplyr::tbl()\` returned by \[get_pumf()\].
 
 ## Value
 
-data frame with renamed columns
+A lazy \`dplyr::tbl()\` with renamed columns.
+
+## Details
+
+Duplicate labels are disambiguated by appending \` (VAR_NAME)\`. Columns
+with no label (e.g. internal DuckDB columns) are left unchanged.
+
+The tbl must have been produced by \[get_pumf()\]; the function reads
+survey provenance (series, version, cache path, language) from the
+underlying DuckDB connection.

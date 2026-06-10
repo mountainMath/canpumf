@@ -1,68 +1,89 @@
-# Get select pumf data files
+# Get a Statistics Canada PUMF dataset as a lazy DuckDB table
 
-This is a convenience function that downloads and accesses pumf data for
-a curated set of pumf datasets.
+Main entry point for the canpumf package. Downloads (if needed), parses
+metadata, applies bilingual labels, and returns a lazy \`dplyr::tbl()\`
+backed by a DuckDB file in the cache directory. Subsequent calls reuse
+the cached DuckDB without re-downloading.
 
 ## Usage
 
 ``` r
 get_pumf(
-  pumf_series,
-  pumf_version = NULL,
-  layout_mask = NULL,
-  file_mask = layout_mask,
-  guess_numeric = TRUE,
-  pumf_cache_path = getOption("canpumf.cache_path"),
+  series = NULL,
+  version = NULL,
+  lang = "eng",
+  cache_path = getOption("canpumf.cache_path", tempdir()),
   refresh = FALSE,
-  refresh_layout = FALSE,
-  timeout = 3000
+  redownload = FALSE,
+  read_only = TRUE,
+  ...
 )
 ```
 
 ## Arguments
 
-- pumf_series:
+- series:
 
-  sereis for the pumf data, like LSF, or CHS
+  Survey series acronym, e.g. \`"SFS"\`, \`"CHS"\`, \`"LFS"\`,
+  \`"Census"\`, \`"CPSS"\`.
 
-- pumf_version:
+- version:
 
-  In case there are several versions of a given series, like for LFS,
-  the version
+  Version string (e.g. \`"2019"\`, \`"2021 (individuals)"\`,
+  \`"2023-06"\`). For series with a single version omit or pass
+  \`NULL\`.
 
-- layout_mask:
+- lang:
 
-  optional layout mask in case there are several files. identifiers. For
-  LFS this is the month/year.
+  \`"eng"\` (default) or \`"fra"\`. Selects which set of labels to
+  apply. Each language creates a separate DuckDB table (created lazily
+  on first request).
 
-- file_mask:
+- cache_path:
 
-  optional additional mask to filter down to specific PUMF file if there
-  are several
-
-- guess_numeric:
-
-  logical, will guess numeric columns and covert to numeric and set
-  missing values to `NA` if set to `TRUE` (default)
-
-- pumf_cache_path:
-
-  A path to a permanent cache. If none is fould the data is stored in
-  the temporary directory for the duration of the session.
+  Root cache directory. Defaults to \`getOption("canpumf.cache_path",
+  tempdir())\`. Set persistently in \`.Rprofile\` with
+  \`options(canpumf.cache_path = "\<path\>")\`.
 
 - refresh:
 
-  optionall re-downlad pumf data, only for series that can be downloaded
-  directly from StatCan
+  \`FALSE\` (default) reuses cached data. \`TRUE\` clears the DuckDB
+  table and metadata and rebuilds from the already-extracted raw files
+  (does not re-download). \`"auto"\` is accepted for LFS only and
+  downloads all available versions not yet in the database.
 
-- refresh_layout:
+- redownload:
 
-  (optional) regenerate the layout and metadata
+  If \`TRUE\`, delete the cached zip and extracted files and re-download
+  from StatCan before rebuilding. Implies \`refresh = TRUE\`. Not valid
+  with \`refresh = "auto"\`.
 
-- timeout:
+- read_only:
 
-  Optional parameter to specify connection timeout for download
+  Open the DuckDB connection in read-only mode (default \`TRUE\`). Pass
+  \`FALSE\` to allow write access, e.g. to persist custom views or
+  derived tables in the DuckDB file. Use \[close_pumf()\] to release the
+  connection when done.
+
+- ...:
+
+  Accepts deprecated parameter names (\`pumf_series\`, \`pumf_version\`,
+  \`pumf_cache_path\`, \`layout_mask\`, \`file_mask\`,
+  \`guess_numeric\`, \`timeout\`, \`refresh_layout\`) with a warning.
 
 ## Value
 
-A tibble with the pumf data.
+A lazy \`dplyr::tbl()\` backed by a DuckDB connection. Call
+\`dplyr::collect()\` to obtain a local tibble. Call \[close_pumf()\] to
+release the connection.
+
+## Details
+
+\*\*Breaking change from the pre-DuckDB API\*\*: this function now
+returns a lazy \`dplyr::tbl()\` instead of a tibble. Call
+\`dplyr::collect()\` to materialise a local tibble.
+
+The LFS is treated specially: all versions share a single \`LFS.duckdb\`
+database. Pass \`version = "YYYY"\` (annual) or \`"YYYY-MM"\` (monthly).
+\`refresh = "auto"\` downloads every available LFS version that is not
+yet in the database; this is only valid for LFS.

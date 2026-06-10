@@ -20,7 +20,7 @@ separately at the end.
 
 ## High-level flow
 
-```{r pipeline-diagram, echo=FALSE, fig.width=9, fig.height=7, out.width="100%"}
+```{r pipeline-diagram, echo=FALSE, fig.width=12, fig.height=6, out.width="100%"}
 if (requireNamespace("DiagrammeR", quietly = TRUE)) {
   DiagrammeR::mermaid("
 graph TD
@@ -82,7 +82,7 @@ graph TD
     S3 --> REG[register provenance series version lang]
     REG --> TBL[return lazy dplyr tbl]
 
-  ", height = 650)
+  ", height = 650, width = 1200)
 } else {
   cat("Install DiagrammeR to render this diagram: install.packages('DiagrammeR')")
 }

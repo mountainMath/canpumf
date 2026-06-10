@@ -1,6 +1,9 @@
-# Download PUMF data
+# Download PUMF data (deprecated)
 
-Download PUMF data
+\`r lifecycle::badge("deprecated")\`
+
+Use \[pumf_locate_or_download()\] internally or \[get_pumf()\] as the
+public entry point.
 
 ## Usage
 
@@ -17,20 +20,19 @@ download_pumf(
 
 - path:
 
-  Download path for PUMF SPSS data
+  Download URL for the PUMF zip file.
 
 - destination_dir:
 
-  Optional path where to store the extracted PUMF data, default is
-  \`file.path(tempdir(),"pumf")\`
+  Directory to extract into.
 
 - refresh:
 
-  Optional parameter to force re-download of PUMF data
+  Force re-download even if directory exists.
 
 - timeout:
 
-  Optional parameter to specify connection timeout for download
+  Connection timeout in seconds.
 
 ## Value
 

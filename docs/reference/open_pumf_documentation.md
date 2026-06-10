@@ -1,40 +1,60 @@
 # Open PUMF documentation in browser
 
-When available this will open the PUF user guide in the default browser.
+Scans the cached version directory for PDF and TXT documentation files
+and opens matching files in the default browser. If no files are found
+in the extracted content, the zip is inspected and documentation files
+are extracted on demand into a \`docs_extracted/\` subdirectory.
 
 ## Usage
 
 ``` r
 open_pumf_documentation(
-  pumf_series,
-  pumf_version = NULL,
+  series = NULL,
+  version = NULL,
   documentation_type = "user_guide",
-  pumf_cache_path = getOption("canpumf.cache_path")
+  cache_path = getOption("canpumf.cache_path", tempdir()),
+  pumf_series = NULL,
+  pumf_version = NULL,
+  pumf_cache_path = NULL
 )
 ```
 
 ## Arguments
 
-- pumf_series:
+- series:
 
-  sereis for the pumf data, like LSF, or CHS
+  Survey series acronym, e.g. \`"SFS"\`, \`"Census"\`.
 
-- pumf_version:
+- version:
 
-  In case there are several versions of a given series, like for LFS,
-  the version
+  Version string, e.g. \`"2019"\`, \`"2021 (individuals)"\`. If
+  \`NULL\`, searches the series directory directly (for series with a
+  single version).
 
 - documentation_type:
 
-  which documentation to open, either "user_guide", "reference_guide" or
-  "quality" or "errata". Not all types are available for all PUMFs.
-  identifiers. For LFS this is the month/year.
+  Which type of documentation to open. One of \`"user_guide"\`
+  (default), \`"reference_guide"\`, \`"questionnaire"\`, \`"quality"\`,
+  or \`"errata"\`. When multiple files match the type pattern those all
+  opened. When only one file exists the filter is skipped.
+
+- cache_path:
+
+  Root cache directory. Defaults to \`getOption("canpumf.cache_path",
+  tempdir())\`.
+
+- pumf_series:
+
+  Deprecated; use \`series\`.
+
+- pumf_version:
+
+  Deprecated; use \`version\`.
 
 - pumf_cache_path:
 
-  A path to a permanent cache. If none is fould the data is stored in
-  the temporary directory for the duration of the session.
+  Deprecated; use \`cache_path\`.
 
 ## Value
 
-nothing, opens document in browser
+Invisibly, the paths of the opened documentation files.

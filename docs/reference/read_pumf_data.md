@@ -1,6 +1,11 @@
-# Parse PUMF data
+# Read raw PUMF data as a tibble (deprecated)
 
-Parse PUMF data
+\`r lifecycle::badge("deprecated")\`
+
+This function is kept for users who work with manually-deposited
+directories outside the standard cache. For all standard surveys use
+\[get_pumf()\], which returns a lazy DuckDB table and handles labeling
+automatically.
 
 ## Usage
 
@@ -17,23 +22,21 @@ read_pumf_data(
 
 - pumf_base_path:
 
-  optional base path, guessed from attributes on `pumf_data`
+  Path to the extracted PUMF directory.
 
 - layout_mask:
 
-  optional layout mask in case there are several layout files, guessed
-  from attributes on `layout_mask`
+  Optional mask to select a specific layout file.
 
 - file_mask:
 
-  optional additional mask to filter down to specific PUMF file if there
-  are several
+  Optional mask to select a specific data file.
 
 - guess_numeric:
 
-  logical, will guess numeric columns and covert to numeric and set
-  missing values to `NA` if set to `TRUE` (default)
+  Logical; convert numeric columns and apply missing values. Default
+  \`TRUE\`.
 
 ## Value
 
-data frame with one row for each case in the PUMF data
+A tibble with attributes \`pumf_base_path\` and \`layout_mask\`.

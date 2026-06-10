@@ -18,25 +18,26 @@ label_pumf_data(
 
 - pumf_data:
 
-  pumf data file
+  A lazy \`dplyr::tbl()\` returned by \[get_pumf()\].
 
 - pumf_base_path:
 
-  optional base path, guessed from attributes on `pumf_data`
+  Deprecated, ignored.
 
 - layout_mask:
 
-  optional layout mask in case there are several layout files, guessed
-  from attributes on `layout_mask`
+  Deprecated, ignored.
 
 - rename_columns:
 
-  rename PUMF columns to human readable names, default is \`FALSE\`
+  If \`TRUE\`, rename columns to human-readable labels via
+  \[label_pumf_columns()\]. Default \`FALSE\`.
 
 - infer_missing_numeric:
 
-  optional character, infer variables that aren't labelled to be numeric
+  Deprecated, ignored.
 
 ## Value
 
-relabeled data frame
+\`pumf_data\` unchanged, or with columns renamed if \`rename_columns =
+TRUE\`.

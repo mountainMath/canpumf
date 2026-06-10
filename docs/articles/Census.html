@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -35,6 +35,7 @@
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
+    <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
     <li><a class="dropdown-item" href="../articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul>
 </li>
@@ -68,6 +69,16 @@
     
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></span>
+<span><span class="co">#&gt; The <span style="color: #0000BB;">duckplyr</span> package is configured to fall back to <span style="color: #0000BB;">dplyr</span> when it encounters an</span></span>
+<span><span class="co">#&gt; incompatibility. Fallback events can be collected and uploaded for analysis to</span></span>
+<span><span class="co">#&gt; guide future development. By default, data will be collected but no data will</span></span>
+<span><span class="co">#&gt; be uploaded.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Automatic fallback uploading is not controlled and therefore disabled, see</span></span>
+<span><span class="co">#&gt;   `?duckplyr::fallback()`.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BB00;">✔</span> Number of reports ready for upload: <span style="font-weight: bold;">3</span>.</span></span>
+<span><span class="co">#&gt; → Review with `duckplyr::fallback_review()`, upload with</span></span>
+<span><span class="co">#&gt;   `duckplyr::fallback_upload()`.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> <span style="color: #555555;">Configure automatic uploading with `duckplyr::fallback_config()`.</span></span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Attaching package: 'dplyr'</span></span>
@@ -79,14 +90,14 @@
 <span><span class="co">#&gt;     intersect, setdiff, setequal, union</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>canpumf.cache_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Sys.getenv.html" class="external-link">Sys.getenv</a></span><span class="op">(</span><span class="st">"COMPILE_VIG_CANPUMF"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-<p>For Census data the package currently supports the 2021, 2016, and
-2011NHS individuals pumf. These can be ordered from Statisticas Canada
-via EFT and should be stored in the cache path pointed to in the
-<code>canpumf.cache_path</code> option for the package to find the
-data.</p>
+<p>The package supports Census PUMF from 1971 through 2021, covering
+individuals, hierarchical, households, and families variants depending
+on the year. The 2021 and 2016 files are available via direct download;
+older years must be ordered through Statistics Canada’s EFT portal and
+placed in the directory pointed to by the
+<code>canpumf.cache_path</code> option.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">census_2021</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>,pumf_version<span class="op">=</span><span class="st">"2021"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu"><a href="../reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span>rename_columns <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="va">census_2021</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>,version<span class="op">=</span><span class="st">"2021"</span><span class="op">)</span> </span></code></pre></div>
 <p>As a simple applicartion we look at household maintainer rates by age
 group for select metro areas, using standard weights.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
@@ -104,7 +115,10 @@ group for select metro areas, using standard weights.</p>
 <span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Age-specifc household maintainer rates"</span>,</span>
 <span>       y<span class="op">=</span><span class="st">"Age group"</span>,</span>
 <span>       x<span class="op">=</span><span class="st">"Household maintainer rate"</span>,</span>
-<span>       caption<span class="op">=</span><span class="st">"StatCan Census 2021 PUMF"</span><span class="op">)</span> </span></code></pre></div>
+<span>       caption<span class="op">=</span><span class="st">"StatCan Census 2021 PUMF"</span><span class="op">)</span> </span>
+<span><span class="co">#&gt; Warning: Missing values are always removed in SQL aggregation functions.</span></span>
+<span><span class="co">#&gt; Use `na.rm = TRUE` to silence this warning</span></span>
+<span><span class="co">#&gt; <span style="color: #555555;">This warning is displayed once every 8 hours.</span></span></span></code></pre></div>
 <p><img src="Census_files/figure-html/unnamed-chunk-3-1.png" class="r-plt" alt="" width="700"></p>
   </main>
 </div>

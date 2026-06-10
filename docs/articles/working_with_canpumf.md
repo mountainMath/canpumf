@@ -14,6 +14,16 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(canpumf)
+#> The duckplyr package is configured to fall back to dplyr when it encounters an
+#> incompatibility. Fallback events can be collected and uploaded for analysis to
+#> guide future development. By default, data will be collected but no data will
+#> be uploaded.
+#> ℹ Automatic fallback uploading is not controlled and therefore disabled, see
+#>   `?duckplyr::fallback()`.
+#> ✔ Number of reports ready for upload: 3.
+#> → Review with `duckplyr::fallback_review()`, upload with
+#>   `duckplyr::fallback_upload()`.
+#> ℹ Configure automatic uploading with `duckplyr::fallback_config()`.
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
@@ -21,12 +31,66 @@ The Canadian Housing Survey PUMF data is a rich dataset on Canadian
 housing preferences and needs. This vignette is adapted from [work done
 by Nathan Lauster and Jens von
 Bergmann](https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/).
+We start by establishing a connection to the 2018 CHS, downloading the
+data, parsing the metadata and creating the local database if needed.
 
 ``` r
 
-chs_pumf <- get_pumf("CHS","2018") |>
-  label_pumf_data(rename_columns = TRUE) 
+chs_pumf <- get_pumf("CHS","2018") 
+
+chs_pumf |> 
+  select(1:5) |>
+  head(10)
+#> # Source:   SQL [?? x 5]
+#> # Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#>    PUMFID PHHSIZE PAGEGR1 PAGEGR2 PAGEGR3
+#>    <chr>  <fct>   <fct>   <fct>   <fct>  
+#>  1 00001  1       No      No      No     
+#>  2 00002  1       No      No      Yes    
+#>  3 00003  1       No      No      No     
+#>  4 00004  1       No      No      No     
+#>  5 00005  1       No      No      No     
+#>  6 00006  1       No      No      No     
+#>  7 00007  4       Yes     Yes     Yes    
+#>  8 00008  2       No      No      Yes    
+#>  9 00009  1       No      No      Yes    
+#> 10 00010  4       No      Yes     Yes
 ```
+
+The data comes automatically labelled, but column names are left as
+coded in the data. That makes it easier to work with the data if one is
+very familiar with the particular survey, but can also be a barrier. In
+that case one can apply column labels on the fly.
+
+``` r
+
+chs_pumf <- chs_pumf |>
+  label_pumf_columns()
+
+chs_pumf |> 
+  select(1:5) |>
+  head(10)
+#> # Source:   SQL [?? x 5]
+#> # Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#>    `Unique household identifier` `Household size` Demographic information - ag…¹
+#>    <chr>                         <fct>            <fct>                         
+#>  1 00001                         1                No                            
+#>  2 00002                         1                No                            
+#>  3 00003                         1                No                            
+#>  4 00004                         1                No                            
+#>  5 00005                         1                No                            
+#>  6 00006                         1                No                            
+#>  7 00007                         4                Yes                           
+#>  8 00008                         2                No                            
+#>  9 00009                         1                No                            
+#> 10 00010                         4                No                            
+#> # ℹ abbreviated name: ¹​`Demographic information - age group: 0 - 17`
+#> # ℹ 2 more variables: `Demographic information - age group: 18 - 29` <fct>,
+#> #   `Demographic information - age group: 30 - 64` <fct>
+```
+
+Applying column labels can make selecting columns more tedious, but can
+also avoid downstream errors in the analysis.
 
 ## Forced moves
 
@@ -40,12 +104,11 @@ in a given timeframe.
 
 ``` r
 
-renter_chs_pumf <- chs_pumf %>% 
-  mutate(`Previous accommodations - when move to current dwelling occurred`=as.character(`Previous accommodations - when move to current dwelling occurred`)) %>%
+renter_chs_pumf <- chs_pumf |>
   filter((Tenure == "No" & 
-            grepl("10",`Previous accommodations - when move to current dwelling occurred`)) | 
-           (!grepl("10",`Previous accommodations - when move to current dwelling occurred`) &
-              `Previous accommodations - tenure`=="Rent it"))
+            `Previous accommodations - when move to current dwelling occurred` == "10 or more years ago + Always lived here") | 
+           (`Previous accommodations - when move to current dwelling occurred` != "10 or more years ago + Always lived here" & 
+              `Previous accommodations - tenure`== "Rent it"))
 ```
 
 We will also focus on people that did move in the past 5 years, as
@@ -72,6 +135,9 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
        x="When move to current dwelling occured",
        y="Share of current renters",
        caption="StatCan CHS PUMF 2018")
+#> Warning: Missing values are always removed in SQL aggregation functions.
+#> Use `na.rm = TRUE` to silence this warning
+#> This warning is displayed once every 8 hours.
 ```
 
 ![Vancouver renters forced to
@@ -91,6 +157,7 @@ facilitated via the `add_bootstrap_weights` function.
 ``` r
 
 plot_data <- renter_chs_pumf %>%
+  collect() |>
   add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
@@ -132,6 +199,7 @@ what effect it has.
 ``` r
 
 plot_data <- renter_chs_pumf %>%
+  collect() |>
   add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
@@ -171,6 +239,7 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 ``` r
 
 plot_data <- renter_chs_pumf %>%
+  collect() |>
   add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
   filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,

@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -35,6 +35,7 @@
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
+    <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
     <li><a class="dropdown-item" href="../articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul>
 </li>
@@ -79,13 +80,72 @@
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://tidyr.tidyverse.org" class="external-link">tidyr</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></span>
+<span><span class="co">#&gt; The <span style="color: #0000BB;">duckplyr</span> package is configured to fall back to <span style="color: #0000BB;">dplyr</span> when it encounters an</span></span>
+<span><span class="co">#&gt; incompatibility. Fallback events can be collected and uploaded for analysis to</span></span>
+<span><span class="co">#&gt; guide future development. By default, data will be collected but no data will</span></span>
+<span><span class="co">#&gt; be uploaded.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Automatic fallback uploading is not controlled and therefore disabled, see</span></span>
+<span><span class="co">#&gt;   `?duckplyr::fallback()`.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BB00;">✔</span> Number of reports ready for upload: <span style="font-weight: bold;">3</span>.</span></span>
+<span><span class="co">#&gt; → Review with `duckplyr::fallback_review()`, upload with</span></span>
+<span><span class="co">#&gt;   `duckplyr::fallback_upload()`.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> <span style="color: #555555;">Configure automatic uploading with `duckplyr::fallback_config()`.</span></span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>canpumf.cache_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Sys.getenv.html" class="external-link">Sys.getenv</a></span><span class="op">(</span><span class="st">"COMPILE_VIG_CANPUMF"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>The Canadian Housing Survey PUMF data is a rich dataset on Canadian
 housing preferences and needs. This vignette is adapted from <a href="https://doodles.mountainmath.ca/blog/2021/03/29/forced-out-in-canada-new-data-from-chs/" class="external-link">work
-done by Nathan Lauster and Jens von Bergmann</a>.</p>
+done by Nathan Lauster and Jens von Bergmann</a>. We start by
+establishing a connection to the 2018 CHS, downloading the data, parsing
+the metadata and creating the local database if needed.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">chs_pumf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"CHS"</span>,<span class="st">"2018"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu"><a href="../reference/label_pumf_data.html">label_pumf_data</a></span><span class="op">(</span>rename_columns <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> </span></code></pre></div>
+<code class="sourceCode R"><span><span class="va">chs_pumf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"CHS"</span>,<span class="st">"2018"</span><span class="op">)</span> </span>
+<span></span>
+<span><span class="va">chs_pumf</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Source:   SQL [?? x 5]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]</span></span></span>
+<span><span class="co">#&gt;    PUMFID PHHSIZE PAGEGR1 PAGEGR2 PAGEGR3</span></span>
+<span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>  </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> 00001  1       No      No      No     </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> 00002  1       No      No      Yes    </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> 00003  1       No      No      No     </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> 00004  1       No      No      No     </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> 00005  1       No      No      No     </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> 00006  1       No      No      No     </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> 00007  4       Yes     Yes     Yes    </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> 00008  2       No      No      Yes    </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> 00009  1       No      No      Yes    </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> 00010  4       No      Yes     Yes</span></span></code></pre></div>
+<p>The data comes automatically labelled, but column names are left as
+coded in the data. That makes it easier to work with the data if one is
+very familiar with the particular survey, but can also be a barrier. In
+that case one can apply column labels on the fly.</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">chs_pumf</span> <span class="op">&lt;-</span> <span class="va">chs_pumf</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="../reference/label_pumf_columns.html">label_pumf_columns</a></span><span class="op">(</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">chs_pumf</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Source:   SQL [?? x 5]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]</span></span></span>
+<span><span class="co">#&gt;    `Unique household identifier` `Household size` Demographic information - ag…¹</span></span>
+<span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                         <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>            <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>                         </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> 00001                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> 00002                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> 00003                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> 00004                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> 00005                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> 00006                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> 00007                         4                Yes                           </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> 00008                         2                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> 00009                         1                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> 00010                         4                No                            </span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ abbreviated name: ¹​`Demographic information - age group: 0 - 17`</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 2 more variables: `Demographic information - age group: 18 - 29` &lt;fct&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   `Demographic information - age group: 30 - 64` &lt;fct&gt;</span></span></span></code></pre></div>
+<p>Applying column labels can make selecting columns more tedious, but
+can also avoid downstream errors in the analysis.</p>
 <div class="section level2">
 <h2 id="forced-moves">Forced moves<a class="anchor" aria-label="anchor" href="#forced-moves"></a>
 </h2>
@@ -96,17 +156,16 @@ current renters that did not move in the five years prior to the CHS, or
 those that moved in the prior five years and were reners in their old
 accommodation, as a base and ask what share of these were forced to move
 in a given timeframe.</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">renter_chs_pumf</span> <span class="op">&lt;-</span> <span class="va">chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span> </span>
-<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>`Previous accommodations - when move to current dwelling occurred`<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span><span class="op">)</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">renter_chs_pumf</span> <span class="op">&lt;-</span> <span class="va">chs_pumf</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="op">(</span><span class="va">Tenure</span> <span class="op">==</span> <span class="st">"No"</span> <span class="op">&amp;</span> </span>
-<span>            <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepl</a></span><span class="op">(</span><span class="st">"10"</span>,<span class="va">`Previous accommodations - when move to current dwelling occurred`</span><span class="op">)</span><span class="op">)</span> <span class="op">|</span> </span>
-<span>           <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepl</a></span><span class="op">(</span><span class="st">"10"</span>,<span class="va">`Previous accommodations - when move to current dwelling occurred`</span><span class="op">)</span> <span class="op">&amp;</span></span>
-<span>              <span class="va">`Previous accommodations - tenure`</span><span class="op">==</span><span class="st">"Rent it"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<span>            <span class="va">`Previous accommodations - when move to current dwelling occurred`</span> <span class="op">==</span> <span class="st">"10 or more years ago + Always lived here"</span><span class="op">)</span> <span class="op">|</span> </span>
+<span>           <span class="op">(</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span> <span class="op">!=</span> <span class="st">"10 or more years ago + Always lived here"</span> <span class="op">&amp;</span> </span>
+<span>              <span class="va">`Previous accommodations - tenure`</span><span class="op">==</span> <span class="st">"Rent it"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>We will also focus on people that did move in the past 5 years, as
 recall bias might make data from longer timeframes less reliable and the
 reproted time windows get large.</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span> </span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">`Geographic grouping`</span><span class="op">==</span><span class="st">"Vancouver"</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html" class="external-link">group_by</a></span><span class="op">(</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span>,</span>
@@ -124,7 +183,10 @@ reproted time windows get large.</p>
 <span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title<span class="op">=</span><span class="st">"Vancouver renters forced to move"</span>,</span>
 <span>       x<span class="op">=</span><span class="st">"When move to current dwelling occured"</span>,</span>
 <span>       y<span class="op">=</span><span class="st">"Share of current renters"</span>,</span>
-<span>       caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></span></code></pre></div>
+<span>       caption<span class="op">=</span><span class="st">"StatCan CHS PUMF 2018"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: Missing values are always removed in SQL aggregation functions.</span></span>
+<span><span class="co">#&gt; Use `na.rm = TRUE` to silence this warning</span></span>
+<span><span class="co">#&gt; <span style="color: #555555;">This warning is displayed once every 8 hours.</span></span></span></code></pre></div>
 <p><img src="working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-1.png" class="r-plt" alt="Vancouver renters forced to move" width="700"></p>
 <p>This looks interesting in that there seem to be distinct periods when
 the frequency of being forced to move changed, recognizing that longer
@@ -136,8 +198,9 @@ when dealing with survey data, it is important to assess how good these
 estimates are. A simple way to do this is to add bootstrap weights,
 which is facilitated via the <code>add_bootstrap_weights</code>
 function.</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span>weight_column <span class="op">=</span> <span class="st">"Household weight"</span>, seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">`Geographic grouping`</span><span class="op">==</span><span class="st">"Vancouver"</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html" class="external-link">group_by</a></span><span class="op">(</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span>,</span>
@@ -170,8 +233,9 @@ been in a different metro are. The CHS does have some data on the
 location of the previous residence, but only note if it was in the same
 or a different city, not metro area. We can add this variable in to see
 what effect it has.</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span>weight_column <span class="op">=</span> <span class="st">"Household weight"</span>, seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">`Geographic grouping`</span><span class="op">==</span><span class="st">"Vancouver"</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html" class="external-link">group_by</a></span><span class="op">(</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span>,</span>
@@ -203,8 +267,9 @@ people moving within the same city. It will take more digging through
 the data to see what might cause this.</p>
 <p>One way to contextualize this is to compare it to other Canadian
 CMAs.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">plot_data</span> <span class="op">&lt;-</span> <span class="va">renter_chs_pumf</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span>weight_column <span class="op">=</span> <span class="st">"Household weight"</span>, seed<span class="op">=</span><span class="fl">42</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">`Geographic grouping`</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Vancouver"</span>,<span class="st">"Toronto"</span>,<span class="st">"Montréal"</span>,<span class="st">"Calgary"</span>,<span class="st">"Ottawa-Gatineau"</span>,<span class="st">"Winnipeg"</span><span class="op">)</span><span class="op">)</span> <span class="op"><a href="https://magrittr.tidyverse.org/reference/pipe.html" class="external-link">%&gt;%</a></span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html" class="external-link">group_by</a></span><span class="op">(</span><span class="va">`Previous accommodations - when move to current dwelling occurred`</span>,</span>
