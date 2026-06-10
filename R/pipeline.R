@@ -165,9 +165,16 @@ pumf_locate_or_download <- function(series,
     if ((refresh || redownload) && dir.exists(version_dir)) {
       for (p in list.files(version_dir, pattern = "\\.duckdb",
                            ignore.case = TRUE, full.names = TRUE)) {
-        if (!unlink(p))
-          warning("Could not delete '", basename(p), "'. ",
-                  "Close connections with close_pumf() first.", call. = FALSE)
+        .pumf_close_for_db(p)
+        gc(verbose = FALSE)   # ensure C++ destructors fire before OS lock release
+        if (unlink(p) != 0L) {
+          # Brief lock window after shutdown: wait and retry once before warning.
+          Sys.sleep(0.1)
+          gc(verbose = FALSE)
+          if (unlink(p) != 0L)
+            warning("Could not delete '", basename(p), "'. ",
+                    "Close connections with close_pumf() first.", call. = FALSE)
+        }
       }
       meta_dir <- file.path(version_dir, "metadata")
       if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
@@ -223,6 +230,7 @@ pumf_locate_or_download <- function(series,
     duckdb_paths <- list.files(version_dir, pattern = "\\.duckdb",
                                ignore.case = TRUE, full.names = TRUE)
     for (p in duckdb_paths) {
+      .pumf_close_for_db(p)
       if (!unlink(p)) next
       warning("Could not delete '", basename(p), "' during refresh. ",
               "Close any open connections with close_pumf() first.",
@@ -913,8 +921,16 @@ pumf_run_pipeline <- function(series,
   # are fine and the check must not run.  For first-time builds the file does
   # not exist yet, so .assert_duckdb_writable is a no-op; the check inside
   # pumf_build_duckdb() covers that write.
-  if (eff_refresh)
-    .assert_duckdb_writable(.pumf_db_path(series, version, cache_path))
+  if (eff_refresh) {
+    db_path  <- .pumf_db_path(series, version, cache_path)
+    n_closed <- .pumf_close_for_db(db_path)
+    # Only probe for external locks when no canpumf-registered connection was
+    # found.  When .pumf_close_for_db closed one, calling assert_duckdb_writable
+    # would open a fresh write probe that briefly re-locks the file and causes
+    # the subsequent unlink() in pumf_locate_or_download to fail.
+    if (n_closed == 0L)
+      .assert_duckdb_writable(db_path)
+  }
 
   # Stage 1 — locate or download
   version_dir <- pumf_locate_or_download(series, version,

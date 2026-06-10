@@ -22,12 +22,41 @@
 .pumf_register_con <- function(con, series, version, cache_path, lang) {
   key <- format(con@conn_ref)
   .pumf_con_registry[[key]] <- list(
+    con        = con,
     series     = series,
     version    = version,
     cache_path = cache_path,
     lang       = lang
   )
   invisible(NULL)
+}
+
+# Close all registered connections whose DuckDB file matches db_path.
+# Called before refresh deletes the file so the user doesn't need to
+# manually close_pumf() before every get_pumf(..., refresh=TRUE).
+.pumf_close_for_db <- function(db_path) {
+  db_path  <- normalizePath(db_path, mustWork = FALSE)
+  keys     <- ls(envir = .pumf_con_registry)
+  n_closed <- 0L
+  for (key in keys) {
+    entry <- .pumf_con_registry[[key]]
+    con   <- entry$con
+    if (!DBI::dbIsValid(con)) {
+      rm(list = key, envir = .pumf_con_registry)
+      next
+    }
+    if (identical(normalizePath(con@driver@dbdir, mustWork = FALSE), db_path)) {
+      message("Closing open connection to '", basename(db_path),
+              "' for refresh.")
+      rm(list = key, envir = .pumf_con_registry)
+      DBI::dbDisconnect(con, shutdown = TRUE)
+      n_closed <- n_closed + 1L
+    }
+  }
+  # Run gc() to ensure C++ destructors fire and the OS file lock is released
+  # before the caller attempts unlink().
+  if (n_closed > 0L) gc(verbose = FALSE)
+  invisible(n_closed)
 }
 
 .pumf_lookup_con <- function(con) {
