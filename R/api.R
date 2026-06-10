@@ -179,6 +179,33 @@ get_pumf <- function(series     = NULL,
     version <- rows$Version[[1L]]
   }
 
+  # For LFS: route directly through lfs_get_pumf so that when data is already
+  # loaded the fast path opens only a read-only connection.  Routing through
+  # get_pumf_connection (the deprecated shim) always requests read_only=FALSE,
+  # which tries to acquire a write lock even when no write is needed — that
+  # fails when a read-only connection from a previous get_pumf("LFS", ...) call
+  # is still open.
+  if (series == "LFS") {
+    tbl <- suppressMessages(
+      lfs_get_pumf(version    = version,
+                   lang       = lang,
+                   cache_path = cache_path,
+                   refresh    = refresh,
+                   redownload = redownload,
+                   read_only  = read_only)
+    )
+    if (is.null(tbl)) return(invisible(NULL))
+    # ensure nicer column order
+    cn <- colnames(tbl)
+    if ("SEX" %in% cn && "GENDER" %in% cn) {
+      isex    <- which(cn == "SEX"); igender <- which(cn == "GENDER")
+      tbl <- if (isex > igender) relocate(tbl, "SEX",    .before = "GENDER")
+             else                relocate(tbl, "GENDER", .after  = "SEX")
+    }
+    .pumf_register_con(tbl$src$con, series, version, cache_path, lang)
+    return(tbl)
+  }
+
   # Ensure the DB is built and get a temporary read-write connection.
   con <- suppressMessages(
     get_pumf_connection(series     = series,
@@ -204,29 +231,6 @@ get_pumf <- function(series     = NULL,
       stop("Table '", table_name, "' not found in ", db_path, ".")
     }
     tbl <- tbl(con, table_name)
-  }
-
-  # For LFS, pumf_open_duckdb returns the whole shared lfs_eng/lfs_fra table.
-  if (series == "LFS") {
-    # When a specific version was requested, filter to that year (and month).
-    if (!is.null(version)) {
-      survyear <- .lfs_survyear(version)
-      survmnth <- .lfs_survmnth(version)
-      tbl <- filter(tbl, .data$SURVYEAR == survyear)
-      if (!is.na(survmnth))
-        tbl <- filter(tbl, .data$SURVMNTH == survmnth)
-    }
-    # ensure nicer order
-    cn <- colnames(tbl)
-    if ("SEX" %in% cn &&  "GENDER" %in% cn) {
-      isex <- which(cn=="SEX")
-      igender <- which(cn=="GENDER")
-      if (isex>igender) {
-        tbl <- relocate(tbl,"SEX",.before="GENDER")
-      } else {
-        tbl <- relocate(tbl,"GENDER",.after="SEX")
-      }
-    }
   }
 
   # Register provenance so label_pumf_columns() can find it later via the

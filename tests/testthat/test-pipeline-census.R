@@ -173,6 +173,17 @@ test_that("Census 2001 (families): registry codes_supplement for MODEF", {
 # both variables and value codes.  Province code 59 (British Columbia /
 # Colombie-Britannique) is present in all Census PUMF files and provides a
 # reliable bilingual anchor.
+#
+# Notes on older files:
+# - 1986/families, 1976/households, 1976/families: no French labels at all
+#   (English-only SPSS); both fr_vars and French codes checks are skipped.
+# - Pre-1986 files use ALL CAPS labels, so province checks use ignore.case=TRUE.
+# - Some 1971/1981 households files have "COLUMBIE" (typo) rather than
+#   "COLOMBIE", so the pattern "Col[ou]mbie" covers both spellings.
+.census_no_fr_labels <- c(
+  "1986/families",
+  "1976/households", "1976/families"
+)
 
 for (.v in .census_verified) {
   local({
@@ -188,16 +199,21 @@ for (.v in .census_verified) {
       expect_gt(en_vars, 0L,
         label = paste0(ver, ": should have English variable labels"))
 
-      fr_vars <- sum(!is.na(meta$variables$label_fr) &
-                       nchar(meta$variables$label_fr) > 0L)
-      expect_gt(fr_vars, 0L,
-        label = paste0(ver, ": should have French variable labels"))
+      if (!ver %in% .census_no_fr_labels) {
+        fr_vars <- sum(!is.na(meta$variables$label_fr) &
+                         nchar(meta$variables$label_fr) > 0L)
+        expect_gt(fr_vars, 0L,
+          label = paste0(ver, ": should have French variable labels"))
+      }
 
-      expect_true(any(grepl("British Columbia", meta$codes$label_en, fixed = TRUE)),
+      expect_true(any(grepl("British Columbia", meta$codes$label_en,
+                            ignore.case = TRUE)),
         label = paste0(ver, ": 'British Columbia' expected in English codes"))
 
-      expect_true(any(grepl("Colombie", meta$codes$label_fr, fixed = TRUE)),
-        label = paste0(ver, ": 'Colombie' expected in French codes"))
+      if (!ver %in% .census_no_fr_labels)
+        expect_true(any(grepl("Col[ou]mbie", meta$codes$label_fr,
+                              ignore.case = TRUE)),
+          label = paste0(ver, ": 'Colombie/Columbie' expected in French codes"))
     })
   })
 }
