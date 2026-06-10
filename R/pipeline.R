@@ -766,6 +766,9 @@ pumf_build_duckdb <- function(version_dir,
       c1 <- codes[codes$name == v1, ]; c1$name <- v2
       c2 <- codes[codes$name == v2, ]; c2$name <- v1
       codes <- bind_rows(codes[!codes$name %in% c(v1, v2), ], c1, c2)
+      warning("Variables ", v1, " and ", v2, ": value labels swapped relative to ",
+              "command file — StatCan's VALUE LABELS appear transposed.",
+              call. = FALSE)
     }
   }
   # codes_supplement: per-variable extra rows to inject before label mapping.
