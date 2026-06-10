@@ -381,13 +381,13 @@
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
     data_fixups     = c(.census_fixup_7, list(
-      # The SPS VALUE LABELS for WKACTMA and WKACTFA are transposed in both the
-      # English and French command files. The raw data confirms this: the column
-      # named WKACTMA (position 164-165) contains values 0-12 (matching the
-      # 12-code alternating FT/PT scheme the SPS assigns to WKACTFA), while the
-      # WKACTFA column (162-163) contains values 0-10 (the 10-code grouped scheme
-      # the SPS assigns to WKACTMA). Swapping the code tables corrects both.
-      codes_swap = c("WKACTMA", "WKACTFA"),
+      # The DATA LIST names WKACTMA and WKACTFA are transposed in the SPS relative
+      # to the PDF documentation: position 164-165 (labeled WKACTMA) contains the
+      # female 12-code alternating FT/PT data, and position 162-163 (labeled
+      # WKACTFA) contains the male 10-code grouped data. Swapping the column names
+      # restores the intuitive M/F meaning and lets the SPS VALUE LABELS and
+      # VARIABLE LABELS fall on the correct columns.
+      cols_swap = c("WKACTMA", "WKACTFA"),
       # FAOCC81 (female occupation 1981) has code 17 in the data; MISSING VALUES
       # for MAOCC81 explicitly declares 17 as user-missing, so treat it the same.
       codes_supplement = list(

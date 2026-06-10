@@ -500,6 +500,19 @@ pumf_locate_or_download <- function(series,
       if (old[[i]] %in% names(data))
         names(data)[names(data) == old[[i]]] <- new[[i]]
   }
+  if (length(fixups$cols_swap) > 0L) {
+    pairs <- matrix(fixups$cols_swap, ncol = 2L, byrow = TRUE)
+    for (i in seq_len(nrow(pairs))) {
+      v1 <- pairs[i, 1L]; v2 <- pairs[i, 2L]
+      i1 <- match(v1, names(data)); i2 <- match(v2, names(data))
+      if (!is.na(i1) && !is.na(i2)) {
+        names(data)[i1] <- v2; names(data)[i2] <- v1
+        warning("Columns ", v1, " and ", v2, ": names swapped relative to ",
+                "command file — DATA LIST variable names appear transposed.",
+                call. = FALSE)
+      }
+    }
+  }
   data
 }
 
@@ -756,21 +769,6 @@ pumf_build_duckdb <- function(version_dir,
   # Step 7: numeric types, then code labels → factors
   na_vals <- if (!is.null(reg)) reg$data_fixups$na_values %||% character(0L)
              else character(0L)
-  # codes_swap: exchange the full code tables between pairs of variables.
-  # Used when the SPS VALUE LABELS section has two variable names transposed
-  # (e.g. 1981 Census WKACTMA/WKACTFA are swapped in both English and French SPS).
-  if (!is.null(reg) && length(reg$data_fixups$codes_swap) > 0L) {
-    pairs <- matrix(reg$data_fixups$codes_swap, ncol = 2L, byrow = TRUE)
-    for (i in seq_len(nrow(pairs))) {
-      v1 <- pairs[i, 1L]; v2 <- pairs[i, 2L]
-      c1 <- codes[codes$name == v1, ]; c1$name <- v2
-      c2 <- codes[codes$name == v2, ]; c2$name <- v1
-      codes <- bind_rows(codes[!codes$name %in% c(v1, v2), ], c1, c2)
-      warning("Variables ", v1, " and ", v2, ": value labels swapped relative to ",
-              "command file — StatCan's VALUE LABELS appear transposed.",
-              call. = FALSE)
-    }
-  }
   # codes_supplement: per-variable extra rows to inject before label mapping.
   # Used for codes that appear in data but are absent from the command files.
   if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {
