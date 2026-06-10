@@ -381,15 +381,16 @@
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
     data_fixups     = c(.census_fixup_7, list(
-      # The DATA LIST names for two pairs of variables are transposed in the SPS
+      # The DATA LIST names for three pairs of variables are transposed in the SPS
       # relative to the PDF documentation (confirmed by value-range analysis):
       #   WKACTMA/WKACTFA: position 162-163 holds male 10-code grouped data,
       #     position 164-165 holds female 12-code alternating FT/PT data.
       #   FAOCC81/MAOCC81: same swap pattern; MAOCC81 already has code 17
       #     ("DID NOT WORK SINCE 1/1/80") so no supplement needed after the swap.
+      #   FALFACT/MALFACT: same transposition per PDF documentation.
       # Swapping column names restores the intuitive M/F meaning and lets the
       # SPS VALUE LABELS and VARIABLE LABELS fall on the correct columns.
-      cols_swap = c("WKACTMA", "WKACTFA", "FAOCC81", "MAOCC81")
+      cols_swap = c(WKACTMA = "WKACTFA", FAOCC81 = "MAOCC81", FALFACT = "MALFACT")
     ))),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",

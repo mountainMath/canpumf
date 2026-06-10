@@ -509,9 +509,8 @@ pumf_locate_or_download <- function(series,
         names(data)[names(data) == old[[i]]] <- new[[i]]
   }
   if (length(fixups$cols_swap) > 0L) {
-    pairs <- matrix(fixups$cols_swap, ncol = 2L, byrow = TRUE)
-    for (i in seq_len(nrow(pairs))) {
-      v1 <- pairs[i, 1L]; v2 <- pairs[i, 2L]
+    for (v1 in names(fixups$cols_swap)) {
+      v2 <- fixups$cols_swap[[v1]]
       i1 <- match(v1, names(data)); i2 <- match(v2, names(data))
       if (!is.na(i1) && !is.na(i2)) {
         names(data)[i1] <- v2; names(data)[i2] <- v1
