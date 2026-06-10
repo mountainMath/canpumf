@@ -552,12 +552,17 @@ pumf_locate_or_download <- function(series,
 
 # Map raw character values → factor labels using codes metadata.
 # label_col is "label_en" or "label_fr".
-# Unmatched raw values become NA (warned).
+# Unmatched raw values become NA (warned).  Raw values listed in na_values
+# (registry-declared missing markers, e.g. SAS-style ".") become NA silently.
 # Factor levels are the complete ordered set from codes, not just those seen in
 # the data; this is the contract from test-factor-enum.R.
-.apply_code_labels <- function(data, codes, label_col) {
+.apply_code_labels <- function(data, codes, label_col, na_values = character(0L)) {
   char_cols  <- names(data)[vapply(data, is.character, logical(1L))]
   coded_cols <- intersect(char_cols, unique(codes$name))
+
+  if (length(na_values) > 0L)
+    for (col in coded_cols)
+      data[[col]][trimws(data[[col]]) %in% na_values] <- NA_character_
 
   for (col in coded_cols) {
     col_codes <- codes[codes$name == col, ]
@@ -707,6 +712,14 @@ pumf_build_duckdb <- function(version_dir,
   layout    <- meta$layout  # NULL for CSV-format data
   label_col <- if (lang == "eng") "label_en" else "label_fr"
 
+  # Normalise variable-name case: CSV data columns are uppercased on read and
+  # registry fixups use uppercase names, but some command files declare
+  # mixed-case names (e.g. Census 2021 "TotInc").  Without this, mixed-case
+  # variables silently skip numeric conversion and code labeling.
+  variables$name <- toupper(variables$name)
+  codes$name     <- toupper(codes$name)
+  if (!is.null(layout)) layout$name <- toupper(layout$name)
+
   # Warn about missing French labels; fall back per-row to English
   if (lang == "fra") {
     na_var <- variables$name[is.na(variables[[label_col]])]
@@ -807,10 +820,42 @@ pumf_build_duckdb <- function(version_dir,
   # force_numeric: override type to "numeric" for variables that carry
   # top-coded boundary labels (e.g. "85 years and over") alongside unlabeled
   # data values, preventing the character-type path from NAs-ing valid data.
+  # Before the codes are dropped, true-missing sentinel codes (Not stated,
+  # Don't know, Valid skip, … — but NOT zero-value labels like "No hours")
+  # become a per-variable missing range so those values turn NA instead of
+  # polluting the continuous data (e.g. GSS 2012 declares no MISSING VALUES,
+  # so ages would otherwise contain 998/999).  An existing missing range
+  # (from MISSING VALUES or a split-SPSS miss file) takes precedence.
   if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
     fn <- reg$data_fixups$force_numeric
     variables$type[variables$name %in% fn] <- "numeric"
+    for (v in intersect(fn, unique(codes$name))) {
+      i <- which(variables$name == v)
+      if (length(i) != 1L || !is.na(variables$missing_low[i])) next
+      vc   <- codes[codes$name == v, ]
+      lbl  <- ifelse(is.na(vc$label_en), vc$label_fr, vc$label_en)
+      sent <- suppressWarnings(as.numeric(
+        vc$val[!is.na(lbl) & grepl(.missing_pat, trimws(lbl), perl = TRUE)]))
+      sent <- sent[!is.na(sent)]
+      if (length(sent) > 0L) {
+        variables$missing_low[i]  <- min(sent)
+        variables$missing_high[i] <- max(sent)
+      }
+    }
     codes <- codes[!codes$name %in% fn, ]
+  }
+  # missing_supplement: explicit per-variable missing ranges that override
+  # whatever was parsed or derived (e.g. GSS 2007 age variables with special
+  # codes like 999.5 "Child deceased" that no generic pattern can classify).
+  if (!is.null(reg) && length(reg$data_fixups$missing_supplement) > 0L) {
+    for (v in names(reg$data_fixups$missing_supplement)) {
+      rng <- reg$data_fixups$missing_supplement[[v]]
+      i   <- which(variables$name == v)
+      if (length(i) == 1L) {
+        variables$missing_low[i]  <- rng[1L]
+        variables$missing_high[i] <- rng[2L]
+      }
+    }
   }
 
   # Promote numeric → character for variables that have non-sentinel codes
@@ -831,7 +876,7 @@ pumf_build_duckdb <- function(version_dir,
   }
 
   data <- .apply_numeric_conversion(data, variables, na_values = na_vals)
-  data <- .apply_code_labels(data, codes, label_col)
+  data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
 
   # Step 9: write to DuckDB
   .assert_duckdb_writable(db_path)

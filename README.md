@@ -22,6 +22,13 @@ StatCan publishes an [official guide to the Labour Force Survey](https://www150.
 
 PUMF data can be large and should be cached locally. Set the `canpumf.cache_path` option to a local directory via `options(canpumf.cache_path="<your local path>")` in your `.Rprofile`. Without this, data is stored in `tempdir()` for the session only.
 
+## DuckDB
+
+On first use PUMF data is imported into DuckDB. To see the data in the RStudio (or Positron) Connections Pane, set the following option or add this to your .Rprofile:
+```
+options("duckdb.enable_rstudio_connection_pane" = TRUE)
+```
+
 ## Basic usage
 
 Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.
@@ -91,16 +98,19 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 
 | Survey | Series | Verified versions | Direct download |
 |---|---|---|:---:|
-| Labour Force Survey | LFS | 2006–2025 (annual); 2026-01 to 2026-05 (monthly) | ✓ |
+| Labour Force Survey | LFS | annual and monthly files | ✓ |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | General Social Survey | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
+| Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
+| International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
 | Canadian Income Survey | CIS | 2018–2022 | ✓ |
 | Survey of Household Spending | SHS | 2017, 2019, 2021 | ✓ |
 
-Additional Census variants (1986, 1981, 1976, 1971 — EFT only) are registered with specific parsing configuration but have not yet been end-to-end tested.
+Additional Census variants (1986, 1981, 1976, 1971 — EFT only) are registered with specific parsing configuration and have been tested.
 
 ### Cite **canpumf**
 

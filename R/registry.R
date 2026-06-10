@@ -61,16 +61,21 @@
 # would treat a valid $9,999,999 income (stored as " 9999999", trimmed to
 # "9999999") as NA.
 #
-# 1986 and earlier: field widths unverified — omitted from na_values until
-# confirmed from user guides.
-# SGVP: HSDSIZEC ("household size", top-coded at 6+ persons) and CHH0014C
-# ("children 0-14", top-coded at 3+) have boundary labels alongside unlabeled
-# lower values; force_numeric prevents those values from becoming NAs.
-.sgvp_fixup <- list(force_numeric = c("HSDSIZEC", "CHH0014C"))
+# 1986 and earlier: guides do not document income sentinels and a field-aligned
+# data scan finds none — no na_values applied (see Census 1986 comment below).
+# 1991–2001 guides document only 9999999 ("Not applicable"); 8888888 first
+# appears in the 2006 documentation.  It is kept in .census_fixup_7 for
+# 1991–2001 as a harmless guard: a field-aligned scan shows it never occurs in
+# those years' data, and top-coding makes a legitimate $8,888,888 impossible.
+# SGVP: HSDSIZEC ("household size", top-coded) and CHH0014C ("children 0-14",
+# top-coded) have boundary labels alongside unlabeled lower values;
+# force_numeric prevents those values from becoming NAs.  Presence varies by
+# cycle: 2013 has both, 2023/2018 only HSDSIZEC (children variables are
+# categorical), 2010 and earlier use different names (e.g. DH1GHHSZ) that are
+# fully labeled categoricals needing no fixup.
 
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
-.census_fixup   <- .census_fixup_7   # alias; most FWF years use 7-char fields
 
 # 1971: SUBSAMPL is an integer sub-sample index (0 for households, 1–5 for
 # individuals/families), but all six SPSS files only declare code 1 → 'one'.
@@ -186,13 +191,15 @@
     file_mask         = "c11mice\\.dat",
     metadata_encoding = "CP850"),
 
-  # 2007 (cycle 21): monolithic SPSS (two variants — main and short);
-  # detect_formats picks c21pumf_main_Spss_Eng.sps (the complete one).
   # 2007 (cycle 21): monolithic SPSS (multiple small VARIABLE/VALUE LABELS
   # blocks, one per module). The SAS cards file provides full 951-variable
-  # coverage. ~44 continuous count/age/amount variables have integer group codes
-  # in VALUE LABELS that conflict with raw continuous data — force_numeric
-  # prevents valid data from becoming NA.
+  # coverage including PROC FORMAT VALUE blocks parsed by
+  # parse_sas_data_labels().  ~97 continuous count/age/amount variables have
+  # boundary or group codes in their VALUE LABELS that conflict with raw
+  # continuous data (e.g. AGE_CU1C: 15="15 years and less", 80="80 years and
+  # more" alongside decimal ages 016.0-079.0) — force_numeric prevents valid
+  # data from becoming NA; their Not asked/Not stated/Don't know sentinels
+  # (997-999, 999.7-999.9, 99997-99999) become per-variable missing ranges.
   "GSS/2007" = .make_entry("GSS", "2007",
     file_mask   = "C21PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
@@ -210,10 +217,40 @@
       "AGE_HLE_BEG_C",   "AGE_HLE_END_C",   "AGE_HLE_DISC_C",
       "AGE_EAH_BEG_C",   "AGE_EAH_END_C",   "AGE_EAH_DISC_C",
       "AGE_SMK_DAILY_BEGC", "AGE_SMK_OCCA_BEGC",
-      "YEARSMKDAILY", "YEARSMKoccasion",
+      "YEARSMKDAILY", "YEARSMKOCCASION",
       "MPT_Q090C", "TLE_Q120C", "TLE_Q130C", "TLE_Q230C",
       "MAR_Q383C", "MAR_Q482C", "MAR_Q483C",
-      "AGE_CGP_ENDC"
+      "AGE_CGP_ENDC",
+      # Decimal-age/hours variables whose codes come from the SAS cards
+      # PROC FORMAT blocks (marriage/common-law/children age histories):
+      "AGE_MA2C", "AGE_MA3C", "AGE_SEP_MA1C", "AGE_SEP_MA2C",
+      "AGE_DIV_MA2C",
+      "AGE_CU1C", "AGE_CU2C", "AGE_CU3C", "AGE_CU4C", "AGE_CU5C",
+      "AGE_SEP_CU1C", "AGE_SEP_CU2C", "AGE_SEP_CU3C", "AGE_SEP_CU4C",
+      "AGE_DTH_CU2C",
+      "AGECHDC_1", "AGECHDC_2", "AGECHDC_3", "AGECHDC_4",
+      "AGECHDC_5", "AGECHDC_6", "AGECHDC_7", "AGECHDC_8",
+      "AGECHDIED_1", "AGECHDIED_2", "AGECHDIED_3", "AGECHDIED_4",
+      "AGECHDIED_5", "AGECHDIED_6", "AGECHDIED_7", "AGECHDIED_8",
+      "AGECHDJOIN_HOMC_1", "AGECHDJOIN_HOMC_2", "AGECHDJOIN_HOMC_3",
+      "AGECHDJOIN_HOMC_4", "AGECHDJOIN_HOMC_5", "AGECHDJOIN_HOMC_6",
+      "AGECHDJOIN_HOMC_7", "AGECHDJOIN_HOMC_8",
+      "AGECHDLEFT_HOM_1", "AGECHDLEFT_HOM_2", "AGECHDLEFT_HOM_3",
+      "AGECHDLEFT_HOM_4", "AGECHDLEFT_HOM_5", "AGECHDLEFT_HOM_6",
+      "AGECHDLEFT_HOMC_7", "AGECHDLEFT_HOM_8",
+      "WKWEHR_C", "MAP_Q135C"
+    ),
+    # Child/marriage age histories carry special codes below the missing band
+    # (999.3 "Knowledge of child is unknown", 999.5 "Child deceased" /
+    # "No separation prior to divorce or annulment") that are not ages;
+    # widen the missing range to cover them.
+    missing_supplement = c(
+      stats::setNames(
+        rep(list(c(999.3, 999.9)), 24L),
+        c(paste0("AGECHDC_", 1:8), paste0("AGECHDIED_", 1:8),
+          paste0("AGECHDLEFT_HOM_", c(1:6, 8)), "AGECHDLEFT_HOMC_7")),
+      list(AGE_SEP_MA1C = c(999.5, 999.9),
+           AGE_SEP_MA2C = c(999.5, 999.9))
     ))),
 
   # 2012 (cycle 26): monolithic SPSS; data in Data Files ASCII/.
@@ -272,18 +309,19 @@
   # ---- SGVP: GSS Giving, Volunteering and Participating ---------------------
   "SGVP/2023" = .make_entry("SGVP", "2023",
     file_mask   = "GVP_DBP_2023_PUMF_FMGD\\.txt",
-    data_fixups = .sgvp_fixup),
+    data_fixups = list(force_numeric = "HSDSIZEC")),
 
   # 2018 (cycle 33): split-SPSS in Syntax_Syntaxe/SPSS/.
   # GSS33PUMF_label.txt is a GTAB file, not the data; explicit file_mask needed.
   # layout_mask selects the split SPSS files (GSS33PUMF_vare/vale/etc.).
   # DSCORE is a continuous donor-propensity score with no VALUE LABELS.
-  # BRTHMACR value 9 is undocumented (1 row); suppress via NA codes_supplement.
+  # BRTHMACR code 09 (140 rows) appears in the PDF data dictionary with a
+  # blank label (both EN and FR); suppress via NA codes_supplement.
   "SGVP/2018" = .make_entry("SGVP", "2018",
     layout_mask = "GSS33PUMF",
     file_mask   = "GSS33PUMF\\.txt$",
     data_fixups = list(
-      force_numeric    = c("HSDSIZEC", "CHH0014C", "DSCORE"),
+      force_numeric    = c("HSDSIZEC", "DSCORE"),
       codes_supplement = list(
         BRTHMACR = data.frame(val = "9", label_en = NA_character_,
                               label_fr = NA_character_,
@@ -294,41 +332,39 @@
   # 2013 (cycle 27): monolithic SPSS (GSSC27GVPpumf_e.sps + French pair).
   "SGVP/2013" = .make_entry("SGVP", "2013",
     file_mask   = "GVP_PUMF_MAIN\\.txt",
-    data_fixups = .sgvp_fixup),
+    data_fixups = list(force_numeric = c("HSDSIZEC", "CHH0014C"))),
 
   # 2010 (cycle 22): monolithic SPSS; MAIN file only (GS subset excluded).
   # layout_mask filters to the MAIN SPSS so the GIVING subset SPSS is ignored.
   "SGVP/2010" = .make_entry("SGVP", "2010",
     layout_mask = "_MAIN_",
-    file_mask   = "CSGVP2010_MAIN_PUMF\\.txt$",
-    data_fixups = .sgvp_fixup),
+    file_mask   = "CSGVP2010_MAIN_PUMF\\.txt$"),
 
   # 2007 (cycle 17): same layout as 2010.
   "SGVP/2007" = .make_entry("SGVP", "2007",
     layout_mask = "_MAIN_",
-    file_mask   = "CSGVP2007_MAIN_PUMF\\.txt$",
-    data_fixups = .sgvp_fixup),
+    file_mask   = "CSGVP2007_MAIN_PUMF\\.txt$"),
 
   # 2004 (cycle 13): same layout; readme/lisezmoi.txt files excluded via mask.
   "SGVP/2004" = .make_entry("SGVP", "2004",
     layout_mask = "_MAIN_",
-    file_mask   = "CSGVP2004_MAIN_PUMF\\.txt$",
-    data_fixups = .sgvp_fixup),
+    file_mask   = "CSGVP2004_MAIN_PUMF\\.txt$"),
 
   # 2000 (cycle 9): MAIN file; Readme/Lisezmoi excluded via mask.
   "SGVP/2000" = .make_entry("SGVP", "2000",
     layout_mask = "_MAIN_",
-    file_mask   = "NSGVP2000_MAIN_PUMF\\.txt",
-    data_fixups = .sgvp_fixup),
+    file_mask   = "NSGVP2000_MAIN_PUMF\\.txt"),
 
   # 1997 (cycle 4): three separate PUMF files (SGVP = combined main file).
   # SAS text files also present; layout_mask and file_mask select the SGVP main.
   # AQ03 (org-type count) has code 0="0" (numeric string, not a sentinel phrase)
   # alongside unlabeled values 1–15; force_numeric preserves those counts.
+  # The fixed-width data uses SAS-style "." for missing values; na_values
+  # turns them into NA in labeled columns without unmatched-value warnings.
   "SGVP/1997" = .make_entry("SGVP", "1997",
     layout_mask = "_SGVP_",
     file_mask   = "NSGVP1997_SGVP_PUMF\\.txt",
-    data_fixups = list(force_numeric = c("HSDSIZEC", "CHH0014C", "AQ03"))),
+    data_fixups = list(force_numeric = "AQ03", na_values = ".")),
 
   # ---- ITS: International Travel Survey -------------------------------------
   # Split-SPSS layout (VTS_<year>_PUMF_{i,vale,vare,valf,varf,miss}.sps) in
@@ -346,7 +382,10 @@
   # Income variables (8-char-wide fields: CHDBN, COVID_ERB, CQPPB, CapGn, ChldC,
   # EICBN, EmpIn, GovtI, GTRfs, IncTax, Invst, MrkInc, OASGI, OtInc, Retir,
   # SempI, TotInc, TotInc_AT, Value, Wages, …) use sentinel codes not declared in
-  # any machine-readable command file; handled via .census_fixup defined above.
+  # any machine-readable command file; handled via the explicit
+  # .census_fixup_8 (2016/2021) and .census_fixup_7 (1991-2011) variants.
+  # The former .census_fixup alias was removed after it silently pointed the
+  # 2016/2021 entries at the 7-char values.
 
   # 2021: CSV data, UTF-8 SPSS command files. Older releases named the religion
   # variable RELIGION_DER; newer releases fixed this to RELIG. The rename fixup
@@ -354,21 +393,21 @@
   "Census/2021 (individuals)" = .make_entry("Census", "2021 (individuals)",
     metadata_encoding = "UTF-8",
     file_mask         = "\\.csv",
-    data_fixups       = c(.census_fixup, list(rename = c(RELIGION_DER = "RELIG")))),
+    data_fixups       = c(.census_fixup_8, list(rename = c(RELIGION_DER = "RELIG")))),
 
   "Census/2021 (hierarchical)" = .make_entry("Census", "2021 (hierarchical)",
     metadata_encoding = "UTF-8",
     file_mask         = "\\.csv",
-    data_fixups       = .census_fixup),
+    data_fixups       = .census_fixup_8),
 
   # 2016: fixed-width .dat file, CP1252 metadata
   "Census/2016 (individuals)" = .make_entry("Census", "2016 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_8),
 
   "Census/2016 (hierarchical)" = .make_entry("Census", "2016 (hierarchical)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_8),
 
   # 2011 NHS: fixed-width .dat, 7-char income fields
   "Census/2011 (individuals)" = .make_entry("Census", "2011 (individuals)",
@@ -384,27 +423,29 @@
     file_mask   = "\\.dat",
     data_fixups = .census_fixup_7),
 
+  # MORGH code 8 is absent from the SPSS labels; the PDF user guide documents
+  # it as "Not available" / "Non disponible" (freq 9,353).
   "Census/2006 (hierarchical)" = .make_entry("Census", "2006 (hierarchical)",
     file_mask   = "\\.dat",
     data_fixups = c(.census_fixup_7, list(
       codes_supplement = list(
-        MORGH = data.frame(val = "8", label_en = "Not stated",
-                           label_fr = "Non déclaré", stringsAsFactors = FALSE)
+        MORGH = data.frame(val = "8", label_en = "Not available",
+                           label_fr = "Non disponible", stringsAsFactors = FALSE)
       )
     ))),
 
   # 2001: fixed-width .dat; three file types
   "Census/2001 (individuals)" = .make_entry("Census", "2001 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_7),
 
   "Census/2001 (households)" = .make_entry("Census", "2001 (households)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup),
+    data_fixups = .census_fixup_7),
 
   "Census/2001 (families)" = .make_entry("Census", "2001 (families)",
     file_mask   = "\\.dat",
-    data_fixups = c(.census_fixup, list(
+    data_fixups = c(.census_fixup_7, list(
       codes_supplement = list(
         MODEF = data.frame(val="7", label_en="Other method",
                            label_fr="Autre moyen", stringsAsFactors=FALSE)
@@ -473,41 +514,76 @@
   #                   fam71_cma_eng/fre.sps,   fam71_prov_eng/fre.sps
   #        data files Indiv71_cma.txt/indiv71_prov.txt, hhld71_cma.txt/hhld71_prov.txt,
   #                   fam71_cma.txt/fam71_prov.txt  (extracted from inner zips)
+  # 1986/1981: the 7-char income sentinels (.census_fixup_7) are not documented
+  # in the guides and a field-aligned scan shows they never occur in the data,
+  # so no na_values guard is applied for these years.
+  #
+  # 1986: many continuous variables (ages, hours/weeks worked, dollar amounts)
+  # carry only boundary labels in the SPSS ("<$20,000", "85 yrs or more",
+  # "100 hours or more") alongside unlabeled continuous values; force_numeric
+  # keeps the continuous values.  Per-variable sentinels (VALUEH 999999,
+  # GROSRTH/OMPH/MPPIT 9999, RENTH 999, SPAGE 0, SPWKSWK/WKSWK 99, HRSWK 999)
+  # are declared in the SPS MISSING VALUES section and become NA via the
+  # parsed missing_low/missing_high range.  The family SPS has an empty
+  # Missing Values section, so VALUEC's 999999 sentinel (present in no other
+  # field per an aligned data scan) is dropped via na_values instead.
+  # ETHNICOR codes 29/30 come from the reduced legend used for the Atlantic
+  # provinces, Yukon and NWT (PDF codebook p.70); they are absent from both
+  # SPS files.  French labels follow the style of the SPS codes 14/19.
   "Census/1986/individuals" = .make_entry("Census", "1986/individuals",
     bundle_sps_mask = "ind86",
     file_mask       = "^INDIV86\\.DAT$",
-    data_fixups     = .census_fixup_7),
+    data_fixups     = list(
+      force_numeric = c(
+        "AGEP", "HRSWK", "WKSWK",
+        "TOTINCP", "WAGESP", "SELFIP", "INVSTP", "RETIRP", "OTINCP"
+      ),
+      codes_supplement = list(
+        ETHNICOR = data.frame(
+          val      = c("29", "30"),
+          label_en = c("Other European single responses (Atl/YT/NWT)",
+                       "Asian (Atl/YT/NWT)"),
+          label_fr = c("Autres origines uniques européennes (Atl/YN/TNO)",
+                       "Asiatique (Atl/YN/TNO)"),
+          stringsAsFactors = FALSE
+        )
+      )
+    )),
 
   "Census/1986/households" = .make_entry("Census", "1986/households",
     bundle_sps_mask = "hhld86",
     file_mask       = "^HHLD86\\.DAT$",
-    data_fixups     = .census_fixup_7),
+    data_fixups     = list(force_numeric = c(
+      "VALUEH", "GROSRTH", "RENTH", "OMPH", "MPPIT",
+      "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
+    ))),
 
   "Census/1986/families" = .make_entry("Census", "1986/families",
     bundle_sps_mask = "fam",
     file_mask       = "^FAM86\\.DAT$",
-    data_fixups     = .census_fixup_7),
+    data_fixups     = list(na_values = "999999")),
 
   "Census/1981/individuals" = .make_entry("Census", "1981/individuals",
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
-    data_fixups     = c(.census_fixup_7, list(
-      # The DATA LIST names for three pairs of variables are transposed in the SPS
-      # relative to the PDF documentation (confirmed by value-range analysis):
-      #   WKACTMA/WKACTFA: position 162-163 holds male 10-code grouped data,
-      #     position 164-165 holds female 12-code alternating FT/PT data.
-      #   FAOCC81/MAOCC81: same swap pattern; MAOCC81 already has code 17
-      #     ("DID NOT WORK SINCE 1/1/80") so no supplement needed after the swap.
-      #   FALFACT/MALFACT: same transposition per PDF documentation.
-      # Swapping column names restores the intuitive M/F meaning and lets the
-      # SPS VALUE LABELS and VARIABLE LABELS fall on the correct columns.
+    data_fixups     = list(
+      # In the PDF record layout the mnemonics use FA*=father/husband and
+      # MA*=mother/wife (e.g. WKACTFA at 162-163 is the husband's 10-code work
+      # activity; WKACTMA at 164-165 the wife's 12-code FT/PT scheme).  The SPS
+      # DATA LIST matches the PDF positions, but the SPS VARIABLE LABELS and
+      # VALUE LABELS were written assuming MA=male/FA=female, i.e. they are
+      # transposed relative to both the DATA LIST and the PDF.  Swapping the
+      # data column names keeps the intuitive MA=male reading and lets the SPS
+      # labels fall on the correct data columns (verified against the PDF code
+      # schemes: SPS MAOCC81 carries the husband's 0-17 occupation codes that
+      # the PDF documents at positions 158-159).  Note: as a result canpumf's
+      # WKACTMA/FAOCC81/FALFACT etc. are the PDF's WKACTFA/MAOCC81/MALFACT.
       cols_swap = c(WKACTMA = "WKACTFA", FAOCC81 = "MAOCC81", FALFACT = "MALFACT")
-    ))),
+    )),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",
     bundle_sps_mask = "hhmdf81",
-    file_mask       = "^HHMDF81\\.DAT$",
-    data_fixups     = .census_fixup_7),
+    file_mask       = "^HHMDF81\\.DAT$"),
 
   "Census/1976/individuals" = .make_entry("Census", "1976/individuals",
     bundle_sps_mask = "indiv76",

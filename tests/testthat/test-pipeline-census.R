@@ -148,8 +148,10 @@ test_that("Census 2006 (hierarchical): registry codes_supplement for MORGH", {
   morgh <- suppl[["MORGH"]]
   expect_true("8" %in% morgh$val,
     label = "MORGH codes_supplement should contain code 8")
-  expect_true("Not stated" %in% morgh$label_en,
-    label = "MORGH code 8 should be labeled 'Not stated'")
+  # PDF user guide: 8 = "Not available" / "Non disponible" (see
+  # override_verification.csv)
+  expect_true("Not available" %in% morgh$label_en,
+    label = "MORGH code 8 should be labeled 'Not available'")
 })
 
 test_that("Census 2001 (families): registry codes_supplement for MODEF", {

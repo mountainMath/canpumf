@@ -7,38 +7,63 @@
 # codes.csv:     name (chr), val (chr), label_en (chr), label_fr (chr|NA)
 # layout.csv:    name (chr), start (int), end (int)   [only for fixed-width data]
 
-# Sentinel label pattern: labels that indicate a missing/non-response code rather
-# than a genuine category.  Used by all parsers to distinguish sentinel-only
-# variables (→ numeric with a missing range) from truly categorical ones.
-.sentinel_pat <- paste0(
-  "(?i)^(not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
+# True-missing label alternatives: labels that mark a missing/non-response
+# code (Not applicable, Don't know, Refusal, …).  Values carrying these labels
+# are genuinely absent information, in contrast to .zero_label_alts below.
+# French equivalents included (1991 Census XMF is French-only; GSS uses
+# "Non demandé"): "(ne )?s'applique pas" covers both the full form and the
+# older abbreviated form "S'APPLIQUE PAS" (pre-2004 SGVP and other older
+# surveys); "ne sait pas" = "don't know"; "refus$" = "refusal" (older files
+# use bare "REFUS"); "enchaîn" = "enchaînement valide" (valid skip).
+.missing_label_alts <- paste0(
+  "not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
-  # Zero-value labels: variables label code 0 with phrases meaning "zero of this
-  # quantity" to indicate a continuous variable, not a category.
-  # English: "ZERO", "ZERO HOURS", "ZERO WEEKS", "None", "No hours", "No donations", …
-  # French:  "Aucun", "Aucune heure", "Aucun don", …
-  "zero(\\s+\\w+)*|none|no\\s+\\w+(\\s+\\w+)*|",
-  # French equivalents (1991 Census XMF is French-only; GSS uses "Non demandé")
-  # "(ne )?s'applique pas" covers both the full form and the older abbreviated
-  # form "S'APPLIQUE PAS" (used in pre-2004 SGVP and other older surveys).
-  # "ne sait pas" = "don't know"; "refus$" = "refusal" (older files use bare
-  # "REFUS"); "enchaîn" = "enchaînement valide" (valid skip in older files).
-  "sans objet|non (disponible|déclaré|applicable)|aucun(e)?(\\s+\\w+)*|",
+  "sans objet|non (disponible|déclaré|applicable)|",
   "(ne )?s.?applique pas|ne sait pas|refus$|enchaîn|",
-  "inconnu|manquant|non demandé|hors .chantillon)$"
+  "inconnu|manquant|non demandé|hors .chantillon"
 )
 
+# Zero-value label alternatives: code 0 labeled with phrases meaning "zero of
+# this quantity" ("ZERO HOURS", "None", "No donations", "Aucun don", …).
+# These indicate a continuous variable for classification purposes but are
+# valid zeros, NOT missing data.
+.zero_label_alts <- "zero(\\s+\\w+)*|none|no\\s+\\w+(\\s+\\w+)*|aucun(e)?(\\s+\\w+)*"
+
+# Anchored patterns:
+# .missing_pat  — true-missing labels only (used to derive NA ranges)
+# .sentinel_pat — missing OR zero labels (used by all parsers to distinguish
+#                 sentinel-only variables from truly categorical ones)
+.missing_pat  <- paste0("(?i)^(", .missing_label_alts, ")$")
+.sentinel_pat <- paste0("(?i)^(", .missing_label_alts, "|", .zero_label_alts, ")$")
+
+# Render code values as plain decimal strings.  as.character() switches to
+# scientific notation for large doubles (as.character(200000) == "2e+05"),
+# which would break joins against raw data strings.
+.code_chr <- function(x) {
+  if (!is.numeric(x)) return(as.character(x))
+  # elementwise: vectorised format() applies common formatting across the
+  # vector (format(c(1, 1.5)) == c("1.0", "1.5"))
+  vapply(x, function(e) {
+    if (is.na(e)) NA_character_ else format(e, scientific = FALSE, trim = TRUE)
+  }, character(1L))
+}
+
 # Identify variables whose value labels are ALL sentinel labels.
-# Returns a named list: name → c(missing_lo, missing_hi) derived from the
-# sentinel code values (NA_real_ pair when values are non-numeric).
+# Returns a named list: name → c(missing_lo, missing_hi).  The missing range
+# is derived from the TRUE-missing codes only (.missing_pat): zero-value
+# labels like "None" or "ZERO HOURS" count towards the sentinel-only
+# classification but are valid zeros, not missing data (e.g. GSS 2012 ITL_Q10:
+# 0="None", 97="Not Asked", 98="Not stated", 99="Don't know" must yield the
+# range [97, 99], not [0, 99] which would NA the entire variable).
 .detect_sentinel_only <- function(codes_tbl, label_col = "label_en") {
   out <- list()
   for (v in unique(codes_tbl$name)) {
     vc     <- codes_tbl[codes_tbl$name == v, ]
     labels <- trimws(vc[[label_col]])
     if (length(labels) > 0L && all(grepl(.sentinel_pat, labels, perl = TRUE))) {
-      s_nums <- suppressWarnings(as.numeric(vc$val))
+      miss   <- grepl(.missing_pat, labels, perl = TRUE)
+      s_nums <- suppressWarnings(as.numeric(vc$val[miss]))
       s_nums <- s_nums[!is.na(s_nums)]
       out[[v]] <- if (length(s_nums) > 0L) c(min(s_nums), max(s_nums))
                   else c(NA_real_, NA_real_)
@@ -395,6 +420,26 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   if (length(data_list_pos) > 0)
     layout <- .spss_parse_data_list(spss$clean, data_list_pos[1])
 
+  # ---- Normalise name case across sections ----
+  # Some command files mix cases between sections (Census 2016: DATA LIST
+  # declares "TotInc" but VARIABLE LABELS uses "TOTINC").  Without a common
+  # case the type-derivation joins below silently fail and numeric variables
+  # are misclassified as character.
+  variable_labels$name <- toupper(variable_labels$name)
+  variable_labels      <- variable_labels[!duplicated(variable_labels$name), ]
+  codes$name           <- toupper(codes$name)
+  codes                <- codes[!duplicated(paste(codes$name, codes$val)), ]
+  formats$name         <- toupper(formats$name)
+  missing_vals$name    <- toupper(missing_vals$name)
+  if (!is.null(layout)) {
+    dl_attr <- attr(layout, "dl_decimals")
+    layout$name <- toupper(layout$name)
+    if (!is.null(dl_attr)) {
+      names(dl_attr) <- toupper(names(dl_attr))
+      attr(layout, "dl_decimals") <- dl_attr
+    }
+  }
+
   # ---- Combine into variables tibble ----
   # Variables whose value labels are ALL sentinel labels (Not applicable, Valid
   # skip, etc.) are continuous numerics with a missing-value range, not
@@ -658,14 +703,15 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
         # Normalize unquoted (numeric) code values: parse as number then
         # convert back to string.  This strips leading zeros ("01" → "1")
         # and avoids integer overflow for large sentinel values (e.g. 99999999996).
-        # R's as.character() renders whole-number doubles without ".0" ("1.0"→"1").
+        # .code_chr() renders whole-number doubles without ".0" ("1.0"→"1") and
+        # never in scientific notation ("200000", not "2e+05").
         # Quoted codes (character variables) are kept verbatim.
         val = if_else(
           .data$is_q,
           .data$raw_val,
           {
             num <- suppressWarnings(as.numeric(.data$raw_val))
-            if_else(!is.na(num), as.character(num), .data$raw_val)
+            if_else(!is.na(num), .code_chr(num), .data$raw_val)
           }
         ),
         label = gsub('^"|"$', "", .data$last_q)
@@ -717,15 +763,16 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   tibble::tibble(value = trimws(lines)) |>
     mutate(
       name        = stringr::str_match(.data$value, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-      miss_str    = stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L]
+      # values may be padded inside the parens: "VALUEH  ( 999999 )/"
+      miss_str    = trimws(stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L])
     ) |>
     filter(!is.na(.data$name), !is.na(.data$miss_str)) |>
     mutate(
       missing_low  = as.numeric(
-        stringr::str_match(.data$miss_str, "^([\\d.]+)")[, 2L]),
+        stringr::str_match(.data$miss_str, "^(-?[\\d.]+)")[, 2L]),
       missing_high = if_else(
         grepl("THRU", .data$miss_str, ignore.case = TRUE),
-        as.numeric(stringr::str_match(.data$miss_str, "THRU\\s+([\\d.]+)")[, 2L]),
+        as.numeric(stringr::str_match(.data$miss_str, "THRU\\s+(-?[\\d.]+)")[, 2L]),
         .data$missing_low
       )
     ) |>
@@ -1090,21 +1137,82 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 # Used by Census 2011 individuals whose SPSS command file lacks VARIABLE LABELS.
 parse_sas_data_labels <- function(eng_path, fra_path = NULL,
                                   encoding = "CP1252") {
-  parse_one <- function(path) {
-    if (is.null(path)) return(NULL)
-    lines <- tryCatch(
+  read_sas_lines <- function(path) {
+    if (is.null(path)) return(character(0L))
+    tryCatch(
       readr::read_lines(path, locale = readr::locale(encoding = encoding)),
       error = function(e) character(0L)
     )
+  }
+
+  parse_var_labels <- function(lines) {
     m <- stringr::str_match(lines,
            "^\\s*LABEL\\s+([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*\"([^\"]+)\"")
     df <- tibble::tibble(name = toupper(m[, 2L]), label = m[, 3L])
     df[!is.na(df$name), ]
   }
 
-  eng <- parse_one(eng_path)
-  if (is.null(eng) || nrow(eng) == 0L) return(NULL)
-  fra <- parse_one(fra_path)
+  # PROC FORMAT VALUE blocks, associated to variables via the StatCan-style
+  # comment that precedes each block (possibly spanning lines):
+  #   /* V217F format applies to:
+  #   MAR_Q482C  */
+  #   VALUE V217F
+  #                   100 = "100 and more hours"
+  #                   999.7 = "Not asked"
+  #                   other = [Z5.1];
+  # Files without "applies to" comments (e.g. Census 2011) yield no codes.
+  parse_value_codes <- function(lines) {
+    empty <- tibble::tibble(name = character(), val = character(),
+                            label = character())
+    idx <- grep("format applies to", lines)
+    if (length(idx) == 0L) return(empty)
+    fmt_vars <- list()
+    for (i in idx) {
+      fmt <- stringr::str_match(lines[i],
+                                "/\\*\\s*(\\S+)\\s+format applies to")[, 2L]
+      if (is.na(fmt)) next
+      j <- i
+      block <- lines[i]
+      while (!grepl("\\*/", lines[j]) && j < length(lines)) {
+        j <- j + 1L
+        block <- paste(block, lines[j])
+      }
+      vars <- sub(".*applies to:", "", block)
+      vars <- sub("\\*/.*", "", vars)
+      vars <- toupper(strsplit(trimws(vars), "\\s+")[[1L]])
+      fmt_vars[[toupper(fmt)]] <- vars[nchar(vars) > 0L]
+    }
+    rows <- list()
+    for (i in grep("^\\s*VALUE\\s+\\S+", lines, ignore.case = TRUE)) {
+      fmt  <- toupper(stringr::str_match(lines[i],
+                                         "(?i)^\\s*VALUE\\s+(\\S+)")[, 2L])
+      vars <- fmt_vars[[fmt]]
+      if (is.null(vars)) next
+      j <- i + 1L
+      while (j <= length(lines)) {
+        m <- stringr::str_match(lines[j],
+               '^\\s*(-?[0-9][0-9.]*)\\s*=\\s*"([^"]*)"')
+        if (!is.na(m[1L, 2L])) {
+          val <- suppressWarnings(as.numeric(m[1L, 2L]))
+          if (!is.na(val))
+            for (v in vars)
+              rows[[length(rows) + 1L]] <-
+                tibble::tibble(name = v, val = .code_chr(val),
+                               label = m[1L, 3L])
+        }
+        if (grepl(";\\s*$", lines[j])) break
+        j <- j + 1L
+      }
+    }
+    if (length(rows) == 0L) return(empty)
+    do.call(rbind, rows)
+  }
+
+  eng_lines <- read_sas_lines(eng_path)
+  eng <- parse_var_labels(eng_lines)
+  if (nrow(eng) == 0L) return(NULL)
+  fra_lines <- read_sas_lines(fra_path)
+  fra <- if (length(fra_lines) > 0L) parse_var_labels(fra_lines) else NULL
 
   variables <- if (!is.null(fra) && nrow(fra) > 0L) {
     left_join(rename(eng, label_en = "label"),
@@ -1118,10 +1226,19 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
   variables$missing_low  <- NA_real_
   variables$missing_high <- NA_real_
 
+  codes_en <- parse_value_codes(eng_lines)
+  codes_fr <- parse_value_codes(fra_lines)
+  codes <- rename(codes_en, label_en = "label")
+  codes$label_fr <- NA_character_
+  if (nrow(codes_fr) > 0L && nrow(codes) > 0L) {
+    fr_key <- paste(codes_fr$name, codes_fr$val, sep = "\r")
+    hit    <- match(paste(codes$name, codes$val, sep = "\r"), fr_key)
+    codes$label_fr <- codes_fr$label[hit]
+  }
+
   list(
     variables = variables,
-    codes     = tibble::tibble(name = character(), val = character(),
-                               label_en = character(), label_fr = character()),
+    codes     = codes,
     layout    = NULL
   )
 }
@@ -1993,7 +2110,7 @@ parse_spss_sav <- function(sav_path) {
     if (is.null(lbls) || length(lbls) == 0L) return(NULL)
     tibble::tibble(
       name     = toupper(names(df)[i]),
-      val      = as.character(lbls),   # numeric or character code -> string
+      val      = .code_chr(lbls),      # numeric or character code -> string
       label_en = names(lbls),
       label_fr = NA_character_
     )

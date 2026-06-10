@@ -283,7 +283,11 @@ get_pumf <- function(series     = NULL,
       stop("Metadata directory not found: '", meta_dir, "'. ",
            "Run get_pumf(\"", series, "\", \"", version, "\") first.",
            call. = FALSE)
-    read_metadata(meta_dir)$variables
+    vars <- read_metadata(meta_dir)$variables
+    # DuckDB column names are uppercased at build time; normalise metadata
+    # names so mixed-case command-file declarations (e.g. "TotInc") match.
+    vars$name <- toupper(vars$name)
+    vars
   }
 }
 

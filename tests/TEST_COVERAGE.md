@@ -22,6 +22,7 @@ is added, or the scope of an existing test changes.
 | `test-factor-enum.R` | Factor → DuckDB ENUM encoding |
 | `test-cache-mgmt.R` | Cache path resolution, version extraction checks |
 | `test-registry.R` | `pumf_registry_lookup()` for all registered surveys |
+| `test-override-verification.R` | Every manual registry override (`force_numeric`, `na_values`, `cols_swap`, `rename`, `codes_supplement`, `missing_supplement`) has a `confirmed`/`unverifiable` row in `override_verification.csv`; no stale ledger rows; confirmed rows carry a source file and date. See "Override verification workflow" in CLAUDE.md |
 | `test-pipeline-stage1.R` | `pumf_locate_or_download()` (download, unzip, collision handling) — uses `skip_if_offline()` for download tests; download attempts wrapped in `tryCatch` → `skip()` so StatCan downtime produces a skip, not a failure |
 | `test-pipeline-stage3.R` | Stage 3 helpers: `.find_pumf_data_file()`, `pumf_build_duckdb()` end-to-end with synthetic data |
 | `test-api.R` | `get_pumf()`, `label_pumf_columns()`, `close_pumf()`, `pumf_metadata()` — mostly synthetic; some use `skip_if_offline()` |
@@ -54,6 +55,9 @@ which cached versions are exercised.
 | SFS | `test-pipeline-sfs.R` | 2023, 2019, 2016, 2012, 2005 | ✓ | ✓ | ✓ | BSW join tested for 2016/2019/2023 |
 | SFS 1999 | `test-pipeline-sfs.R` | 1999 | ✓ | ✓ | — | DATA LIST-only SPSS + PDF dictionary (`parse_pdf_dictionary`) for labels; English-only (no French PDF bundled in the download); row count (15 933) and column count (80) asserted; PDF-derived labels verified |
 | CHS | `test-pipeline-chs.R` | First of: 2022, 2021, 2018 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested; bilingual tests use whichever version is in cache |
+| SGVP | `test-pipeline-sgvp.R` | 2023, 2018, 2013, 2010, 2007, 2004, 2000, 1997 | ✓ | ✓ | ✓ | 2018 warns codes_supplement injection for BRTHMACR — allowed; 2013 asserts the force_numeric top-code ranges (HSDSIZEC 1–6, CHH0014C 0–3) verified in `override_verification.csv` |
+| CCAHS | `test-pipeline-ccahs.R` | 1 | ✓ | ✓ | ✓ | BSW join tested (PUMFID key, WGT_PUMF dropped from BSW side) |
+| ITS | `test-pipeline-its.R` | 2018, 2019 | ✓ | ✓ | ✓ | |
 | SHS | `test-pipeline-shs.R` | First of: 2021, 2019, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested |
 | CIS | `test-pipeline-cis.R` | First of: 2022, 2021, 2020, 2019, 2018 | ✓\* | — | ✓ | Stage 2 smoke-test |
 | CPSS | `test-pipeline-cpss.R` | v1 (Stage 1 only†); v2–6 (full) | ✓ | — | ✓ | Cache-gated (`skip_if_not(.cpss_extracted(), ...)`); †v1 has no machine-readable codebook so Stage 2/3 are skipped; Stage 1 download tested in `test-pipeline-stage1.R` |
