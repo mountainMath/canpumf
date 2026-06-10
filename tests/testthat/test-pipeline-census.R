@@ -48,9 +48,9 @@
   # 2021 individuals: StatCan's UTF-8 command file omits French variable labels
   # for 74 of 144 variables — a known upstream gap, not a parser bug.
   "2021 (individuals)"   = "no French translation",
-  # 1981 individuals: WKACTMA/WKACTFA column names transposed in DATA LIST (→ swap
-  # warning), FAOCC81 code 17 injected via supplement, 1 blank PROV record.
-  "1981/individuals"     = "Variable PROV: \\d+ unmatched|absent from command files|names swapped",
+  # 1981 individuals: two pairs of DATA LIST names transposed (WKACTMA/WKACTFA,
+  # FAOCC81/MAOCC81) and 1 blank PROV record (data artifact).
+  "1981/individuals"     = "Variable PROV: \\d+ unmatched|names swapped",
   # 1971: a handful of code 0 entries missing from VALUE LABELS in some types,
   # and one blank GEOCODE record.
   "1971/individuals_cma" = "Variable (TYPE66|TYPE71): \\d+ unmatched",

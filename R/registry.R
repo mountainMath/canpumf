@@ -381,20 +381,15 @@
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
     data_fixups     = c(.census_fixup_7, list(
-      # The DATA LIST names WKACTMA and WKACTFA are transposed in the SPS relative
-      # to the PDF documentation: position 164-165 (labeled WKACTMA) contains the
-      # female 12-code alternating FT/PT data, and position 162-163 (labeled
-      # WKACTFA) contains the male 10-code grouped data. Swapping the column names
-      # restores the intuitive M/F meaning and lets the SPS VALUE LABELS and
-      # VARIABLE LABELS fall on the correct columns.
-      cols_swap = c("WKACTMA", "WKACTFA"),
-      # FAOCC81 (female occupation 1981) has code 17 in the data; MISSING VALUES
-      # for MAOCC81 explicitly declares 17 as user-missing, so treat it the same.
-      codes_supplement = list(
-        FAOCC81 = data.frame(
-          val = "17", label_en = "Not applicable", label_fr = "Sans objet",
-          stringsAsFactors = FALSE)
-      )
+      # The DATA LIST names for two pairs of variables are transposed in the SPS
+      # relative to the PDF documentation (confirmed by value-range analysis):
+      #   WKACTMA/WKACTFA: position 162-163 holds male 10-code grouped data,
+      #     position 164-165 holds female 12-code alternating FT/PT data.
+      #   FAOCC81/MAOCC81: same swap pattern; MAOCC81 already has code 17
+      #     ("DID NOT WORK SINCE 1/1/80") so no supplement needed after the swap.
+      # Swapping column names restores the intuitive M/F meaning and lets the
+      # SPS VALUE LABELS and VARIABLE LABELS fall on the correct columns.
+      cols_swap = c("WKACTMA", "WKACTFA", "FAOCC81", "MAOCC81")
     ))),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",
