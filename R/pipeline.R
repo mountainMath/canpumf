@@ -756,6 +756,18 @@ pumf_build_duckdb <- function(version_dir,
   # Step 7: numeric types, then code labels → factors
   na_vals <- if (!is.null(reg)) reg$data_fixups$na_values %||% character(0L)
              else character(0L)
+  # codes_swap: exchange the full code tables between pairs of variables.
+  # Used when the SPS VALUE LABELS section has two variable names transposed
+  # (e.g. 1981 Census WKACTMA/WKACTFA are swapped in both English and French SPS).
+  if (!is.null(reg) && length(reg$data_fixups$codes_swap) > 0L) {
+    pairs <- matrix(reg$data_fixups$codes_swap, ncol = 2L, byrow = TRUE)
+    for (i in seq_len(nrow(pairs))) {
+      v1 <- pairs[i, 1L]; v2 <- pairs[i, 2L]
+      c1 <- codes[codes$name == v1, ]; c1$name <- v2
+      c2 <- codes[codes$name == v2, ]; c2$name <- v1
+      codes <- bind_rows(codes[!codes$name %in% c(v1, v2), ], c1, c2)
+    }
+  }
   # codes_supplement: per-variable extra rows to inject before label mapping.
   # Used for codes that appear in data but are absent from the command files.
   if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {

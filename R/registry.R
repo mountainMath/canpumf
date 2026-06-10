@@ -381,19 +381,16 @@
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
     data_fixups     = c(.census_fixup_7, list(
-      # WKACTMA (male work activity) was documented with 10 codes in the SPS but
-      # the data contains codes 11 and 12 matching WKACTFA's extended scheme:
-      #   11 = worked 49-52 weeks full-time, 12 = worked 49-52 weeks part-time.
+      # The SPS VALUE LABELS for WKACTMA and WKACTFA are transposed in both the
+      # English and French command files. The raw data confirms this: the column
+      # named WKACTMA (position 164-165) contains values 0-12 (matching the
+      # 12-code alternating FT/PT scheme the SPS assigns to WKACTFA), while the
+      # WKACTFA column (162-163) contains values 0-10 (the 10-code grouped scheme
+      # the SPS assigns to WKACTMA). Swapping the code tables corrects both.
+      codes_swap = c("WKACTMA", "WKACTFA"),
       # FAOCC81 (female occupation 1981) has code 17 in the data; MISSING VALUES
       # for MAOCC81 explicitly declares 17 as user-missing, so treat it the same.
       codes_supplement = list(
-        WKACTMA = data.frame(
-          val      = c("11", "12"),
-          label_en = c("WORKED 49-52 WEEKS FULL-TIME (EXT)",
-                       "WORKED 49-52 WEEKS PART-TIME (EXT)"),
-          label_fr = c("A TRAVAILLÉ DE 49 À 52 SEMAINES À PLEIN TEMPS (EXT)",
-                       "A TRAVAILLÉ DE 49 À 52 SEMAINES À TEMPS PARTIEL (EXT)"),
-          stringsAsFactors = FALSE),
         FAOCC81 = data.frame(
           val = "17", label_en = "Not applicable", label_fr = "Sans objet",
           stringsAsFactors = FALSE)
