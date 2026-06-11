@@ -26,6 +26,33 @@ list_census_collection <- function() {
   }
 }
 
+# Hardcoded GSS/SGVP fallback — only the registry-supported surveys so that
+# get_pumf() still works for already-cached data when StatCan is unreachable.
+.gss_collection_fallback <- function() {
+  tibble::tibble(
+    Title          = c(rep("General Social Survey - Caregiving", 4L),
+                       rep("General Social Survey - Giving",     8L)),
+    Acronym        = c(rep("GSS",  4L), rep("SGVP", 8L)),
+    `Survey Number` = c(rep("4502", 4L), rep("4430", 8L)),
+    Version        = c("1996", "2007", "2012", "2018",
+                       "1997", "2000", "2004", "2007", "2010", "2013", "2018", "2023"),
+    url            = c(
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c11_1996.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c21_2007.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c26_2012.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c32_2018.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/NSGVP-ENDBP_1997.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/NSGVP-ENDBP_2000.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2004.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2007.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2010.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/c27_2013.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/c33_2018.zip",
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/GVP_DBP_2023.zip"
+    )
+  )
+}
+
 # Hardcoded Census versions used when StatCan is unreachable.
 # URLs are best-effort; they work for 2016/2021 (both use catalog 98m0001x)
 # but may be stale for older years.  If StatCan is unreachable the download
@@ -69,6 +96,54 @@ list_census_collection <- function() {
 list_pumf_collection <- function(){
   tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
     stats::na.omit()
+}
+
+# Scrape all GSS PUMF downloads from the shared catalogue index.
+# Returns a tibble with Title, Acronym, Survey Number, Version, url.
+#
+# Version conventions (to match existing registry keys):
+#   cat3 (Caregiving)        → Acronym="GSS",  Version=plain year e.g. "2018"
+#   cat5 (Giving/SGVP)       → Acronym="SGVP", Version=plain year e.g. "2023"
+#   all other themes         → Acronym="GSS",  Version="<Theme> <year>"
+#     e.g. "Safety 2019", "Family 2017", "Time Use 2022"
+list_gss_collection <- function() {
+  base_url <- "https://www150.statcan.gc.ca/n1/pub/45-25-0001/"
+  page     <- rvest::read_html(paste0(base_url, "index-eng.htm"))
+
+  # Static mapping: cat directory -> survey metadata
+  cat_meta <- tibble::tribble(
+    ~cat,    ~Title,                                       ~Acronym, ~Survey.Number, ~theme_prefix,
+    "cat1",  "General Social Survey - Canadian Safety",   "GSS",    "4504",         "Safety",
+    "cat2",  "General Social Survey - Work and Home",     "GSS",    "5221",         "Work and Home",
+    "cat3",  "General Social Survey - Caregiving",        "GSS",    "4502",         NA_character_,
+    "cat4",  "General Social Survey - Family",            "GSS",    "4501",         "Family",
+    "cat5",  "General Social Survey - Giving",            "SGVP",   "4430",         NA_character_,
+    "cat6",  "General Social Survey - Social Identity",   "GSS",    "5024",         "Social Identity",
+    "cat7",  "General Social Survey - Time Use",          "GSS",    "4503",         "Time Use",
+    "cat8",  "General Social Survey - ICT",               "GSS",    "4505",         "ICT",
+    "cat9",  "General Social Survey - Education",         "GSS",    "4500",         "Education",
+    "cat10", "General Social Survey - Health",            "GSS",    "3894",         "Health"
+  )
+
+  zip_nodes <- rvest::html_elements(page, 'a[href$=".zip"]')
+  tibble::tibble(
+    href    = rvest::html_attr(zip_nodes, "href"),
+    year    = trimws(rvest::html_text(zip_nodes))
+  ) |>
+    dplyr::filter(!is.na(.data$href)) |>
+    dplyr::mutate(
+      url = paste0(base_url, .data$href),
+      cat = stringr::str_extract(.data$href, "^cat\\d+")
+    ) |>
+    dplyr::left_join(cat_meta, by = "cat") |>
+    dplyr::mutate(
+      Version = dplyr::if_else(
+        is.na(.data$theme_prefix),
+        .data$year,
+        paste(.data$theme_prefix, .data$year)
+      )
+    ) |>
+    dplyr::select(Title, Acronym, `Survey Number` = Survey.Number, Version, url)
 }
 
 
@@ -188,35 +263,20 @@ list_canpumf_collection <- function(){
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2021001/2018-eng.zip",
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2019001/2017-eng.zip"))
 
-  gss_versions <- tibble(Acronym="GSS",
-                             Version=c("1996", "2007", "2012", "2018"),
-                             url=c("https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c11_1996.zip",
-                                   "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c21_2007.zip",
-                                   "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c26_2012.zip",
-                                   "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c32_2018.zip"),
-                             Title="General Social Survey - Caregiving and Care Receiving",
-                             `Survey Number`='4502'
-  )
-  sgvp_versions <- tibble(Acronym="SGVP",
-                          Version=c("1997", "2000", "2004", "2007", "2010", "2013", "2018", "2023"),
-                          url=c("https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/NSGVP-ENDBP_1997.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/NSGVP-ENDBP_2000.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2004.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2007.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/CSGVP-ECDBP_2010.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/c27_2013.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/c33_2018.zip",
-                                "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat5/GVP_DBP_2023.zip"),
-                          Title="General Social Survey - Giving, Volunteering and Participating",
-                          `Survey Number`='4430'
+  gss_all <- tryCatch(
+    list_gss_collection(),
+    error = function(e) .gss_collection_fallback()
   )
 
   census_download   <- list_census_collection()
   scrape_failed_lfs <- nrow(lfs_versions) == 0L
   scrape_failed_cen <- identical(census_download, .census_collection_fallback())
+  scrape_failed_gss <- identical(gss_all, .gss_collection_fallback())
 
-  if (scrape_failed_lfs || scrape_failed_cen) {
-    what <- c(if (scrape_failed_cen) "Census", if (scrape_failed_lfs) "LFS")
+  if (scrape_failed_lfs || scrape_failed_cen || scrape_failed_gss) {
+    what <- c(if (scrape_failed_cen) "Census",
+              if (scrape_failed_lfs) "LFS",
+              if (scrape_failed_gss) "GSS/SGVP")
     warning("Statistics Canada website unreachable; ",
             paste(what, collapse = " and "),
             " version list(s) are hard-coded and may be incomplete.",
@@ -228,7 +288,7 @@ list_canpumf_collection <- function(){
 
   if (nrow(pumf_surveys)>0) {
     result <- pumf_surveys %>%
-      left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_versions,sgvp_versions),
+      left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_all),
                 by="Acronym") %>%
       bind_rows(chs,cpss,shs)
   } else {
@@ -237,8 +297,7 @@ list_canpumf_collection <- function(){
                 its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
                 cis_versions |> mutate(Title="Canadian Income Survey",`Survey Number`='5200'),
-                gss_versions,
-                sgvp_versions,
+                gss_all,
                 tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
                        Version=paste0(seq(1971,last_eft_year,5)," (individuals)"),
                        url="(EFT)"),
