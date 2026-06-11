@@ -369,7 +369,7 @@ label_pumf_columns <- function(tbl) {
   var_labels <- var_labels[var_labels$name %in% tbl_cols, , drop = FALSE]
 
   # Inject labels for derived LFS helper columns that are not in the metadata.
-  derived <- c(DATE       = "Survey date",
+  derived <- c(SURVDATE   = "Survey date",
                GENDER_SEX = "Gender/sex of respondent")
   present_derived <- derived[names(derived) %in% tbl_cols]
   if (length(present_derived) > 0L) {

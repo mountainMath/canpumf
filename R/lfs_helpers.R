@@ -2,7 +2,7 @@
 #'
 #' Creates a date column set to the first day of the survey month and inserts
 #' it immediately after the survey month column.  Works on both unlabelled
-#' tables (columns `SURVYEAR` / `SURVMNTH`, date column named `DATE`) and
+#' tables (columns `SURVYEAR` / `SURVMNTH`, date column named `SURVDATE`) and
 #' labelled tables produced by [label_pumf_columns()] (columns `"Survey year"`
 #' / `"Survey month"`, date column named `"Survey date"`).
 #'
@@ -12,29 +12,29 @@
 #' @return The same lazy table with a new date column positioned after the
 #'   survey month column.
 #'
-#' @seealso [get_pumf()], [label_pumf_columns()], [add_lfs_gender_sex()]
+#' @seealso [get_pumf()], [label_pumf_columns()], [add_lfs_GENDER_SEX()]
 #'
 #' @examples
 #' \dontrun{
 #' # Unlabelled
 #' lfs <- get_pumf("LFS", "2023")
-#' lfs |> add_lfs_date() |> dplyr::select(SURVYEAR, SURVMNTH, DATE) |>
+#' lfs |> add_lfs_SURVDATE() |> dplyr::select(SURVYEAR, SURVMNTH, SURVDATE) |>
 #'   dplyr::distinct() |> dplyr::collect()
 #'
 #' # Labelled
-#' lfs |> label_pumf_columns() |> add_lfs_date() |>
+#' lfs |> label_pumf_columns() |> add_lfs_SURVDATE() |>
 #'   dplyr::select(`Survey year`, `Survey month`, `Survey date`) |>
 #'   dplyr::distinct() |> dplyr::collect()
 #'
 #' close_pumf(lfs)
 #' }
 #' @export
-add_lfs_date <- function(tbl) {
+add_lfs_SURVDATE <- function(tbl) {
   cols <- colnames(tbl)
   if (all(c("SURVYEAR", "SURVMNTH") %in% cols)) {
     yr_col   <- "SURVYEAR"
     mnth_col <- "SURVMNTH"
-    date_col <- "DATE"
+    date_col <- "SURVDATE"
   } else if (all(c("Survey year", "Survey month") %in% cols)) {
     yr_col   <- "Survey year"
     mnth_col <- "Survey month"
@@ -55,7 +55,7 @@ add_lfs_date <- function(tbl) {
 #' LFS introduced `GENDER` (with values `"Men+"` / `"Women+"` / `"Non-binary
 #' persons"`) to replace the binary `SEX` variable (`"Male"` / `"Female"`)
 #' starting in 2020.  In any given row exactly one of the two columns is
-#' non-`NA`.  `add_lfs_gender_sex()` coalesces them into a single harmonised
+#' non-`NA`.  `add_lfs_GENDER_SEX()` coalesces them into a single harmonised
 #' column, recoding `SEX` values to the `GENDER` scale so the result is
 #' consistent across all LFS vintages.
 #'
@@ -79,25 +79,25 @@ add_lfs_date <- function(tbl) {
 #'
 #' @return The same lazy table with a new harmonised gender/sex column.
 #'
-#' @seealso [get_pumf()], [label_pumf_columns()], [add_lfs_date()]
+#' @seealso [get_pumf()], [label_pumf_columns()], [add_lfs_SURVDATE()]
 #'
 #' @examples
 #' \dontrun{
 #' lfs <- get_pumf("LFS")
 #'
 #' # Unlabelled
-#' lfs |> add_lfs_gender_sex() |>
+#' lfs |> add_lfs_GENDER_SEX() |>
 #'   dplyr::count(SEX, GENDER, GENDER_SEX) |> dplyr::collect()
 #'
 #' # Labelled
-#' lfs |> label_pumf_columns() |> add_lfs_gender_sex() |>
+#' lfs |> label_pumf_columns() |> add_lfs_GENDER_SEX() |>
 #'   dplyr::count(`Sex of respondent`, `Gender of respondent`,
 #'                `Gender/sex of respondent`) |> dplyr::collect()
 #'
 #' close_pumf(lfs)
 #' }
 #' @export
-add_lfs_gender_sex <- function(tbl) {
+add_lfs_GENDER_SEX <- function(tbl) {
   cols <- colnames(tbl)
 
   if (any(c("GENDER", "SEX") %in% cols)) {

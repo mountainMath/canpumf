@@ -165,7 +165,7 @@ lfs_pumf <- get_pumf("LFS", refresh="auto")
 ```
 
 
-We can now easily extract time series data, we want to perform as many operations as possible at the database level. Before plotting we could call `collect`, but this does not need to be done explicitly. 
+We can now easily extract time series data, we want to perform as many operations as possible at the database level. There are several convenience functions when working with the LFS data, one is the add a `SURVDATE` column based on the survey year and month.
 
 ```{r}
 unemployment_stats <- lfs_pumf |> 
@@ -174,14 +174,14 @@ unemployment_stats <- lfs_pumf |>
   mutate(jd=case_when(is.na(DURJLESS) ~ "Not applicable",
                       DURJLESS<12 ~ "Less than one year",
                       TRUE ~ "One year or more")) |>
-  mutate(Date=as.Date(paste0(SURVYEAR,"-",SURVMNTH,"-01"))) |>
-  summarize(Count=sum(FINALWT),.by=c(Date,jd,AGE_12)) |>
-  mutate(Share=Count/sum(Count),.by=c(Date,AGE_12)) |>
+  add_lfs_SURVDATE() |>
+  summarize(Count=sum(FINALWT),.by=c(SURVDATE,jd,AGE_12)) |>
+  mutate(Share=Count/sum(Count),.by=c(SURVDATE,AGE_12)) |>
   filter(jd!="Not applicable")
 
 
 unemployment_stats |>
-  ggplot(aes(x=Date,y=Share,colour=AGE_12)) +
+  ggplot(aes(x=SURVDATE,y=Share,colour=AGE_12)) +
   geom_line() +
   facet_wrap(~jd) +
   scale_y_continuous(labels=scales::percent_format()) +
@@ -191,6 +191,7 @@ unemployment_stats |>
        caption="StatCan LFS (PUMF)")
 ```
 
+Before plotting we could call `collect`, but this does not need to be done explicitly. 
 
 Because the data is efficiently ogranzied in DuckDB, this query runs quite fast despite no explicit indexing of the database, taking less than half a second.
 
@@ -206,15 +207,12 @@ The SEX variable has been recategorized into the GENDER concept starting in 2011
 ```{r}
 lfs_pumf |> 
   filter(LFSSTAT !="Not in labour force") |>
-  mutate(GENDER_SEX=coalesce(GENDER,SEX)) |>
-  mutate(GENDER_SEX=case_when(GENDER_SEX=="Female"~"Women+",
-                              GENDER_SEX=="Male"~"Men+",
-                              TRUE ~ GENDER_SEX)) |>
-  mutate(Date=as.Date(paste0(SURVYEAR,"-",SURVMNTH,"-01"))) |>
-  summarise(Count=sum(FINALWT),.by=c(Date,LFSSTAT,GENDER_SEX)) |>
-  mutate(Share=Count/sum(Count),.by=c(Date,GENDER_SEX)) |>
+  add_lfs_SURVDATE() |>
+  add_lfs_GENDER_SEX() |>
+  summarise(Count=sum(FINALWT),.by=c(SURVDATE,LFSSTAT,GENDER_SEX)) |>
+  mutate(Share=Count/sum(Count),.by=c(SURVDATE,GENDER_SEX)) |>
   filter(LFSSTAT=="Unemployed") |>
-  ggplot(aes(x=Date,y=Share,colour=GENDER_SEX)) +
+  ggplot(aes(x=SURVDATE,y=Share,colour=GENDER_SEX)) +
   geom_line() +
   scale_y_continuous(labels=scales::percent_format()) +
   labs(title="Unemployment sex/gender",
