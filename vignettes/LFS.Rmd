@@ -165,7 +165,7 @@ lfs_pumf <- get_pumf("LFS", refresh="auto")
 ```
 
 
-We can now easily extract time series data, we want to perform as many operations as possible at the database level. There are several convenience functions when working with the LFS data, one is the add a `SURVDATE` column based on the survey year and month.
+We can now easily extract time series data, we want to perform as many operations as possible at the database level. There are several convenience functions when working with the LFS data, one is `add_lfs_SURVDATE` which adds a `SURVDATE` column based on the survey year and month.
 
 ```{r}
 unemployment_stats <- lfs_pumf |> 
@@ -201,7 +201,7 @@ microbenchmark::microbenchmark(collect(unemployment_stats)) |>
 ```
 
 
-The SEX variable has been recategorized into the GENDER concept starting in 2011, older LFS PUMF data still uses SEX. We can harmonize this by coalescing the values.
+The SEX variable has been recategorized into the GENDER concept starting in 2011, older LFS PUMF data still uses SEX. We can harmonize this by coalescing the values to create a new `GENDER_SEX` colum as done by the convenience function `add_lfs_GENDER_SEX`. 
 
 
 ```{r}
