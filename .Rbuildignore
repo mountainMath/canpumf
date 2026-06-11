@@ -16,3 +16,6 @@ documentation/duckdb_plan.md
 documentation/*
 ^tools$
 ^\.github$
+^canpumf-logo\.png$
+^canpumf\.png$
+^hexSticker\.png$

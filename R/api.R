@@ -518,7 +518,7 @@ add_pumf_bootstrap_weights <- function(tbl,
   if (has_complex_ops)
     warning(
       "The input tbl has dplyr operations (select, group_by, etc.) that ",
-      "cannot be replayed on the BSW view — they would drop BSW columns or ",
+      "cannot be replayed on the BSW view \u2014 they would drop BSW columns or ",
       "change aggregation semantics. Apply them manually to the returned tbl.",
       call. = FALSE
     )

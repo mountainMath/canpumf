@@ -1,4 +1,6 @@
 
+utils::globalVariables(c("name", "val"))
+
 # Canonical metadata schema
 # variables.csv: name (chr), label_en (chr), label_fr (chr|NA),
 #                type (chr: "character"|"numeric"),
@@ -14,14 +16,14 @@
 # "Non demandé"): "(ne )?s'applique pas" covers both the full form and the
 # older abbreviated form "S'APPLIQUE PAS" (pre-2004 SGVP and other older
 # surveys); "ne sait pas" = "don't know"; "refus$" = "refusal" (older files
-# use bare "REFUS"); "enchaîn" = "enchaînement valide" (valid skip).
+# use bare "REFUS"); "encha\u00een" = "encha\u00eenement valide" (valid skip).
 .missing_label_alts <- paste0(
   "not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
-  "sans objet|non (disponible|déclaré|applicable)|",
-  "(ne )?s.?applique pas|ne sait pas|refus$|enchaîn|",
-  "inconnu|manquant|non demandé|hors .chantillon"
+  "sans objet|non (disponible|d\u00e9clar\u00e9|applicable)|",
+  "(ne )?s.?applique pas|ne sait pas|refus$|encha\u00een|",
+  "inconnu|manquant|non demand\u00e9|hors .chantillon"
 )
 
 # Zero-value label alternatives: code 0 labeled with phrases meaning "zero of

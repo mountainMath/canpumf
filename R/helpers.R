@@ -196,6 +196,7 @@ get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
 #' @importFrom rlang .data
 #' @importFrom rlang :=
 #' @import duckplyr
+#' @importFrom dbplyr sql_render
 NULL
 
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines

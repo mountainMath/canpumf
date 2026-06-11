@@ -544,7 +544,7 @@
           val      = c("29", "30"),
           label_en = c("Other European single responses (Atl/YT/NWT)",
                        "Asian (Atl/YT/NWT)"),
-          label_fr = c("Autres origines uniques européennes (Atl/YN/TNO)",
+          label_fr = c("Autres origines uniques europ\u00e9ennes (Atl/YN/TNO)",
                        "Asiatique (Atl/YN/TNO)"),
           stringsAsFactors = FALSE
         )
@@ -613,10 +613,10 @@
       # VALUE LABELS; confirmed from PDF documentation.
       codes_supplement = list(
         TYPE66 = data.frame(val = "0", label_en = "Data not available",
-                            label_fr = "Données non disponibles",
+                            label_fr = "Donn\u00e9es non disponibles",
                             stringsAsFactors = FALSE),
         TYPE71 = data.frame(val = "0", label_en = "Data not available",
-                            label_fr = "Données non disponibles",
+                            label_fr = "Donn\u00e9es non disponibles",
                             stringsAsFactors = FALSE)
       )
     ))),

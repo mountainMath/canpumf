@@ -515,7 +515,7 @@ pumf_locate_or_download <- function(series,
       if (!is.na(i1) && !is.na(i2)) {
         names(data)[i1] <- v2; names(data)[i2] <- v1
         warning("Columns ", v1, " and ", v2, ": names swapped relative to ",
-                "command file — DATA LIST variable names appear transposed.",
+                "command file \u2014 DATA LIST variable names appear transposed.",
                 call. = FALSE)
       }
     }
@@ -864,7 +864,7 @@ pumf_build_duckdb <- function(version_dir,
   # detect_sentinel_only: if NOT all codes are sentinels, the variable carries
   # real categorical labels and should go through .apply_code_labels().
   if (nrow(codes) > 0L) {
-    sentinel_only_vars <- names(canpumf:::.detect_sentinel_only(codes, label_col))
+    sentinel_only_vars <- names(.detect_sentinel_only(codes, label_col))
     coded_vars         <- unique(codes$name)
     non_sentinel_coded <- setdiff(coded_vars, sentinel_only_vars)
     promote_to_char    <- intersect(
