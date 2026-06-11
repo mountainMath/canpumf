@@ -37,6 +37,7 @@ Suggests:
     withr,
     microbenchmark,
     DiagrammeR,
+    htmltools,
     pdftools
 URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/canpumf/
 BugReports: https://github.com/mountainMath/canpumf/issues

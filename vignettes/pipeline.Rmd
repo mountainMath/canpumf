@@ -82,7 +82,8 @@ graph TD
     S3 --> REG[register provenance series version lang]
     REG --> TBL[return lazy dplyr tbl]
 
-  ", height = 650, width = 1200)
+  ", height = 650, width = 1200) |>
+     htmltools::tagList()
 } else {
   cat("Install DiagrammeR to render this diagram: install.packages('DiagrammeR')")
 }

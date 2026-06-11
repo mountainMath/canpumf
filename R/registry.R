@@ -27,7 +27,8 @@
                         data_fixups       = list(),
                         bundled_eng_sps   = NULL,
                         bundle_source     = NULL,
-                        bundle_sps_mask   = NULL) {
+                        bundle_sps_mask   = NULL,
+                        doc_mask          = NULL) {
   list(
     series            = series,
     version           = version,
@@ -42,7 +43,8 @@
     data_fixups       = data_fixups,
     bundled_eng_sps   = bundled_eng_sps,
     bundle_source     = bundle_source,
-    bundle_sps_mask   = bundle_sps_mask
+    bundle_sps_mask   = bundle_sps_mask,
+    doc_mask          = doc_mask
   )
 }
 
@@ -394,7 +396,8 @@
   "Census/2021 (individuals)" = .make_entry("Census", "2021 (individuals)",
     metadata_encoding = "UTF-8",
     file_mask         = "\\.csv",
-    data_fixups       = c(.census_fixup_8, list(rename = c(RELIGION_DER = "RELIG")))),
+    data_fixups       = c(.census_fixup_8, list(rename = c(RELIGION_DER = "RELIG"))),
+    doc_mask          = "User Guide"),
 
   "Census/2021 (hierarchical)" = .make_entry("Census", "2021 (hierarchical)",
     metadata_encoding = "UTF-8",
@@ -534,6 +537,7 @@
   "Census/1986/individuals" = .make_entry("Census", "1986/individuals",
     bundle_sps_mask = "ind86",
     file_mask       = "^INDIV86\\.DAT$",
+    doc_mask        = "Individu|[Pp]articulier|indvls",
     data_fixups     = list(
       force_numeric = c(
         "AGEP", "HRSWK", "WKSWK",
@@ -554,6 +558,7 @@
   "Census/1986/households" = .make_entry("Census", "1986/households",
     bundle_sps_mask = "hhld86",
     file_mask       = "^HHLD86\\.DAT$",
+    doc_mask        = "Household|[Mm][eé]nages|hhldhsg",
     data_fixups     = list(force_numeric = c(
       "VALUEH", "GROSRTH", "RENTH", "OMPH", "MPPIT",
       "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
@@ -562,6 +567,7 @@
   "Census/1986/families" = .make_entry("Census", "1986/families",
     bundle_sps_mask = "fam",
     file_mask       = "^FAM86\\.DAT$",
+    doc_mask        = "Family|Familles",
     data_fixups     = list(na_values = "999999")),
 
   "Census/1981/individuals" = .make_entry("Census", "1981/individuals",

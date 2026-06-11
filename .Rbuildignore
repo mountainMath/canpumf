@@ -12,8 +12,7 @@ test_data/*
 ^pkgdown$
 ^\.positai$
 ^\.claude$
-documentation/duckdb_plan.md
-documentation/*
+^documentation/
 ^tools$
 ^\.github$
 ^canpumf-logo\.png$

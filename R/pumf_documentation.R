@@ -1,34 +1,45 @@
-#' Open PUMF documentation in browser
+#' Open PUMF documentation in the browser
 #'
-#' Scans the cached version directory for PDF and TXT documentation files
-#' and opens matching files in the default browser.  If no files are found in
-#' the extracted content, the zip is inspected and documentation files are
-#' extracted on demand into a `docs_extracted/` subdirectory.
+#' Scans the cached version directory for PDF documentation files and opens
+#' them interactively.  If no PDFs are found, looks for text files, filtering
+#' out large FWF data files by size.  When multiple candidate files exist, an
+#' interactive menu lets you choose which to open, with "Open all" as the
+#' last option.
 #'
-#' @param series Survey series acronym, e.g. `"SFS"`, `"Census"`.
-#' @param version Version string, e.g. `"2019"`, `"2021 (individuals)"`.
-#'   If `NULL`, searches the series directory directly (for series with a
-#'   single version).
-#' @param documentation_type Which type of documentation to open.  One of
-#'   `"user_guide"` (default), `"reference_guide"`, `"questionnaire"`,
-#'   `"quality"`, or `"errata"`.  When multiple files match the type pattern
-#'   those all opened.  When only one file exists the filter is skipped.
+#' After opening documentation, emits a message listing any manual registry
+#' overrides (sentinel values, forced-numeric columns, column swaps, etc.)
+#' that were applied at import so the values can be interpreted correctly.
+#'
+#' @param series Survey series acronym (e.g. `"SFS"`, `"Census"`), **or** a
+#'   lazy `dplyr::tbl()` / DuckDB connection returned by [get_pumf()].  When a
+#'   connection is supplied the `version`, `cache_path`, and `lang` are read
+#'   from the connection provenance; explicit arguments take precedence.
+#' @param version Version string (e.g. `"2019"`, `"2021 (individuals)"`).
+#'   For LFS, omit to use the most recently downloaded version.
+#'   Ignored when `series` is a connection.
+#' @param lang `"eng"` (default) or `"fra"`.  Determines which language
+#'   documentation is preferred.  When `series` is a connection and `lang` is
+#'   not supplied, the connection's language is used.
 #' @param cache_path Root cache directory.  Defaults to
 #'   `getOption("canpumf.cache_path", tempdir())`.
 #' @param pumf_series Deprecated; use `series`.
 #' @param pumf_version Deprecated; use `version`.
 #' @param pumf_cache_path Deprecated; use `cache_path`.
 #'
-#' @return Invisibly, the paths of the opened documentation files.
+#' @return Invisibly, the paths of the opened documentation files, or
+#'   `invisible(NULL)` when no data has been downloaded yet.
 #' @export
-open_pumf_documentation <- function(series           = NULL,
-                                     version          = NULL,
-                                     documentation_type = "user_guide",
-                                     cache_path       = getOption("canpumf.cache_path",
+open_pumf_documentation <- function(series          = NULL,
+                                     version         = NULL,
+                                     lang            = NULL,
+                                     cache_path      = getOption("canpumf.cache_path",
                                                                    tempdir()),
-                                     pumf_series      = NULL,
-                                     pumf_version     = NULL,
-                                     pumf_cache_path  = NULL) {
+                                     pumf_series     = NULL,
+                                     pumf_version    = NULL,
+                                     pumf_cache_path = NULL) {
+
+  explicit_lang <- !is.null(lang)
+
   if (!is.null(pumf_series)) {
     warning("'pumf_series' is deprecated; use 'series'.", call. = FALSE)
     if (is.null(series)) series <- pumf_series
@@ -41,64 +52,289 @@ open_pumf_documentation <- function(series           = NULL,
     warning("'pumf_cache_path' is deprecated; use 'cache_path'.", call. = FALSE)
     cache_path <- pumf_cache_path
   }
-  if (is.null(series))
-    stop("'series' must be specified.")
+
+  # --- Resolve connection/tbl passed as series --------------------------------
+  if (!is.null(series) && !is.character(series)) {
+    con  <- if (inherits(series, "tbl_lazy")) series$src$con else series
+    prov <- .pumf_lookup_con(con)
+    if (is.null(prov))
+      stop("Could not retrieve PUMF provenance from connection. ",
+           "Was it created by get_pumf()?", call. = FALSE)
+    if (is.null(version))  version    <- prov$version
+    if (!explicit_lang)    lang       <- prov$lang %||% "eng"
+    cache_path <- prov$cache_path
+    series     <- prov$series
+  }
+
+  if (is.null(lang)) lang <- "eng"
+  stopifnot(lang %in% c("eng", "fra"))
+  if (is.null(series)) stop("'series' must be specified.")
+
+  # --- LFS with no version: find most recently downloaded ----------------------
+  if (series == "LFS" && is.null(version)) {
+    version <- .pumf_lfs_latest_cached(cache_path)
+    if (is.null(version)) {
+      message("No LFS data has been downloaded yet. ",
+              "Use get_pumf(\"LFS\", \"<version>\") to download first.")
+      return(invisible(NULL))
+    }
+  }
 
   version_dir <- if (is.null(version)) file.path(cache_path, series)
                  else                  file.path(cache_path, series, version)
 
-  if (!dir.exists(version_dir))
-    stop("Version directory does not exist: ", version_dir,
-         ".\nDownload data first with get_pumf() or pumf_metadata().")
+  if (!dir.exists(version_dir)) {
+    message("No data found for ", series,
+            if (!is.null(version)) paste0(" ", version), ". ",
+            "Use get_pumf() or pumf_metadata() to download first.")
+    return(invisible(NULL))
+  }
 
-  # --- Keyword patterns for each documentation type --------------------------
-  type_patterns <- c(
-    user_guide      = "User.?Guide|Guide.utilisateur|UserGuide",
-    reference_guide = "Reference|r\u00e9f\u00e9rence|Ref.?Guide",
-    questionnaire   = "Questionnaire",
-    quality         = "Quality|qualit\u00e9|Quality.?Guide",
-    errata          = "errata|corrigenda"
-  )
+  title    <- paste0(series, if (!is.null(version)) paste0(" ", version))
+  reg      <- tryCatch(pumf_registry_lookup(series, version), error = function(e) NULL)
+  doc_mask <- reg$doc_mask
 
-  # --- Scan extracted content recursively ------------------------------------
-  docs <- list.files(version_dir, pattern = "\\.(pdf|txt)$",
-                     recursive = TRUE, full.names = TRUE,
-                     ignore.case = TRUE)
-  # Exclude metadata/ and docs_extracted/ from the search
-  docs <- docs[!grepl("/(metadata|docs_extracted)/", docs)]
+  # --- Collect PDFs -----------------------------------------------------------
+  docs <- .pumf_find_docs(version_dir, "\\.pdf$")
 
-  # --- Fall back to zip contents when nothing is found -----------------------
   if (length(docs) == 0L) {
     zip_path <- .find_version_zip(version_dir)
     if (!is.null(zip_path)) {
-      zip_list <- tryCatch(utils::unzip(zip_path, list = TRUE),
-                           error = function(e) NULL)
+      zip_list <- tryCatch(utils::unzip(zip_path, list = TRUE), error = function(e) NULL)
       if (!is.null(zip_list)) {
-        doc_names <- zip_list$Name[grepl("\\.(pdf|txt)$", zip_list$Name,
-                                          ignore.case = TRUE)]
-        if (length(doc_names) > 0L) {
+        pdf_names <- zip_list$Name[grepl("\\.pdf$", zip_list$Name, ignore.case = TRUE)]
+        if (length(pdf_names) > 0L) {
           docs_dir <- file.path(version_dir, "docs_extracted")
           dir.create(docs_dir, showWarnings = FALSE)
-          utils::unzip(zip_path, files = doc_names, exdir = docs_dir)
-          docs <- list.files(docs_dir, pattern = "\\.(pdf|txt)$",
-                             recursive = TRUE, full.names = TRUE,
-                             ignore.case = TRUE)
+          utils::unzip(zip_path, files = pdf_names, exdir = docs_dir)
+          docs <- .pumf_find_docs(docs_dir, "\\.pdf$")
         }
       }
     }
   }
 
-  if (length(docs) == 0L)
-    stop("No documentation files found for ", series,
-         if (!is.null(version)) paste0(" ", version), ".")
+  # Walk up to the year-level parent when the version dir has no PDFs.
+  # Used by EFT Census vintages whose documentation sits in a shared
+  # FMGD/ subdirectory one level above the version directories.
+  if (length(docs) == 0L && !is.null(version)) {
+    parent_dir <- dirname(version_dir)
+    if (dir.exists(parent_dir) && parent_dir != cache_path) {
+      parent_docs <- .pumf_find_docs(parent_dir, "\\.pdf$")
+      # Drop files inside sibling version dirs (identified by having metadata/).
+      if (length(parent_docs) > 0L)
+        docs <- .pumf_drop_version_sibling_docs(parent_docs, parent_dir, version_dir)
+    }
+  }
 
-  # --- Filter by documentation_type ------------------------------------------
-  pat <- type_patterns[documentation_type]
-  if (!is.na(pat) && length(docs) > 1L) {
-    filtered <- docs[grepl(pat, basename(docs), ignore.case = TRUE)]
+  # Apply registry doc_mask to narrow to the relevant file-type docs
+  # (e.g., families vs households vs individuals for 1986 Census).
+  if (!is.null(doc_mask) && length(docs) > 0L) {
+    filtered <- docs[grepl(doc_mask, basename(docs), ignore.case = TRUE)]
     if (length(filtered) > 0L) docs <- filtered
   }
 
-  lapply(docs, utils::browseURL)
-  invisible(docs)
+  if (length(docs) > 0L) {
+    docs <- .pumf_sort_by_lang(docs, lang)
+    result <- .pumf_open_with_menu(docs, title)
+    .pumf_emit_override_message(series, version)
+    return(invisible(result))
+  }
+
+  # --- No PDFs: fall back to small text files ---------------------------------
+  docs <- .pumf_find_docs(version_dir, "\\.(txt|rtf)$", max_size = 5e6)
+
+  if (length(docs) == 0L) {
+    zip_path <- .find_version_zip(version_dir)
+    if (!is.null(zip_path)) {
+      zip_list <- tryCatch(utils::unzip(zip_path, list = TRUE), error = function(e) NULL)
+      if (!is.null(zip_list)) {
+        txt_names <- zip_list$Name[
+          grepl("\\.(txt|rtf)$", zip_list$Name, ignore.case = TRUE) &
+          zip_list$Length < 5e6
+        ]
+        if (length(txt_names) > 0L) {
+          docs_dir <- file.path(version_dir, "docs_extracted")
+          dir.create(docs_dir, showWarnings = FALSE)
+          utils::unzip(zip_path, files = txt_names, exdir = docs_dir)
+          docs <- .pumf_find_docs(docs_dir, "\\.(txt|rtf)$", max_size = 5e6)
+        }
+      }
+    }
+  }
+
+  if (length(docs) > 0L) {
+    docs <- .pumf_sort_by_lang(docs, lang)
+    result <- .pumf_open_with_menu(docs, title)
+    .pumf_emit_override_message(series, version)
+    return(invisible(result))
+  }
+
+  message("No documentation files found for ", title, ".")
+  invisible(NULL)
+}
+
+
+# Find the most recently downloaded LFS version in the cache.
+.pumf_lfs_latest_cached <- function(cache_path) {
+  lfs_dir <- file.path(cache_path, "LFS")
+  if (!dir.exists(lfs_dir)) return(NULL)
+  subdirs <- list.dirs(lfs_dir, recursive = FALSE, full.names = FALSE)
+  # Keep only version-like names: "YYYY" or "YYYY-MM"
+  versions <- subdirs[grepl("^\\d{4}(-\\d{2})?$", subdirs)]
+  if (length(versions) == 0L) return(NULL)
+  # Only those that actually have extracted content
+  versions <- versions[sapply(versions, function(v) {
+    vd <- file.path(lfs_dir, v)
+    length(list.files(vd)) > 0L
+  })]
+  if (length(versions) == 0L) return(NULL)
+  # Sort: annual before monthly for same year; descending
+  sort(versions, decreasing = TRUE)[[1L]]
+}
+
+
+# Scan a directory for documentation files matching ext_pat, excluding
+# metadata/ and docs_extracted/ subdirs.  When max_size is given, files
+# larger than that byte count are dropped (to exclude FWF data files).
+.pumf_find_docs <- function(dir, ext_pat, max_size = NULL) {
+  paths <- list.files(dir, pattern = ext_pat, recursive = TRUE,
+                      full.names = TRUE, ignore.case = TRUE)
+  paths <- paths[!grepl("/(metadata|docs_extracted)/", paths, ignore.case = TRUE)]
+  if (!is.null(max_size)) {
+    sizes <- file.size(paths)
+    paths <- paths[!is.na(sizes) & sizes <= max_size]
+  }
+  paths
+}
+
+
+# Exclude docs that live inside sibling version directories (any direct child of
+# parent_dir, other than current_version_dir, that has a metadata/ subdirectory).
+.pumf_drop_version_sibling_docs <- function(paths, parent_dir, current_version_dir) {
+  siblings <- list.dirs(parent_dir, recursive = FALSE, full.names = TRUE)
+  current  <- normalizePath(current_version_dir, mustWork = FALSE)
+  siblings <- siblings[normalizePath(siblings, mustWork = FALSE) != current]
+  ver_sibs <- normalizePath(
+    siblings[vapply(siblings, function(d) dir.exists(file.path(d, "metadata")), logical(1L))],
+    mustWork = FALSE
+  )
+  if (length(ver_sibs) == 0L) return(paths)
+  norm_paths <- normalizePath(paths, mustWork = FALSE)
+  vsep       <- .Platform$file.sep
+  in_sib <- vapply(norm_paths, function(p)
+    any(startsWith(p, paste0(ver_sibs, vsep))), logical(1L))
+  paths[!in_sib]
+}
+
+
+# Score files by language preference: 2=explicit match, 1=neutral, 0=other lang.
+.pumf_lang_score <- function(paths, lang) {
+  bn <- tolower(basename(paths))
+  # "_e." suffix (e.g. pumf1976rcl_e.pdf) and standard _eng/_en/english/anglais markers
+  has_eng <- grepl(
+    "(^|[_\\-.])(eng|en|english|anglais)([_\\-.]|$)|_e\\.",
+    bn, perl = TRUE
+  )
+  # "_f." suffix (e.g. pumf1976rclv2_f.pdf), standard _fra/_fr/french/francais markers,
+  # and "recensement" (French word for census, appears in StatCan French guide names)
+  has_fra <- grepl(
+    "(^|[_\\-.])(fra|fr|french|francais|fran.ais)([_\\-.]|$)|_f\\.|recensement",
+    bn, perl = TRUE
+  )
+  if (lang == "eng") {
+    ifelse(has_eng, 2L, ifelse(!has_fra, 1L, 0L))
+  } else {
+    ifelse(has_fra, 2L, ifelse(!has_eng, 1L, 0L))
+  }
+}
+
+
+# Sort paths so preferred-language files come first (stable sort).
+.pumf_sort_by_lang <- function(paths, lang) {
+  scores <- .pumf_lang_score(paths, lang)
+  paths[order(-scores, seq_along(paths))]
+}
+
+
+# Present an interactive selection menu (or open silently in batch mode).
+# Last menu choice is always "Open all".
+.pumf_open_with_menu <- function(paths, title) {
+  if (length(paths) == 1L) {
+    utils::browseURL(paths[[1L]])
+    return(paths)
+  }
+
+  if (!interactive()) {
+    utils::browseURL(paths[[1L]])
+    return(paths[[1L]])
+  }
+
+  labels <- c(basename(paths), "Open all")
+  choice <- utils::menu(labels, title = paste0("Documentation for ", title, ":"))
+
+  if (choice == 0L) return(character(0L))
+
+  if (choice == length(labels)) {
+    lapply(paths, utils::browseURL)
+    paths
+  } else {
+    utils::browseURL(paths[[choice]])
+    paths[[choice]]
+  }
+}
+
+
+# Emit a human-readable message describing registry overrides for the survey.
+.pumf_emit_override_message <- function(series, version) {
+  if (is.null(version)) return(invisible(NULL))
+  reg <- tryCatch(pumf_registry_lookup(series, version), error = function(e) NULL)
+  if (is.null(reg)) return(invisible(NULL))
+
+  lines <- character(0L)
+  fx    <- reg$data_fixups
+
+  if (length(fx$na_values) > 0L)
+    lines <- c(lines, paste0(
+      "  NA values: raw values ",
+      paste(fx$na_values, collapse = ", "),
+      " are treated as missing in all numeric columns."
+    ))
+
+  if (length(fx$force_numeric) > 0L)
+    lines <- c(lines, paste0(
+      "  Forced numeric: ",
+      paste(fx$force_numeric, collapse = ", "),
+      " — boundary/top-code labels dropped; sentinel codes become NA ranges."
+    ))
+
+  if (length(fx$cols_swap) > 0L) {
+    pairs <- paste0(names(fx$cols_swap), "↔", fx$cols_swap)
+    lines <- c(lines, paste0(
+      "  Column name swap: ", paste(pairs, collapse = ", "),
+      " (command-file labels were transposed relative to data)."
+    ))
+  }
+
+  if (length(fx$rename) > 0L) {
+    pairs <- paste0(names(fx$rename), "→", fx$rename)
+    lines <- c(lines, paste0("  Renamed columns: ", paste(pairs, collapse = ", "), "."))
+  }
+
+  if (length(fx$codes_supplement) > 0L)
+    lines <- c(lines, paste0(
+      "  Extra codes injected for: ",
+      paste(names(fx$codes_supplement), collapse = ", "), "."
+    ))
+
+  if (length(reg$missing_supplement) > 0L)
+    lines <- c(lines, paste0(
+      "  Missing-range overrides applied to: ",
+      paste(names(reg$missing_supplement), collapse = ", "), "."
+    ))
+
+  if (length(lines) == 0L) return(invisible(NULL))
+
+  message("Data import notes for ", series, " ", version, ":\n",
+          paste(lines, collapse = "\n"))
+  invisible(NULL)
 }
