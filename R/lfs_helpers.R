@@ -24,9 +24,8 @@ add_lfs_date <- function(tbl) {
   cols <- colnames(tbl)
   if (!all(c("SURVYEAR", "SURVMNTH") %in% cols))
     stop("'tbl' must contain SURVYEAR and SURVMNTH columns.", call. = FALSE)
-  tbl |>
-    dplyr::mutate(DATE = as.Date(dplyr::sql("MAKE_DATE(SURVYEAR, SURVMNTH, 1)"))) |>
-    dplyr::relocate(DATE, .after = SURVMNTH)
+  dplyr::mutate(tbl, DATE = as.Date(dplyr::sql("MAKE_DATE(SURVYEAR, SURVMNTH, 1)")),
+               .after = SURVMNTH)
 }
 
 
@@ -73,7 +72,7 @@ add_gender_sex <- function(tbl) {
     stop("'tbl' must contain a SEX and/or GENDER column.", call. = FALSE)
 
   if (has_gender && has_sex) {
-    tbl <- dplyr::mutate(tbl,
+    dplyr::mutate(tbl,
       GENDER_SEX = dplyr::coalesce(
         GENDER,
         dplyr::case_when(
@@ -81,21 +80,17 @@ add_gender_sex <- function(tbl) {
           SEX == "Female" ~ "Women+",
           TRUE            ~ NA_character_
         )
-      )
-    )
-    tbl <- dplyr::relocate(tbl, GENDER_SEX, .after = GENDER)
+      ),
+      .after = GENDER)
   } else if (has_gender) {
-    tbl <- dplyr::mutate(tbl, GENDER_SEX = GENDER) |>
-      dplyr::relocate(GENDER_SEX, .after = GENDER)
+    dplyr::mutate(tbl, GENDER_SEX = GENDER, .after = GENDER)
   } else {
-    tbl <- dplyr::mutate(tbl,
+    dplyr::mutate(tbl,
       GENDER_SEX = dplyr::case_when(
         SEX == "Male"   ~ "Men+",
         SEX == "Female" ~ "Women+",
         TRUE            ~ NA_character_
-      )
-    ) |>
-      dplyr::relocate(GENDER_SEX, .after = SEX)
+      ),
+      .after = SEX)
   }
-  tbl
 }
