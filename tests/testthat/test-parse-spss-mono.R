@@ -55,6 +55,32 @@ test_that("parse_spss_mono: MISSING VALUES extracted", {
   expect_equal(agegrp_row$missing_high, 99)
 })
 
+test_that(".spss_parse_missing: handles scientific notation in range bounds", {
+  # SHS/2021 WEIGHTD: (.1E18 THRU 9999999999999.9999) — guard range for
+  # impossible values.  The old regex dropped the exponent, turning 1e17 into
+  # 0.1 and NAs-ing all real weights.
+  lines  <- "WEIGHTD (.1E18 THRU 9999999999999.9999)"
+  result <- canpumf:::.spss_parse_missing(lines)
+  expect_equal(result$missing_low,  1e17)
+  expect_equal(result$missing_high, 9999999999999.9999)
+  # Inverted range (low > high) never fires against real weight values
+  expect_true(result$missing_low > result$missing_high)
+})
+
+test_that(".spss_parse_missing: handles standard single-value and range declarations", {
+  lines <- c(
+    "WAGE   (9999999)",
+    "AGEGRP (97 THRU 99)",
+    "NEGVAL (-99)"
+  )
+  result <- canpumf:::.spss_parse_missing(lines)
+  expect_equal(result$missing_low[result$name == "WAGE"],   9999999)
+  expect_equal(result$missing_high[result$name == "WAGE"],  9999999)
+  expect_equal(result$missing_low[result$name == "AGEGRP"],  97)
+  expect_equal(result$missing_high[result$name == "AGEGRP"], 99)
+  expect_equal(result$missing_low[result$name == "NEGVAL"],  -99)
+})
+
 test_that("parse_spss_mono: DATA LIST layout extracted from 2021-style file", {
   m <- canpumf:::parse_spss_mono(fx("simple_en.sps"))
 
