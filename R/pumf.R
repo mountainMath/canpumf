@@ -1,33 +1,7 @@
-#' Read raw PUMF data as an in-memory tibble
-#'
-#' Reads a manually-deposited PUMF directory that lives outside the standard
-#' cache structure and returns a fully in-memory tibble.  For surveys supported
-#' by the canpumf registry, use [get_pumf()] instead, which returns a lazy
-#' DuckDB table with bilingual labels pre-applied and no need for a local
-#' directory.
-#'
-#' @param pumf_base_path Path to the extracted PUMF directory containing the
-#'   data file and SPSS/SAS command files.
-#' @param layout_mask Optional regex string to select a specific layout file
-#'   when multiple SPSS command files are present (e.g. `"PUMF_i"` for the
-#'   individuals file of a hierarchical survey).
-#' @param file_mask Optional regex string to select a specific data file when
-#'   multiple data files are present.  Defaults to `layout_mask`.
-#' @param guess_numeric Logical; if `TRUE` (default), apply numeric type
-#'   conversion and missing-value range handling using the parsed metadata.
-#'
-#' @return A tibble containing all rows and columns from the data file, with
-#'   numeric conversion applied when `guess_numeric = TRUE`.  The tibble has
-#'   attributes `pumf_base_path` and `layout_mask` recording the inputs.
-#'
-#' @seealso [get_pumf()], [pumf_metadata()]
-#'
-#' @examples
-#' \dontrun{
-#' df <- read_pumf_data("/path/to/extracted/SFS2019")
-#' dim(df)
-#' }
-#' @export
+# Read raw PUMF data as an in-memory tibble (internal).
+# For manually-deposited PUMF directories outside the standard cache structure.
+# Use get_pumf() for all registry-supported surveys.
+#' @keywords internal
 read_pumf_data <- function(pumf_base_path,
                            layout_mask   = NULL,
                            file_mask     = layout_mask,
