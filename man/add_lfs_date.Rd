@@ -28,5 +28,5 @@ close_pumf(lfs)
 }
 }
 \seealso{
-[get_pumf()], [add_gender_sex()]
+[get_pumf()], [add_lfs_gender_sex()]
 }
