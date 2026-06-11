@@ -11,7 +11,7 @@ bsw_info(tbl)
 [add_bootstrap_weights()].}
 }
 \value{
-A tibble (invisibly when empty) with columns:
+A tibble with columns:
   \describe{
     \item{`weight_col`}{The weight column the BSW table was built from
       (matched back to the case used in the main survey table).}
@@ -25,6 +25,18 @@ A tibble (invisibly when empty) with columns:
 }
 \description{
 Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
-tables created by [add_bootstrap_weights()] and returns a summary
-tibble with one row per BSW table found.
+tables created by [add_bootstrap_weights()] and returns a one-row-per-table
+summary tibble.  Returns an empty tibble (invisibly) when no BSW tables are
+found.
+}
+\examples{
+\dontrun{
+sfs <- get_pumf("SFS", "2019")
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+bsw_info(sfs_bsw)
+close_pumf(sfs_bsw)
+}
+}
+\seealso{
+[add_bootstrap_weights()], [remove_bootstrap_weights()]
 }

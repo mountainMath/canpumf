@@ -2,14 +2,27 @@
 % Please edit documentation in R/pumf_collection.R
 \name{list_available_lfs_pumf_versions}
 \alias{list_available_lfs_pumf_versions}
-\title{List available PUMF LFS versions}
+\title{List available LFS PUMF versions}
 \usage{
 list_available_lfs_pumf_versions()
 }
 \value{
-A tibble with columns `Date`, `version`, and `url`.
+A tibble with columns `Date` (human-readable label from the StatCan
+  page), `version` (a string of the form `"YYYY"` for annual versions or
+  `"YYYY-MM"` for monthly versions), and `url` (direct download link).
 }
 \description{
-Scrapes the StatCan LFS publication page and returns a tibble of all
-available LFS PUMF versions with their download URLs.
+Scrapes the Statistics Canada LFS PUMF publication page and returns a
+tibble of all available annual and monthly versions with their download
+URLs.  Requires an internet connection.  For the broader collection of all
+supported surveys see [list_canpumf_collection()].
+}
+\examples{
+\dontrun{
+lfs_versions <- list_available_lfs_pumf_versions()
+tail(lfs_versions)
+}
+}
+\seealso{
+[get_pumf()], [list_canpumf_collection()]
 }

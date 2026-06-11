@@ -28,11 +28,25 @@ list_pumf_collection <- function(){
 
 
 
-#' List StatCan PUMF collection with canpumf wrappers
+#' List Statistics Canada PUMF datasets supported by canpumf
 #'
-#' @description A list of pumf collections and versions with convenience wrappers in canpumf.
+#' Returns a tibble of all survey series and versions for which canpumf has
+#' download wrappers.  Scrapes the StatCan website to discover Census versions;
+#' other series are hard-coded.  Requires an internet connection.
 #'
-#' @return a tibble with a list of the PUMF files with canpumf convenience wrappers
+#' @return A tibble with columns `Title`, `Acronym`, `Version`,
+#'   `Survey Number`, and `url`.  The `url` column contains the download URL or
+#'   `"(EFT)"` for versions distributed via the Research Data Centre (EFT only).
+#'   Pass `Acronym` and `Version` to [get_pumf()] to download a dataset.
+#'
+#' @seealso [get_pumf()], [list_available_lfs_pumf_versions()]
+#'
+#' @examples
+#' \dontrun{
+#' collection <- list_canpumf_collection()
+#' # Show all SFS versions
+#' collection[collection$Acronym == "SFS", c("Acronym", "Version")]
+#' }
 #' @export
 list_canpumf_collection <- function(){
   canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS","SHS","GSS")
@@ -184,12 +198,24 @@ list_canpumf_collection <- function(){
 }
 
 
-#' List available PUMF LFS versions
+#' List available LFS PUMF versions
 #'
-#' Scrapes the StatCan LFS publication page and returns a tibble of all
-#' available LFS PUMF versions with their download URLs.
+#' Scrapes the Statistics Canada LFS PUMF publication page and returns a
+#' tibble of all available annual and monthly versions with their download
+#' URLs.  Requires an internet connection.  For the broader collection of all
+#' supported surveys see [list_canpumf_collection()].
 #'
-#' @return A tibble with columns `Date`, `version`, and `url`.
+#' @return A tibble with columns `Date` (human-readable label from the StatCan
+#'   page), `version` (a string of the form `"YYYY"` for annual versions or
+#'   `"YYYY-MM"` for monthly versions), and `url` (direct download link).
+#'
+#' @seealso [get_pumf()], [list_canpumf_collection()]
+#'
+#' @examples
+#' \dontrun{
+#' lfs_versions <- list_available_lfs_pumf_versions()
+#' tail(lfs_versions)
+#' }
 #' @export
 list_available_lfs_pumf_versions <- function(){
   base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"

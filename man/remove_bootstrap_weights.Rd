@@ -16,7 +16,7 @@ weight tables (and their companion VIEWs) are removed.}
 }
 \value{
 A lazy `dplyr::tbl()` backed by the original physical survey table
-  (without BSW columns).
+  (without BSW columns), with a fresh read-only DuckDB connection.
 }
 \description{
 Drops the bootstrap weight table(s) created by [add_bootstrap_weights()]
@@ -29,4 +29,16 @@ available), that column is also dropped.
 Like [add_bootstrap_weights()], this function requires brief exclusive
 write access: the read-only connection backing `tbl` is shut down, the
 tables are dropped, and a fresh read-only connection is returned.
+}
+\examples{
+\dontrun{
+sfs <- get_pumf("SFS", "2019")
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+# Remove only the WSTPWGT BSW table
+sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "WSTPWGT")
+close_pumf(sfs_clean)
+}
+}
+\seealso{
+[add_bootstrap_weights()], [bsw_info()], [get_pumf()]
 }

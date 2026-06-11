@@ -21,5 +21,15 @@ queried.
 Closing is only necessary when you need to release the file lock — for
 example, before calling `get_pumf(..., refresh = TRUE)` on the same survey,
 or before writing to the DuckDB from another process.  Read-only connections
-(the default) do not block other reads.
+(the default) do not block other readers.
+}
+\examples{
+\dontrun{
+sfs <- get_pumf("SFS", "2019")
+# ... analysis ...
+close_pumf(sfs)
+}
+}
+\seealso{
+[get_pumf()]
 }

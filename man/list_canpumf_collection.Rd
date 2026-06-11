@@ -2,13 +2,28 @@
 % Please edit documentation in R/pumf_collection.R
 \name{list_canpumf_collection}
 \alias{list_canpumf_collection}
-\title{List StatCan PUMF collection with canpumf wrappers}
+\title{List Statistics Canada PUMF datasets supported by canpumf}
 \usage{
 list_canpumf_collection()
 }
 \value{
-a tibble with a list of the PUMF files with canpumf convenience wrappers
+A tibble with columns `Title`, `Acronym`, `Version`,
+  `Survey Number`, and `url`.  The `url` column contains the download URL or
+  `"(EFT)"` for versions distributed via the Research Data Centre (EFT only).
+  Pass `Acronym` and `Version` to [get_pumf()] to download a dataset.
 }
 \description{
-A list of pumf collections and versions with convenience wrappers in canpumf.
+Returns a tibble of all survey series and versions for which canpumf has
+download wrappers.  Scrapes the StatCan website to discover Census versions;
+other series are hard-coded.  Requires an internet connection.
+}
+\examples{
+\dontrun{
+collection <- list_canpumf_collection()
+# Show all SFS versions
+collection[collection$Acronym == "SFS", c("Acronym", "Version")]
+}
+}
+\seealso{
+[get_pumf()], [list_available_lfs_pumf_versions()]
 }

@@ -15,35 +15,44 @@ get_pumf_connection(
 )
 }
 \arguments{
-\item{series}{Survey series acronym, e.g. `"SFS"`.}
+\item{series}{Survey series acronym, e.g. `"SFS"`, `"Census"`.}
 
-\item{version}{Version string.  `NULL` for single-version series.}
+\item{version}{Version string, e.g. `"2019"`.  `NULL` for single-version
+series.}
 
 \item{lang}{`"eng"` (default) or `"fra"`.}
 
-\item{cache_path}{Root cache directory.}
+\item{cache_path}{Root cache directory.  Defaults to
+`getOption("canpumf.cache_path", tempdir())`.}
 
-\item{refresh}{If `TRUE`, rebuild from already-extracted files.}
+\item{refresh}{If `TRUE`, rebuild from already-extracted files (no
+re-download).}
 
-\item{redownload}{If `TRUE`, re-download and rebuild.}
+\item{redownload}{If `TRUE`, re-download and rebuild from scratch.}
 
-\item{...}{Accepts deprecated parameter names with a warning.}
+\item{...}{Accepts deprecated parameter names (`pumf_series`,
+`pumf_version`, `pumf_cache_path`) with a warning.}
 }
 \value{
-A [DBI::DBIConnection-class] in read-write mode.
-  Disconnect with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
+A [DBI::DBIConnection-class] in read-write mode.  Disconnect with
+  `DBI::dbDisconnect(con, shutdown = TRUE)` when done.  For a safer
+  read-only lazy table use [get_pumf()] instead.
 }
 \description{
 Runs the full pipeline and returns a raw read-write
 [DBI::DBIConnection-class].  Use this when you need direct SQL access —
 to persist custom views, join derived tables, or inspect DuckDB internals.
 For everyday analysis use [get_pumf()], which returns a safer read-only
-lazy `tbl`.
+lazy `dplyr::tbl()`.
 }
 \examples{
 \dontrun{
 con <- get_pumf_connection("SFS", "2019")
 DBI::dbListTables(con)
+DBI::dbGetQuery(con, 'SELECT COUNT(*) FROM "eng_SFS_2019"')
 DBI::dbDisconnect(con, shutdown = TRUE)
 }
+}
+\seealso{
+[get_pumf()]
 }

@@ -97,17 +97,14 @@
 #' by a DuckDB file in the cache directory.  Subsequent calls reuse the cached
 #' DuckDB without re-downloading.
 #'
-#' **Breaking change from the pre-DuckDB API**: this function now returns a
-#' lazy `dplyr::tbl()` instead of a tibble.  Call `dplyr::collect()` to
-#' materialise a local tibble.
-#'
 #' The LFS is treated specially: all versions share a single `LFS.duckdb`
 #' database.  Pass `version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).
 #' `refresh = "auto"` downloads every available LFS version that is not yet in
 #' the database; this is only valid for LFS.
 #'
 #' @param series Survey series acronym, e.g. `"SFS"`, `"CHS"`, `"LFS"`,
-#'   `"Census"`, `"CPSS"`.
+#'   `"Census"`, `"CPSS"`.  See [list_canpumf_collection()] for all supported
+#'   series and versions.
 #' @param version Version string (e.g. `"2019"`, `"2021 (individuals)"`,
 #'   `"2023-06"`).  For series with a single version omit or pass `NULL`.
 #' @param lang `"eng"` (default) or `"fra"`.  Selects which set of labels to
@@ -131,9 +128,34 @@
 #'   `pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,
 #'   `guess_numeric`, `timeout`, `refresh_layout`) with a warning.
 #'
-#' @return A lazy `dplyr::tbl()` backed by a DuckDB connection.
-#'   Call `dplyr::collect()` to obtain a local tibble.
-#'   Call [close_pumf()] to release the connection.
+#' @return A lazy `dplyr::tbl()` backed by a DuckDB connection.  Data values
+#'   are pre-labeled as factors.  Call `dplyr::collect()` to materialise a
+#'   local tibble, [label_pumf_columns()] to rename columns to their
+#'   human-readable labels, or [close_pumf()] to release the connection.
+#'
+#' @seealso [label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
+#'   [close_pumf()], [list_canpumf_collection()]
+#'
+#' @examples
+#' \dontrun{
+#' # Download and open the SFS 2019 as a lazy DuckDB table
+#' sfs <- get_pumf("SFS", "2019")
+#' dplyr::glimpse(sfs)
+#'
+#' # Collect a local tibble after filtering
+#' high_wealth <- sfs |>
+#'   dplyr::filter(PEFAMID == 1) |>
+#'   dplyr::collect()
+#'
+#' # French labels
+#' sfs_fr <- get_pumf("SFS", "2019", lang = "fra")
+#'
+#' # LFS: annual version
+#' lfs <- get_pumf("LFS", "2022")
+#'
+#' # Release the connection when done
+#' close_pumf(sfs)
+#' }
 #' @export
 get_pumf <- function(series     = NULL,
                      version    = NULL,
@@ -298,17 +320,28 @@ get_pumf <- function(series     = NULL,
 #'
 #' Takes a lazy `dplyr::tbl()` returned by [get_pumf()] and returns the same
 #' lazy table with column names replaced by the variable labels from the survey
-#' metadata (e.g. `PHHSIZE` → `"Household size"`).
+#' metadata (e.g. `PHHSIZE` becomes `"Household size"`).  Duplicate labels are
+#' disambiguated by appending ` (VAR_NAME)`.
 #'
-#' Duplicate labels are disambiguated by appending ` (VAR_NAME)`.  Columns
-#' with no label (e.g. internal DuckDB columns) are left unchanged.
-#'
-#' The tbl must have been produced by [get_pumf()]; the function reads survey
+#' The `tbl` must have been produced by [get_pumf()]; the function reads survey
 #' provenance (series, version, cache path, language) from the underlying
-#' DuckDB connection.
+#' DuckDB connection.  Use [pumf_var_labels()] to inspect the name-to-label
+#' mapping without renaming.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @return A lazy `dplyr::tbl()` with renamed columns.
+#'
+#' @return A lazy `dplyr::tbl()` with column names replaced by human-readable
+#'   variable labels.  Columns with no metadata label are left unchanged.
+#'
+#' @seealso [pumf_var_labels()], [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' sfs <- get_pumf("SFS", "2019")
+#' sfs_labeled <- label_pumf_columns(sfs)
+#' colnames(sfs_labeled)
+#' close_pumf(sfs_labeled)
+#' }
 #' @export
 label_pumf_columns <- function(tbl) {
   prov      <- .pumf_lookup_con(tbl$src$con)
@@ -345,12 +378,24 @@ label_pumf_columns <- function(tbl) {
 
 #' Retrieve variable labels as a tibble
 #'
-#' Returns a tibble mapping short coded column names to their human-readable
-#' variable labels, as a handy reference without renaming the table.
+#' Returns a tibble mapping short coded column names to their bilingual
+#' human-readable variable labels.  Use this as a quick reference without
+#' renaming the table itself; to rename, use [label_pumf_columns()].
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @return A tibble with columns `name` (coded column name), `label_en`, and
-#'   `label_fr`.  Rows are in survey-metadata order.
+#'
+#' @return A tibble with columns `name` (coded column name), `label_en`
+#'   (English label), and `label_fr` (French label).  Rows follow
+#'   survey-metadata order.
+#'
+#' @seealso [label_pumf_columns()], [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' sfs <- get_pumf("SFS", "2019")
+#' pumf_var_labels(sfs)
+#' close_pumf(sfs)
+#' }
 #' @export
 pumf_var_labels <- function(tbl) {
   variables <- .pumf_read_variables(tbl)
@@ -369,10 +414,20 @@ pumf_var_labels <- function(tbl) {
 #' Closing is only necessary when you need to release the file lock — for
 #' example, before calling `get_pumf(..., refresh = TRUE)` on the same survey,
 #' or before writing to the DuckDB from another process.  Read-only connections
-#' (the default) do not block other reads.
+#' (the default) do not block other readers.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
+#'
 #' @return Invisibly `NULL`.
+#'
+#' @seealso [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' sfs <- get_pumf("SFS", "2019")
+#' # ... analysis ...
+#' close_pumf(sfs)
+#' }
 #' @export
 close_pumf <- function(tbl) {
   con <- tbl$src$con
@@ -453,6 +508,17 @@ close_pumf <- function(tbl) {
 #'     bootstrap weight columns, with any input `filter()` operations re-applied.
 #'   * **In-memory path:** the input `data.frame` / `tibble` with
 #'     `n_replicates` new BSW columns appended.
+#'
+#' @seealso [bsw_info()], [remove_bootstrap_weights()], [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' sfs <- get_pumf("SFS", "2019")
+#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT",
+#'                                  n_replicates = 200L, seed = 42L)
+#' bsw_info(sfs_bsw)
+#' close_pumf(sfs_bsw)
+#' }
 #' @export
 add_bootstrap_weights <- function(tbl,
                                        weight_col,
@@ -688,13 +754,14 @@ add_bootstrap_weights <- function(tbl,
 #' Summarise bootstrap weight tables present in a PUMF DuckDB database
 #'
 #' Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
-#' tables created by [add_bootstrap_weights()] and returns a summary
-#' tibble with one row per BSW table found.
+#' tables created by [add_bootstrap_weights()] and returns a one-row-per-table
+#' summary tibble.  Returns an empty tibble (invisibly) when no BSW tables are
+#' found.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
 #'   [add_bootstrap_weights()].
 #'
-#' @return A tibble (invisibly when empty) with columns:
+#' @return A tibble with columns:
 #'   \describe{
 #'     \item{`weight_col`}{The weight column the BSW table was built from
 #'       (matched back to the case used in the main survey table).}
@@ -705,6 +772,16 @@ add_bootstrap_weights <- function(tbl,
 #'     \item{`size_mb`}{Estimated table size in megabytes (from DuckDB
 #'       metadata; `NA` when unavailable).}
 #'   }
+#'
+#' @seealso [add_bootstrap_weights()], [remove_bootstrap_weights()]
+#'
+#' @examples
+#' \dontrun{
+#' sfs <- get_pumf("SFS", "2019")
+#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+#' bsw_info(sfs_bsw)
+#' close_pumf(sfs_bsw)
+#' }
 #' @export
 bsw_info <- function(tbl) {
   if (is.data.frame(tbl))
@@ -810,7 +887,18 @@ bsw_info <- function(tbl) {
 #'   weight tables (and their companion VIEWs) are removed.
 #'
 #' @return A lazy `dplyr::tbl()` backed by the original physical survey table
-#'   (without BSW columns).
+#'   (without BSW columns), with a fresh read-only DuckDB connection.
+#'
+#' @seealso [add_bootstrap_weights()], [bsw_info()], [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' sfs <- get_pumf("SFS", "2019")
+#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+#' # Remove only the WSTPWGT BSW table
+#' sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "WSTPWGT")
+#' close_pumf(sfs_clean)
+#' }
 #' @export
 remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
   if (is.data.frame(tbl))
@@ -901,21 +989,36 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
 #' Runs Stage 1 (locate or download) and Stage 2 (parse metadata) and returns
 #' the full bilingual canonical metadata.  Both `label_en` and `label_fr`
 #' columns are always returned regardless of language.  This is useful for
-#' inspecting variable definitions and code labels before loading data.
+#' inspecting variable definitions and code labels before loading data with
+#' [get_pumf()].
 #'
-#' @param series Survey series acronym.
-#' @param version Version string.
-#' @param cache_path Root cache directory.
+#' @param series Survey series acronym, e.g. `"SFS"`, `"LFS"`, `"Census"`.
+#' @param version Version string, e.g. `"2019"`, `"2021 (individuals)"`.
+#' @param cache_path Root cache directory.  Defaults to
+#'   `getOption("canpumf.cache_path", tempdir())`.
 #' @param refresh If `TRUE`, re-parse metadata from the already-extracted raw
 #'   command files (does not re-download).
 #' @param redownload If `TRUE`, delete the cached zip and extracted files and
 #'   re-download from StatCan before re-parsing.  Implies `refresh = TRUE`.
 #'
-#' @return Named list with elements:
-#'   - `variables`: tibble (name, label_en, label_fr, type, decimals,
-#'     missing_low, missing_high)
-#'   - `codes`: tibble (name, val, label_en, label_fr)
-#'   - `layout`: tibble (name, start, end) or `NULL` for CSV-format data
+#' @return A named list with three elements:
+#'   \describe{
+#'     \item{`variables`}{Tibble with columns `name`, `label_en`, `label_fr`,
+#'       `type`, `decimals`, `missing_low`, `missing_high`.}
+#'     \item{`codes`}{Tibble with columns `name`, `val`, `label_en`,
+#'       `label_fr`, mapping numeric codes to their labels.}
+#'     \item{`layout`}{Tibble with columns `name`, `start`, `end` for
+#'       fixed-width data files; `NULL` for CSV-format surveys.}
+#'   }
+#'
+#' @seealso [get_pumf()], [pumf_var_labels()]
+#'
+#' @examples
+#' \dontrun{
+#' meta <- pumf_metadata("SFS", "2019")
+#' meta$variables
+#' meta$codes[meta$codes$name == "PEFAMID", ]
+#' }
 #' @export
 pumf_metadata <- function(series,
                            version,

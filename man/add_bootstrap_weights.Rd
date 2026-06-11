@@ -91,3 +91,15 @@ main table to the BSW table.  If `id_col` is `NULL` (the default):
     survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
     fills the values is O(n).
 }
+\examples{
+\dontrun{
+sfs <- get_pumf("SFS", "2019")
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT",
+                                 n_replicates = 200L, seed = 42L)
+bsw_info(sfs_bsw)
+close_pumf(sfs_bsw)
+}
+}
+\seealso{
+[bsw_info()], [remove_bootstrap_weights()], [get_pumf()]
+}

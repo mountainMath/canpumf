@@ -1,16 +1,32 @@
-#' Read raw PUMF data as a tibble
+#' Read raw PUMF data as an in-memory tibble
 #'
 #' Reads a manually-deposited PUMF directory that lives outside the standard
-#' cache structure.  For all surveys supported by the registry use [get_pumf()]
-#' instead, which returns a lazy DuckDB table with labels applied.
+#' cache structure and returns a fully in-memory tibble.  For surveys supported
+#' by the canpumf registry, use [get_pumf()] instead, which returns a lazy
+#' DuckDB table with bilingual labels pre-applied and no need for a local
+#' directory.
 #'
-#' @param pumf_base_path Path to the extracted PUMF directory.
-#' @param layout_mask Optional mask to select a specific layout file.
-#' @param file_mask Optional mask to select a specific data file.
-#' @param guess_numeric Logical; apply numeric conversion and missing-value
-#'   handling.  Default `TRUE`.
+#' @param pumf_base_path Path to the extracted PUMF directory containing the
+#'   data file and SPSS/SAS command files.
+#' @param layout_mask Optional regex string to select a specific layout file
+#'   when multiple SPSS command files are present (e.g. `"PUMF_i"` for the
+#'   individuals file of a hierarchical survey).
+#' @param file_mask Optional regex string to select a specific data file when
+#'   multiple data files are present.  Defaults to `layout_mask`.
+#' @param guess_numeric Logical; if `TRUE` (default), apply numeric type
+#'   conversion and missing-value range handling using the parsed metadata.
 #'
-#' @return A tibble with attributes `pumf_base_path` and `layout_mask`.
+#' @return A tibble containing all rows and columns from the data file, with
+#'   numeric conversion applied when `guess_numeric = TRUE`.  The tibble has
+#'   attributes `pumf_base_path` and `layout_mask` recording the inputs.
+#'
+#' @seealso [get_pumf()], [pumf_metadata()]
+#'
+#' @examples
+#' \dontrun{
+#' df <- read_pumf_data("/path/to/extracted/SFS2019")
+#' dim(df)
+#' }
 #' @export
 read_pumf_data <- function(pumf_base_path,
                            layout_mask   = NULL,
@@ -66,25 +82,34 @@ read_pumf_data <- function(pumf_base_path,
 #' [DBI::DBIConnection-class].  Use this when you need direct SQL access —
 #' to persist custom views, join derived tables, or inspect DuckDB internals.
 #' For everyday analysis use [get_pumf()], which returns a safer read-only
-#' lazy `tbl`.
+#' lazy `dplyr::tbl()`.
 #'
-#' @param series Survey series acronym, e.g. `"SFS"`.
-#' @param version Version string.  `NULL` for single-version series.
+#' @param series Survey series acronym, e.g. `"SFS"`, `"Census"`.
+#' @param version Version string, e.g. `"2019"`.  `NULL` for single-version
+#'   series.
 #' @param lang `"eng"` (default) or `"fra"`.
-#' @param cache_path Root cache directory.
-#' @param refresh If `TRUE`, rebuild from already-extracted files.
-#' @param redownload If `TRUE`, re-download and rebuild.
-#' @param ... Accepts deprecated parameter names with a warning.
+#' @param cache_path Root cache directory.  Defaults to
+#'   `getOption("canpumf.cache_path", tempdir())`.
+#' @param refresh If `TRUE`, rebuild from already-extracted files (no
+#'   re-download).
+#' @param redownload If `TRUE`, re-download and rebuild from scratch.
+#' @param ... Accepts deprecated parameter names (`pumf_series`,
+#'   `pumf_version`, `pumf_cache_path`) with a warning.
 #'
-#' @return A [DBI::DBIConnection-class] in read-write mode.
-#'   Disconnect with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
-#' @export
+#' @return A [DBI::DBIConnection-class] in read-write mode.  Disconnect with
+#'   `DBI::dbDisconnect(con, shutdown = TRUE)` when done.  For a safer
+#'   read-only lazy table use [get_pumf()] instead.
+#'
+#' @seealso [get_pumf()]
+#'
 #' @examples
 #' \dontrun{
 #' con <- get_pumf_connection("SFS", "2019")
 #' DBI::dbListTables(con)
+#' DBI::dbGetQuery(con, 'SELECT COUNT(*) FROM "eng_SFS_2019"')
 #' DBI::dbDisconnect(con, shutdown = TRUE)
 #' }
+#' @export
 get_pumf_connection <- function(series     = NULL,
                                 version    = NULL,
                                 lang       = "eng",

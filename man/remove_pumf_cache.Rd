@@ -37,6 +37,18 @@ are removed; the raw zip and extracted data are left intact so that
 to delete everything, freeing the full disk space.
 
 For LFS surveys the DuckDB is shared across all versions.  Removing one
-version deletes only that version's rows; if it was the last version the
-shared `LFS.duckdb` is also deleted.
+version deletes only that version's rows from the shared `LFS.duckdb`; if
+it was the last loaded version the shared database file is also deleted.
+}
+\examples{
+\dontrun{
+# Remove only DuckDB and metadata, keep raw files for quick rebuild:
+remove_pumf_cache("SFS", "2019")
+
+# Remove everything including raw files:
+remove_pumf_cache("SFS", "2019", keep_raw = FALSE)
+}
+}
+\seealso{
+[list_pumf_cache()], [get_pumf()]
 }

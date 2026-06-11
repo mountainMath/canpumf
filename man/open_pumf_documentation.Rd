@@ -17,16 +17,16 @@ open_pumf_documentation(
 \arguments{
 \item{series}{Survey series acronym (e.g. `"SFS"`, `"Census"`), **or** a
 lazy `dplyr::tbl()` / DuckDB connection returned by [get_pumf()].  When a
-connection is supplied the `version`, `cache_path`, and `lang` are read
-from the connection provenance; explicit arguments take precedence.}
+tbl or connection is supplied, `version`, `cache_path`, and `lang` are
+read from the connection provenance; explicit arguments take precedence.}
 
 \item{version}{Version string (e.g. `"2019"`, `"2021 (individuals)"`).
-For LFS, omit to use the most recently downloaded version.
-Ignored when `series` is a connection.}
+For LFS, omit to open documentation for the most recently downloaded
+version.  Ignored when `series` is a tbl or connection.}
 
-\item{lang}{`"eng"` (default) or `"fra"`.  Determines which language
-documentation is preferred.  When `series` is a connection and `lang` is
-not supplied, the connection's language is used.}
+\item{lang}{`"eng"` (default) or `"fra"`.  Documentation files whose names
+match the requested language are sorted first.  When `series` is a
+connection and `lang` is not supplied, the connection's language is used.}
 
 \item{cache_path}{Root cache directory.  Defaults to
 `getOption("canpumf.cache_path", tempdir())`.}
@@ -38,18 +38,37 @@ not supplied, the connection's language is used.}
 \item{pumf_cache_path}{Deprecated; use `cache_path`.}
 }
 \value{
-Invisibly, the paths of the opened documentation files, or
-  `invisible(NULL)` when no data has been downloaded yet.
+Invisibly, the file path(s) of the opened documentation, or
+  `invisible(NULL)` when no documentation is found or data has not been
+  downloaded yet.
 }
 \description{
 Scans the cached version directory for PDF documentation files and opens
-them interactively.  If no PDFs are found, looks for text files, filtering
-out large FWF data files by size.  When multiple candidate files exist, an
-interactive menu lets you choose which to open, with "Open all" as the
-last option.
+them interactively.  If no PDFs are found, falls back to small text files
+(filtering out large FWF data files by size).  When multiple candidate
+files exist, an interactive menu lets you choose which to open, with
+"Open all" as the last option.  In non-interactive mode the first
+preferred-language file is opened automatically.
 }
 \details{
 After opening documentation, emits a message listing any manual registry
 overrides (sentinel values, forced-numeric columns, column swaps, etc.)
-that were applied at import so the values can be interpreted correctly.
+that were applied at import so values can be interpreted correctly.
+}
+\examples{
+\dontrun{
+# Open by series and version
+open_pumf_documentation("SFS", "2019")
+
+# Open from an existing tbl (reads provenance automatically)
+sfs <- get_pumf("SFS", "2019")
+open_pumf_documentation(sfs)
+close_pumf(sfs)
+
+# French documentation
+open_pumf_documentation("SFS", "2019", lang = "fra")
+}
+}
+\seealso{
+[get_pumf()], [pumf_metadata()]
 }

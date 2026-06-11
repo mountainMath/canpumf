@@ -10,18 +10,29 @@ label_pumf_columns(tbl)
 \item{tbl}{A lazy `dplyr::tbl()` returned by [get_pumf()].}
 }
 \value{
-A lazy `dplyr::tbl()` with renamed columns.
+A lazy `dplyr::tbl()` with column names replaced by human-readable
+  variable labels.  Columns with no metadata label are left unchanged.
 }
 \description{
 Takes a lazy `dplyr::tbl()` returned by [get_pumf()] and returns the same
 lazy table with column names replaced by the variable labels from the survey
-metadata (e.g. `PHHSIZE` → `"Household size"`).
+metadata (e.g. `PHHSIZE` becomes `"Household size"`).  Duplicate labels are
+disambiguated by appending ` (VAR_NAME)`.
 }
 \details{
-Duplicate labels are disambiguated by appending ` (VAR_NAME)`.  Columns
-with no label (e.g. internal DuckDB columns) are left unchanged.
-
-The tbl must have been produced by [get_pumf()]; the function reads survey
+The `tbl` must have been produced by [get_pumf()]; the function reads survey
 provenance (series, version, cache path, language) from the underlying
-DuckDB connection.
+DuckDB connection.  Use [pumf_var_labels()] to inspect the name-to-label
+mapping without renaming.
+}
+\examples{
+\dontrun{
+sfs <- get_pumf("SFS", "2019")
+sfs_labeled <- label_pumf_columns(sfs)
+colnames(sfs_labeled)
+close_pumf(sfs_labeled)
+}
+}
+\seealso{
+[pumf_var_labels()], [get_pumf()]
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/pumf.R
 \name{read_pumf_data}
 \alias{read_pumf_data}
-\title{Read raw PUMF data as a tibble}
+\title{Read raw PUMF data as an in-memory tibble}
 \usage{
 read_pumf_data(
   pumf_base_path,
@@ -12,20 +12,37 @@ read_pumf_data(
 )
 }
 \arguments{
-\item{pumf_base_path}{Path to the extracted PUMF directory.}
+\item{pumf_base_path}{Path to the extracted PUMF directory containing the
+data file and SPSS/SAS command files.}
 
-\item{layout_mask}{Optional mask to select a specific layout file.}
+\item{layout_mask}{Optional regex string to select a specific layout file
+when multiple SPSS command files are present (e.g. `"PUMF_i"` for the
+individuals file of a hierarchical survey).}
 
-\item{file_mask}{Optional mask to select a specific data file.}
+\item{file_mask}{Optional regex string to select a specific data file when
+multiple data files are present.  Defaults to `layout_mask`.}
 
-\item{guess_numeric}{Logical; apply numeric conversion and missing-value
-handling.  Default `TRUE`.}
+\item{guess_numeric}{Logical; if `TRUE` (default), apply numeric type
+conversion and missing-value range handling using the parsed metadata.}
 }
 \value{
-A tibble with attributes `pumf_base_path` and `layout_mask`.
+A tibble containing all rows and columns from the data file, with
+  numeric conversion applied when `guess_numeric = TRUE`.  The tibble has
+  attributes `pumf_base_path` and `layout_mask` recording the inputs.
 }
 \description{
 Reads a manually-deposited PUMF directory that lives outside the standard
-cache structure.  For all surveys supported by the registry use [get_pumf()]
-instead, which returns a lazy DuckDB table with labels applied.
+cache structure and returns a fully in-memory tibble.  For surveys supported
+by the canpumf registry, use [get_pumf()] instead, which returns a lazy
+DuckDB table with bilingual labels pre-applied and no need for a local
+directory.
+}
+\examples{
+\dontrun{
+df <- read_pumf_data("/path/to/extracted/SFS2019")
+dim(df)
+}
+}
+\seealso{
+[get_pumf()], [pumf_metadata()]
 }

@@ -116,22 +116,33 @@
 #'
 #' For LFS surveys the DuckDB is a single shared file (`LFS.duckdb`) that
 #' accumulates all versions; its total size is reported in `duckdb_mb` for
-#' every LFS row.
+#' every LFS row.  Use [remove_pumf_cache()] to free disk space.
 #'
 #' @param cache_path Root cache directory.  Defaults to
 #'   `getOption("canpumf.cache_path", tempdir())`.
 #'
 #' @return A tibble with columns:
 #'   \describe{
-#'     \item{series}{Survey series acronym.}
-#'     \item{version}{Version string.}
-#'     \item{has_raw}{`TRUE` if a zip or extracted data files are present.}
-#'     \item{has_metadata}{`TRUE` if a parsed `metadata/` directory exists.}
-#'     \item{has_duckdb}{`TRUE` if a DuckDB table is built for this version.}
-#'     \item{raw_mb}{Disk size of raw files in MB (excluding metadata and DuckDB).}
-#'     \item{duckdb_mb}{Disk size of the DuckDB file in MB.  For LFS this is
-#'       the total shared `LFS.duckdb` size, repeated for each version.}
+#'     \item{`series`}{Survey series acronym.}
+#'     \item{`version`}{Version string.}
+#'     \item{`has_raw`}{`TRUE` if a zip or extracted data files are present.}
+#'     \item{`has_metadata`}{`TRUE` if a parsed `metadata/` directory exists.}
+#'     \item{`has_duckdb`}{`TRUE` if a DuckDB table is built for this version.}
+#'     \item{`raw_mb`}{Disk size of raw files in MB (excluding metadata and DuckDB).}
+#'     \item{`duckdb_mb`}{Disk size of the DuckDB file in MB.  For LFS this is
+#'       the total shared `LFS.duckdb` size, repeated for each version row.}
 #'   }
+#'   Returns a zero-row tibble with the same column structure if the cache
+#'   directory does not exist or is empty.
+#'
+#' @seealso [remove_pumf_cache()], [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' list_pumf_cache()
+#' # With an explicit cache path:
+#' list_pumf_cache(cache_path = "~/pumf_cache")
+#' }
 #' @export
 list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
                                                     tempdir())) {
@@ -176,8 +187,8 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #' to delete everything, freeing the full disk space.
 #'
 #' For LFS surveys the DuckDB is shared across all versions.  Removing one
-#' version deletes only that version's rows; if it was the last version the
-#' shared `LFS.duckdb` is also deleted.
+#' version deletes only that version's rows from the shared `LFS.duckdb`; if
+#' it was the last loaded version the shared database file is also deleted.
 #'
 #' @param series Survey series acronym, e.g. `"SFS"` or `"LFS"`.
 #' @param version Version string, e.g. `"2019"` or `"2023-06"`.
@@ -188,6 +199,17 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #'   `getOption("canpumf.cache_path", tempdir())`.
 #'
 #' @return Invisibly `NULL`.
+#'
+#' @seealso [list_pumf_cache()], [get_pumf()]
+#'
+#' @examples
+#' \dontrun{
+#' # Remove only DuckDB and metadata, keep raw files for quick rebuild:
+#' remove_pumf_cache("SFS", "2019")
+#'
+#' # Remove everything including raw files:
+#' remove_pumf_cache("SFS", "2019", keep_raw = FALSE)
+#' }
 #' @export
 remove_pumf_cache <- function(series,
                                version,

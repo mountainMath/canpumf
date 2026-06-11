@@ -13,11 +13,12 @@ pumf_metadata(
 )
 }
 \arguments{
-\item{series}{Survey series acronym.}
+\item{series}{Survey series acronym, e.g. `"SFS"`, `"LFS"`, `"Census"`.}
 
-\item{version}{Version string.}
+\item{version}{Version string, e.g. `"2019"`, `"2021 (individuals)"`.}
 
-\item{cache_path}{Root cache directory.}
+\item{cache_path}{Root cache directory.  Defaults to
+`getOption("canpumf.cache_path", tempdir())`.}
 
 \item{refresh}{If `TRUE`, re-parse metadata from the already-extracted raw
 command files (does not re-download).}
@@ -26,15 +27,30 @@ command files (does not re-download).}
 re-download from StatCan before re-parsing.  Implies `refresh = TRUE`.}
 }
 \value{
-Named list with elements:
-  - `variables`: tibble (name, label_en, label_fr, type, decimals,
-    missing_low, missing_high)
-  - `codes`: tibble (name, val, label_en, label_fr)
-  - `layout`: tibble (name, start, end) or `NULL` for CSV-format data
+A named list with three elements:
+  \describe{
+    \item{`variables`}{Tibble with columns `name`, `label_en`, `label_fr`,
+      `type`, `decimals`, `missing_low`, `missing_high`.}
+    \item{`codes`}{Tibble with columns `name`, `val`, `label_en`,
+      `label_fr`, mapping numeric codes to their labels.}
+    \item{`layout`}{Tibble with columns `name`, `start`, `end` for
+      fixed-width data files; `NULL` for CSV-format surveys.}
+  }
 }
 \description{
 Runs Stage 1 (locate or download) and Stage 2 (parse metadata) and returns
 the full bilingual canonical metadata.  Both `label_en` and `label_fr`
 columns are always returned regardless of language.  This is useful for
-inspecting variable definitions and code labels before loading data.
+inspecting variable definitions and code labels before loading data with
+[get_pumf()].
+}
+\examples{
+\dontrun{
+meta <- pumf_metadata("SFS", "2019")
+meta$variables
+meta$codes[meta$codes$name == "PEFAMID", ]
+}
+}
+\seealso{
+[get_pumf()], [pumf_var_labels()]
 }
