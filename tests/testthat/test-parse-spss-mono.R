@@ -133,9 +133,18 @@ test_that("parse_spss_mono: canonical schema returned", {
 })
 
 # ---- Real Census 2016 data (skip if not available) -------------------------
+# Find .sps files via list.files() to survive mojibake directory names (the
+# "Français" directory is sometimes extracted as "Franáais" on macOS).
 
-census2016_path <- "/Users/jens/data/pumf.data/2016_Ind_98M0001X/English/SAS, SPSS and STATA command files/2016 Individuals PUMF SPSS EN.sps"
-census2016_fra  <- "/Users/jens/data/pumf.data/2016_Ind_98M0001X/Français/Fichiers de commandes SAS, SPSS et STATA/FMGD 2016 particuliers SPSS FR.sps"
+.find_sps <- function(root, pattern) {
+  hits <- list.files(root, pattern = pattern, recursive = TRUE,
+                     full.names = TRUE, ignore.case = TRUE)
+  if (length(hits)) hits[[1L]] else ""
+}
+
+census2016_root <- "/Users/jens/data/pumf.data/2016_Ind_98M0001X"
+census2016_path <- .find_sps(census2016_root, "2016.*SPSS.*EN\\.sps$")
+census2016_fra  <- .find_sps(census2016_root, "FMGD.*2016.*SPSS.*FR\\.sps$")
 
 test_that("parse_spss_mono: Census 2016 variable count and known labels", {
   skip_if_not(file.exists(census2016_path), "Census 2016 SPSS not in cache")
@@ -171,12 +180,9 @@ test_that("parse_spss_mono: Census 2016 bilingual", {
 
 # ---- Real Census 2021 data (skip if not available) -------------------------
 
-census2021_path <- file.path(
-  "/Users/jens/data/pumf.data/cen21_ind_98m0001x_part_rec21",
-  "English/SAS, SPSS and STATA command files/ipumf_2021_final_prog_en_v2.sps")
-census2021_fra  <- file.path(
-  "/Users/jens/data/pumf.data/cen21_ind_98m0001x_part_rec21",
-  "Français/Fichiers de commandes SAS, SPSS et STATA/FMGD 2021 particuliers SPSS FR_v2.sps")
+census2021_root <- "/Users/jens/data/pumf.data/cen21_ind_98m0001x_part_rec21"
+census2021_path <- .find_sps(census2021_root, "ipumf_2021.*en.*\\.sps$")
+census2021_fra  <- .find_sps(census2021_root, "FMGD.*2021.*SPSS.*FR.*\\.sps$")
 
 test_that("parse_spss_mono: Census 2021 variable count and known labels", {
   skip_if_not(file.exists(census2021_path), "Census 2021 SPSS not in cache")

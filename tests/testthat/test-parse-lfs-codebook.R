@@ -131,11 +131,19 @@ test_that("parse_lfs_codebook: variable names are uppercase", {
 # ---- Real LFS data (skip if not in cache) --------------------------------
 
 test_that("parse_lfs_codebook: real LFS codebook variable count", {
-  lfs_path <- Sys.glob(file.path(getOption("canpumf.cache_path", ""),
-                                 "LFS", "2023", "*/Documents/codebook.csv"))
-  if (length(lfs_path) == 0L)
-    lfs_path <- Sys.glob(file.path(getOption("canpumf.cache_path", ""),
-                                   "LFS", "2022", "*/Documents/codebook.csv"))
+  .lfs_codebook <- function(year) {
+    hits <- list.files(file.path(getOption("canpumf.cache_path", ""), "LFS", year,
+                                 "Documents"),
+                       pattern = "codebook\\.csv$", full.names = TRUE,
+                       ignore.case = TRUE)
+    if (length(hits) == 0L)
+      hits <- list.files(file.path(getOption("canpumf.cache_path", ""), "LFS", year),
+                         pattern = "codebook\\.csv$", full.names = TRUE,
+                         recursive = TRUE, ignore.case = TRUE)
+    hits
+  }
+  lfs_path <- .lfs_codebook("2023")
+  if (length(lfs_path) == 0L) lfs_path <- .lfs_codebook("2022")
   skip_if(length(lfs_path) == 0L, "LFS codebook not in cache")
 
   m <- canpumf:::parse_lfs_codebook(lfs_path[[1L]])

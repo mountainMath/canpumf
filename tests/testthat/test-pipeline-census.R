@@ -9,7 +9,12 @@
 }
 
 .census_extracted <- function(version) {
-  canpumf:::.version_is_extracted(.census_vdir(version))
+  vdir <- .census_vdir(version)
+  if (canpumf:::.version_is_extracted(vdir)) return(TRUE)
+  # bundled-archive versions (e.g. "1986/individuals"): raw data lives in the
+  # parent year directory, mirroring the logic in pumf_build_duckdb().
+  grepl("/", version, fixed = TRUE) &&
+    canpumf:::.version_is_extracted(dirname(vdir))
 }
 
 .census_metadata_exists <- function(version) {
