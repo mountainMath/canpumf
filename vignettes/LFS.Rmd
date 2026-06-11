@@ -63,32 +63,32 @@ lfs_2022_02_data <- lfs_2022 |>
 For this vignette we look at gender-specific labour fource status statistics for the 20 to 64 year old population, computing age-adjusted rates to even out age-specific effects.
 
 ```{r}
-data <- lfs_2022_02_data %>%
-  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) %>%
-  filter(`Labour force status`!="Not in labour force") %>%
-  group_by(`Labour force status`,`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`) %>%
-  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") %>%
-  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") %>%
+data <- lfs_2022_02_data |>
+  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) |>
+  filter(`Labour force status`!="Not in labour force") |>
+  summarise(across(matches("Standard final weight|BSW\\d+"),sum),
+            .by=c(`Labour force status`,`Five-year age group of respondent`,`Gender of respondent`,
+                  `Marital status of respondent`)) |>
+  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") |>
   group_by(`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`, Weight) %>%
-  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) %>%
+           `Marital status of respondent`, Weight) |>
+  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) |>
   ungroup()
 
-data_age_adjusted <- data %>%
-  left_join((.) %>% 
-              group_by(`Five-year age group of respondent`,`Gender of respondent`,Weight) %>%
-              summarize(Count=sum(Count),.groups="drop") %>%
-              group_by(`Gender of respondent`,Weight) %>%
-              mutate(P_age__gender=Count/sum(Count)) %>%
-              ungroup() %>%
+data_age_adjusted <- data |>
+  left_join((.) |> 
+              group_by(`Five-year age group of respondent`,`Gender of respondent`,Weight) |>
+              summarize(Count=sum(Count),.groups="drop") |>
+              group_by(`Gender of respondent`,Weight) |>
+              mutate(P_age__gender=Count/sum(Count)) |>
+              ungroup() |>
               select(`Gender of respondent`,`Five-year age group of respondent`,Weight,P_age__gender),
-            by=c("Gender of respondent","Five-year age group of respondent","Weight")) %>%
-  group_by(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight) %>%
+            by=c("Gender of respondent","Five-year age group of respondent","Weight")) |>
+  group_by(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight) |>
   summarise(age_adjusted=sum(Share*P_age__gender),.groups="drop")
   
-data_age_adjusted %>%
-  filter(`Labour force status`=="Unemployed") %>%
+data_age_adjusted |>
+  filter(`Labour force status`=="Unemployed") |>
 ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
@@ -101,31 +101,31 @@ ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of res
 
 
 ```{r}
-data2 <- lfs_2022_02_data %>%
-  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) %>%
+data2 <- lfs_2022_02_data |>
+  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) |>
   group_by(`Labour force status`,`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`) %>%
-  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") %>%
-  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") %>%
+           `Marital status of respondent`) |>
+  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") |>
+  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") |>
   group_by(`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`, Weight) %>%
-  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) %>%
+           `Marital status of respondent`, Weight) |>
+  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) |>
   ungroup()
 
-data_age_adjusted2 <- data2 %>%
-  left_join((.) %>% 
-              group_by(`Five-year age group of respondent`,`Gender of respondent`,Weight) %>%
-              summarize(Count=sum(Count),.groups="drop") %>%
-              group_by(`Gender of respondent`,Weight) %>%
-              mutate(P_age__sex=Count/sum(Count)) %>%
-              ungroup() %>%
+data_age_adjusted2 <- data2 |>
+  left_join((.) |> 
+              group_by(`Five-year age group of respondent`,`Gender of respondent`,Weight) |>
+              summarize(Count=sum(Count),.groups="drop") |>
+              group_by(`Gender of respondent`,Weight) |>
+              mutate(P_age__sex=Count/sum(Count)) |>
+              ungroup() |>
               select(`Gender of respondent`,`Five-year age group of respondent`,Weight,P_age__sex),
-            by=c("Gender of respondent","Five-year age group of respondent","Weight")) %>%
-  group_by(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight) %>%
+            by=c("Gender of respondent","Five-year age group of respondent","Weight")) |>
+  group_by(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight) |>
   summarise(age_adjusted=sum(Share*P_age__sex),.groups="drop")
   
-data_age_adjusted2 %>%
-  filter(`Labour force status`=="Not in labour force") %>%
+data_age_adjusted2 |>
+  filter(`Labour force status`=="Not in labour force") |>
 ggplot(aes(x=1-age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
@@ -137,8 +137,8 @@ ggplot(aes(x=1-age_adjusted, y=`Marital status of respondent`, fill=`Gender of r
 
 
 ```{r}
-data_age_adjusted2 %>%
-  filter(`Labour force status`=="Employed, at work") %>%
+data_age_adjusted2 |>
+  filter(`Labour force status`=="Employed, at work") |>
 ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
