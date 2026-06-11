@@ -149,6 +149,7 @@ portal.
 |----|----|----|:--:|
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
+| Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | General Social Survey | GSS | 1996, 2007, 2012, 2018 | ✓ |
 | GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
@@ -156,11 +157,8 @@ portal.
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
-| Canadian Income Survey | CIS | 2018–2022 | ✓ |
+| Canadian Income Survey | CIS | 2017–2022 | ✓ |
 | Survey of Household Spending | SHS | 2017, 2019, 2021 | ✓ |
-
-Additional Census variants (1986, 1981, 1976, 1971 — EFT only) are
-registered with specific parsing configuration and have been tested.
 
 ### Cite **canpumf**
 

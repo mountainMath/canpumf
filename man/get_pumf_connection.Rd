@@ -2,7 +2,7 @@
 % Please edit documentation in R/pumf.R
 \name{get_pumf_connection}
 \alias{get_pumf_connection}
-\title{Get a write-access DuckDB connection to a PUMF database}
+\title{Get a read-write DuckDB connection to a PUMF database}
 \usage{
 get_pumf_connection(
   series = NULL,
@@ -15,34 +15,35 @@ get_pumf_connection(
 )
 }
 \arguments{
-\item{series}{Survey series acronym, e.g. `"SFS"` or `"LFS"`.}
+\item{series}{Survey series acronym, e.g. `"SFS"`.}
 
 \item{version}{Version string.  `NULL` for single-version series.}
 
-\item{lang}{`"eng"` (default) or `"fra"`.  Passed to the pipeline to ensure
-the labelled table for this language is built before returning.}
+\item{lang}{`"eng"` (default) or `"fra"`.}
 
-\item{cache_path}{Root cache directory.  Defaults to
-`getOption("canpumf.cache_path", tempdir())`.}
+\item{cache_path}{Root cache directory.}
 
-\item{refresh}{If `TRUE`, rebuild the DuckDB from already-extracted raw
-files before opening.  Does **not** re-download.}
+\item{refresh}{If `TRUE`, rebuild from already-extracted files.}
 
-\item{redownload}{If `TRUE`, re-download from StatCan and rebuild.  Implies
-`refresh = TRUE`.}
+\item{redownload}{If `TRUE`, re-download and rebuild.}
 
-\item{...}{Accepts deprecated parameter names (`pumf_series`,
-`pumf_version`, `pumf_cache_path`) with a warning.}
+\item{...}{Accepts deprecated parameter names with a warning.}
 }
 \value{
-A [DBI::DBIConnection-class] opened in read-write mode.  Disconnect
-  with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
+A [DBI::DBIConnection-class] in read-write mode.
+  Disconnect with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
 }
 \description{
-Downloads (if needed), parses metadata, builds the DuckDB, and returns a
-raw read-write [DBI::DBIConnection-class] to the database file.  The
-connection gives full SQL access: create derived tables, persist custom
-views, and join them against the original PUMF data in the same file.
-[get_pumf()] is built on top of this function and adds language-table
-selection and read-only semantics for everyday analysis.
+Runs the full pipeline and returns a raw read-write
+[DBI::DBIConnection-class].  Use this when you need direct SQL access —
+to persist custom views, join derived tables, or inspect DuckDB internals.
+For everyday analysis use [get_pumf()], which returns a safer read-only
+lazy `tbl`.
+}
+\examples{
+\dontrun{
+con <- get_pumf_connection("SFS", "2019")
+DBI::dbListTables(con)
+DBI::dbDisconnect(con, shutdown = TRUE)
+}
 }

@@ -88,7 +88,7 @@ With PUMF data we need to be aware that we are dealing with a synthetic sample t
 ```{r fig-yvr-renters-forced-moves-bootstrap, fig.alt="Vancouver renters forced to move with bootstrap weights"}
 plot_data <- renter_chs_pumf %>%
   collect() |>
-  add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - forced to move`) %>%
@@ -117,7 +117,7 @@ Another complication when interpreting the data is that the previous accommodati
 ```{r fig-yvr-renters-forced-moves-previous-location, fig.alt="Vancouver renters forced to move by previous location"}
 plot_data <- renter_chs_pumf %>%
   collect() |>
-  add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,
@@ -151,7 +151,7 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 ```{r fig-renters-forced-moves, fig.alt="Renters forced to move"}
 plot_data <- renter_chs_pumf %>%
   collect() |>
-  add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
   filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,

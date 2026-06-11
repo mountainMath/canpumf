@@ -384,7 +384,7 @@ close_pumf <- function(tbl) {
 }
 
 
-# ---- add_pumf_bootstrap_weights ---------------------------------------------
+# ---- add_bootstrap_weights ---------------------------------------------
 
 #' Generate bootstrap weights for a PUMF dataset
 #'
@@ -454,7 +454,7 @@ close_pumf <- function(tbl) {
 #'   * **In-memory path:** the input `data.frame` / `tibble` with
 #'     `n_replicates` new BSW columns appended.
 #' @export
-add_pumf_bootstrap_weights <- function(tbl,
+add_bootstrap_weights <- function(tbl,
                                        weight_col,
                                        id_col       = NULL,
                                        n_replicates = 500L,
@@ -493,7 +493,7 @@ add_pumf_bootstrap_weights <- function(tbl,
   lang       <- prov$lang %||% "eng"
 
   if (series == "LFS")
-    stop("add_pumf_bootstrap_weights() is not supported for LFS. ",
+    stop("add_bootstrap_weights() is not supported for LFS. ",
          "LFS includes official bootstrap weights from Statistics Canada.",
          call. = FALSE)
 
@@ -683,16 +683,16 @@ add_pumf_bootstrap_weights <- function(tbl,
 }
 
 
-# ---- pumf_bsw_info ----------------------------------------------------------
+# ---- bsw_info ----------------------------------------------------------
 
 #' Summarise bootstrap weight tables present in a PUMF DuckDB database
 #'
 #' Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
-#' tables created by [add_pumf_bootstrap_weights()] and returns a summary
+#' tables created by [add_bootstrap_weights()] and returns a summary
 #' tibble with one row per BSW table found.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
-#'   [add_pumf_bootstrap_weights()].
+#'   [add_bootstrap_weights()].
 #'
 #' @return A tibble (invisibly when empty) with columns:
 #'   \describe{
@@ -706,9 +706,9 @@ add_pumf_bootstrap_weights <- function(tbl,
 #'       metadata; `NA` when unavailable).}
 #'   }
 #' @export
-pumf_bsw_info <- function(tbl) {
+bsw_info <- function(tbl) {
   if (is.data.frame(tbl))
-    stop("pumf_bsw_info() requires a DuckDB-backed lazy tbl from get_pumf(). ",
+    stop("bsw_info() requires a DuckDB-backed lazy tbl from get_pumf(). ",
          "For in-memory data frames, inspect column names directly.",
          call. = FALSE)
 
@@ -789,22 +789,22 @@ pumf_bsw_info <- function(tbl) {
 }
 
 
-# ---- remove_pumf_bootstrap_weights ------------------------------------------
+# ---- remove_bootstrap_weights ------------------------------------------
 
 #' Remove bootstrap weight tables and views from a PUMF DuckDB database
 #'
-#' Drops the bootstrap weight table(s) created by [add_pumf_bootstrap_weights()]
+#' Drops the bootstrap weight table(s) created by [add_bootstrap_weights()]
 #' and their companion VIEWs from the DuckDB file.  When all BSW tables have
 #' been removed and the main survey table has a `pumf_row_id` column (added
-#' automatically by [add_pumf_bootstrap_weights()] when no natural key was
+#' automatically by [add_bootstrap_weights()] when no natural key was
 #' available), that column is also dropped.
 #'
-#' Like [add_pumf_bootstrap_weights()], this function requires brief exclusive
+#' Like [add_bootstrap_weights()], this function requires brief exclusive
 #' write access: the read-only connection backing `tbl` is shut down, the
 #' tables are dropped, and a fresh read-only connection is returned.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
-#'   [add_pumf_bootstrap_weights()].
+#'   [add_bootstrap_weights()].
 #' @param weight_col Name of the weight column whose BSW table should be
 #'   removed (e.g. `"WSTPWGT"`).  If `NULL` (default), **all** bootstrap
 #'   weight tables (and their companion VIEWs) are removed.
@@ -812,9 +812,9 @@ pumf_bsw_info <- function(tbl) {
 #' @return A lazy `dplyr::tbl()` backed by the original physical survey table
 #'   (without BSW columns).
 #' @export
-remove_pumf_bootstrap_weights <- function(tbl, weight_col = NULL) {
+remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
   if (is.data.frame(tbl))
-    stop("remove_pumf_bootstrap_weights() requires a DuckDB-backed lazy tbl. ",
+    stop("remove_bootstrap_weights() requires a DuckDB-backed lazy tbl. ",
          "For in-memory data frames, drop BSW columns directly, e.g.: ",
          "df[, !grepl(\"^BSW[0-9]+$\", names(df))]",
          call. = FALSE)
@@ -843,7 +843,7 @@ remove_pumf_bootstrap_weights <- function(tbl, weight_col = NULL) {
     target <- paste0("pumf_bsw_", tolower(weight_col))
     if (!target %in% bsw_tables)
       stop("No bootstrap weight table found for weight_col '", weight_col,
-           "'. Use pumf_bsw_info() to see what is present.", call. = FALSE)
+           "'. Use bsw_info() to see what is present.", call. = FALSE)
     bsw_tables <- target
   }
 
@@ -852,7 +852,7 @@ remove_pumf_bootstrap_weights <- function(tbl, weight_col = NULL) {
     return(tbl)
   }
 
-  # Acquire exclusive write access (same pattern as add_pumf_bootstrap_weights).
+  # Acquire exclusive write access (same pattern as add_bootstrap_weights).
   rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
      envir = .pumf_con_registry, inherits = FALSE)
   if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)

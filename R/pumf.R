@@ -1,156 +1,21 @@
-
-
-#' Guess which columns in pumf data are numeric
+#' Read raw PUMF data as a tibble
 #'
-#' @param pumf_base_path pumf base path
-#' @param layout_mask optional layout mask in case there are several layout files,
-#' @param numeric_pattern optional pattern to guess numeric columns from their \code{NA} value range
-#'
-#' @return vector of column names
-#' @export
-guess_numeric_pumf_columns <- function(pumf_base_path,
-                                       layout_mask=NULL,
-                                       numeric_pattern = "\\d+-\\d+|THRU 99"){
-  .Deprecated("pumf_metadata",
-    msg = paste0("guess_numeric_pumf_columns() is deprecated. ",
-                 "Use pumf_metadata() to access variable type information."))
-
-  miss_labels <- c()
-  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask, numeric_only=TRUE)
-  if (nrow(miss_data)==0) {
-    val_labels <- read_pumf_val_labels(pumf_base_path)
-    miss_labels <- val_labels %>%
-      filter(grepl(numeric_pattern,.data$val)) %>%
-      pull(.data$name)
-  }
-  else  {
-    miss_labels <- miss_data %>%
-      filter(grepl(numeric_pattern,.data$missing)) %>%
-      pull(.data$name)
-  }
-
-  miss_labels
-}
-
-
-# label_pumf_columns() is now implemented in R/api.R (new non-deprecated version).
-
-#' Add variable labels and rename to human readable column names
-#'
-#' @param pumf_data A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @param pumf_base_path Deprecated, ignored.
-#' @param layout_mask Deprecated, ignored.
-#' @param rename_columns If `TRUE`, rename columns to human-readable labels via
-#'   [label_pumf_columns()]. Default `FALSE`.
-#' @param infer_missing_numeric Deprecated, ignored.
-#'
-#' @return `pumf_data` unchanged, or with columns renamed if
-#'   `rename_columns = TRUE`.
-#' @export
-label_pumf_data <- function(pumf_data,
-                            pumf_base_path = attr(pumf_data, "pumf_base_path"),
-                            layout_mask    = attr(pumf_data, "layout_mask"),
-                            rename_columns = FALSE,
-                            infer_missing_numeric = FALSE) {
-  .Deprecated("get_pumf",
-    msg = paste0("label_pumf_data() is deprecated. ",
-                 "Use get_pumf() which applies labels automatically. ",
-                 "For column renaming use label_pumf_columns()."))
-  if (rename_columns) label_pumf_columns(pumf_data) else pumf_data
-}
-
-#' Convert columns to numeric and convert all missing values to \code{NA}
-#'
-#' @param pumf_data pumf data file
-#' @param pumf_base_path optional base path, guessed from attributes on \code{pumf_data}
-#' @param layout_mask optional layout mask in case there are several layout files,
-#' guessed from attributes on \code{layout_mask}
-#' @param numeric_columns optional list of columns to conver, guessed from data if none provided
-#' @param set_missing logical, will set missing values to \code{NA} if set to \code{TRUE} (default)
-#' @param na.values optional vectors of values to convert to \code{NA}
-#'
-#' @return data frame with converted values
-#' @export
-convert_pumf_numeric_columns <- function(pumf_data,
-                                         pumf_base_path=attr(pumf_data,"pumf_base_path"),
-                                         layout_mask=attr(pumf_data,"layout_mask"),
-                                         numeric_columns=NULL,
-                                         set_missing=TRUE,
-                                         na.values = c(".")){
-  .Deprecated("get_pumf",
-    msg = paste0("convert_pumf_numeric_columns() is deprecated. ",
-                 "Use get_pumf() which handles numeric conversion automatically."))
-  if (is.null(pumf_base_path)) stop("Could not find PUMF base path to access metadata.")
-  if (is.null(numeric_columns))  numeric_columns <- guess_numeric_pumf_columns(pumf_base_path,layout_mask)
-
-  miss_data <- read_pumf_miss_labels(pumf_base_path,layout_mask, numeric_only=TRUE)
-  missing <- setdiff(numeric_columns,miss_data$name)
-
-  if (length(missing)>0 & nrow(miss_data)>0) {
-    warning(paste0("Don't have missing value information for column(s) ",paste0(missing,collapse = ", "),"."))
-  }
-
-  convert_numeric_missing <- function(l,c) {
-      miss <- miss_data %>% filter(.data$name==c)
-      integer_miss <- !grepl(miss$missing,"\\.") & max(nchar(l)) < 10
-
-      if (integer_miss) {
-        nv <- NA_integer_
-        nf <- as.integer
-      } else {
-        nv <- NA_real_
-        nf <- as.numeric
-      }
-
-      for (n in na.values) l[l==n] <- nv
-      l <- nf(l)
-      if (nrow(miss)==1) l[l>=miss$missing_low & l<=miss$missing_high] <- nv
-    l
-  }
-
-  for (c in numeric_columns) {
-    if (nrow(miss_data)==0) {
-      pumf_data <- pumf_data %>%
-        mutate_at(c,as.numeric)
-    } else {
-      pumf_data <- pumf_data %>%
-        mutate_at(c,~convert_numeric_missing(!!as.name(c),c))
-    }
-  }
-  pumf_data
-}
-
-
-
-
-#' Read raw PUMF data as a tibble (deprecated)
-#'
-#' @description
-#' `r lifecycle::badge("deprecated")`
-#'
-#' This function is kept for users who work with manually-deposited directories
-#' outside the standard cache.  For all standard surveys use [get_pumf()],
-#' which returns a lazy DuckDB table and handles labeling automatically.
+#' Reads a manually-deposited PUMF directory that lives outside the standard
+#' cache structure.  For all surveys supported by the registry use [get_pumf()]
+#' instead, which returns a lazy DuckDB table with labels applied.
 #'
 #' @param pumf_base_path Path to the extracted PUMF directory.
 #' @param layout_mask Optional mask to select a specific layout file.
 #' @param file_mask Optional mask to select a specific data file.
-#' @param guess_numeric Logical; convert numeric columns and apply missing
-#'   values.  Default `TRUE`.
+#' @param guess_numeric Logical; apply numeric conversion and missing-value
+#'   handling.  Default `TRUE`.
 #'
 #' @return A tibble with attributes `pumf_base_path` and `layout_mask`.
 #' @export
 read_pumf_data <- function(pumf_base_path,
-                           layout_mask  = NULL,
-                           file_mask    = layout_mask,
+                           layout_mask   = NULL,
+                           file_mask     = layout_mask,
                            guess_numeric = TRUE) {
-  warning(
-    "read_pumf_data() is deprecated. ",
-    "Use get_pumf(series, version) for the new DuckDB-backed pipeline, ",
-    "or pumf_metadata(series, version) to access metadata only.",
-    call. = FALSE)
-
-  # Parse canonical metadata if not already present
   if (!metadata_exists(pumf_base_path)) {
     tryCatch(
       pumf_parse_metadata(pumf_base_path, layout_mask = layout_mask),
@@ -159,10 +24,9 @@ read_pumf_data <- function(pumf_base_path,
     )
   }
 
-  meta   <- read_metadata(file.path(pumf_base_path, "metadata"))
-  is_fwf <- !is.null(meta$layout)
-  enc    <- "CP1252"
-
+  meta      <- read_metadata(file.path(pumf_base_path, "metadata"))
+  is_fwf    <- !is.null(meta$layout)
+  enc       <- "CP1252"
   data_path <- tryCatch(
     .find_pumf_data_file(pumf_base_path, file_mask, is_fwf),
     error = function(e)
@@ -192,167 +56,52 @@ read_pumf_data <- function(pumf_base_path,
 
   attr(pumf_data, "pumf_base_path") <- pumf_base_path
   attr(pumf_data, "layout_mask")    <- layout_mask
-
-  if (guess_numeric) pumf_data <- pumf_data %>% convert_pumf_numeric_columns()
-
   pumf_data
 }
 
 
-
-#' Download PUMF data (deprecated)
+#' Get a read-write DuckDB connection to a PUMF database
 #'
-#' @description
-#' `r lifecycle::badge("deprecated")`
+#' Runs the full pipeline and returns a raw read-write
+#' [DBI::DBIConnection-class].  Use this when you need direct SQL access —
+#' to persist custom views, join derived tables, or inspect DuckDB internals.
+#' For everyday analysis use [get_pumf()], which returns a safer read-only
+#' lazy `tbl`.
 #'
-#' Use [pumf_locate_or_download()] internally or [get_pumf()] as the public
-#' entry point.
-#'
-#' @param path Download URL for the PUMF zip file.
-#' @param destination_dir Directory to extract into.
-#' @param refresh Force re-download even if directory exists.
-#' @param timeout Connection timeout in seconds.
-#' @keywords internal
-#' @return pumf_base_dir that can be used in the other package functions
-#' @keywords internal
-download_pumf <- function(path,destination_dir=file.path(tempdir(),"pumf"),refresh=FALSE,timeout=3000){
-  if (refresh || !dir.exists(destination_dir) || length(dir(destination_dir))==0) {
-    if (!dir.exists(dirname(destination_dir))) dir.create(dirname(destination_dir))
-    message("Downloading PUMF data.")
-    if (!dir.exists(destination_dir)) dir.create(destination_dir)
-    tmp <- tempfile(fileext = '.zip')
-    old_timeout <- getOption("timeout")
-    options("timeout"=timeout)
-    unzip_option=getOption("unzip")
-    if (is.null(unzip_option)) unzip_option <- "internal"
-    #httr::GET(path, httr::write_disk(tmp),timeout=timeout)
-    utils::download.file(path,tmp,mode="wb")
-    options("timeout"=old_timeout)
-    if (Sys.info()['sysname']=="Darwin") {
-      system(paste0("ditto -V -x -k --sequesterRsrc --rsrc ",tmp," ",destination_dir))
-    } else {
-      utils::unzip(tmp,exdir = destination_dir, unzip=unzip_option)
-    }
-  } else {
-    message("Path already exists, using cached data.")
-  }
-  new_dir <- file.path(destination_dir,"/SPSS")
-  if (dir.exists(new_dir)) destination_dir<-new_dir
-  destination_dir
-}
-
-
-
-#' Add bootstrap weights to PUMF data
-#'
-#' @param pumf_data A dataframe with PUMF data
-#' @param weight_column Name of the column with the standard weights
-#' @param bootstrap_weight_count Number of boostrap weights to generate
-#' @param bootstrap_weight_prefix Name prefix for the bootstrap weight columns
-#' @param algorithm Algorithm to calculate bootstrap weights, either of "iterative" or "experimental"
-#' @param seed Random see to be used for bootstrap sample for reproducibility
-#' @return pumf_base_dir that can be used in the other package functions
-#' @export
-add_bootstrap_weights <- function(pumf_data,
-                                  weight_column,
-                                  bootstrap_weight_count = 16,
-                                  bootstrap_weight_prefix="BSW",
-                                  algorithm="iterative",
-                                  seed=NULL){
-  n <- nrow(pumf_data)
-
-  if (algorithm=="experimental") {
-    rows <- 1:n
-    wts <- 1:bootstrap_weight_count
-    wt_names <- paste0(bootstrap_weight_prefix,wts)
-    set.seed(seed)
-    chunk_length <- 10
-    split_weights <- split(wt_names, ceiling(seq_along(wt_names) / chunk_length))
-
-    bsw <- lapply(split_weights,\(wt_batch){
-      bwc <- length(wt_batch)
-      perm <-  as.data.frame(replicate(bwc, sample(rows,replace = TRUE))) |>
-        as_tibble() |>
-        setNames(wt_batch)
-      draw <- perm |>
-        tidyr::pivot_longer(everything()) |>
-        count(.data$name,.data$value)
-      bsw_counts <- draw |>
-        tidyr::complete(name=.data$wt_batch,value=.data$rows,fill=list(n=0)) |>
-        tidyr::pivot_wider(names_from=.data$name,values_from = .data$n) |>
-        arrange(.data$value)
-      bsw <- bsw_counts |>
-        select(-.data$value)
-    }) |>
-      bind_cols()
-
-    weights <- pumf_data |> pull(!!weight_column)
-    bsw_final <-  as.data.frame(weights * bsw) |>
-      setNames(wt_names) |>
-      as_tibble()
-
-    pumf_data <- pumf_data |> bind_cols(bsw_final)
-  } else {
-
-    for (i in seq(1,bootstrap_weight_count)) {
-      bootstrap_weight_column <- paste0(bootstrap_weight_prefix,i)
-      wt <- tibble(!!bootstrap_weight_column:=pull(pumf_data,weight_column)) %>%
-        mutate(rn=row_number()) %>%
-        left_join(tibble(rn=sample(seq(1,n),n,replace=TRUE)) %>%
-                           count(.data$rn), by="rn") %>%
-        mutate(n=coalesce(.data$n,0)) %>%
-        mutate(!!bootstrap_weight_column:=!!as.name(bootstrap_weight_column)*.data$n) %>%
-        select(bootstrap_weight_column)
-      pumf_data <- pumf_data %>%
-        bind_cols(wt)
-    }
-  }
-  pumf_data
-}
-
-
-#' Get a write-access DuckDB connection to a PUMF database
-#'
-#' Downloads (if needed), parses metadata, builds the DuckDB, and returns a
-#' raw read-write [DBI::DBIConnection-class] to the database file.  The
-#' connection gives full SQL access: create derived tables, persist custom
-#' views, and join them against the original PUMF data in the same file.
-#' [get_pumf()] is built on top of this function and adds language-table
-#' selection and read-only semantics for everyday analysis.
-#'
-#' @param series Survey series acronym, e.g. `"SFS"` or `"LFS"`.
+#' @param series Survey series acronym, e.g. `"SFS"`.
 #' @param version Version string.  `NULL` for single-version series.
-#' @param lang `"eng"` (default) or `"fra"`.  Passed to the pipeline to ensure
-#'   the labelled table for this language is built before returning.
-#' @param cache_path Root cache directory.  Defaults to
-#'   `getOption("canpumf.cache_path", tempdir())`.
-#' @param refresh If `TRUE`, rebuild the DuckDB from already-extracted raw
-#'   files before opening.  Does **not** re-download.
-#' @param redownload If `TRUE`, re-download from StatCan and rebuild.  Implies
-#'   `refresh = TRUE`.
-#' @param ... Accepts deprecated parameter names (`pumf_series`,
-#'   `pumf_version`, `pumf_cache_path`) with a warning.
+#' @param lang `"eng"` (default) or `"fra"`.
+#' @param cache_path Root cache directory.
+#' @param refresh If `TRUE`, rebuild from already-extracted files.
+#' @param redownload If `TRUE`, re-download and rebuild.
+#' @param ... Accepts deprecated parameter names with a warning.
 #'
-#' @return A [DBI::DBIConnection-class] opened in read-write mode.  Disconnect
-#'   with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
+#' @return A [DBI::DBIConnection-class] in read-write mode.
+#'   Disconnect with `DBI::dbDisconnect(con, shutdown = TRUE)` when done.
 #' @export
+#' @examples
+#' \dontrun{
+#' con <- get_pumf_connection("SFS", "2019")
+#' DBI::dbListTables(con)
+#' DBI::dbDisconnect(con, shutdown = TRUE)
+#' }
 get_pumf_connection <- function(series     = NULL,
-                                 version    = NULL,
-                                 lang       = "eng",
-                                 cache_path = getOption("canpumf.cache_path",
-                                                        tempdir()),
-                                 refresh    = FALSE,
-                                 redownload = FALSE,
-                                 ...) {
+                                version    = NULL,
+                                lang       = "eng",
+                                cache_path = getOption("canpumf.cache_path",
+                                                       tempdir()),
+                                refresh    = FALSE,
+                                redownload = FALSE,
+                                ...) {
   dots     <- list(...)
   resolved <- .api_resolve_deprecated(series, version, cache_path, dots,
-                                       "get_pumf_connection")
+                                      "get_pumf_connection")
   series     <- resolved$series
   version    <- resolved$version
   cache_path <- resolved$cache_path
 
   if (is.null(series))
-    stop("'series' must be specified (e.g. get_pumf_connection(\"SFS\", \"2019\")).")
+    stop("'series' must be specified.")
   version <- pumf_resolve_version(series, version)
   stopifnot(lang %in% c("eng", "fra"))
 
@@ -364,37 +113,25 @@ get_pumf_connection <- function(series     = NULL,
   if (isTRUE(redownload) && identical(refresh, "auto"))
     stop("redownload = TRUE is not compatible with refresh = \"auto\".")
 
-  # Run the pipeline and open a read-write connection.
-  tbl <- if (series == "LFS") {
-    lfs_get_pumf(version    = version,
-                 lang       = lang,
-                 cache_path = cache_path,
-                 refresh    = refresh,
-                 redownload = redownload,
-                 read_only  = FALSE)
-  } else {
-    if (is.null(version)) {
-      collection <- list_canpumf_collection()
-      rows <- filter(collection, .data$Acronym == series)
-      if (nrow(rows) == 0L)
-        stop("Unknown series '", series,
-             "'. Check list_canpumf_collection() for available series.")
-      if (nrow(rows) > 1L)
-        stop("Series '", series, "' has multiple versions: ",
-             paste(rows$Version, collapse = ", "),
-             ".\nSpecify 'version'.")
-      version <- rows$Version[[1L]]
-    }
-    pumf_run_pipeline(series, version,
-                      lang       = lang,
-                      cache_path = cache_path,
-                      refresh    = refresh,
-                      redownload = redownload,
-                      read_only  = FALSE)
+  if (is.null(version)) {
+    collection <- list_canpumf_collection()
+    rows <- filter(collection, .data$Acronym == series)
+    if (nrow(rows) == 0L)
+      stop("Unknown series '", series,
+           "'. Check list_canpumf_collection() for available series.")
+    if (nrow(rows) > 1L)
+      stop("Series '", series, "' has multiple versions: ",
+           paste(rows$Version, collapse = ", "), ".\nSpecify 'version'.")
+    version <- rows$Version[[1L]]
   }
 
+  tbl <- pumf_run_pipeline(series, version,
+                           lang       = lang,
+                           cache_path = cache_path,
+                           refresh    = refresh,
+                           redownload = redownload,
+                           read_only  = FALSE)
   if (is.null(tbl)) return(invisible(NULL))
-
   con    <- tbl$src$con
   tables <- sort(DBI::dbListTables(con))
   message("Connected to DuckDB (read-write). Available tables: ",

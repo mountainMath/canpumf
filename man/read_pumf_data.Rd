@@ -2,7 +2,7 @@
 % Please edit documentation in R/pumf.R
 \name{read_pumf_data}
 \alias{read_pumf_data}
-\title{Read raw PUMF data as a tibble (deprecated)}
+\title{Read raw PUMF data as a tibble}
 \usage{
 read_pumf_data(
   pumf_base_path,
@@ -18,16 +18,14 @@ read_pumf_data(
 
 \item{file_mask}{Optional mask to select a specific data file.}
 
-\item{guess_numeric}{Logical; convert numeric columns and apply missing
-values.  Default `TRUE`.}
+\item{guess_numeric}{Logical; apply numeric conversion and missing-value
+handling.  Default `TRUE`.}
 }
 \value{
 A tibble with attributes `pumf_base_path` and `layout_mask`.
 }
 \description{
-`r lifecycle::badge("deprecated")`
-
-This function is kept for users who work with manually-deposited directories
-outside the standard cache.  For all standard surveys use [get_pumf()],
-which returns a lazy DuckDB table and handles labeling automatically.
+Reads a manually-deposited PUMF directory that lives outside the standard
+cache structure.  For all surveys supported by the registry use [get_pumf()]
+instead, which returns a lazy DuckDB table with labels applied.
 }

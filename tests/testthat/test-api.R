@@ -126,39 +126,6 @@ test_that("pumf_metadata: variables has expected columns", {
                ignore.order = TRUE)
 })
 
-# ---- Deprecation warnings on old functions ----------------------------------
-
-test_that("label_pumf_data: emits deprecation warning", {
-  # Pass a minimal data frame; the function errors on the path lookup
-  # but the deprecation fires first
-  expect_warning(
-    tryCatch(
-      label_pumf_data(data.frame(X=1), pumf_base_path = tempdir()),
-      error = function(e) NULL
-    ),
-    regexp = "deprecated"
-  )
-})
-
-test_that("convert_pumf_numeric_columns: emits deprecation warning", {
-  expect_warning(
-    tryCatch(
-      convert_pumf_numeric_columns(data.frame(X="1"), pumf_base_path = tempdir()),
-      error = function(e) NULL
-    ),
-    regexp = "deprecated"
-  )
-})
-
-test_that("guess_numeric_pumf_columns: emits deprecation warning", {
-  expect_warning(
-    tryCatch(
-      guess_numeric_pumf_columns(tempdir()),
-      error = function(e) NULL
-    ),
-    regexp = "deprecated"
-  )
-})
 
 test_that("label_pumf_columns: errors clearly when tbl has no provenance", {
   tmp <- withr::local_tempdir()

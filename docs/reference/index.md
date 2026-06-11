@@ -40,9 +40,6 @@
 - [`list_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/list_pumf_cache.md)
   : List the contents of the local canpumf cache
 
-- [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
-  : Open PUMF documentation in browser
-
 - [`pumf_bsw_info()`](https://mountainmath.github.io/canpumf/reference/pumf_bsw_info.md)
   : Summarise bootstrap weight tables present in a PUMF DuckDB database
 
