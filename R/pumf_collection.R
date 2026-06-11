@@ -5,20 +5,65 @@
 
 
 list_census_collection <- function() {
-  base_url <- "https://www150.statcan.gc.ca/n1/pub/98m0001x/index-eng.htm"
-  pumf_data <- rvest::read_html(base_url) |>
-    rvest::html_nodes("main div ul li a")
+  base_url  <- "https://www150.statcan.gc.ca/n1/pub/98m0001x/index-eng.htm"
+  pumf_data <- tryCatch(
+    rvest::read_html(base_url) |> rvest::html_nodes("main div ul li a"),
+    error = function(e) NULL
+  )
+  if (!is.null(pumf_data)) {
+    tibble::tibble(Title = "Census of population",
+           Acronym = "Census",
+           Version = pumf_data |> rvest::html_text(),
+           `Survey Number` = "3901",
+           url = paste0("https://www150.statcan.gc.ca/n1/pub/98m0001x/",
+                        pumf_data |> rvest::html_attr("href"))) |>
+      mutate(Year    = stringr::str_extract(.data$Version, "\\d{4}")) |>
+      mutate(type    = gsub(" .+", "", .data$Version)) |>
+      mutate(Version = paste0(.data$Year, " (", tolower(.data$type), ")")) |>
+      select(-"Year", -"type")
+  } else {
+    .census_collection_fallback()
+  }
+}
 
-
-  tibble::tibble(Title = "Census of population",
-         Acronym = "Census",
-         Version=pumf_data |> rvest::html_text(),
-         `Survey Number`="3901",
-         url=paste0("https://www150.statcan.gc.ca/n1/pub/98m0001x/",pumf_data |> rvest::html_attr("href"))) |>
-    mutate(Year=stringr::str_extract(.data$Version,"\\d{4}")) |>
-    mutate(type=gsub(" .+","",.data$Version)) |>
-    mutate(Version=paste0(.data$Year," (",tolower(.data$type),")")) |>
-    select(-"Year",-"type")
+# Hardcoded Census versions used when StatCan is unreachable.
+# URLs are best-effort; they work for 2016/2021 (both use catalog 98m0001x)
+# but may be stale for older years.  If StatCan is unreachable the download
+# would fail regardless, so accuracy of the URL is moot in that scenario.
+.census_collection_fallback <- function() {
+  tibble::tibble(
+    Title          = "Census of population",
+    Acronym        = "Census",
+    `Survey Number` = "3901",
+    Version = c(
+      "2021 (individuals)", "2021 (hierarchical)",
+      "2016 (individuals)", "2016 (hierarchical)",
+      "2011 (individuals)", "2011 (hierarchical)",
+      "2006 (individuals)", "2006 (hierarchical)",
+      "2001 (individuals)", "2001 (households)", "2001 (families)",
+      "1996 (individuals)", "1996 (households)", "1996 (families)",
+      "1991 (individuals)", "1991 (households)", "1991 (families)"
+    ),
+    url = c(
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2022001/cen21_ind_98m0001x_part_rec21.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2022001/cen21_hier_98M0001X_rec21_hier.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2017001/cen16_ind_98m0001x_part_rec16.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2017001/cen16_hier_98m0002x_rec16_hier.zip",
+      "https://www150.statcan.gc.ca/n1/pub/99m0001x/2013001/nhs11_ind_99m0001x_part_enm11.zip",
+      "https://www150.statcan.gc.ca/n1/pub/99m0001x/2013001/nhs11_hier_99m0002x_enm11_hier.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0028x/2009001/cen06_ind_95m0028x_part_rec06.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0028x/2009001/cen06_hier_95m0029x_part_rec06.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0016x/2003001/cen01_ind_95m0016x_part_rec01.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0016x/2003001/cen01_hous_95m0020x_mena_rec01.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0016x/2003001/cen01_fam_95m0018x_fam_rec01.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0010x/1999001/cen96_ind_95m0010X_part_rec96_v2.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0010x/1999001/cen96_hous_95m0011x_mena_rec96_v2.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0010x/1999001/cen96_fam_95m0012x_fam_rec96_v2.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0007x/1996001/cen91_ind_95m0007x_ind_rec91.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0007x/1996001/cen91_hous_95m0008X_mena_rec91.zip",
+      "https://www150.statcan.gc.ca/n1/pub/95m0007x/1996001/cen91_fam_95m0009x_fam_rec91.zip"
+    )
+  )
 }
 
 list_pumf_collection <- function(){
@@ -90,14 +135,18 @@ list_canpumf_collection <- function(){
                          url=c("https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2019/SPSS.zip",
                                "https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2018/SPSS.zip"))
 
-  lfs_version_url<- "https://www150.statcan.gc.ca/n1/pub/71m0001x/71m0001x2021001-eng.htm"
-  d<-rvest::read_html(lfs_version_url) %>%
-    rvest::html_nodes(xpath="//a")
-  d<-d[rvest::html_text(d)=="CSV"]
-  lfs_versions <- tibble(Acronym="LFS",url=rvest::html_attr(d,"href")) %>%
-    mutate(url=ifelse(substr(.data$url,1,4)=="http",url,paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/",.data$url))) %>%
-    mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}")%>% lapply(first) %>% unlist) %>%
-    mutate(Version=coalesce(.data$Version,stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
+  lfs_version_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/71m0001x2021001-eng.htm"
+  lfs_versions <- tryCatch({
+    d <- rvest::read_html(lfs_version_url) %>% rvest::html_nodes(xpath="//a")
+    d <- d[rvest::html_text(d)=="CSV"]
+    tibble(Acronym="LFS", url=rvest::html_attr(d,"href")) %>%
+      mutate(url=ifelse(substr(.data$url,1,4)=="http", url,
+                        paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/", .data$url))) %>%
+      mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}") %>% lapply(first) %>% unlist) %>%
+      mutate(Version=coalesce(.data$Version, stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
+  }, error = function(e) {
+    tibble(Acronym=character(), url=character(), Version=character())
+  })
 
   # Pre-2006 LFS PUMF monthly releases are EFT-only.  Scrape the catalogue
   # index to discover which year/month combinations StatCan has published.
@@ -162,7 +211,17 @@ list_canpumf_collection <- function(){
                           `Survey Number`='4430'
   )
 
-  census_download <- list_census_collection()
+  census_download   <- list_census_collection()
+  scrape_failed_lfs <- nrow(lfs_versions) == 0L
+  scrape_failed_cen <- identical(census_download, .census_collection_fallback())
+
+  if (scrape_failed_lfs || scrape_failed_cen) {
+    what <- c(if (scrape_failed_cen) "Census", if (scrape_failed_lfs) "LFS")
+    warning("Statistics Canada website unreachable; ",
+            paste(what, collapse = " and "),
+            " version list(s) are hard-coded and may be incomplete.",
+            call. = FALSE)
+  }
 
   first_year <- census_download$Version |> str_extract("\\d{4}") |> as.integer() |> min()
   last_eft_year <- first_year - 5

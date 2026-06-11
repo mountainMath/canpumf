@@ -176,14 +176,28 @@ test_that("pumf_var_labels: returns tibble with name/label_en/label_fr columns",
 # ============================================================
 
 test_that("list_canpumf_collection: returns tibble with expected columns", {
-  skip_if_offline()
-  tryCatch({
-    result <- list_canpumf_collection()
-    expect_s3_class(result, "tbl_df")
-    expect_true(all(c("Title", "Acronym", "Version") %in% names(result)))
-    expect_gt(nrow(result), 0L)
-    expect_true("SFS" %in% result$Acronym)
-  }, error = function(e) skip(paste("StatCan unreachable:", conditionMessage(e))))
+  # Works offline via hardcoded fallback (emits a warning when scraping fails)
+  result <- suppressWarnings(list_canpumf_collection())
+  expect_s3_class(result, "tbl_df")
+  expect_true(all(c("Title", "Acronym", "Version") %in% names(result)))
+  expect_gt(nrow(result), 0L)
+  expect_true("SFS" %in% result$Acronym)
+  expect_true("Census" %in% result$Acronym)
+})
+
+test_that("list_canpumf_collection: warns and returns fallback when StatCan unreachable", {
+  with_mocked_bindings(
+    read_html = function(...) stop("simulated network error"),
+    .package  = "rvest",
+    {
+      expect_warning(
+        result <- list_canpumf_collection(),
+        regexp = "unreachable"
+      )
+      expect_true("Census" %in% result$Acronym)
+      expect_gt(nrow(result), 0L)
+    }
+  )
 })
 
 test_that("list_available_lfs_pumf_versions: returns tibble with date/version/url", {
