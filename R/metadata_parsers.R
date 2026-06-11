@@ -771,10 +771,11 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     filter(!is.na(.data$name), !is.na(.data$miss_str)) |>
     mutate(
       missing_low  = as.numeric(
-        stringr::str_match(.data$miss_str, "^(-?[\\d.]+)")[, 2L]),
+        stringr::str_match(.data$miss_str, "^(-?[\\d.]+(?:[Ee][+-]?\\d+)?)")[, 2L]),
       missing_high = if_else(
         grepl("THRU", .data$miss_str, ignore.case = TRUE),
-        as.numeric(stringr::str_match(.data$miss_str, "THRU\\s+(-?[\\d.]+)")[, 2L]),
+        as.numeric(stringr::str_match(
+          .data$miss_str, "THRU\\s+(-?[\\d.]+(?:[Ee][+-]?\\d+)?)")[, 2L]),
         .data$missing_low
       )
     ) |>
