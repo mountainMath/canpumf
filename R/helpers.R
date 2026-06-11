@@ -124,5 +124,6 @@ get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
 #' @importFrom dbplyr sql_render
 NULL
 
-## quiets concerns of R CMD check re: the .'s that appear in pipelines
-if(getRversion() >= "4.1")  utils::globalVariables(c("."))
+## quiets concerns of R CMD check re: NSE column names
+if (getRversion() >= "4.1")
+  utils::globalVariables(c(".", "SURVMNTH", "SURVYEAR", "SEX", "GENDER"))

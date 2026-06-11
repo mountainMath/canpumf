@@ -374,8 +374,9 @@ label mapping:
 - **`codes_supplement`** — named list of `data.frame`s injecting code-label
   rows absent from the SPSS command files.  Each data frame has columns `val`,
   `label_en`, `label_fr`.  Setting `label_en = NA` marks a value as
-  intentionally missing (silences the "unmatched raw value" warning without
-  introducing a spurious factor level).
+  intentionally missing (produces a silent `NA` factor entry without a
+  warning, and without introducing a spurious factor level).  All entries are
+  verified in the override ledger (`tests/testthat/override_verification.csv`).
 - **`na_values`** — character vector of raw string sentinels that become `NA`
   for all numeric columns (used for undeclared Census income sentinels).
 
@@ -518,3 +519,5 @@ auto-detection with defaults.
 | `bsw_join_key` | column(s) to join BSW onto the main data | `NULL` |
 | `bsw_drop_cols` | BSW columns to drop before joining | `character(0)` |
 | `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `codes_supplement`, `na_values` transforms | `list()` |
+| `missing_supplement` | named list of `c(lo, hi)` pairs — explicit missing-range overrides for sentinels no generic pattern can classify (e.g. non-integer sentinels like `999.5`) | `NULL` |
+| `doc_mask` | regex applied to PDF filenames to filter a shared documentation directory to the relevant file type (e.g. `"Family\|Familles"` for 1986 Census families) | `NULL` |

@@ -1,4 +1,4 @@
-# R/registry.R — Survey-specific configuration registry.
+# R/registry.R -- Survey-specific configuration registry.
 #
 # Each entry captures the non-derivable per-(series, version) configuration
 # needed by the three-stage pipeline: layout/BSW masks, file masks, encoding
@@ -8,8 +8,8 @@
 # That covers the generic read_pumf_data() path for manually-deposited directories.
 #
 # data_fixups structure (applied to raw character data before label mapping):
-#   str_pad:    list of list(cols, width, side, pad) — left/right-pad raw values
-#   rename:     named character vector c(old_name = "new_name") — column renames
+#   str_pad:    list of list(cols, width, side, pad) -- left/right-pad raw values
+#   rename:     named character vector c(old_name = "new_name") -- column renames
 #               (applied only when the old column exists; safe for conditional renames)
 #   na_values:  character vector of raw values that should become NA for all
 #               numeric columns (applied in .apply_numeric_conversion)
@@ -51,11 +51,11 @@
 # Census of Population income variables use undeclared sentinel codes.
 # The sentinel width matches the income field width, which changed across years:
 #
-#   2016–2021: 8-char income fields (EmpIn, MrkInc, TotInc, Value, …)
+#   2016-2021: 8-char income fields (EmpIn, MrkInc, TotInc, Value, ...)
 #     99999999 = not applicable  (e.g. persons aged < 15)
 #     88888888 = not available
 #
-#   1991–2011: 7-char income fields (same variables, narrower layout)
+#   1991-2011: 7-char income fields (same variables, narrower layout)
 #     9999999  = not applicable
 #     8888888  = not available
 #
@@ -64,10 +64,10 @@
 # "9999999") as NA.
 #
 # 1986 and earlier: guides do not document income sentinels and a field-aligned
-# data scan finds none — no na_values applied (see Census 1986 comment below).
-# 1991–2001 guides document only 9999999 ("Not applicable"); 8888888 first
+# data scan finds none -- no na_values applied (see Census 1986 comment below).
+# 1991-2001 guides document only 9999999 ("Not applicable"); 8888888 first
 # appears in the 2006 documentation.  It is kept in .census_fixup_7 for
-# 1991–2001 as a harmless guard: a field-aligned scan shows it never occurs in
+# 1991-2001 as a harmless guard: a field-aligned scan shows it never occurs in
 # those years' data, and top-coding makes a legitimate $8,888,888 impossible.
 # SGVP: HSDSIZEC ("household size", top-coded) and CHH0014C ("children 0-14",
 # top-coded) have boundary labels alongside unlabeled lower values;
@@ -79,8 +79,8 @@
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
 
-# 1971: SUBSAMPL is an integer sub-sample index (0 for households, 1–5 for
-# individuals/families), but all six SPSS files only declare code 1 → 'one'.
+# 1971: SUBSAMPL is an integer sub-sample index (0 for households, 1-5 for
+# individuals/families), but all six SPSS files only declare code 1 -> 'one'.
 # Force it to numeric so the integer values come through correctly.
 .census_fixup_1971 <- list(force_numeric = "SUBSAMPL")
 
@@ -187,9 +187,9 @@
   # ---- GSS: General Social Survey -------------------------------------------
   # 1996 (cycle 11): monolithic SPSS; data in C11MDFAscRecLay-Eng/.
   # The French SPSS file (C11MICF.SPS) uses CP850 (DOS-era encoding); CP1252
-  # has undefined code points for bytes like 0x90 (É in CP850), causing a
+  # has undefined code points for bytes like 0x90 (\u00c9 in CP850), causing a
   # segfault in readr.  All 40 numeric variables use "DO NOT KNOW" / "DO NOT
-  # KNOW (PROXY ONLY)" rather than the contraction — handled by .sentinel_pat.
+  # KNOW (PROXY ONLY)" rather than the contraction -- handled by .sentinel_pat.
   "GSS/1996" = .make_entry("GSS", "1996",
     file_mask         = "c11mice\\.dat",
     metadata_encoding = "CP850"),
@@ -200,7 +200,7 @@
   # parse_sas_data_labels().  ~97 continuous count/age/amount variables have
   # boundary or group codes in their VALUE LABELS that conflict with raw
   # continuous data (e.g. AGE_CU1C: 15="15 years and less", 80="80 years and
-  # more" alongside decimal ages 016.0-079.0) — force_numeric prevents valid
+  # more" alongside decimal ages 016.0-079.0) -- force_numeric prevents valid
   # data from becoming NA; their Not asked/Not stated/Don't know sentinels
   # (997-999, 999.7-999.9, 99997-99999) become per-variable missing ranges.
   "GSS/2007" = .make_entry("GSS", "2007",
@@ -258,7 +258,7 @@
 
   # 2012 (cycle 26): monolithic SPSS; data in Data Files ASCII/.
   # 27 count/age variables have boundary labels (e.g. "100 hours or more",
-  # "85 years or older") alongside unlabeled numeric values — force_numeric
+  # "85 years or older") alongside unlabeled numeric values -- force_numeric
   # prevents valid data from being silently NAs.
   "GSS/2012" = .make_entry("GSS", "2012",
     file_mask   = "GSS26PUMFM\\.DAT",
@@ -361,7 +361,7 @@
   # 1997 (cycle 4): three separate PUMF files (SGVP = combined main file).
   # SAS text files also present; layout_mask and file_mask select the SGVP main.
   # AQ03 (org-type count) has code 0="0" (numeric string, not a sentinel phrase)
-  # alongside unlabeled values 1–15; force_numeric preserves those counts.
+  # alongside unlabeled values 1-15; force_numeric preserves those counts.
   # The fixed-width data uses SAS-style "." for missing values; na_values
   # turns them into NA in labeled columns without unmatched-value warnings.
   "SGVP/1997" = .make_entry("SGVP", "1997",
@@ -384,7 +384,7 @@
   #
   # Income variables (8-char-wide fields: CHDBN, COVID_ERB, CQPPB, CapGn, ChldC,
   # EICBN, EmpIn, GovtI, GTRfs, IncTax, Invst, MrkInc, OASGI, OtInc, Retir,
-  # SempI, TotInc, TotInc_AT, Value, Wages, …) use sentinel codes not declared in
+  # SempI, TotInc, TotInc_AT, Value, Wages, ...) use sentinel codes not declared in
   # any machine-readable command file; handled via the explicit
   # .census_fixup_8 (2016/2021) and .census_fixup_7 (1991-2011) variants.
   # The former .census_fixup alias was removed after it silently pointed the
@@ -500,7 +500,7 @@
     bundled_eng_sps   = "census_1991/CNCF91.XMF",
     data_fixups       = .census_fixup_7),
 
-  # 1986–1971: single EFT bundle per year containing all file types.
+  # 1986-1971: single EFT bundle per year containing all file types.
   # Deposit the bundle zip in Census/<year>/; each type reads raw files from
   # that parent directory and writes its own metadata + DuckDB into the type
   # subdirectory (Census/<year>/<type>/).
@@ -558,7 +558,7 @@
   "Census/1986/households" = .make_entry("Census", "1986/households",
     bundle_sps_mask = "hhld86",
     file_mask       = "^HHLD86\\.DAT$",
-    doc_mask        = "Household|[Mm][eé]nages|hhldhsg",
+    doc_mask        = "Household|[Mm][e\u00e9]nages|hhldhsg",
     data_fixups     = list(force_numeric = c(
       "VALUEH", "GROSRTH", "RENTH", "OMPH", "MPPIT",
       "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
@@ -668,11 +668,11 @@
 #' `"2001 (households)"`).
 #'
 #' Examples of accepted inputs (case-insensitive keywords):
-#' - `"2021"` → `"2021 (individuals)"`
-#' - `"1971"` → `"1971/individuals_prov"`
-#' - `"1971 CMA"` → `"1971/individuals_cma"`
-#' - `"1971 households CMA"` → `"1971/households_cma"`
-#' - `"1986 families"` → `"1986/families"`
+#' - `"2021"` -> `"2021 (individuals)"`
+#' - `"1971"` -> `"1971/individuals_prov"`
+#' - `"1971 CMA"` -> `"1971/individuals_cma"`
+#' - `"1971 households CMA"` -> `"1971/households_cma"`
+#' - `"1986 families"` -> `"1986/families"`
 #'
 #' @param series survey series acronym
 #' @param version raw version string supplied by the caller, or `NULL`

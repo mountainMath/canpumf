@@ -322,11 +322,11 @@ open_pumf_documentation <- function(series          = NULL,
     lines <- c(lines, paste0(
       "  Forced numeric: ",
       paste(fx$force_numeric, collapse = ", "),
-      " — boundary/top-code labels dropped; sentinel codes become NA ranges."
+      " \u2014 boundary/top-code labels dropped; sentinel codes become NA ranges."
     ))
 
   if (length(fx$cols_swap) > 0L) {
-    pairs <- paste0(names(fx$cols_swap), "↔", fx$cols_swap)
+    pairs <- paste0(names(fx$cols_swap), "\u2194", fx$cols_swap)
     lines <- c(lines, paste0(
       "  Column name swap: ", paste(pairs, collapse = ", "),
       " (command-file labels were transposed relative to data)."
@@ -334,7 +334,7 @@ open_pumf_documentation <- function(series          = NULL,
   }
 
   if (length(fx$rename) > 0L) {
-    pairs <- paste0(names(fx$rename), "→", fx$rename)
+    pairs <- paste0(names(fx$rename), "\u2192", fx$rename)
     lines <- c(lines, paste0("  Renamed columns: ", paste(pairs, collapse = ", "), "."))
   }
 
