@@ -52,7 +52,12 @@ which cached versions are exercised.
 |---|---|---|:---:|:---:|:---:|---|
 | Census | `test-pipeline-census.R` | 2021 (ind.), 2021 (hier.), 2016 (ind.), 2016 (hier.), 2011 (ind.), 2011 (hier.), 2006 (ind.), 2006 (hier.), 2001 (ind./hh/fam), 1996 (ind./hh/fam), 1991 (ind./hh/fam) | ✓ | ✓ | ✓ | 2021 (ind.) warns "no French translation" for 74/144 variables — allowed |
 | Census (EFT) | `test-pipeline-census.R` | 1986 (ind./hh/fam), 1981 (ind./hh), 1976 (ind./hh/fam), 1971 (ind./hh/fam — prov and cma variants) | ✓ | ✓ | ✓ | 1986/families, 1976/households, 1976/families: English-only (no French labels); 1981/individuals warns swapped column names; 1971 (cma-individuals, prov-families): warns "absent from command files" for codes_supplement injections |
-| GSS | `test-pipeline-gss.R` | 2018, 2012, 2007, 1996 | ✓ | ✓ | ✓ | 2007 warns "no French translation" for ~925/951 variables — allowed |
+| GSS (Caregiving) | `test-pipeline-gss.R` | 2018, 2012, 2007, 1996 | ✓ | ✓ | ✓ | 2007 warns "no French translation" for ~925/951 variables — allowed |
+| GSS (Safety) | `test-pipeline-gss.R` | Safety 2019, Safety 2014, Safety 1999, Safety 1993 | ✓ | ✓ | ✓ | Safety 2019/2014/1999/1993 have force_numeric boundary-label variables |
+| GSS (Family) | `test-pipeline-gss.R` | Family 2017, Family 2011, Family 2001, Family 1995 | ✓ | ✓ | ✓ | All have age/family-history force_numeric; Family 2011 also warns WTBS unlabeled |
+| GSS (Social Identity) | `test-pipeline-gss.R` | Social Identity 2020, Social Identity 2013, Social Identity 2003 | ✓ | ✓ | ✓ | Social Identity 2003/2013 have many force_numeric; 2003 warns WTBS unlabeled |
+| GSS (Education) | `test-pipeline-gss.R` | Education 2007, Education 2002, Education 1994 | ✓ | ✓ | ✓ | Education 2007 warns WTBS unlabeled; Education 2007 = same data as Caregiving 2007 |
+| GSS (Time Use) | `test-pipeline-gss.R` | Time Use 2022, Time Use 2015, Time Use 2010, Time Use 1998 | ✓ | ✓ | ✓ | Time Use 2010 warns WTBS_EPI unlabeled |
 | SFS | `test-pipeline-sfs.R` | 2023, 2019, 2016, 2012, 2005 | ✓ | ✓ | ✓ | BSW join tested for 2016/2019/2023 |
 | SFS 1999 | `test-pipeline-sfs.R` | 1999 | ✓ | ✓ | — | DATA LIST-only SPSS + PDF dictionary (`parse_pdf_dictionary`) for labels; English-only (no French PDF bundled in the download); row count (15 933) and column count (80) asserted; PDF-derived labels verified |
 | CHS | `test-pipeline-chs.R` | First of: 2022, 2021, 2018 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested; bilingual tests use whichever version is in cache |

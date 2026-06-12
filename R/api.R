@@ -268,15 +268,10 @@ get_pumf <- function(series     = NULL,
 
 # Read the variables tibble for a tbl returned by get_pumf().
 # Returns a data.frame(name, label_en, label_fr, type, ...) from metadata/.
-.pumf_read_variables <- function(tbl) {
-  prov <- .pumf_lookup_con(tbl$src$con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
+.pumf_read_variables_from_prov <- function(prov) {
   series     <- prov$series
   version    <- prov$version
   cache_path <- prov$cache_path
-
   if (series == "LFS") {
     db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
     if (!file.exists(db_path))
@@ -306,11 +301,17 @@ get_pumf <- function(series     = NULL,
            "Run get_pumf(\"", series, "\", \"", version, "\") first.",
            call. = FALSE)
     vars <- read_metadata(meta_dir)$variables
-    # DuckDB column names are uppercased at build time; normalise metadata
-    # names so mixed-case command-file declarations (e.g. "TotInc") match.
     vars$name <- toupper(vars$name)
     vars
   }
+}
+
+.pumf_read_variables <- function(tbl) {
+  prov <- .pumf_lookup_con(tbl$src$con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  .pumf_read_variables_from_prov(prov)
 }
 
 
@@ -512,7 +513,8 @@ close_pumf <- function(tbl) {
 #'   different weight columns do not overwrite each other.
 #' @param seed Optional integer seed for reproducibility.
 #' @param overwrite If the `bsw_table` already exists in the DuckDB file,
-#'   overwrite it when `TRUE`; stop with an error when `FALSE` (default).
+#'   regenerate and overwrite it when `TRUE`.  When `FALSE` (default) the
+#'   existing table is reused silently — no computation is performed.
 #'
 #' @return
 #'   * **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
@@ -545,14 +547,16 @@ add_bootstrap_weights <- function(tbl,
   stopifnot(is.numeric(n_replicates), n_replicates >= 1L)
   n_replicates <- as.integer(n_replicates)
 
-  # Auto-name BSW table after weight_col so separate calls for household vs
-  # person weights land in independent tables.
-  if (is.null(bsw_table))
-    bsw_table <- paste0("pumf_bsw_", tolower(weight_col))
+  # Auto-name BSW table after weight_col. If weight_col is a human-readable
+  # label (resolved later), store the raw value for naming; the resolution
+  # happens below after we know if this is DuckDB-backed or in-memory.
+  bsw_table_auto <- is.null(bsw_table)
 
   # ---- Dispatch: in-memory (data.frame / tibble) ----------------------------
-  if (is.data.frame(tbl))
+  if (is.data.frame(tbl)) {
+    weight_col <- .bsw_resolve_col_df(tbl, weight_col, "weight_col")
     return(.add_bsw_inmemory(tbl, weight_col, n_replicates, prefix, seed))
+  }
 
   # ---- DuckDB-backed lazy tbl path ------------------------------------------
 
@@ -577,6 +581,17 @@ add_bootstrap_weights <- function(tbl,
 
   table_name <- .pumf_table_name(series, version, lang)
   db_path    <- .pumf_db_path(series, version, cache_path)
+
+  # Resolve weight_col / id_col: if label_pumf_columns() was called, the user
+  # may pass a human-readable label (e.g. "Person weight") rather than the
+  # coded column name (e.g. "WSTPWGT"). Translate back to the coded name so
+  # SQL queries against the raw DuckDB table work correctly.
+  weight_col <- .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", prov)
+  if (!is.null(id_col))
+    id_col <- .bsw_resolve_col_prov(con, table_name, id_col, "id_col", prov)
+
+  if (bsw_table_auto)
+    bsw_table <- paste0("pumf_bsw_", tolower(weight_col))
 
   # Capture the rendered SQL *before* closing the connection.  This is used to:
   #   (a) detect non-replayable ops (GROUP BY, HAVING, DISTINCT, column-select),
@@ -604,73 +619,168 @@ add_bootstrap_weights <- function(tbl,
   # Extract the WHERE portion (+ ORDER BY if any) for re-application.
   where_start  <- regexpr("(?i)WHERE\\s", input_sql, perl = TRUE)
   where_clause <- if (where_start > 0L) substring(input_sql, where_start) else NULL
-  # VIEW name: "pumf_bsw_wstpwgt" → "eng_bsw_wstpwgt"; preserves weight_col scope.
+  # VIEW name: "pumf_bsw_pweight" → "eng_bsw_pweight"; preserves weight_col scope.
   view_name  <- paste0(table_name, "_", sub("^pumf_", "", bsw_table))
 
-  # --- Determine row-identifier column ---------------------------------------
+  # --- Determine row-identifier column (needed for all paths) ---------------
   reg <- pumf_registry_lookup(series, version)
   if (is.null(id_col)) {
     if (!is.null(reg$bsw_join_key) && length(reg$bsw_join_key) == 1L)
       id_col <- reg$bsw_join_key
   }
 
-  # --- Pull id + weight from read-only connection ----------------------------
+  # --- Inspect existing BSW table (if present and not overwriting) ----------
+  bsw_exists <- !overwrite && DBI::dbExistsTable(con, bsw_table)
+
+  if (bsw_exists) {
+    bsw_all_cols  <- DBI::dbListFields(con, bsw_table)
+    rep_pat       <- paste0("^", prefix, "[0-9]+$")
+    rep_cols_all  <- bsw_all_cols[grepl(rep_pat, bsw_all_cols)]
+    # Sort numerically (BSW10 > BSW9, not lexicographically)
+    rep_cols_all  <- rep_cols_all[order(
+      as.integer(sub(paste0("^", prefix), "", rep_cols_all)))]
+    n_existing    <- length(rep_cols_all)
+    # The non-replicate column is the id join key used when BSW was created.
+    id_col_bsw    <- bsw_all_cols[!grepl(rep_pat, bsw_all_cols)]
+    id_col_bsw    <- if (length(id_col_bsw) == 1L) id_col_bsw[1L] else
+                     (id_col %||% "pumf_row_id")
+    # If the caller did not specify id_col, inherit it from the stored BSW table.
+    if (is.null(id_col)) id_col <- id_col_bsw
+
+    n_bsw_rows  <- DBI::dbGetQuery(
+      con, sprintf('SELECT COUNT(*) AS n FROM "%s"', bsw_table))$n
+    n_main_rows <- DBI::dbGetQuery(
+      con, sprintf('SELECT COUNT(*) AS n FROM "%s"', table_name))$n
+
+    need_more_rows <- n_bsw_rows  <  n_main_rows
+    need_more_cols <- n_replicates > n_existing
+
+    # ---- Case A: enough replicates, all rows present — no write needed ------
+    # Return a SQL JOIN on the existing read-only connection; no disconnection.
+    if (!need_more_rows && !need_more_cols) {
+      cols_to_use <- rep_cols_all[seq_len(n_replicates)]
+      bsw_sel     <- paste0('"b"."', cols_to_use, '"', collapse = ", ")
+      join_sql    <- sprintf(
+        'SELECT "m".*, %s FROM "%s" "m" JOIN "%s" "b" ON "m"."%s" = "b"."%s"',
+        bsw_sel, table_name, bsw_table, id_col_bsw, id_col_bsw
+      )
+      full_sql <- if (!is.null(where_clause))
+        sprintf('SELECT * FROM (%s) "_t"\n%s', join_sql, where_clause)
+      else
+        join_sql
+      # con is already registered in .pumf_con_registry; no re-registration.
+      return(dplyr::tbl(con, dplyr::sql(full_sql)))
+    }
+  } else {
+    n_existing    <- 0L
+    rep_cols_all  <- character(0L)
+    id_col_bsw    <- id_col %||% "pumf_row_id"
+    need_more_rows <- FALSE
+    need_more_cols <- FALSE
+  }
+
+  # ---- Cases B/C/D: write connection needed --------------------------------
+  # B = new rows only; C = more columns only; D = full fresh generation.
+  # Pull the data we need from the read-only connection before closing it.
+
   id_sql <- if (!is.null(id_col))
     sprintf('"%s" AS row_id', id_col)
   else
-    "rowid AS row_id"   # DuckDB virtual column; stable for unmodified heap tables
+    "rowid AS row_id"
 
-  wt_data <- DBI::dbGetQuery(
-    con,
-    sprintf('SELECT %s, CAST("%s" AS DOUBLE) AS w FROM "%s"',
-            id_sql, weight_col, table_name)
-  )
-  n       <- nrow(wt_data)
-  w       <- wt_data$w
-  row_ids <- wt_data$row_id
-
-  if (anyNA(w)) {
-    warning(sum(is.na(w)), " NA weight(s) in '", weight_col,
-            "' replaced with 0.", call. = FALSE)
-    w[is.na(w)] <- 0
+  if (bsw_exists && need_more_rows) {
+    # Pull ONLY rows missing from the BSW table.
+    new_wt_data <- DBI::dbGetQuery(con, sprintf(
+      'SELECT %s, CAST("%s" AS DOUBLE) AS w
+       FROM "%s"
+       WHERE "%s" NOT IN (SELECT "%s" FROM "%s")',
+      id_sql, weight_col, table_name,
+      id_col, id_col, bsw_table
+    ))
+  }
+  if (!bsw_exists || need_more_cols) {
+    # Pull ALL rows' weights: needed for fresh generation or adding columns.
+    wt_data_all <- DBI::dbGetQuery(con, sprintf(
+      'SELECT %s, CAST("%s" AS DOUBLE) AS w FROM "%s"',
+      id_sql, weight_col, table_name
+    ))
+  }
+  if (bsw_exists && (need_more_rows || need_more_cols)) {
+    # Read the current BSW table for merging.
+    old_bsw <- DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', bsw_table))
   }
 
-  mem_gb <- n_replicates * n * 8 / 1e9
-  if (mem_gb > 2)
-    warning(sprintf(
-      "Generating %d replicates for %d rows requires ~%.1f GB of memory.",
-      n_replicates, n, mem_gb
-    ), call. = FALSE)
+  # ---- Generate bootstrap weights ------------------------------------------
+  .gen_bsw <- function(wt_df, n_cols_start, n_cols_end, seed_val) {
+    n <- nrow(wt_df)
+    w <- wt_df$w
+    if (anyNA(w)) { w[is.na(w)] <- 0 }
+    n_new <- n_cols_end - n_cols_start
+    if (n_new <= 0L) return(NULL)
+    mem_gb <- n_new * n * 8 / 1e9
+    if (mem_gb > 2)
+      warning(sprintf(
+        "Generating %d replicates for %d rows requires ~%.1f GB of memory.",
+        n_new, n, mem_gb), call. = FALSE)
+    message(sprintf(
+      "Generating %d bootstrap weight replicates for %d observations...",
+      n_new, n))
+    if (!is.null(seed_val)) set.seed(seed_val)
+    counts <- vapply(
+      seq_len(n_new),
+      function(i) tabulate(sample.int(n, n, replace = TRUE), nbins = n),
+      integer(n))
+    mat    <- w * counts
+    colnames(mat) <- paste0(prefix, seq(n_cols_start + 1L, n_cols_end))
+    id_name <- names(wt_df)[1L]   # "row_id" aliased from the SELECT
+    cbind(stats::setNames(data.frame(wt_df[[1L]]), id_col %||% "pumf_row_id"),
+          as.data.frame(mat))
+  }
 
-  # --- Generate bootstrap counts ---------------------------------------------
-  message(sprintf(
-    "Generating %d bootstrap weight replicates for %d observations...",
-    n_replicates, n
-  ))
-  if (!is.null(seed)) set.seed(seed)
+  # Determine what to generate and build the final BSW data frame.
+  if (!bsw_exists) {
+    # Case D: fresh generation of all n_replicates columns for all rows.
+    n   <- nrow(wt_data_all)
+    if (anyNA(wt_data_all$w)) {
+      warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
+              "' replaced with 0.", call. = FALSE)
+      wt_data_all$w[is.na(wt_data_all$w)] <- 0
+    }
+    bsw_df <- .gen_bsw(wt_data_all, 0L, n_replicates, seed)
+  } else if (need_more_rows && !need_more_cols) {
+    # Case B: insert new rows with the same n_existing columns.
+    if (nrow(new_wt_data) > 0L) {
+      new_rows_df <- .gen_bsw(new_wt_data, 0L, n_existing, seed)
+      bsw_df      <- rbind(old_bsw, new_rows_df)
+    } else {
+      bsw_df <- old_bsw
+    }
+  } else if (!need_more_rows && need_more_cols) {
+    # Case C: add more columns for all existing rows.
+    add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
+    bsw_df  <- merge(old_bsw, add_df,
+                     by = intersect(names(old_bsw), names(add_df)),
+                     all = TRUE)
+  } else {
+    # Case B+C: new rows AND more columns.
+    # 1. Add more columns to existing rows.
+    add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
+    old_aug <- merge(old_bsw, add_df,
+                     by = intersect(names(old_bsw), names(add_df)),
+                     all = TRUE)
+    # 2. Generate all n_replicates columns for new rows.
+    if (nrow(new_wt_data) > 0L) {
+      new_rows_df <- .gen_bsw(new_wt_data, 0L, n_replicates, seed)
+      bsw_df      <- rbind(old_aug, new_rows_df)
+    } else {
+      bsw_df <- old_aug
+    }
+  }
 
-  # vapply + tabulate: O(n × B) entirely at the C level, no per-column R loop.
-  counts <- vapply(
-    seq_len(n_replicates),
-    function(i) tabulate(sample.int(n, n, replace = TRUE), nbins = n),
-    integer(n)
-  )
-  bsw_matrix    <- w * counts   # double × integer → double matrix
   bsw_col_names <- paste0(prefix, seq_len(n_replicates))
-  colnames(bsw_matrix) <- bsw_col_names
-
-  bsw_df <- cbind(
-    stats::setNames(
-      data.frame(row_ids),
-      if (!is.null(id_col)) id_col else "pumf_row_id"
-    ),
-    as.data.frame(bsw_matrix)
-  )
+  id_col_final  <- names(bsw_df)[1L]   # actual name used in bsw_df
 
   # --- Acquire exclusive write access ----------------------------------------
-  # DuckDB in-process sharing: while a read-only instance is alive, dbConnect()
-  # to the same file returns read-only even with read_only=FALSE.  Full shutdown
-  # is required before a true write connection can be opened.
   rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
      envir = .pumf_con_registry, inherits = FALSE)
   if (DBI::dbIsValid(con))
@@ -683,7 +793,7 @@ add_bootstrap_weights <- function(tbl,
     add = TRUE
   )
 
-  # Add pumf_row_id when no natural key exists (ALTER TABLE ADD COLUMN is O(1)).
+  # Add pumf_row_id to the main table when no natural key was available.
   if (is.null(id_col)) {
     if (!"pumf_row_id" %in% DBI::dbListFields(rw_con, table_name)) {
       message("Adding 'pumf_row_id' column to '", table_name, "'...")
@@ -692,25 +802,24 @@ add_bootstrap_weights <- function(tbl,
       DBI::dbExecute(rw_con,
         sprintf('UPDATE "%s" SET pumf_row_id = rowid', table_name))
     }
-    id_col <- "pumf_row_id"
+    id_col       <- "pumf_row_id"
+    id_col_final <- "pumf_row_id"
   }
-
-  if (!overwrite && DBI::dbExistsTable(rw_con, bsw_table))
-    stop("Table '", bsw_table, "' already exists in '", basename(db_path),
-         "'. Use overwrite = TRUE to replace it.", call. = FALSE)
 
   message("Writing bootstrap weight table '", bsw_table, "' to DuckDB...")
   DBI::dbWriteTable(rw_con, bsw_table, bsw_df, overwrite = TRUE)
 
   DBI::dbExecute(rw_con, sprintf(
     'CREATE INDEX IF NOT EXISTS "idx_%s" ON "%s" ("%s")',
-    bsw_table, bsw_table, id_col
+    bsw_table, bsw_table, id_col_final
   ))
 
-  bsw_col_sql <- paste0('"b"."', bsw_col_names, '"', collapse = ", ")
+  # Expose the full set of replicate columns that ended up in the BSW table.
+  final_rep_cols <- names(bsw_df)[names(bsw_df) != id_col_final]
+  bsw_col_sql    <- paste0('"b"."', final_rep_cols, '"', collapse = ", ")
   DBI::dbExecute(rw_con, sprintf(
     'CREATE OR REPLACE VIEW "%s" AS SELECT "m".*, %s FROM "%s" "m" JOIN "%s" "b" ON "m"."%s" = "b"."%s"',
-    view_name, bsw_col_sql, table_name, bsw_table, id_col, id_col
+    view_name, bsw_col_sql, table_name, bsw_table, id_col_final, id_col_final
   ))
 
   DBI::dbDisconnect(rw_con, shutdown = TRUE)
@@ -738,6 +847,35 @@ add_bootstrap_weights <- function(tbl,
   new_tbl
 }
 
+
+# Resolve a column name that may be a human-readable label back to the coded
+# column name. For data.frame input: checks if the name is in colnames(df);
+# if not, it must already be the correct name (no provenance available).
+.bsw_resolve_col_df <- function(df, col, arg_name) {
+  if (is.null(col) || col %in% names(df)) return(col)
+  stop("'", arg_name, "' column '", col, "' not found in the data frame.",
+       call. = FALSE)
+}
+
+# Resolve a column name that may be a human-readable label back to the coded
+# column name for DuckDB-backed tables.  Looks up the label in variables.csv
+# using the survey provenance stored in the connection registry.
+.bsw_resolve_col_prov <- function(con, table_name, col, arg_name, prov) {
+  if (is.null(col)) return(col)
+  actual_cols <- DBI::dbListFields(con, table_name)
+  if (col %in% actual_cols) return(col)
+  # col is not a raw column name — try to find it as a human-readable label.
+  variables  <- .pumf_read_variables_from_prov(prov)
+  lang       <- prov$lang %||% "eng"
+  label_col  <- if (lang == "eng") "label_en" else "label_fr"
+  match_rows <- variables[!is.na(variables[[label_col]]) &
+                            variables[[label_col]] == col, , drop = FALSE]
+  if (nrow(match_rows) == 0L)
+    stop("'", arg_name, "' value '", col,
+         "' is neither a column in the DuckDB table nor a known variable label.",
+         call. = FALSE)
+  match_rows$name[1L]
+}
 
 # Fast in-memory bootstrap weight generation for data.frame / tibble input.
 .add_bsw_inmemory <- function(df, weight_col, n_replicates, prefix, seed) {

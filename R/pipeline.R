@@ -365,10 +365,19 @@ pumf_locate_or_download <- function(series,
   if (length(candidates) == 0L)
     stop("Could not find data file in ", version_dir,
          if (!is.null(file_mask)) paste0(" matching '", file_mask, "'"), ".")
-  if (length(candidates) > 1L)
-    stop("Found multiple candidate data files:\n",
-         paste(" ", basename(candidates), collapse = "\n"),
-         "\nSet file_mask in the registry entry to select one.")
+  if (length(candidates) > 1L) {
+    # If all remaining candidates share the same basename, the zip shipped
+    # duplicate copies (e.g. once in the root and once in Data_DonnÇes/).
+    # Pick the shallowest copy to avoid ambiguity.
+    if (length(unique(tolower(basename(candidates)))) == 1L) {
+      depths <- nchar(candidates) - nchar(gsub("/", "", candidates))
+      candidates <- candidates[which.min(depths)]
+    } else {
+      stop("Found multiple candidate data files:\n",
+           paste(" ", basename(candidates), collapse = "\n"),
+           "\nSet file_mask in the registry entry to select one.")
+    }
+  }
 
   candidates[[1L]]
 }

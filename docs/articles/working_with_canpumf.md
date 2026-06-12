@@ -158,7 +158,7 @@ facilitated via the `add_bootstrap_weights` function.
 
 plot_data <- renter_chs_pumf %>%
   collect() |>
-  add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - forced to move`) %>%
@@ -200,7 +200,7 @@ what effect it has.
 
 plot_data <- renter_chs_pumf %>%
   collect() |>
-  add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
   filter(`Geographic grouping`=="Vancouver") %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,
@@ -240,7 +240,7 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 
 plot_data <- renter_chs_pumf %>%
   collect() |>
-  add_bootstrap_weights(weight_column = "Household weight", seed=42) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
   filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) %>%
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,

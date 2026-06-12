@@ -107,7 +107,7 @@ more weights.
 lfs_2022_02_data <- lfs_2022 |> 
   filter(`Survey month`==2) |>
   collect() |>
-  add_bootstrap_weights("Standard final weight",seed=42)
+  add_bootstrap_weights(weight_col = "Standard final weight", seed = 42)
 ```
 
 For this vignette we look at gender-specific labour fource status

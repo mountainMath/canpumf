@@ -296,6 +296,399 @@
       )
     )),
 
+  # ---- GSS: Non-caregiving themes (Safety, Family, Social Identity, etc.) ---
+  # Collection version strings include the theme name (e.g. "Safety 2019").
+  # Modern format (2014+): split-SPSS in Layouts_MisEnPages/SPSS/ or
+  #   Syntax_Syntaxe/SPSS/; data in Data_DonnÇes/; M=main, I=incident/episode.
+  # Mid-era (2001-2013): monolithic SPSS + SAS PROC FORMAT.
+  # layout_mask selects main dataset over incident/episode when both exist.
+  # WTBS_002..WTBS_500 are present in layout but not labeled — warning is
+  # expected and allowed by the test suite.
+
+  # ---- Safety (Canadian Safety) ----------------------------------------------
+  # Safety 2019 (cycle 34): split-SPSS; M (main) + I (incident) datasets.
+  # NUMEVACT ("Evening activities count") has codes 0="Never" and 96-99 sentinels
+  # alongside unlabeled counts 1-95 — force_numeric prevents valid data → NA.
+  "GSS/Safety 2019" = .make_entry("GSS", "Safety 2019",
+    layout_mask = "GSS34PUMFM",
+    file_mask   = "GSS34PUMFM\\.txt",
+    data_fixups = list(force_numeric = "NUMEVACT")),
+
+  # Safety 2014 (cycle 28): split-SPSS in Syntax_Syntaxe/Main/ and Incident/.
+  # 113 count/cost/incident variables have boundary labels alongside unlabeled
+  # continuous data; force_numeric prevents valid data → NA.
+  "GSS/Safety 2014" = .make_entry("GSS", "Safety 2014",
+    layout_mask = "GSS28PUMFM",
+    file_mask   = "GSS28PUMFM\\.txt",
+    data_fixups = list(force_numeric = c(
+      "WHR_110",  "DWLINC_C", "WHR_120",  "WHR_130",  "WHR_140",  "WHR_150",
+      "PCA_10",   "PCA_20",   "PCA_30",   "PCA_40",   "PCA_45A",  "PCA_45B",
+      "CIR_090",  "CIR_100",  "CIR_105A", "CIR_105B", "CIR_105D", "CIR_105E",
+      "CIR_105F", "CIR_110",  "CIR_120",  "HWT_120",  "HWT_130",  "HWT_140",
+      "HWT_150",  "HWT_170",  "SEXATTK",  "SEXTOUCH", "CIR_150C", "CIR_150D",
+      "CIR_150E", "CIR_150F", "PHYSATTK", "CIR_150G", "INJURY",   "CIR_170",
+      "CIR_173C", "MEDAT",    "CIR_190",  "BED_DAYS", "WHO_120",  "WHO_210",
+      "SXOFNDSC", "YNGOFNDC", "OLDOFNDC", "RLOFNDSC", "RLOFNDC",  "PAG_10",
+      "SXOFFND",  "RLOFFNDC", "CIR_310",  "HTC_120",  "HTC_155",  "HTC_180",
+      "HATECRIM", "HATE_OTH", "CIR_335",  "CIR_336C", "STP_10",   "STP_20A",
+      "STP_20B",  "STP_20C",  "STP_20D",  "STP_60F",  "STP_60G",  "PDM_10",
+      "PDM_20A",  "PDM_20B",  "PDM_20C",  "PDM_20D",  "PDM_20E",  "VDAMGE_C",
+      "TOTCOST",  "OCI_10",   "OCI_20",   "OCC_10",   "OCC_15",   "OCC_20C",
+      "OCC_30",   "LOSTDAYC", "RIP_10",   "APT_20",   "AP405060", "RNP_300",
+      "RNP_310",  "CIRMAINC", "GIR_10F",  "GIR_10G",  "GIR_10N",  "GIR_10O",
+      "GIR_30",   "GIR_40",   "GIR_50",   "INCTRAUM", "CWC_10",   "CWC_20C",
+      "NUMINC",   "NUMINCCA", "REP_STAT", "SEXASSLT", "SXASST23", "ROBBRY",
+      "A_ROBBRY", "ASSAULT",  "THREAT",   "BREAK",    "A_BREAK",  "MVTHFT",
+      "A_MVTHFT", "PT_MVTFT", "THFTPP",   "MSCRIME",  "MSCRIM23"
+    ))),
+
+  # Safety 1999 (cycle 13): monolithic SPSS + SAS; M (main) + I (incident).
+  # 152 count/victimisation variables need force_numeric.
+  "GSS/Safety 1999" = .make_entry("GSS", "Safety 1999",
+    file_mask   = "C13MICM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "V1",      "V1A",     "V2",      "DWELINCC","V5",      "V6",      "V7",
+      "V8",      "V8A_C01", "V8A_C02", "V8A_C03", "V9",      "V10",
+      "V10A_C01","V10A_C02","V10A_C03","V10A_C04","V10A_C05","V10A_C06",
+      "V12",     "V13_C01", "V13_C02", "V13_C03", "V13_C04", "V14",
+      "V15_C01", "SEXATTK", "V15_C02", "SEXTOUCH","V15_C03", "V15_C04",
+      "V15_C05", "V15_C07", "INJURY",  "V17",     "V17A",    "V17B",
+      "MEDAT",   "V19",     "BED_DAYS","V20A",    "V20B",    "V21",
+      "SXOFFND", "V23C",    "AGEOFNDC","V25",     "V29",     "RLOFNDSC",
+      "V31",     "V32_C01", "V32_C02", "V32_C10", "HATECRIM","V33",
+      "V33A",    "V34",     "V34A",    "V35",     "V36_C01", "V36_C02",
+      "V36_C03", "V36_C04", "V36_C05", "V36_C06", "V36_C789","V36_C10",
+      "V36_C11", "V36_C12", "V37",     "V42_C01", "V42_C03", "V42_C04",
+      "V42_C05", "V42_C06", "VALDAMGE","TOTCOST",  "V44",     "V45",
+      "V47",     "V47A",    "V48A",    "V50C",    "V51",     "V51A",
+      "LOSTDAYS","V52",     "V53",     "V54B",    "V54C",    "V54E",
+      "V55_C01", "V55_C03", "V55_C04", "V55_C57", "V55_C08", "V55_C10",
+      "V56",     "V57_C02", "V57_C03", "V57_C05", "V57_C06", "V57_C08",
+      "V57_C11", "V58A",    "V58D",    "V58G",    "V58H",    "V58I",
+      "V58J",    "V58K",    "V58V59",  "V60A",    "V60B",    "V60C",
+      "V60D",    "V62",     "V63",     "V64_C01", "V64_C02", "V64_C03",
+      "V64_C04", "V64_C05", "V64_C06", "V64_C07", "V64_C08", "V64_C09",
+      "V64_C10", "V64_C11", "V64_C12", "V64_C13", "V64_C14", "V64_C15",
+      "V64_C16", "V64_C17", "NUMINC",  "REP_STAT","SEXASSLT","ROBBRY",
+      "A_ROBBRY","ASSAULT", "BREAK",   "A_BREAK", "MVTHFT",  "A_MVTHFT",
+      "THFTPP",  "A_THFTPP","THFTHP",  "A_THFTHP","VANDALSM","MSCRIME",
+      "VBSCRNO"
+    ))),
+
+  # Safety 1993 (cycle 8): monolithic SPSS + SAS; three data files
+  # (C8MICRO.DAT = FWF, C8MICROE.TXT, C8MICROF.txt); use the DAT.
+  "GSS/Safety 1993" = .make_entry("GSS", "Safety 1993",
+    file_mask   = "C8MICRO\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "DVB10A",   "DVD5D6VL", "DVWKVOL",  "D11",      "DVD12VOL", "DVD13VOL",
+      "DVD14VOL", "DVSETVOL", "DVD12SET", "DVD13SET", "DVD14SET", "DVE28",
+      "DVE30",    "DVE33",    "DVF23NGT", "DVF25DAY", "DVF33DAY", "DVF36COL",
+      "DVG38COL", "DVG45COL", "DVG51COL", "DVG53DAY"
+    ))),
+
+  # ---- Family ----------------------------------------------------------------
+  # Family 2017 (cycle 31): split-SPSS in Syntax_Syntaxe/SPSS/; single dataset.
+  # The zip ships GSS31PUMF.txt in both root and Data_DonnÇes/ — identical
+  # copies; pipeline picks the shallower path automatically.
+  # 88 age/family-history variables have boundary labels alongside continuous
+  # decimal ages/years — force_numeric prevents valid data → NA.
+  "GSS/Family 2017" = .make_entry("GSS", "Family 2017",
+    file_mask   = "GSS31PUMF\\.txt",
+    data_fixups = list(force_numeric = c(
+      "AGEC",     "AGEDC",    "APARSEPC", "APARDIVC", "AMDIEDC",  "AMOTHC",
+      "AFDIEDC",  "AFATHC",   "NLFTHOMC", "ALHOMFC",  "ARTHOMFC", "ALFHOMLC",
+      "ARTHOMLC", "NSEPEVR",  "ASEPMA0C", "AGEMA0C",  "APRMA0C",  "ACLMA0C",
+      "AGEMA1C",  "APRMA1C",  "ACLMA1C",  "ASEPMA1C", "ADIVMA1C", "ADTHMA1C",
+      "AGEMA2C",  "APRMA2C",  "ACLMA2C",  "ASEPMA2C", "ADIVMA2C", "ADTHMA2C",
+      "AGEMA3C",  "APRMA3C",  "ACU0C",    "APRCU0C",  "ACU1C",    "APRCU1C",
+      "ASEPCU1C", "ADTHCU1C", "ACU2C",    "APRCU2C",  "ASEPCU2C", "ACU3C",
+      "APRCU3C",  "ASEPCU3C", "ALATC",    "TOTCHDC",  "ACHD_1C",  "ACHD_2C",
+      "ACHD_3C",  "ACHD_4C",  "ACHD_5C",  "ACHD_6C",  "ACHD_7C",  "ACHB1C",
+      "ACHB2C",   "ACHB3C",   "ACHB4C",   "ACHB5C",   "ACHB6C",   "ACHB7C",
+      "ACHJ1C",   "ACHJ2C",   "ACHJ3C",   "ACHJ4C",   "ACHJ5C",   "ACHJ6C",
+      "ACHJ7C",   "CHDINFTC", "CHDINPTC", "CHDOUTC",  "ARHCL1C",  "ARHCL2C",
+      "ARHCL3C",  "ARHCL4C",  "ARHCL5C",  "ARHCL6C",  "ARHCL7C",  "ARNCL1C",
+      "ARNCL2C",  "ARNCL3C",  "ARNCL4C",  "ARNCL5C",  "ARNCL6C",  "ARNCL7C",
+      "NGRDCHDC", "AGRNDPAC", "ARSTPWKC", "ACOMPSTC"
+    ))),
+
+  # Family 2011 (cycle 25): monolithic SPSS + SAS; single data file.
+  # 111 age/family-history variables (same pattern as 2007/2017 Family cycles).
+  "GSS/Family 2011" = .make_entry("GSS", "Family 2011",
+    file_mask   = "C25PUMF\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "AGEC",           "AGEDC",          "AGE_RETHOMLC",   "AGE_RETHOMFC",
+      "AGE_LFTHOMLC",   "AGE_MA0C",       "AGE_SEP_MA0C",   "AGE_CL_MA0C",
+      "AGE_MA1C",       "AGE_CL_MA1C",    "AGE_SEP_MA1C",   "AGE_DIV_MA1C",
+      "AGE_MA2C",       "AGE_CL_MA2C",    "AGE_SEP_MA2C",   "AGE_DIV_MA2C",
+      "AGE_MA3C",       "AGE_CL_MA3C",    "AGE_SEP_MA3C",   "AGE_DIV_MA3C",
+      "AGE_CU0C",       "AGE_CU1C",       "AGE_SEP_CU1C",   "AGE_CU2C",
+      "AGE_SEP_CU2C",   "AGE_CU3C",       "AGE_SEP_CU3C",   "AGE_LATC",
+      "AGECHD_1C",      "AGECHD_2C",      "AGECHD_3C",      "AGECHD_4C",
+      "AGECHD_5C",      "AGECHD_6C",      "AGECHD_7C",      "AGE_CHDBORN_1C",
+      "AGE_CHDBORN_2C", "AGE_CHDBORN_3C", "AGE_CHDBORN_4C", "AGE_CHDBORN_5C",
+      "AGE_CHDBORN_6C", "AGE_CHDBORN_7C", "AGE_CHDJOIN_HOM_1C", "AGE_CHDJOIN_HOM_2C",
+      "AGE_CHDJOIN_HOM_3C", "AGE_CHDJOIN_HOM_4C", "AGE_CHDJOIN_HOM_5C",
+      "AGE_CHDJOIN_HOM_6C", "AGE_CHDJOIN_HOM_7C", "AGE_HHC_LHOM_1C",
+      "AGE_HHC_LHOM_2C", "AGE_HHC_LHOM_3C", "AGE_HHC_LHOM_4C",
+      "AGE_HHC_LHOM_5C", "AGE_HHC_LHOM_6C", "AGE_HHC_LHOM_7C",
+      "AGE_NHHC_LHOM_1C","AGE_NHHC_LHOM_2C","AGE_NHHC_LHOM_3C",
+      "AGE_NHHC_LHOM_4C","AGE_NHHC_LHOM_5C","AGE_NHHC_LHOM_6C",
+      "AGE_NHHC_LHOM_7C","NO_CHRIC",       "RRB_Q110C",      "ORB_Q110C",
+      "SBR_Q110C",      "AGE_DSW_Q101C",  "WKWEHR_C",       "AGE_COMPL_STUDIES_C",
+      "MAP_Q135C",      "AGE_WK1BEGC",    "AGE_WK1ENDC",    "DUR_WK1C",
+      "AGE_WK2BEGC",    "AGE_WK2ENDC",    "DUR_WK2C",       "AGE_WK3BEGC",
+      "AGE_WK3ENDC",    "DUR_WK3C",       "AGE_WK4BEGC",    "AGE_WK4ENDC",
+      "DUR_WK4C",       "AGE_WK5BEGC",    "AGE_WK5ENDC",    "DUR_WK5C",
+      "AGE_RETIRED_C",  "DUR_WKTOT",      "AGE_INT1BEGC",   "AGE_INT1ENDC",
+      "DUR_INT1C",      "AGE_INT2BEGC",   "AGE_INT2ENDC",   "DUR_INT2C",
+      "AGE_INT3BEGC",   "AGE_INT3ENDC",   "DUR_INT3C",      "AGE_INT4BEGC",
+      "AGE_INT4ENDC",   "DUR_INT4C",      "AGE_INT5BEGC",   "NO_MAT_PATC",
+      "AGE_MAT_PAT1BEGC","AGE_MAT_PAT1ENDC","DUR_MAT_PAT1C",
+      "AGE_MAT_PAT2BEGC","AGE_MAT_PAT2ENDC","DUR_MAT_PAT2C",
+      "AGE_MAT_PAT3BEGC","AGE_MAT_PAT3ENDC","DUR_MAT_PAT3C"
+    ))),
+
+  # Family 2001 (cycle 15): monolithic SPSS + SAS; M + C + U files; use Main.
+  # 80 child/arrangement variables have boundary labels alongside continuous data.
+  "GSS/Family 2001" = .make_entry("GSS", "Family 2001",
+    file_mask   = "C15PUMFM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "CHD_IMPUTED",       "AGECHDC",           "SEXCHD",
+      "MSCHD",             "CHDTYPE",           "HHLDSTAT",
+      "HHLDCHD",           "PRTCHDC",           "OTHERHHLDPARENT",
+      "SEX",               "PRTYPE",            "REA_LIVHOMPT",
+      "CHD_LIVARR",        "KM_CHDLIVE",        "AFC_Q110",
+      "AFC_Q120",          "AFC_Q135",          "CCR_Q130",
+      "SCC_Q210",          "SCC_Q215_C01",      "SCC_Q215_C02",
+      "SCC_Q215_C03",      "SCC_Q215_C04",      "SCC_Q231",
+      "SCC_Q232",          "SAT_CHDLIVARR",     "REA_DIS_CHDLIVARR",
+      "SCC_Q251",          "SCC_Q252",          "CHDBAPAR_ALIVE",
+      "OBP_Q120",          "OPC_Q110",          "OPF_Q110",
+      "OPF_Q115_C01",      "OPF_Q115_C02",      "OPF_Q115_C03",
+      "OPF_Q115_C04",      "OPF_Q120",          "OPF_Q130",
+      "OPF_Q135",          "OPF_Q140",          "OPF_Q150",
+      "OPS_Q130",          "OPS_Q140",          "OPS_Q150",
+      "OPS_Q160",          "OPS_Q165",          "TSC_Q110",
+      "REA_NHHLD_LFTHOM_C01","REA_NHHLD_LFTHOM_C02","REA_NHHLD_LFTHOM_C03",
+      "REA_NHHLD_LFTHOM_C04","REA_NHHLD_LFTHOM_C05","REA_NHHLD_LFTHOM_C06",
+      "REA_NHHLD_LFTHOM_C07","REA_NHHLD_LFTHOM_C08","REA_NHHLD_LFTHOM_C09",
+      "LHNC_Q610",         "LHNC_Q620",         "LHNC_Q630",
+      "LHHC_Q110",         "REA_HHLD_LFTHOM_C01","REA_HHLD_LFTHOM_C02",
+      "REA_HHLD_LFTHOM_C03","REA_HHLD_LFTHOM_C04","REA_HHLD_LFTHOM_C05",
+      "REA_HHLD_LFTHOM_C06","REA_HHLD_LFTHOM_C07","REA_HHLD_LFTHOM_C08",
+      "REA_HHLD_LFTHOM_C09","DC_Q120",           "REA_DC_LFTHOM_C01",
+      "REA_DC_LFTHOM_C02", "REA_DC_LFTHOM_C03", "REA_DC_LFTHOM_C04",
+      "REA_DC_LFTHOM_C05", "REA_DC_LFTHOM_C06", "REA_DC_LFTHOM_C07",
+      "REA_DC_LFTHOM_C08", "REA_DC_LFTHOM_C09"
+    ))),
+
+  # Family 1995 (cycle 10): monolithic SPSS + SAS; three files (Main/Child/Union).
+  "GSS/Family 1995" = .make_entry("GSS", "Family 1995",
+    file_mask   = "C10micme\\.dat",
+    data_fixups = list(force_numeric = c(
+      "DVAGECHD", "DVSEXCHD", "MS",       "CHDTYPE",  "HHLDSTAT", "HHLDCHD",
+      "PRTCHD",   "DVSEX",    "DVPART",   "D40",      "DVD41",    "D44D58",
+      "D45A",     "DVD45",    "DVD46",    "D47",      "DVD49",    "D50",
+      "D51",      "DVD52",    "D53D76",   "DVD54",    "D55",      "DVD56",
+      "DVPARENT", "D67",      "DVD68",    "DVD69",    "DVD70",    "DVD72",
+      "D73",      "D74",      "DVD75",    "D76",      "D78",      "DVD79",
+      "D80",      "DVD84",    "D86C01",   "D86C02",   "D86C04",   "D86C05",
+      "D86C06",   "D86C07",   "D86C08",   "D86C10",   "D87",      "D88",
+      "D89",      "D90",      "DVD91",    "D93C01",   "D93C02",   "D93C05",
+      "D93C06",   "D93C07",   "D93C08",   "DVD94",    "D98",      "DVD99",
+      "D101C01",  "D101C02",  "D101C03",  "D101C06",  "D101C07",  "D101C08"
+    ))),
+
+  # ---- Social Identity -------------------------------------------------------
+  # Social Identity 2020 (cycle 35): split-SPSS; single main dataset.
+  # No force_numeric needed — all categorical variables are properly coded.
+  "GSS/Social Identity 2020" = .make_entry("GSS", "Social Identity 2020",
+    layout_mask = "GSS35PUMFM",
+    file_mask   = "GSS35PUMFM\\.txt"),
+
+  # Social Identity 2013 (cycle 27): monolithic SPSS; single file.
+  # 25 count/age/household-size variables have boundary labels alongside
+  # unlabeled continuous values.
+  "GSS/Social Identity 2013" = .make_entry("GSS", "Social Identity 2013",
+    data_fixups = list(force_numeric = c(
+      "RECID",    "HSDSIZEC", "AGEHSDYC", "CHINHSDC", "CHH0014C", "RFE_10C",
+      "RFE_20C",  "SCF_100C", "SCF_102C", "SCF_110C", "CWF_20C",  "SCP_110",
+      "SCP_120C", "CERD230C", "GRP_10C",  "GRP_20C",  "IWO_10C",  "MCR_300C",
+      "MCR_325C", "MCR_330C", "MCR_335C", "WET_110",  "AGELPDWC", "WHW_210",
+      "HSDELIGC"
+    ))),
+
+  # Social Identity 2003 (cycle 17): monolithic SPSS + SAS; single main file.
+  # 242 variables have boundary labels alongside unlabeled continuous values.
+  "GSS/Social Identity 2003" = .make_entry("GSS", "Social Identity 2003",
+    file_mask   = "C17PUMFM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "AGEGR5",    "AGEGR10",   "SEX",       "MARSTAT",   "AGEPRGRDIF",
+      "PRTYPEC",   "AGECHRYC",  "CHRFLAG",   "PARHSDC",   "LIVARR08",
+      "LIVARR12",  "FAMTYPE",   "MULTIGEN",  "PRV",       "REGION",
+      "LUC_RST",   "HAL_Q110",  "HAL_Q120",  "HAL_Q150",  "HAL_Q160",
+      "HAL_Q170",  "HAL_Q210",  "MSS_Q110",  "MSS_Q120",  "HS_Q110",
+      "LS_Q110",   "LS_Q120",   "LS_Q130",   "LS_Q140",   "LS_Q210",
+      "LS_Q310",   "LS_Q320",   "LS_Q330",   "LANCH",     "LANCHSUE",
+      "LANCHSUF",  "LANCHSUO",  "LANHSDC",   "NET_Q110",  "NET_Q120",
+      "NET_Q130",  "YER_Q110",  "YER_Q120",  "YER_Q130",  "YER_Q150",
+      "YER_Q170",  "YER_Q180",  "YER_Q190",  "YER_Q210",  "SCR_Q120",
+      "SCR_Q130",  "SCR_Q140",  "SCR_Q810",  "SCF_Q100",  "SCF_Q110",
+      "NO_OFRNDS", "SCF_Q120",  "SCF_Q130",  "SCF_Q140",  "SCG_Q120",
+      "SCG_Q130",  "SCG_Q150",  "SCG_Q160",  "SCG_Q170",  "SCG_Q180",
+      "SCP_Q110",  "HICR_Q110_WO","HICR_Q110_TR","HICR_Q110_CH","HICR_Q110_TE",
+      "HICR_Q110_EM","HICR_Q110_OT","HICR_Q110_NO","HICR_Q120","HICR_Q140_RE",
+      "HICR_Q140_FR","HICR_Q140_NE","HICR_Q140_PE","HICR_Q150","HICG_Q110_WO",
+      "HICG_Q110_TR","HICG_Q110_CH","HICG_Q110_TE","HICG_Q110_EM","HICG_Q110_OT",
+      "HICG_Q110_NO","HICG_Q120", "HICG_Q140_RE","HICG_Q140_FR","HICG_Q140_NE",
+      "HICG_Q140_PE","HICG_Q150", "VCG_Q300",  "VCG_Q310",  "VCG_Q340",
+      "CE_Q110",   "CE_Q111",   "CE_Q112",   "CE_Q113",   "CE_Q114",
+      "CE_Q115",   "CE_Q116",   "CE_Q240",   "CE_Q330",   "CE_Q340",
+      "OMA_Q110",  "OMA_Q115",  "OMA_Q120",  "OMA_Q130",  "OMA_Q140",
+      "OMA_Q150",  "OMA_Q160",  "OMA_Q170",  "OMA_Q210",  "PE_Q110",
+      "PE_Q120",   "PE_Q130",   "PE_Q220",   "PE_Q230",   "PE_Q250",
+      "PE_Q260",   "PE_Q270",   "PE_Q280",   "PE_Q290",   "PE_Q300",
+      "PE_Q310",   "PE_Q320_NEWS","PE_Q320_MAGS","PE_Q320_TELEV","PE_Q320_RADIO",
+      "PE_Q320_NET","PE_Q330",  "ACMYR",     "EDUSTAT",   "MAR_Q125",
+      "MAR_Q130",  "AGE_LSTPDWKC","MAR_Q150","MAR_Q160",  "MAR_Q161",
+      "WKWEHR",    "MAR_Q190",  "WKWEHOHR",  "NAICS16",   "SOC91C10",
+      "MAR_Q314",  "MAR_Q315",  "MAR_Q410",  "MAR_Q480",  "MAR_Q485_REL",
+      "MAR_Q485_FRND","MAR_Q485_NEIG","MAR_Q485_PERS","MAR_Q485_WORK","MAR_Q510",
+      "MAR_Q520_FAMILY","MAR_Q520_JOB","MAR_Q520_ACT","MAR_Q520_EMPLY",
+      "MAR_Q520_EMPREL","MAR_Q520_HEALTH","MAR_Q520_FAMREL","MAR_Q520_OTHER",
+      "MAR_Q650",  "EDUYR",     "EOR_Q110",  "EOR_Q150",  "EDU5",
+      "EDU10",     "EDUPR5",    "EDUPR10",   "EDUM5",     "EDUM10",
+      "EDUF5",     "EDUF10",    "ACMPRYR",   "MAP_Q20",   "MAP_Q30",
+      "MAP_Q32",   "MAP_Q40",   "DWELC",     "DWELLOWN",  "DOR_Q210",
+      "DOR_Q222",  "DOR_Q227",  "DOR_Q228",  "DOR_Q229",  "DOR_Q230",
+      "DOR_Q231",  "SOR_Q110",  "SOR_Q120",  "SOR_Q130",  "BRTHCAN",
+      "BRTHPRVC",  "BRTHREGC",  "YRARRI",    "AGEARRIGRC","BRTHMCAN",
+      "BRTHMREGC", "BRTHFCAN",  "BRTHFREGC", "TRT_Q110",  "TRT_Q310",
+      "TRT_Q330",  "TRT_Q390",  "TRT_Q400",  "TRT_Q420",  "TRT_Q540",
+      "TRT_Q570",  "TRT_Q610",  "TRT_Q630",  "TRT_Q640",  "TRT_Q650",
+      "TRT_Q660",  "TRT_Q670",  "TRT_Q680",  "TRT_Q690",  "TRT_Q700",
+      "VOR_Q110",  "VOR_Q120",  "DBT_Q320",  "DBT_Q330",  "DBT_Q340",
+      "RELIG6",    "RL_Q105",   "RELIGATT",  "RL_Q130",   "IN_Q0021",
+      "IN_Q0022",  "IN_Q0023",  "IN_Q0024",  "IN_Q0025",  "IN_Q0026",
+      "IN_Q0027",  "IN_Q0028",  "IN_Q0029",  "IN_Q0030",  "IN_Q0031",
+      "IN_Q0032",  "IN_Q0050",  "INCM",      "INCMHSD"
+    ))),
+
+  # ---- Education (GSS) -------------------------------------------------------
+  # Education 2007 (cycle 21 = same data as registered GSS/2007 Caregiving).
+  # Listed separately in the cat9 catalog directory with the same zip file.
+  # force_numeric list mirrors GSS/2007 (the same cycle 21 survey data).
+  "GSS/Education 2007" = .make_entry("GSS", "Education 2007",
+    file_mask   = "C21PUMFM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "NO_GRNDCHDC",  "MAR_Q101C",    "AGE_LSTPDWKC", "MAR_Q174C",
+      "WKWEHOHR_C",   "AGE_STARTWK_L12MTHC", "MAR_Q370", "MAR_Q470",
+      "CCW_Q165C",    "RPR_Q100",     "SIP_Q120",     "CTC_Q165C",
+      "CAR_Q140C",    "CAR_Q320C",    "AGE_CRP_BEGC", "ICG_Q140C",
+      "ICG_Q150C",    "AGE_CGP_Q110C","AGE_CGP_Q115C","AGE_CGP_BEGC",
+      "AGE_CGI_01_BEGC","AGE_CGI_01_ENDC","AGE_CGI_02_BEGC","AGE_CGI_02_ENDC",
+      "AGE_CGI_03_BEGC","AGE_CGI_03_ENDC","AGE_CGI_04_BEGC","AGE_CGI_04_ENDC",
+      "AGE_CGI_05_BEGC","AGE_CGI_05_ENDC","AGE_HLE_BEG_C","AGE_HLE_END_C",
+      "AGE_HLE_DISC_C","AGE_EAH_BEG_C","AGE_EAH_END_C","AGE_EAH_DISC_C",
+      "AGE_SMK_DAILY_BEGC","AGE_SMK_OCCA_BEGC","YEARSMKDAILY","YEARSMKOCCASION",
+      "MPT_Q090C",    "TLE_Q120C",    "TLE_Q130C",    "TLE_Q230C",
+      "MAR_Q383C",    "MAR_Q482C",    "MAR_Q483C",    "AGE_CGP_ENDC",
+      "AGE_MA2C",     "AGE_MA3C",     "AGE_SEP_MA1C", "AGE_SEP_MA2C",
+      "AGE_DIV_MA2C", "AGE_CU1C",     "AGE_CU2C",     "AGE_CU3C",
+      "AGE_CU4C",     "AGE_CU5C",     "AGE_SEP_CU1C", "AGE_SEP_CU2C",
+      "AGE_SEP_CU3C", "AGE_SEP_CU4C", "AGE_DTH_CU2C", "AGECHDC_1",
+      "AGECHDC_2",    "AGECHDC_3",    "AGECHDC_4",    "AGECHDC_5",
+      "AGECHDC_6",    "AGECHDC_7",    "AGECHDC_8",    "AGECHDIED_1",
+      "AGECHDIED_2",  "AGECHDIED_3",  "AGECHDIED_4",  "AGECHDIED_5",
+      "AGECHDIED_6",  "AGECHDIED_7",  "AGECHDIED_8",  "AGECHDJOIN_HOMC_1",
+      "AGECHDJOIN_HOMC_2","AGECHDJOIN_HOMC_3","AGECHDJOIN_HOMC_4",
+      "AGECHDJOIN_HOMC_5","AGECHDJOIN_HOMC_6","AGECHDJOIN_HOMC_7",
+      "AGECHDJOIN_HOMC_8","AGECHDLEFT_HOM_1","AGECHDLEFT_HOM_2",
+      "AGECHDLEFT_HOM_3","AGECHDLEFT_HOM_4","AGECHDLEFT_HOM_5",
+      "AGECHDLEFT_HOM_6","AGECHDLEFT_HOMC_7","AGECHDLEFT_HOM_8",
+      "WKWEHR_C",     "MAP_Q135C"
+    ))),
+
+  # Education 2002 (cycle 16): monolithic SPSS + SAS; MAIN + CG4/CG6/CR files;
+  # use the MAIN. 111 count/education variables need force_numeric.
+  "GSS/Education 2002" = .make_entry("GSS", "Education 2002",
+    file_mask   = "C16PUMF_MAIN\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "CG4_FR_Q100_C",  "CG4_FR_Q104",    "CG4_FR_Q105",    "CG4_FR_Q107",
+      "CG4_FR_Q110",    "CG4_FR_Q115",    "CG4_FR_Q120",    "CG4_FR_Q125",
+      "CG4_FR_Q200",    "CG4_FR_Q220",    "CG4_FR_Q230",    "CG4_FR_Q300",
+      "CG4_FR_Q301",    "CG4_FR_Q315",    "CG4_FR_Q316",    "CG4_FR_Q325_AST",
+      "CG4_FR_Q325_DIE","CG4_FR_Q325_RMO","CG4_FR_Q325_RJB","CG4_FR_Q325_GJB",
+      "CG4_FR_Q325_OTH","CG4_FR_Q327_AST","CG4_FR_Q327_DIE","CG4_FR_Q327_GMO",
+      "CG4_FR_Q327_RJB","CG4_FR_Q327_GJB","CG4_FR_Q327_OTH","CG4_FR_Q330_11",
+      "CG4_FR_Q330_15", "CG4_FR_Q330_16", "CG4_FR_Q330_17", "CG4_FR_Q330_18",
+      "CG4_FR_Q330_45_C","CG4_FR_Q330_80","CG4_FR_Q330_81", "CG4_FR_Q330_83",
+      "CG4_FR_Q330_85_C","CG4_FR_Q330_86","CG4_FR_Q330_91", "CG4_FR_Q345_11",
+      "CG4_FR_Q345_13", "CG4_FR_Q345_14", "CG4_FR_Q345_15", "CG4_FR_Q345_16",
+      "CG4_FR_Q345_17", "CG4_FR_Q345_18", "CG4_FR_Q345_34", "CG4_FR_Q345_35",
+      "CG4_FR_Q345_45_C","CG4_FR_Q345_80","CG4_FR_Q345_81", "CG4_FR_Q345_83",
+      "CG4_FR_Q345_85_C","CG4_FR_Q345_86","CG4_FR_Q345_95", "CG4_FR_Q360",
+      "CG4_FR_Q370",    "CG4_FR_Q380",    "CG4_FR_Q381_FAM","CG4_FR_Q381_TIM",
+      "CG4_FR_Q381_CLS","CG4_FR_Q381_EXP","CG4_FR_Q381_HEL","CG4_FR_Q381_TRN",
+      "CG4_FR_Q381_OTH","CG4_FR_Q400",    "CG4_FR_Q410",    "CG4_FR_Q420",
+      "CG4_FR_Q430_11", "CG4_FR_Q430_13", "CG4_FR_Q430_14", "CG4_FR_Q430_17",
+      "CG4_FR_Q430_18", "CG4_FR_Q430_45_C","CG4_FR_Q430_80","CG4_FR_Q430_81",
+      "CG4_FR_Q430_83", "CG4_FR_Q430_85_C","CG4_FR_Q430_86","CG4_FR_Q500",
+      "CG4_FR_Q505",    "CG4_FR_Q511",    "CG4_FR_Q512",    "CG4_FR_Q513",
+      "CG4_FR_Q530",    "CG4_FR_Q600",    "CG4_FR_Q605",    "CG4_FR_Q611",
+      "CG4_FR_Q612",    "CG4_FR_Q630",    "CG4_FR_Q700",    "CG4_FR_Q705",
+      "CG4_FR_Q711",    "CG4_FR_Q712",    "CG4_FR_Q713",    "CG4_FR_Q730",
+      "CG4_FR_Q800",    "CG4_FR_Q805",    "CG4_FR_Q830",    "CG4_FR_Q900",
+      "CG4_FR_Q910",    "CG4_FR_Q920",    "CG4_FR_Q930",    "CG4_FR_Q940",
+      "CG4_VT_Q951_FAM","CG4_VT_Q951_TIM","CG4_VT_Q951_CLS","CG4_VT_Q951_EXP",
+      "CG4_VT_Q951_HEL","CG4_VT_Q951_TRN","CG4_VT_Q951_OTH"
+    ))),
+
+  # Education 1994 (cycle 9): monolithic SPSS + SAS; single data file.
+  "GSS/Education 1994" = .make_entry("GSS", "Education 1994",
+    file_mask   = "C9micro\\.dat",
+    data_fixups = list(force_numeric = c("DVD7", "DVEXREAG", "L11"))),
+
+  # ---- Time Use --------------------------------------------------------------
+  # Time Use 2022: split-SPSS; Main + Episode datasets; no force_numeric needed.
+  "GSS/Time Use 2022" = .make_entry("GSS", "Time Use 2022",
+    layout_mask = "_Main_",
+    file_mask   = "Main-Principal_PUMF\\.txt"),
+
+  # Time Use 2015 (cycle 29): split-SPSS; M + E files.
+  # 16 location/activity-count variables have boundary labels alongside
+  # unlabeled continuous values.
+  "GSS/Time Use 2015" = .make_entry("GSS", "Time Use 2015",
+    layout_mask = "GSS29PUMFM",
+    file_mask   = "GSS29PUMFM\\.txt",
+    data_fixups = list(force_numeric = c(
+      "LOCATION", "TUI_06A", "TUI_06B", "TUI_06C", "TUI_06D", "TUI_06E",
+      "TUI_06F",  "TUI_06G", "TUI_06H", "TUI_06I", "TUI_06J", "TUI_03A",
+      "TUI_03B",  "TUI_07",  "TECHFLAG","TUI_10"
+    ))),
+
+  # Time Use 2010 (cycle 24): monolithic SPSS + SAS; data in PUMF/Data_DonnÇes/.
+  # No force_numeric needed; WTBS_EPI_002..500 unlabeled bootstrap weights
+  # produce a "Variables in layout but not in variable labels" warning.
+  "GSS/Time Use 2010" = .make_entry("GSS", "Time Use 2010",
+    file_mask = "C24PUMFM\\.DAT"),
+
+  # Time Use 1998 (cycle 12): monolithic SPSS + SAS; M + E files.
+  # 17 place/companion episode variables need force_numeric.
+  "GSS/Time Use 1998" = .make_entry("GSS", "Time Use 1998",
+    file_mask   = "C12MICME\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "DDAY",    "PLACE",   "ALONE",   "SPOUSE",  "PARHSD",  "MEMBHSD",
+      "NHSDCL15","NHSDC15P","NHSDPAR", "OTHFAM",  "FRIENDS", "OTHERS",
+      "HELP65",  "HELPLIM", "HELPREL", "ORGCON",  "ENJOYAC"
+    ))),
+
+  # ---- Work and Home ---------------------------------------------------------
+  # Work and Home 2016 (cycle 30): only a .sas7bdat binary file shipped (no
+  # ASCII FWF or SPSS command files) — cannot be read by the current pipeline.
+  # No registry entry; get_pumf() will fail with an informative error.
+
   # ---- CCAHS: Canadian COVID-19 Antibody and Health Survey ------------------
   # Split-SPSS layout (CCAHS_PUMF_{i,vale,vare,valf,varf,miss}.sps).
   # Both a CSV and a TXT data file are shipped; use the CSV to avoid ambiguity.

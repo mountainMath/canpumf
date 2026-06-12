@@ -30,7 +30,8 @@ canonical version string (or \`NULL\` if \`version\` was \`NULL\`)
 
 ## Details
 
-Examples of accepted inputs (case-insensitive keywords): - \`"2021"\` →
-\`"2021 (individuals)"\` - \`"1971"\` → \`"1971/individuals_prov"\` -
-\`"1971 CMA"\` → \`"1971/individuals_cma"\` - \`"1971 households CMA"\`
-→ \`"1971/households_cma"\` - \`"1986 families"\` → \`"1986/families"\`
+Examples of accepted inputs (case-insensitive keywords): - \`"2021"\`
+-\> \`"2021 (individuals)"\` - \`"1971"\` -\>
+\`"1971/individuals_prov"\` - \`"1971 CMA"\` -\>
+\`"1971/individuals_cma"\` - \`"1971 households CMA"\` -\>
+\`"1971/households_cma"\` - \`"1986 families"\` -\> \`"1986/families"\`

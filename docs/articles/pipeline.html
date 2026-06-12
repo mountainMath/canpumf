@@ -556,8 +556,10 @@ mis-classifies as categorical (e.g. SUBSAMPL in Census 1971).</li>
 command files. Each data frame has columns <code>val</code>,
 <code>label_en</code>, <code>label_fr</code>. Setting
 <code>label_en = NA</code> marks a value as intentionally missing
-(silences the “unmatched raw value” warning without introducing a
-spurious factor level).</li>
+(produces a silent <code>NA</code> factor entry without a warning, and
+without introducing a spurious factor level). All entries are verified
+in the override ledger
+(<code>tests/testthat/override_verification.csv</code>).</li>
 <li>
 <strong><code>na_values</code></strong> — character vector of raw
 string sentinels that become <code>NA</code> for all numeric columns
@@ -790,6 +792,20 @@ without an entry use auto-detection with defaults.</p>
 <code>cols_swap</code>, <code>force_numeric</code>,
 <code>codes_supplement</code>, <code>na_values</code> transforms</td>
 <td><code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code></td>
+</tr>
+<tr class="even">
+<td><code>missing_supplement</code></td>
+<td>named list of <code>c(lo, hi)</code> pairs — explicit missing-range
+overrides for sentinels no generic pattern can classify
+(e.g. non-integer sentinels like <code>999.5</code>)</td>
+<td><code>NULL</code></td>
+</tr>
+<tr class="odd">
+<td><code>doc_mask</code></td>
+<td>regex applied to PDF filenames to filter a shared documentation
+directory to the relevant file type
+(e.g. <code>"Family\|Familles"</code> for 1986 Census families)</td>
+<td><code>NULL</code></td>
 </tr>
 </tbody>
 </table>

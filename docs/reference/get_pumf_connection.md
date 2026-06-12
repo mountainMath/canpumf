@@ -1,11 +1,10 @@
-# Get a write-access DuckDB connection to a PUMF database
+# Get a read-write DuckDB connection to a PUMF database
 
-Downloads (if needed), parses metadata, builds the DuckDB, and returns a
-raw read-write \[DBI::DBIConnection-class\] to the database file. The
-connection gives full SQL access: create derived tables, persist custom
-views, and join them against the original PUMF data in the same file.
-\[get_pumf()\] is built on top of this function and adds language-table
-selection and read-only semantics for everyday analysis.
+Runs the full pipeline and returns a raw read-write
+\[DBI::DBIConnection-class\]. Use this when you need direct SQL access —
+to persist custom views, join derived tables, or inspect DuckDB
+internals. For everyday analysis use \[get_pumf()\], which returns a
+safer read-only lazy \`dplyr::tbl()\`.
 
 ## Usage
 
@@ -25,16 +24,15 @@ get_pumf_connection(
 
 - series:
 
-  Survey series acronym, e.g. \`"SFS"\` or \`"LFS"\`.
+  Survey series acronym, e.g. \`"SFS"\`, \`"Census"\`.
 
 - version:
 
-  Version string. \`NULL\` for single-version series.
+  Version string, e.g. \`"2019"\`. \`NULL\` for single-version series.
 
 - lang:
 
-  \`"eng"\` (default) or \`"fra"\`. Passed to the pipeline to ensure the
-  labelled table for this language is built before returning.
+  \`"eng"\` (default) or \`"fra"\`.
 
 - cache_path:
 
@@ -43,13 +41,11 @@ get_pumf_connection(
 
 - refresh:
 
-  If \`TRUE\`, rebuild the DuckDB from already-extracted raw files
-  before opening. Does \*\*not\*\* re-download.
+  If \`TRUE\`, rebuild from already-extracted files (no re-download).
 
 - redownload:
 
-  If \`TRUE\`, re-download from StatCan and rebuild. Implies \`refresh =
-  TRUE\`.
+  If \`TRUE\`, re-download and rebuild from scratch.
 
 - ...:
 
@@ -58,5 +54,21 @@ get_pumf_connection(
 
 ## Value
 
-A \[DBI::DBIConnection-class\] opened in read-write mode. Disconnect
-with \`DBI::dbDisconnect(con, shutdown = TRUE)\` when done.
+A \[DBI::DBIConnection-class\] in read-write mode. Disconnect with
+\`DBI::dbDisconnect(con, shutdown = TRUE)\` when done. For a safer
+read-only lazy table use \[get_pumf()\] instead.
+
+## See also
+
+\[get_pumf()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+con <- get_pumf_connection("SFS", "2019")
+DBI::dbListTables(con)
+DBI::dbGetQuery(con, 'SELECT COUNT(*) FROM "eng_SFS_2019"')
+DBI::dbDisconnect(con, shutdown = TRUE)
+} # }
+```

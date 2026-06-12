@@ -21,37 +21,54 @@ list_pumf_cache(cache_path = getOption("canpumf.cache_path", tempdir()))
 
 A tibble with columns:
 
-- series:
+- \`series\`:
 
   Survey series acronym.
 
-- version:
+- \`version\`:
 
   Version string.
 
-- has_raw:
+- \`has_raw\`:
 
   \`TRUE\` if a zip or extracted data files are present.
 
-- has_metadata:
+- \`has_metadata\`:
 
   \`TRUE\` if a parsed \`metadata/\` directory exists.
 
-- has_duckdb:
+- \`has_duckdb\`:
 
   \`TRUE\` if a DuckDB table is built for this version.
 
-- raw_mb:
+- \`raw_mb\`:
 
   Disk size of raw files in MB (excluding metadata and DuckDB).
 
-- duckdb_mb:
+- \`duckdb_mb\`:
 
   Disk size of the DuckDB file in MB. For LFS this is the total shared
-  \`LFS.duckdb\` size, repeated for each version.
+  \`LFS.duckdb\` size, repeated for each version row.
+
+Returns a zero-row tibble with the same column structure if the cache
+directory does not exist or is empty.
 
 ## Details
 
 For LFS surveys the DuckDB is a single shared file (\`LFS.duckdb\`) that
 accumulates all versions; its total size is reported in \`duckdb_mb\`
-for every LFS row.
+for every LFS row. Use \[remove_pumf_cache()\] to free disk space.
+
+## See also
+
+\[remove_pumf_cache()\], \[get_pumf()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+list_pumf_cache()
+# With an explicit cache path:
+list_pumf_cache(cache_path = "~/pumf_cache")
+} # }
+```

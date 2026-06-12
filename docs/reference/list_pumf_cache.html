@@ -64,37 +64,52 @@ present — along with their disk sizes.</p>
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>A tibble with columns:</p><dl><dt>series</dt>
+    <p>A tibble with columns:</p><dl><dt>`series`</dt>
 <dd><p>Survey series acronym.</p></dd>
 
-    <dt>version</dt>
+    <dt>`version`</dt>
 <dd><p>Version string.</p></dd>
 
-    <dt>has_raw</dt>
+    <dt>`has_raw`</dt>
 <dd><p>`TRUE` if a zip or extracted data files are present.</p></dd>
 
-    <dt>has_metadata</dt>
+    <dt>`has_metadata`</dt>
 <dd><p>`TRUE` if a parsed `metadata/` directory exists.</p></dd>
 
-    <dt>has_duckdb</dt>
+    <dt>`has_duckdb`</dt>
 <dd><p>`TRUE` if a DuckDB table is built for this version.</p></dd>
 
-    <dt>raw_mb</dt>
+    <dt>`raw_mb`</dt>
 <dd><p>Disk size of raw files in MB (excluding metadata and DuckDB).</p></dd>
 
-    <dt>duckdb_mb</dt>
+    <dt>`duckdb_mb`</dt>
 <dd><p>Disk size of the DuckDB file in MB.  For LFS this is
-      the total shared `LFS.duckdb` size, repeated for each version.</p></dd>
+      the total shared `LFS.duckdb` size, repeated for each version row.</p></dd>
 
 
-</dl></div>
+</dl><p>Returns a zero-row tibble with the same column structure if the cache
+  directory does not exist or is empty.</p>
+    </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>For LFS surveys the DuckDB is a single shared file (`LFS.duckdb`) that
 accumulates all versions; its total size is reported in `duckdb_mb` for
-every LFS row.</p>
+every LFS row.  Use [remove_pumf_cache()] to free disk space.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
+    <div class="dont-index"><p>[remove_pumf_cache()], [get_pumf()]</p></div>
     </div>
 
+    <div class="section level2">
+    <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
+<span class="r-in"><span><span class="fu">list_pumf_cache</span><span class="op">(</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="co"># With an explicit cache path:</span></span></span>
+<span class="r-in"><span><span class="fu">list_pumf_cache</span><span class="op">(</span>cache_path <span class="op">=</span> <span class="st">"~/pumf_cache"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+</code></pre></div>
+    </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>
 

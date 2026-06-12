@@ -1,8 +1,8 @@
 # Retrieve variable labels as a tibble
 
-Returns a tibble mapping short coded column names to their
-human-readable variable labels, as a handy reference without renaming
-the table.
+Returns a tibble mapping short coded column names to their bilingual
+human-readable variable labels. Use this as a quick reference without
+renaming the table itself; to rename, use \[label_pumf_columns()\].
 
 ## Usage
 
@@ -18,5 +18,20 @@ pumf_var_labels(tbl)
 
 ## Value
 
-A tibble with columns \`name\` (coded column name), \`label_en\`, and
-\`label_fr\`. Rows are in survey-metadata order.
+A tibble with columns \`name\` (coded column name), \`label_en\`
+(English label), and \`label_fr\` (French label). Rows follow
+survey-metadata order.
+
+## See also
+
+\[label_pumf_columns()\], \[get_pumf()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+sfs <- get_pumf("SFS", "2019")
+pumf_var_labels(sfs)
+close_pumf(sfs)
+} # }
+```

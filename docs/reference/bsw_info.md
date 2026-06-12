@@ -1,13 +1,14 @@
 # Summarise bootstrap weight tables present in a PUMF DuckDB database
 
 Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
-tables created by \[add_pumf_bootstrap_weights()\] and returns a summary
-tibble with one row per BSW table found.
+tables created by \[add_bootstrap_weights()\] and returns a
+one-row-per-table summary tibble. Returns an empty tibble (invisibly)
+when no BSW tables are found.
 
 ## Usage
 
 ``` r
-pumf_bsw_info(tbl)
+bsw_info(tbl)
 ```
 
 ## Arguments
@@ -15,11 +16,11 @@ pumf_bsw_info(tbl)
 - tbl:
 
   A lazy \`dplyr::tbl()\` returned by \[get_pumf()\] or by
-  \[add_pumf_bootstrap_weights()\].
+  \[add_bootstrap_weights()\].
 
 ## Value
 
-A tibble (invisibly when empty) with columns:
+A tibble with columns:
 
 - \`weight_col\`:
 
@@ -46,3 +47,18 @@ A tibble (invisibly when empty) with columns:
 
   Estimated table size in megabytes (from DuckDB metadata; \`NA\` when
   unavailable).
+
+## See also
+
+\[add_bootstrap_weights()\], \[remove_bootstrap_weights()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+sfs <- get_pumf("SFS", "2019")
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+bsw_info(sfs_bsw)
+close_pumf(sfs_bsw)
+} # }
+```
