@@ -33,7 +33,7 @@
   # Non-caregiving themes with force_numeric (boundary labels → continuous data)
   "Safety 2019"         = "absent from command files",
   "Safety 2014"         = "absent from command files",
-  "Safety 1999"         = "absent from command files",
+  "Safety 1999"         = "absent from command files|Variables in layout but not in variable labels",
   "Safety 1993"         = "absent from command files",
   "Family 2017"         = "absent from command files",
   "Family 2011"         = "absent from command files|Variables in layout but not in variable labels",

@@ -347,8 +347,14 @@
     ))),
 
   # Safety 1999 (cycle 13): monolithic SPSS + SAS; M (main) + I (incident).
-  # 152 count/victimisation variables need force_numeric.
+  # Both files share a directory; layout_mask selects only M (main) SPS files
+  # so the incident SPS is not merged in (causing conflicting label warnings).
+  # Incident variables (V1, V2… SEXASSLT etc.) were originally derived from the
+  # incident SPS; they remain in force_numeric as they have boundary labels in
+  # the main SPS too.  96 additional main-questionnaire variables also need
+  # force_numeric (age, date, repeat-victimisation count, hours variables).
   "GSS/Safety 1999" = .make_entry("GSS", "Safety 1999",
+    layout_mask = "c13micm",
     file_mask   = "C13MICM\\.DAT",
     data_fixups = list(force_numeric = c(
       "V1",      "V1A",     "V2",      "DWELINCC","V5",      "V6",      "V7",
@@ -376,7 +382,33 @@
       "V64_C16", "V64_C17", "NUMINC",  "REP_STAT","SEXASSLT","ROBBRY",
       "A_ROBBRY","ASSAULT", "BREAK",   "A_BREAK", "MVTHFT",  "A_MVTHFT",
       "THFTPP",  "A_THFTPP","THFTHP",  "A_THFTHP","VANDALSM","MSCRIME",
-      "VBSCRNO"
+      "VBSCRNO",
+      "AGECHRYC",
+      "A20A",    "A20B",    "A20C",    "A20D",    "A20E",    "A20F",
+      "A20G",    "A20H",
+      "B1A",     "B2A",     "B3A",     "B4AA",    "B4BA",    "B4CA",
+      "B6AA",    "B6BA",    "B7A",     "B8AA",    "B8BA",    "B9A",
+      "B10A",    "B11AA",   "B11BA",   "B12A",    "B13A",    "B14A",
+      "C1YEAR",  "C1MONTH",
+      "D13",     "D14YEAR", "D14MONTH",
+      "F13",     "F14YEAR", "F14MONTH",
+      "H12",     "H13YEAR", "H13MONTH",
+      "K16A11",  "K16A12",  "K16A13",  "K16A14",
+      "K16A21",  "K16A22",  "K16A23",  "K16A24",
+      "K16A31",  "K16A32",  "K16A33",  "K16A34",
+      "K16A41",  "K16A42",  "K16A43",  "K16A44",
+      "K16A51",  "K16A52",  "K16A53",  "K16A54",
+      "K16A61",  "K16A62",  "K16A63",  "K16A64",
+      "K16A71",  "K16A72",  "K16A73",  "K16A74",
+      "K16A81",  "K16A82",  "K16A83",  "K16A84",
+      "K16A91",  "K16A92",  "K16A93",  "K16A94",
+      "K16A101", "K16A102", "K16A103", "K16A104",
+      "K16A111", "K16A112",
+      "L4B",     "L6A",     "L12A",    "L13A",
+      "M4B",     "M6A",     "M12A",    "M13A",
+      "PR5NDBED",
+      "Q13",     "Q20",
+      "AGELTWKC","WKWE",    "Q37",     "WKWEHR",  "WKWEHOHR"
     ))),
 
   # Safety 1993 (cycle 8): monolithic SPSS + SAS; three data files
@@ -675,7 +707,8 @@
     data_fixups = list(force_numeric = c(
       "LOCATION", "TUI_06A", "TUI_06B", "TUI_06C", "TUI_06D", "TUI_06E",
       "TUI_06F",  "TUI_06G", "TUI_06H", "TUI_06I", "TUI_06J", "TUI_03A",
-      "TUI_03B",  "TUI_07",  "TECHFLAG","TUI_10"
+      "TUI_03B",  "TUI_07",  "TECHFLAG","TUI_10",
+      "AGEHSDYC", "AGELSWKC", "WLY_170C"
     ))),
 
   # Time Use 2010 (cycle 24): monolithic SPSS + SAS; data in PUMF/Data_DonnÇes/.
