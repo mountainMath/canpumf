@@ -19,6 +19,17 @@
   "Family 1995", "Family 2001", "Education 2002", "Time Use 1998"
 )
 
+# Versions whose StatCan distribution contains only English command files;
+# no French variable labels are available in the metadata.
+.gss_no_french_vars <- c("Education 1994")
+
+# Versions where StatCan's SPSS/SAS command files carry no French code labels;
+# bilingual parity tests are skipped for these.
+# Education 1994: English-only command files.
+# Education 2002: variables.csv has French variable names, but codes.csv has
+#   none — the SPSS value-label blocks are English-only.
+.gss_no_french_codes <- c("Education 1994", "Education 2002")
+
 # GSS versions with known expected warnings (pattern matched against each warning).
 # Any warning NOT matching this pattern is unexpected and fails the test.
 .gss_supplement_warnings <- list(
@@ -172,6 +183,9 @@ for (.v in c(.gss_verified, .gss_theme_verified)) {
       expect_gt(en_vars, 0L,
         label = paste0("GSS '", ver, "': should have English variable labels"))
 
+      if (ver %in% .gss_no_french_vars) {
+        skip(paste("GSS", ver, "has English-only command files; no French variable labels"))
+      }
       fr_vars <- sum(!is.na(meta$variables$label_fr) &
                        nchar(meta$variables$label_fr) > 0L)
       expect_gt(fr_vars, 0L,
@@ -218,6 +232,9 @@ for (.v in .gss_theme_verified) {
                   paste("GSS", ver, "not extracted in cache"))
       skip_if_not(file.exists(file.path(.gss_vdir(ver), "metadata", "variables.csv")),
                   paste("GSS", ver, "metadata not parsed"))
+      if (ver %in% .gss_no_french_codes) {
+        skip(paste("GSS", ver, "has no French code labels; bilingual parity not testable"))
+      }
 
       reg <- canpumf:::pumf_registry_lookup("GSS", ver)
       tmp <- tempfile(fileext = ".duckdb")

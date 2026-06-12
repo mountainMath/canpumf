@@ -9,7 +9,7 @@ test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
   e <- canpumf:::pumf_registry_lookup("SFS", "2019")
 
   expect_named(e, c("series","version","layout_mask","bsw_mask","bsw_file_mask",
-                    "bsw_join_key","bsw_drop_cols","file_mask",
+                    "bsw_join_key","bsw_drop_cols","bsw_strata","file_mask",
                     "data_encoding","metadata_encoding","data_fixups",
                     "bundled_eng_sps","bundle_source","bundle_sps_mask","doc_mask"),
                ignore.order = TRUE)
