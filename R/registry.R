@@ -379,8 +379,10 @@
 
   # Safety 1993 (cycle 8): monolithic SPSS + SAS; three data files
   # (C8MICRO.DAT = FWF, C8MICROE.TXT, C8MICROF.txt); use the DAT.
+  # French SPS uses CP850 (DOS-era); byte 0x90 (É) is undefined in CP1252.
   "GSS/Safety 1993" = .make_entry("GSS", "Safety 1993",
-    file_mask   = "C8MICRO\\.DAT",
+    file_mask         = "C8MICRO\\.DAT",
+    metadata_encoding = "CP850",
     data_fixups = list(force_numeric = c(
       "DVB10A",   "DVD5D6VL", "DVWKVOL",  "D11",      "DVD12VOL", "DVD13VOL",
       "DVD14VOL", "DVSETVOL", "DVD12SET", "DVD13SET", "DVD14SET", "DVE28",
@@ -486,8 +488,10 @@
     ))),
 
   # Family 1995 (cycle 10): monolithic SPSS + SAS; three files (Main/Child/Union).
+  # French SPS files use CP850 (DOS-era); byte 0x90 (É) is undefined in CP1252.
   "GSS/Family 1995" = .make_entry("GSS", "Family 1995",
-    file_mask   = "C10micme\\.dat",
+    file_mask         = "C10micme\\.dat",
+    metadata_encoding = "CP850",
     data_fixups = list(force_numeric = c(
       "DVAGECHD", "DVSEXCHD", "MS",       "CHDTYPE",  "HHLDSTAT", "HHLDCHD",
       "PRTCHD",   "DVSEX",    "DVPART",   "D40",      "DVD41",    "D44D58",
@@ -658,11 +662,13 @@
     layout_mask = "_Main_",
     file_mask   = "Main-Principal_PUMF\\.txt"),
 
-  # Time Use 2015 (cycle 29): split-SPSS; M + E files.
+  # Time Use 2015 (cycle 29): monolithic SPSS; Main + Episode datasets.
+  # SPS files are named c29pumf_*.sps (Main) and c29pumfe_*.sps (Episode);
+  # layout_mask selects only Main. file_mask selects the Main data file.
   # 16 location/activity-count variables have boundary labels alongside
   # unlabeled continuous values.
   "GSS/Time Use 2015" = .make_entry("GSS", "Time Use 2015",
-    layout_mask = "GSS29PUMFM",
+    layout_mask = "c29pumf_",
     file_mask   = "GSS29PUMFM\\.txt",
     data_fixups = list(force_numeric = c(
       "LOCATION", "TUI_06A", "TUI_06B", "TUI_06C", "TUI_06D", "TUI_06E",
