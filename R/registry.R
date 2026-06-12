@@ -341,7 +341,9 @@
       "GIR_30",   "GIR_40",   "GIR_50",   "INCTRAUM", "CWC_10",   "CWC_20C",
       "NUMINC",   "NUMINCCA", "REP_STAT", "SEXASSLT", "SXASST23", "ROBBRY",
       "A_ROBBRY", "ASSAULT",  "THREAT",   "BREAK",    "A_BREAK",  "MVTHFT",
-      "A_MVTHFT", "PT_MVTFT", "THFTPP",   "MSCRIME",  "MSCRIM23"
+      "A_MVTHFT", "PT_MVTFT", "THFTPP",   "MSCRIME",  "MSCRIM23",
+      "PEO_110",  "PEO_130",  "PEO_180",  "DRR_120",  "DRP_120",
+      "NUMVACTC", "AGELSWKC", "WTI_120C"
     ))),
 
   # Safety 1999 (cycle 13): monolithic SPSS + SAS; M (main) + I (incident).
