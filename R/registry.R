@@ -714,8 +714,14 @@
   # Time Use 2010 (cycle 24): monolithic SPSS + SAS; data in PUMF/Data_DonnÇes/.
   # No force_numeric needed; WTBS_EPI_002..500 unlabeled bootstrap weights
   # produce a "Variables in layout but not in variable labels" warning.
+  # layout_mask selects only the Main SPS files (both contain "PUMF" in their
+  # name) and excludes the four Episode SPS files (bootstrap/sans_bootstrap).
+  # Without this, detect_formats has too many candidates and the content-based
+  # French fallback (count_accented) cannot fire.  The mask is a plain string
+  # so it doubles as a valid DuckDB table-name component.
   "GSS/Time Use 2010" = .make_entry("GSS", "Time Use 2010",
-    file_mask = "C24PUMFM\\.DAT"),
+    layout_mask = "SPSS_PUMF",
+    file_mask   = "C24PUMFM\\.DAT"),
 
   # Time Use 1998 (cycle 12): monolithic SPSS + SAS; M + E files.
   # 17 place/companion episode variables need force_numeric.

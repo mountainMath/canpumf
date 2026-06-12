@@ -1690,6 +1690,17 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
     # Exclude likely-French files from English candidates
     mono_eng     <- mono_candidates[!.is_fra(mono_candidates)]
     if (length(mono_eng) == 0L) mono_eng <- mono_candidates   # fallback
+    # Sort candidates so the less-accented (more likely English) file is tried
+    # first.  Without this, an alphabetically-earlier French file (e.g.
+    # "C24_Fichier principal" before "C24_Main File") would be selected as the
+    # English candidate and the content-based French fallback would fail.
+    if (length(mono_eng) >= 2L) {
+      .ac_quick <- function(path) {
+        raw <- tryCatch(readBin(path, "raw", n = 1e5L), error = function(e) raw(0L))
+        sum(raw >= as.raw(0xC0))
+      }
+      mono_eng <- mono_eng[order(vapply(mono_eng, .ac_quick, integer(1L)))]
+    }
     for (sps in head(mono_eng, 8L)) {
       hdr <- tryCatch(readLines(sps, warn = FALSE, encoding = "latin1"),
                       error = function(e) character(0L))
@@ -1713,7 +1724,7 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
           other <- setdiff(mono_candidates[!.is_fra(mono_candidates)], sps)
           if (length(other) == 1L) {
             count_accented <- function(path) {
-              raw <- tryCatch(readBin(path, "raw", n = 8000L),
+              raw <- tryCatch(readBin(path, "raw", n = 1e5L),
                               error = function(e) raw(0L))
               sum(raw >= as.raw(0xC0))
             }
