@@ -89,11 +89,11 @@ With PUMF data we need to be aware that we are dealing with a synthetic sample t
 plot_data <- renter_chs_pumf |>
   add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
   filter(`Geographic grouping`=="Vancouver") |>
-  summarise(across(matches("BSW\\d+|Household weight"),sum),
+  summarise(across(matches("CPBSW\\d+|Household weight"),sum),
             .by=c(`Previous accommodations - when move to current dwelling occurred`,
                   `Previous accommodations - forced to move`)) |>
   collect() |>
-  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") |>
+  pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(weights) |>
   mutate(share=value/sum(value)) |>
   filter(`Previous accommodations - forced to move`=="Yes",
@@ -118,12 +118,12 @@ Another complication when interpreting the data is that the previous accommodati
 plot_data <- renter_chs_pumf |>
   add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
   filter(`Geographic grouping`=="Vancouver") |>
-  summarise(across(matches("BSW\\d+|Household weight"),sum),
+  summarise(across(matches("CPBSW\\d+|Household weight"),sum),
             .by=c(`Previous accommodations - when move to current dwelling occurred`,
                   `Previous accommodations - location of previous dwelling`,
                   `Previous accommodations - forced to move`)) |>
   collect() |>
-  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") |>
+  pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(`Previous accommodations - location of previous dwelling`,
            weights) |>
   mutate(share=value/sum(value)) |>
@@ -157,8 +157,8 @@ plot_data <- renter_chs_pumf |>
            `Previous accommodations - location of previous dwelling`,
            `Geographic grouping`,
            `Previous accommodations - forced to move`) |>
-  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") |>
-  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") |>
+  summarise(across(matches("CPBSW\\d+|Household weight"),sum),.groups="drop") |>
+  pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(`Previous accommodations - location of previous dwelling`,
            `Geographic grouping`,
            weights) |>

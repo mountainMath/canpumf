@@ -276,13 +276,25 @@ get_pumf <- function(series     = NULL,
     db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
     if (!file.exists(db_path))
       stop("LFS database not found at '", db_path, "'.", call. = FALSE)
-    con_tmp <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
-    all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
-      DBI::dbGetQuery(
-        con_tmp,
-        "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
-    else character(0L)
-    DBI::dbDisconnect(con_tmp, shutdown = TRUE)
+    # Reuse the registered connection to avoid opening a second DuckDB instance.
+    # Opening a new connection and disconnecting with shutdown=TRUE would
+    # invalidate the existing tbl connection for the same file.
+    existing_con <- prov$con
+    if (!is.null(existing_con) && DBI::dbIsValid(existing_con)) {
+      all_versions <- if (DBI::dbExistsTable(existing_con, "lfs_versions"))
+        DBI::dbGetQuery(
+          existing_con,
+          "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
+      else character(0L)
+    } else {
+      con_tmp <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+      all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
+        DBI::dbGetQuery(
+          con_tmp,
+          "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
+      else character(0L)
+      DBI::dbDisconnect(con_tmp, shutdown = TRUE)
+    }
     if (length(all_versions) == 0L)
       stop("No LFS versions found in the database.", call. = FALSE)
     all_vars <- purrr::map(all_versions, function(v) {
@@ -503,9 +515,16 @@ close_pumf <- function(tbl) {
 #' @param id_col Optional name of a column that uniquely identifies each row
 #'   (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key` is
 #'   used when available; otherwise `pumf_row_id` is added to the main table.
+#' @param strata_cols Optional character vector of column names to stratify on.
+#'   Resampling is performed independently within each unique combination of
+#'   stratum values, preserving stratum sample sizes across replicates.  For
+#'   LFS, defaults to `c("SURVYEAR", "SURVMNTH")` so each month is resampled
+#'   separately.  For other surveys, use the registry `bsw_strata` field or
+#'   pass explicitly (e.g. province, age group).  Pass `character(0)` to
+#'   suppress the LFS default and generate unstratified weights.
 #' @param n_replicates Number of bootstrap replicates to generate (default
 #'   `500L`).
-#' @param prefix Column-name prefix for replicate columns (default `"BSW"`).
+#' @param prefix Column-name prefix for replicate columns (default `"CPBSW"`).
 #'   Columns are named `prefix1`, `prefix2`, …
 #' @param bsw_table Name of the DuckDB table that stores the replicate weights
 #'   (DuckDB path only).  Defaults to `NULL`, which auto-names it
@@ -537,8 +556,9 @@ close_pumf <- function(tbl) {
 add_bootstrap_weights <- function(tbl,
                                        weight_col,
                                        id_col       = NULL,
+                                       strata_cols  = NULL,
                                        n_replicates = 500L,
-                                       prefix       = "BSW",
+                                       prefix       = "CPBSW",
                                        bsw_table    = NULL,
                                        seed         = NULL,
                                        overwrite    = FALSE) {
@@ -555,7 +575,15 @@ add_bootstrap_weights <- function(tbl,
   # ---- Dispatch: in-memory (data.frame / tibble) ----------------------------
   if (is.data.frame(tbl)) {
     weight_col <- .bsw_resolve_col_df(tbl, weight_col, "weight_col")
-    return(.add_bsw_inmemory(tbl, weight_col, n_replicates, prefix, seed))
+    eff_strata_df <- if (identical(strata_cols, character(0L))) NULL else strata_cols
+    if (!is.null(eff_strata_df)) {
+      bad <- setdiff(eff_strata_df, names(tbl))
+      if (length(bad) > 0L)
+        stop("strata_cols not found in data frame: ", paste(bad, collapse = ", "),
+             call. = FALSE)
+    }
+    return(.add_bsw_inmemory(tbl, weight_col, n_replicates, prefix, seed,
+                              eff_strata_df))
   }
 
   # ---- DuckDB-backed lazy tbl path ------------------------------------------
@@ -574,11 +602,6 @@ add_bootstrap_weights <- function(tbl,
   cache_path <- prov$cache_path
   lang       <- prov$lang %||% "eng"
 
-  if (series == "LFS")
-    stop("add_bootstrap_weights() is not supported for LFS. ",
-         "LFS includes official bootstrap weights from Statistics Canada.",
-         call. = FALSE)
-
   table_name <- .pumf_table_name(series, version, lang)
   db_path    <- .pumf_db_path(series, version, cache_path)
 
@@ -589,6 +612,15 @@ add_bootstrap_weights <- function(tbl,
   weight_col <- .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", prov)
   if (!is.null(id_col))
     id_col <- .bsw_resolve_col_prov(con, table_name, id_col, "id_col", prov)
+
+  # Detect whether the input tbl has had label_pumf_columns() applied so we
+  # can re-apply it to the returned tbl.  The check: any column in the input
+  # that is not a generated BSW column and is not in the physical table's coded
+  # column list must be a label alias.
+  physical_cols <- DBI::dbListFields(con, table_name)
+  bsw_col_pat   <- "^[A-Z]+BSW[0-9]+$"   # matches CPBSW1, BSW1, etc.
+  survey_input_cols <- colnames(tbl)[!grepl(bsw_col_pat, colnames(tbl))]
+  input_was_labeled <- !all(survey_input_cols %in% physical_cols)
 
   if (bsw_table_auto)
     bsw_table <- paste0("pumf_bsw_", tolower(weight_col))
@@ -627,6 +659,22 @@ add_bootstrap_weights <- function(tbl,
   if (is.null(id_col)) {
     if (!is.null(reg$bsw_join_key) && length(reg$bsw_join_key) == 1L)
       id_col <- reg$bsw_join_key
+  }
+
+  # --- Resolve effective strata: explicit > registry > LFS default > none ---
+  # character(0) explicitly suppresses the LFS default.
+  eff_strata <- if (identical(strata_cols, character(0L))) {
+    NULL
+  } else {
+    strata_cols %||% reg$bsw_strata %||%
+      if (series == "LFS") c("SURVYEAR", "SURVMNTH") else NULL
+  }
+  if (!is.null(eff_strata)) {
+    avail_cols <- DBI::dbListFields(con, table_name)
+    bad_sc <- setdiff(eff_strata, avail_cols)
+    if (length(bad_sc) > 0L)
+      stop("strata_cols not found in table '", table_name, "': ",
+           paste(bad_sc, collapse = ", "), call. = FALSE)
   }
 
   # --- Inspect existing BSW table (if present and not overwriting) ----------
@@ -669,7 +717,9 @@ add_bootstrap_weights <- function(tbl,
       else
         join_sql
       # con is already registered in .pumf_con_registry; no re-registration.
-      return(dplyr::tbl(con, dplyr::sql(full_sql)))
+      result_tbl <- dplyr::tbl(con, dplyr::sql(full_sql))
+      if (input_was_labeled) result_tbl <- label_pumf_columns(result_tbl)
+      return(result_tbl)
     }
   } else {
     n_existing    <- 0L
@@ -688,21 +738,26 @@ add_bootstrap_weights <- function(tbl,
   else
     "rowid AS row_id"
 
+  strata_sql <- if (!is.null(eff_strata))
+    paste0(", ", paste0('"', eff_strata, '"', collapse = ", "))
+  else
+    ""
+
   if (bsw_exists && need_more_rows) {
     # Pull ONLY rows missing from the BSW table.
     new_wt_data <- DBI::dbGetQuery(con, sprintf(
-      'SELECT %s, CAST("%s" AS DOUBLE) AS w
+      'SELECT %s, CAST("%s" AS DOUBLE) AS w%s
        FROM "%s"
        WHERE "%s" NOT IN (SELECT "%s" FROM "%s")',
-      id_sql, weight_col, table_name,
+      id_sql, weight_col, strata_sql, table_name,
       id_col, id_col, bsw_table
     ))
   }
   if (!bsw_exists || need_more_cols) {
     # Pull ALL rows' weights: needed for fresh generation or adding columns.
     wt_data_all <- DBI::dbGetQuery(con, sprintf(
-      'SELECT %s, CAST("%s" AS DOUBLE) AS w FROM "%s"',
-      id_sql, weight_col, table_name
+      'SELECT %s, CAST("%s" AS DOUBLE) AS w%s FROM "%s"',
+      id_sql, weight_col, strata_sql, table_name
     ))
   }
   if (bsw_exists && (need_more_rows || need_more_cols)) {
@@ -711,74 +766,100 @@ add_bootstrap_weights <- function(tbl,
   }
 
   # ---- Generate bootstrap weights ------------------------------------------
-  .gen_bsw <- function(wt_df, n_cols_start, n_cols_end, seed_val) {
+  # .gen_bsw generates replicates for a single (possibly filtered) wt_df.
+  # Stratification is handled by the caller splitting wt_df by stratum.
+  # seed_val: when NULL the caller is responsible for set.seed() before calling.
+  .gen_bsw <- function(wt_df, n_cols_start, n_cols_end, seed_val,
+                        show_progress = TRUE) {
     n <- nrow(wt_df)
     w <- wt_df$w
     if (anyNA(w)) { w[is.na(w)] <- 0 }
     n_new <- n_cols_end - n_cols_start
     if (n_new <= 0L) return(NULL)
-    mem_gb <- n_new * n * 8 / 1e9
+    mem_gb <- n_new * (n / 1e9) * 8
     if (mem_gb > 2)
       warning(sprintf(
         "Generating %d replicates for %d rows requires ~%.1f GB of memory.",
         n_new, n, mem_gb), call. = FALSE)
-    message(sprintf(
-      "Generating %d bootstrap weight replicates for %d observations...",
-      n_new, n))
     if (!is.null(seed_val)) set.seed(seed_val)
-    counts <- vapply(
-      seq_len(n_new),
-      function(i) tabulate(sample.int(n, n, replace = TRUE), nbins = n),
-      integer(n))
-    mat    <- w * counts
+    # Progress: report at ~10 evenly-spaced checkpoints.
+    report_at <- if (show_progress && n_new >= 10L)
+      unique(round(seq(n_new / 10, n_new, length.out = 10L)))
+    else
+      integer(0L)
+    counts <- matrix(0L, nrow = n, ncol = n_new)
+    for (i in seq_len(n_new)) {
+      counts[, i] <- tabulate(sample.int(n, n, replace = TRUE), nbins = n)
+      if (i %in% report_at)
+        message(sprintf("  Replicate %d / %d ...",
+                        i + n_cols_start, n_cols_end))
+    }
+    mat <- w * counts
     colnames(mat) <- paste0(prefix, seq(n_cols_start + 1L, n_cols_end))
-    id_name <- names(wt_df)[1L]   # "row_id" aliased from the SELECT
     cbind(stats::setNames(data.frame(wt_df[[1L]]), id_col %||% "pumf_row_id"),
           as.data.frame(mat))
   }
 
-  # Determine what to generate and build the final BSW data frame.
-  if (!bsw_exists) {
-    # Case D: fresh generation of all n_replicates columns for all rows.
-    n   <- nrow(wt_data_all)
-    if (anyNA(wt_data_all$w)) {
-      warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
-              "' replaced with 0.", call. = FALSE)
-      wt_data_all$w[is.na(wt_data_all$w)] <- 0
-    }
-    bsw_df <- .gen_bsw(wt_data_all, 0L, n_replicates, seed)
-  } else if (need_more_rows && !need_more_cols) {
-    # Case B: insert new rows with the same n_existing columns.
-    if (nrow(new_wt_data) > 0L) {
-      new_rows_df <- .gen_bsw(new_wt_data, 0L, n_existing, seed)
-      bsw_df      <- rbind(old_bsw, new_rows_df)
+  # ---- Determine what to generate and build (or stream) the BSW data -------
+  #
+  # Case D + strata: write strata one at a time directly to DuckDB after
+  # opening the write connection, so the full n × n_replicates matrix is never
+  # materialised in memory.  The wt_data_all pulled above stays in memory but
+  # each per-stratum chunk_df is freed after writing.
+  # All other cases (Cases B/C or unstratified Case D) build bsw_df in memory
+  # as before.
+
+  use_strata_stream <- !bsw_exists && !is.null(eff_strata)
+
+  if (!use_strata_stream) {
+    if (!bsw_exists) {
+      # Case D (unstratified): fresh generation for all rows.
+      if (anyNA(wt_data_all$w)) {
+        warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
+                "' replaced with 0.", call. = FALSE)
+        wt_data_all$w[is.na(wt_data_all$w)] <- 0
+      }
+      message(sprintf(
+        "Generating %d %s replicates for %d observations...",
+        n_replicates, prefix, nrow(wt_data_all)))
+      bsw_df <- .gen_bsw(wt_data_all, 0L, n_replicates, seed)
+    } else if (need_more_rows && !need_more_cols) {
+      # Case B: insert new rows with the same n_existing columns.
+      if (nrow(new_wt_data) > 0L) {
+        message(sprintf("Adding %d new rows to BSW table...", nrow(new_wt_data)))
+        new_rows_df <- .gen_bsw(new_wt_data, 0L, n_existing, seed)
+        bsw_df      <- rbind(old_bsw, new_rows_df)
+      } else {
+        bsw_df <- old_bsw
+      }
+    } else if (!need_more_rows && need_more_cols) {
+      # Case C: add more replicate columns for all existing rows.
+      message(sprintf(
+        "Adding replicates %d-%d to BSW table...", n_existing + 1L, n_replicates))
+      add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
+      bsw_df  <- merge(old_bsw, add_df,
+                       by = intersect(names(old_bsw), names(add_df)),
+                       all = TRUE)
     } else {
-      bsw_df <- old_bsw
-    }
-  } else if (!need_more_rows && need_more_cols) {
-    # Case C: add more columns for all existing rows.
-    add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
-    bsw_df  <- merge(old_bsw, add_df,
-                     by = intersect(names(old_bsw), names(add_df)),
-                     all = TRUE)
-  } else {
-    # Case B+C: new rows AND more columns.
-    # 1. Add more columns to existing rows.
-    add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
-    old_aug <- merge(old_bsw, add_df,
-                     by = intersect(names(old_bsw), names(add_df)),
-                     all = TRUE)
-    # 2. Generate all n_replicates columns for new rows.
-    if (nrow(new_wt_data) > 0L) {
-      new_rows_df <- .gen_bsw(new_wt_data, 0L, n_replicates, seed)
-      bsw_df      <- rbind(old_aug, new_rows_df)
-    } else {
-      bsw_df <- old_aug
+      # Case B+C: new rows AND more replicate columns.
+      message(sprintf(
+        "Adding replicates %d-%d and %d new rows to BSW table...",
+        n_existing + 1L, n_replicates, nrow(new_wt_data)))
+      add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
+      old_aug <- merge(old_bsw, add_df,
+                       by = intersect(names(old_bsw), names(add_df)),
+                       all = TRUE)
+      if (nrow(new_wt_data) > 0L) {
+        new_rows_df <- .gen_bsw(new_wt_data, 0L, n_replicates, seed)
+        bsw_df      <- rbind(old_aug, new_rows_df)
+      } else {
+        bsw_df <- old_aug
+      }
     }
   }
 
-  bsw_col_names <- paste0(prefix, seq_len(n_replicates))
-  id_col_final  <- names(bsw_df)[1L]   # actual name used in bsw_df
+  id_col_final <- if (use_strata_stream) (id_col %||% "pumf_row_id")
+                  else names(bsw_df)[1L]
 
   # --- Acquire exclusive write access ----------------------------------------
   rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
@@ -806,8 +887,36 @@ add_bootstrap_weights <- function(tbl,
     id_col_final <- "pumf_row_id"
   }
 
-  message("Writing bootstrap weight table '", bsw_table, "' to DuckDB...")
-  DBI::dbWriteTable(rw_con, bsw_table, bsw_df, overwrite = TRUE)
+  if (use_strata_stream) {
+    # Case D + strata: split wt_data_all by stratum, generate and write chunk
+    # by chunk so peak memory = one stratum's BSW matrix (not the full table).
+    strata_key  <- interaction(wt_data_all[eff_strata], drop = TRUE)
+    strata_lvls <- levels(strata_key)
+    n_st        <- length(strata_lvls)
+    message(sprintf(
+      "Generating %d %s replicates across %d %s strata (%d total obs)...",
+      n_replicates, prefix, n_st,
+      paste(eff_strata, collapse = "/"), nrow(wt_data_all)))
+    if (!is.null(seed)) set.seed(seed)
+    for (si in seq_along(strata_lvls)) {
+      idx    <- which(strata_key == strata_lvls[si])
+      s_data <- wt_data_all[idx, , drop = FALSE]
+      sv_str <- paste(eff_strata,
+                      as.character(unlist(s_data[1L, eff_strata, drop = FALSE])),
+                      sep = "=", collapse = ", ")
+      message(sprintf("  Stratum [%d/%d] %s (%d obs)",
+                      si, n_st, sv_str, nrow(s_data)))
+      chunk_df <- .gen_bsw(s_data, 0L, n_replicates,
+                            seed_val = NULL, show_progress = FALSE)
+      DBI::dbWriteTable(rw_con, bsw_table, chunk_df,
+                        overwrite = (si == 1L), append = (si > 1L))
+      rm(chunk_df)
+    }
+    rm(wt_data_all)
+  } else {
+    message("Writing bootstrap weight table '", bsw_table, "' to DuckDB...")
+    DBI::dbWriteTable(rw_con, bsw_table, bsw_df, overwrite = TRUE)
+  }
 
   DBI::dbExecute(rw_con, sprintf(
     'CREATE INDEX IF NOT EXISTS "idx_%s" ON "%s" ("%s")',
@@ -815,7 +924,7 @@ add_bootstrap_weights <- function(tbl,
   ))
 
   # Expose the full set of replicate columns that ended up in the BSW table.
-  final_rep_cols <- names(bsw_df)[names(bsw_df) != id_col_final]
+  final_rep_cols <- setdiff(DBI::dbListFields(rw_con, bsw_table), id_col_final)
   bsw_col_sql    <- paste0('"b"."', final_rep_cols, '"', collapse = ", ")
   DBI::dbExecute(rw_con, sprintf(
     'CREATE OR REPLACE VIEW "%s" AS SELECT "m".*, %s FROM "%s" "m" JOIN "%s" "b" ON "m"."%s" = "b"."%s"',
@@ -844,6 +953,7 @@ add_bootstrap_weights <- function(tbl,
 
   .pumf_register_con(ro_con, series, version, cache_path, lang)
 
+  if (input_was_labeled) new_tbl <- label_pumf_columns(new_tbl)
   new_tbl
 }
 
@@ -878,7 +988,8 @@ add_bootstrap_weights <- function(tbl,
 }
 
 # Fast in-memory bootstrap weight generation for data.frame / tibble input.
-.add_bsw_inmemory <- function(df, weight_col, n_replicates, prefix, seed) {
+.add_bsw_inmemory <- function(df, weight_col, n_replicates, prefix, seed,
+                               strata_cols = NULL) {
   n <- nrow(df)
   w <- df[[weight_col]]
   if (!is.numeric(w)) w <- suppressWarnings(as.numeric(w))
@@ -888,11 +999,31 @@ add_bootstrap_weights <- function(tbl,
     w[is.na(w)] <- 0
   }
   if (!is.null(seed)) set.seed(seed)
-  counts <- vapply(
-    seq_len(n_replicates),
-    function(i) tabulate(sample.int(n, n, replace = TRUE), nbins = n),
-    integer(n)
-  )
+  report_at <- if (n_replicates >= 10L)
+    unique(round(seq(n_replicates / 10, n_replicates, length.out = 10L)))
+  else
+    integer(0L)
+  counts <- matrix(0L, nrow = n, ncol = n_replicates)
+  if (!is.null(strata_cols)) {
+    strata_key  <- interaction(df[strata_cols], drop = TRUE)
+    strata_lvls <- levels(strata_key)
+    for (i in seq_len(n_replicates)) {
+      ct <- integer(n)
+      for (lv in strata_lvls) {
+        idx <- which(strata_key == lv)
+        ct <- ct + tabulate(sample(idx, length(idx), replace = TRUE), nbins = n)
+      }
+      counts[, i] <- ct
+      if (i %in% report_at)
+        message(sprintf("  Replicate %d / %d ...", i, n_replicates))
+    }
+  } else {
+    for (i in seq_len(n_replicates)) {
+      counts[, i] <- tabulate(sample.int(n, n, replace = TRUE), nbins = n)
+      if (i %in% report_at)
+        message(sprintf("  Replicate %d / %d ...", i, n_replicates))
+    }
+  }
   bsw_matrix <- w * counts
   colnames(bsw_matrix) <- paste0(prefix, seq_len(n_replicates))
   cbind(df, as.data.frame(bsw_matrix))

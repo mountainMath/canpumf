@@ -83,10 +83,10 @@ census_2021 |>
   filter(PRIHM!="Not applicable") |>
   filter(AGEGRP!="Not available") |>
   add_bootstrap_weights("WEIGHT") |>
-  summarise(across(matches("WEIGHT|WT\\d+|BSW\\d+"),sum),
+  summarise(across(matches("WEIGHT|WT\\d+|CPBSW\\d+"),sum),
             .by=c(CMA,AGEGRP,PRIHM)) |>
   collect() |>
-  tidyr::pivot_longer(matches("BSW\\d+"),names_to="Weights") |>
+  tidyr::pivot_longer(matches("CPBSW\\d+"),names_to="Weights") |>
   mutate(Share=WEIGHT/sum(WEIGHT),
          Share_bsw=value/sum(value),
          .by=c(CMA,AGEGRP,Weights)) |>
