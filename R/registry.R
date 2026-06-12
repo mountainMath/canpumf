@@ -712,16 +712,29 @@
     ))),
 
   # Time Use 2010 (cycle 24): monolithic SPSS + SAS; data in PUMF/Data_DonnÇes/.
-  # No force_numeric needed; WTBS_EPI_002..500 unlabeled bootstrap weights
-  # produce a "Variables in layout but not in variable labels" warning.
-  # layout_mask selects only the Main SPS files (both contain "PUMF" in their
-  # name) and excludes the four Episode SPS files (bootstrap/sans_bootstrap).
-  # Without this, detect_formats has too many candidates and the content-based
-  # French fallback (count_accented) cannot fire.  The mask is a plain string
-  # so it doubles as a valid DuckDB table-name component.
+  # layout_mask selects only the Main SPS files (SPSS_PUMF in filename) and
+  # excludes the four Episode SPS files; see detect_formats fix notes.
+  # WTBS_EPI_002..500 unlabeled bootstrap weights produce a "Variables in
+  # layout but not in variable labels" warning (expected).
+  # 42 time-use, age, and date variables have boundary/sentinel-only labels
+  # alongside continuous minute/hour/count data; force_numeric prevents NA.
   "GSS/Time Use 2010" = .make_entry("GSS", "Time Use 2010",
     layout_mask = "SPSS_PUMF",
-    file_mask   = "C24PUMFM\\.DAT"),
+    file_mask   = "C24PUMFM\\.DAT",
+    data_fixups = list(force_numeric = c(
+      "AGECHRYC", "AGEHSDYC",
+      "DVPAID",   "DVDOM",    "DVCHILDC", "DVSHOP",   "DVPERS",   "DVEDUCAT",
+      "DVORGAN",  "DVENTERT", "DVSPORT",  "DVMEDIA",  "DVRESID",  "DVTRANS",
+      "WORKPAID", "OTHRPAID",
+      "COOKDOMS", "HSKPDOMS", "MAINDOMS", "OTHRDOMS", "SHOPDOMS", "CHLDDOMS",
+      "VLNTORGN", "SCHLEDUC",
+      "MEALPERS", "OTHRPERS",
+      "RESTSOCL", "HOMESOCL", "OTHRSOCL",
+      "TELEMDIA", "READMDIA", "OTHRMDIA",
+      "ENTREVNT", "SPRTACTV", "OTHRACTV",
+      "TIMECR",   "TIMENS",
+      "AGE_LSTPDWK_C", "MAR_Q174_C", "WKWEHOHR_C", "MAR_Q370_C", "EOR_Q320"
+    ))),
 
   # Time Use 1998 (cycle 12): monolithic SPSS + SAS; M + E files.
   # 17 place/companion episode variables need force_numeric.
