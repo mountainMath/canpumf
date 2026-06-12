@@ -42,7 +42,7 @@ test_that("add_bootstrap_weights (in-memory): appends BSW columns", {
                                   n_replicates = 8L, seed = 42L)
   expect_s3_class(result, "data.frame")
   expect_equal(nrow(result), 10L)
-  bsw_cols <- grep("^BSW", names(result), value = TRUE)
+  bsw_cols <- grep("^CPBSW",names(result), value = TRUE)
   expect_length(bsw_cols, 8L)
   expect_true(all(sapply(result[bsw_cols], is.numeric)))
 })
@@ -61,7 +61,7 @@ test_that("add_bootstrap_weights (in-memory): NA weights replaced with 0", {
                                     n_replicates = 4L, seed = 1L),
     regexp = "NA weight"
   )
-  bsw_cols <- grep("^BSW", names(result), value = TRUE)
+  bsw_cols <- grep("^CPBSW",names(result), value = TRUE)
   expect_true(all(!is.na(result[bsw_cols])))
 })
 
@@ -90,7 +90,7 @@ test_that("add_bootstrap_weights (DuckDB): creates BSW table and view", {
 
   # Returns a lazy tbl with BSW columns
   cn <- colnames(result)
-  bsw_cols <- grep("^BSW", cn, value = TRUE)
+  bsw_cols <- grep("^CPBSW",cn, value = TRUE)
   expect_length(bsw_cols, 16L)
 })
 
@@ -132,7 +132,7 @@ test_that("remove_bootstrap_weights: removes BSW and returns clean tbl", {
   cleaned <- remove_bootstrap_weights(result)
   on.exit(close_pumf(cleaned))
 
-  bsw_cols <- grep("^BSW", colnames(cleaned), value = TRUE)
+  bsw_cols <- grep("^CPBSW",colnames(cleaned), value = TRUE)
   expect_length(bsw_cols, 0L)
   expect_message(bsw_info(cleaned), regexp = "No bootstrap")
 })
