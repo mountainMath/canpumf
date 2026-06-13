@@ -121,8 +121,11 @@
   "SFS/2012" = .make_entry("SFS", "2012"),
 
   # 2005: no bootstrap weights; SAS cards format (SpssCard/ subdir)
+  # SpssCard/ec2005ef.lay declares WEIGHT as (A) character; SasCard correctly
+  # shows it as 10.4 numeric. force_numeric overrides the misclassification.
   "SFS/2005" = .make_entry("SFS", "2005",
-    file_mask = "ec2005ef\\.txt"),
+    file_mask   = "ec2005ef\\.txt",
+    data_fixups = list(force_numeric = "WEIGHT")),
 
   # 1999: DATA LIST-only SPSS file (no VARIABLE/VALUE LABELS); no bootstrap
   # weights; FWF data file is in the DATA/ subdirectory.

@@ -7,7 +7,7 @@
 .wt_cache <- function() getOption("canpumf.cache_path", "")
 
 .is_weight_col <- function(name) {
-  grepl("WEIGHT|WGHT_|^WGT_|FINWGH|FAMWGT|WTPP", name, ignore.case = TRUE) &
+  grepl("WEIGHT|WGHT|^WGT_|FINWGH|FAMWGT|WTPP", name, ignore.case = TRUE) &
   !grepl("^WT\\d+$|^WTBS_|^WTI", name, ignore.case = TRUE)
 }
 
@@ -17,6 +17,7 @@ test_that(".is_weight_col: includes main survey weight columns", {
   include <- c("WEIGHT", "WEIGHTP", "WEIGHTH", "WEIGHTC", "WEIGHTD",
                "PWEIGHT", "FWEIGHT", "PFWEIGHT", "RWEIGHT",
                "WGHT_PER", "WGHT_FNL", "WGHT_HSD",
+               "WGHTEPI", "WGHTFIN", "PERWGHT",
                "WGT_PUMF", "VWEIGHTP", "FINWGHT", "FAMWGT", "WTPP")
   expect_true(all(.is_weight_col(include)), info = paste("excluded:", paste(include[!.is_weight_col(include)], collapse=",")))
 })
@@ -60,6 +61,15 @@ for (.key in canpumf:::pumf_registry_keys()) {
       skip_if(is.null(vars), "Could not read variables.csv")
 
       wt_cols <- vars$name[.is_weight_col(vars$name) & vars$type == "numeric"]
+
+      # Also include force_numeric registry entries with weight-like names
+      # (some surveys have weight columns misclassified as character by the parser)
+      config  <- tryCatch(canpumf:::pumf_registry_lookup(series, version),
+                          error = function(e) NULL)
+      fn_cols <- config$data_fixups$force_numeric
+      if (length(fn_cols) > 0L)
+        wt_cols <- unique(c(wt_cols, fn_cols[.is_weight_col(fn_cols)]))
+
       skip_if(length(wt_cols) == 0L, paste("no weight columns in", key))
 
       tbl <- suppressMessages(get_pumf(series, version, cache_path = .wt_cache()))
