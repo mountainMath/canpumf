@@ -534,8 +534,13 @@ pumf_locate_or_download <- function(series,
 
 
 # Convert character columns to numeric per the variables metadata.
-# Applies missing-value range and registry na_values; selects INTEGER vs DOUBLE
-# from decimals field.
+# Applies missing-value range and registry na_values.
+# All numeric columns are stored as double.  A declared 0-decimal format
+# reflects how StatCan rounded/stored the source values, not a guarantee that
+# the column is conceptually an integer; double also avoids the 32-bit overflow
+# that as.integer() hits on large IDs/counts (values > ~2.1e9 silently become
+# NA).  Callers that genuinely need an integer column (e.g. LFS
+# SURVYEAR/SURVMNTH for make_date) cast explicitly.
 # na_values: character vector of raw values that become NA (e.g. c("99999999", "88888888")).
 .apply_numeric_conversion <- function(data, variables, na_values = character(0L)) {
   num_vars <- variables[variables$type == "numeric", ]
@@ -552,8 +557,7 @@ pumf_locate_or_download <- function(series,
     if (length(na_values) > 0L)
       vals[trimws(raw) %in% na_values] <- NA_real_
 
-    data[[col]] <- if (!is.na(v$decimals) && v$decimals == 0L)
-      as.integer(vals) else vals
+    data[[col]] <- vals
   }
   data
 }

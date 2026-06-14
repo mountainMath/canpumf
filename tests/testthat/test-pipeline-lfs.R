@@ -218,6 +218,38 @@ test_that(".lfs_delete_year: removes rows and lfs_versions entry", {
     "SELECT COUNT(*) AS n FROM lfs_eng WHERE SURVYEAR=2023")$n, 1L)
 })
 
+# ---- .lfs_delete_month ------------------------------------------------------
+
+test_that(".lfs_delete_month: removes only the target month and version", {
+  con <- duck_mem()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  canpumf:::.lfs_ensure_versions_table(con)
+  df <- data.frame(
+    SURVYEAR = c(2025L, 2025L, 2025L),
+    SURVMNTH = c(1L,    2L,    3L),
+    PROV     = c("ON",  "QC",  "AB"))
+  canpumf:::.lfs_append(con, "lfs_eng", df)
+  DBI::dbExecute(con,
+    "INSERT INTO lfs_versions VALUES ('2025-01','monthly',2025,1,NOW(),1)")
+  DBI::dbExecute(con,
+    "INSERT INTO lfs_versions VALUES ('2025-02','monthly',2025,2,NOW(),1)")
+  DBI::dbExecute(con,
+    "INSERT INTO lfs_versions VALUES ('2025-03','monthly',2025,3,NOW(),1)")
+
+  canpumf:::.lfs_delete_month(con, "lfs_eng", "2025-02", 2025L, 2L)
+
+  # Only February data removed
+  months <- DBI::dbGetQuery(con,
+    "SELECT SURVMNTH FROM lfs_eng WHERE SURVYEAR=2025 ORDER BY SURVMNTH")$SURVMNTH
+  expect_equal(months, c(1L, 3L))
+
+  # Only the 2025-02 version record removed
+  vers <- DBI::dbGetQuery(con,
+    "SELECT version FROM lfs_versions WHERE survyear=2025 ORDER BY version")$version
+  expect_equal(vers, c("2025-01", "2025-03"))
+})
+
 # ---- Synthetic end-to-end: lfs_get_pumf -------------------------------------
 
 # Build a minimal fake LFS version directory
@@ -595,6 +627,74 @@ test_that("lfs_get_pumf: refresh=TRUE re-labels existing version", {
 
   result <- dplyr::collect(tbl2)
   expect_true("Newfoundland Only" %in% result$PROV)
+})
+
+test_that("lfs_get_pumf: refresh of one monthly preserves sibling months", {
+  tmp <- withr::local_tempdir()
+  make_lfs_vdir(tmp, "2025-01", n_rows = 2L)
+  make_lfs_vdir(tmp, "2025-02", n_rows = 3L)
+  make_lfs_vdir(tmp, "2025-03", n_rows = 4L)
+
+  for (v in c("2025-01", "2025-02", "2025-03")) {
+    tbl <- canpumf:::lfs_get_pumf(v, cache_path = tmp)
+    DBI::dbDisconnect(tbl$src$con, shutdown = TRUE)
+  }
+
+  # Refresh only the middle month
+  tbl_r <- suppressMessages(
+    canpumf:::lfs_get_pumf("2025-02", cache_path = tmp, refresh = TRUE))
+  DBI::dbDisconnect(tbl_r$src$con, shutdown = TRUE)
+
+  con <- DBI::dbConnect(duckdb::duckdb(),
+                         dbdir = file.path(tmp, "LFS", "LFS.duckdb"),
+                         read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  # All three months' data must still be present, with unchanged row counts.
+  counts <- DBI::dbGetQuery(con,
+    "SELECT SURVMNTH, COUNT(*) AS n FROM lfs_eng WHERE SURVYEAR=2025
+     GROUP BY SURVMNTH ORDER BY SURVMNTH")
+  expect_equal(counts$SURVMNTH, c(1L, 2L, 3L))
+  expect_equal(counts$n,        c(2L, 3L, 4L))
+
+  # All three version records survive (only 2025-02 was deleted then re-added).
+  vers <- DBI::dbGetQuery(con,
+    "SELECT version FROM lfs_versions WHERE survyear=2025 ORDER BY version")$version
+  expect_equal(vers, c("2025-01", "2025-02", "2025-03"))
+})
+
+test_that("lfs_get_pumf: refresh of a monthly covered by annual returns annual subset", {
+  tmp <- withr::local_tempdir()
+  make_lfs_vdir(tmp, "2024-01", n_rows = 2L)
+  make_lfs_vdir(tmp, "2024",    n_rows = 10L)  # annual (synthetic SURVMNTH=1)
+
+  # Load a monthly, then the annual supersedes it.
+  tbl_m <- canpumf:::lfs_get_pumf("2024-01", cache_path = tmp)
+  DBI::dbDisconnect(tbl_m$src$con, shutdown = TRUE)
+  tbl_a <- suppressMessages(canpumf:::lfs_get_pumf("2024", cache_path = tmp))
+  DBI::dbDisconnect(tbl_a$src$con, shutdown = TRUE)
+
+  # Refreshing the (now superseded) monthly must NOT re-insert monthly rows or
+  # add a monthly version record — it returns the annual filtered to that month.
+  tbl_r <- suppressMessages(
+    canpumf:::lfs_get_pumf("2024-01", cache_path = tmp, refresh = TRUE))
+  DBI::dbDisconnect(tbl_r$src$con, shutdown = TRUE)
+
+  con <- DBI::dbConnect(duckdb::duckdb(),
+                         dbdir = file.path(tmp, "LFS", "LFS.duckdb"),
+                         read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  # lfs_versions: only the annual remains for 2024.
+  ver <- DBI::dbGetQuery(con,
+    "SELECT version, type FROM lfs_versions WHERE survyear=2024")
+  expect_equal(nrow(ver), 1L)
+  expect_equal(ver$type, "annual")
+
+  # Data: still exactly the 10 annual rows (no duplicated month rows).
+  n <- DBI::dbGetQuery(con,
+    "SELECT COUNT(*) AS n FROM lfs_eng WHERE SURVYEAR=2024")$n
+  expect_equal(n, 10L)
 })
 
 test_that("lfs_get_pumf: version=NULL returns status message", {

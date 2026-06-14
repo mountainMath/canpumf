@@ -112,13 +112,25 @@ test_that(".apply_numeric_conversion: converts character to double", {
   expect_equal(result$X, c(1.5, 2.3))
 })
 
-test_that(".apply_numeric_conversion: decimals=0 gives integer", {
+test_that(".apply_numeric_conversion: 0-decimal numeric stays double", {
   vars <- tibble::tibble(name="X", type="numeric",
                           missing_low=NA_real_, missing_high=NA_real_,
                           decimals=0L)
   data <- data.frame(X = c("1", "2"), stringsAsFactors = FALSE)
   result <- canpumf:::.apply_numeric_conversion(data, vars)
-  expect_type(result$X, "integer")
+  expect_type(result$X, "double")
+  expect_equal(result$X, c(1, 2))
+})
+
+test_that(".apply_numeric_conversion: large 0-decimal values survive (no int overflow)", {
+  vars <- tibble::tibble(name="X", type="numeric",
+                          missing_low=NA_real_, missing_high=NA_real_,
+                          decimals=0L)
+  # 3e9 exceeds the 32-bit signed integer range; as.integer() would NA it.
+  data <- data.frame(X = c("3000000000", "5"), stringsAsFactors = FALSE)
+  result <- canpumf:::.apply_numeric_conversion(data, vars)
+  expect_equal(result$X, c(3e9, 5))
+  expect_false(anyNA(result$X))
 })
 
 test_that(".apply_numeric_conversion: missing range becomes NA", {
@@ -127,7 +139,7 @@ test_that(".apply_numeric_conversion: missing range becomes NA", {
                           decimals=0L)
   data <- data.frame(X = c("1", "98", "99", "2"), stringsAsFactors = FALSE)
   result <- canpumf:::.apply_numeric_conversion(data, vars)
-  expect_equal(result$X, c(1L, NA_integer_, NA_integer_, 2L))
+  expect_equal(result$X, c(1, NA_real_, NA_real_, 2))
 })
 
 test_that(".apply_numeric_conversion: skips absent and non-character columns", {

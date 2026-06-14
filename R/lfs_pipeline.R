@@ -305,12 +305,13 @@
   variables <- meta$variables
   codes     <- meta$codes
 
-  # Force these to integer regardless of what the codebook says.
-  # SURVYEAR/SURVMNTH: needed so SQL year/month filters work on integers.
-  # REC_NUM: a record counter — always whole numbers, never needs double precision.
+  # SURVYEAR/SURVMNTH/REC_NUM are kept as integer (cast explicitly after numeric
+  # conversion below): SURVYEAR/SURVMNTH so make_date() and SQL year/month
+  # filters operate on integers; REC_NUM is a whole-number record counter.  Mark
+  # them numeric so .apply_numeric_conversion parses them — it now always yields
+  # double, so the integer typing is restored by the cast further down.
   lfs_int_cols <- c("SURVYEAR", "SURVMNTH", "REC_NUM")
-  variables$type[variables$name %in% lfs_int_cols]    <- "numeric"
-  variables$decimals[variables$name %in% lfs_int_cols] <- 0L
+  variables$type[variables$name %in% lfs_int_cols] <- "numeric"
 
   # Exclude these from code labeling (kept as raw integers)
   codes_lbl <- codes[!codes$name %in% lfs_int_cols, ]
@@ -360,6 +361,10 @@
          "\nCheck that the correct data file(s) are in ", version_dir)
 
   data <- .apply_numeric_conversion(data, variables)
+  # .apply_numeric_conversion yields double; restore integer typing for the
+  # survey-dimension/record columns so make_date() and integer filters work.
+  for (col in intersect(lfs_int_cols, names(data)))
+    data[[col]] <- as.integer(data[[col]])
   data <- .apply_code_labels(data, codes_lbl, label_col)
   data
 }
@@ -394,6 +399,20 @@
   if (!is.null(type_filter))
     sql <- paste0(sql, sprintf(" AND type = '%s'", type_filter))
   DBI::dbExecute(con, sql)
+}
+
+# Delete data for a single month and remove only that version's lfs_versions
+# row.  Used when refreshing one monthly version so sibling months (and any
+# annual) loaded for the same year are left untouched.
+.lfs_delete_month <- function(con, data_tbl, version, survyear, survmnth) {
+  if (DBI::dbExistsTable(con, data_tbl))
+    DBI::dbExecute(
+      con,
+      sprintf('DELETE FROM "%s" WHERE SURVYEAR = %d AND SURVMNTH = %d',
+              data_tbl, survyear, survmnth))
+  DBI::dbExecute(
+    con,
+    sprintf("DELETE FROM lfs_versions WHERE version = '%s'", version))
 }
 
 # Record a version in lfs_versions.
@@ -620,15 +639,20 @@ lfs_get_pumf <- function(version    = NULL,
                                read_only = TRUE)
     .lfs_ensure_versions_table(con_chk)
 
+    # Monthly requested but an annual already covers this year: the monthly is
+    # not stored separately (the annual superseded it), so return the annual
+    # filtered to the requested month.  This applies even under refresh —
+    # StatCan withdraws the monthly raw file once the annual is released, and
+    # re-deriving the month would corrupt the annual's rows for that month.
+    if (vtype == "monthly" && .lfs_has_annual(con_chk, survyear)) {
+      message("Annual LFS data for ", survyear, " already loaded; ",
+              version, " is covered by the annual file.")
+      DBI::dbDisconnect(con_chk, shutdown = TRUE)
+      return(.lfs_open_tbl(db_path, data_tbl, survyear, survmnth,
+                            read_only = read_only))
+    }
+
     if (!eff_refresh) {
-      # Monthly requested but annual already covers this year
-      if (vtype == "monthly" && .lfs_has_annual(con_chk, survyear)) {
-        message("Annual LFS data for ", survyear, " already loaded; ",
-                version, " is covered.")
-        DBI::dbDisconnect(con_chk, shutdown = TRUE)
-        return(.lfs_open_tbl(db_path, data_tbl, survyear, survmnth,
-                              read_only = read_only))
-      }
       # Already loaded for this version AND in the lang table.
       # Use lfs_versions (not just data presence) to distinguish "annual
       # already loaded" from "only monthly data happens to exist for this year".
@@ -665,8 +689,16 @@ lfs_get_pumf <- function(version    = NULL,
   .lfs_ensure_versions_table(con)
 
   if (eff_refresh) {
-    # Wipe existing data for this year before re-appending
-    .lfs_delete_year(con, data_tbl, survyear)
+    if (vtype == "annual") {
+      # An annual covers the whole year: drop every row and version record for
+      # the year (any monthlies plus a prior annual) before re-appending, so the
+      # refreshed annual is the sole representation of the year.
+      .lfs_delete_year(con, data_tbl, survyear)
+    } else {
+      # Monthly: replace only this month's data and version record.  Deleting
+      # the whole year here would discard the other loaded months for the year.
+      .lfs_delete_month(con, data_tbl, version, survyear, survmnth)
+    }
   } else if (vtype == "annual") {
     # Supersede monthly data for this year
     monthlies <- .lfs_monthly_versions(con, survyear)
