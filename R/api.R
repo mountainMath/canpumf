@@ -615,11 +615,17 @@ add_bootstrap_weights <- function(tbl,
 
   # Detect whether the input tbl has had label_pumf_columns() applied so we
   # can re-apply it to the returned tbl.  The check: any column in the input
-  # that is not a generated BSW column and is not in the physical table's coded
-  # column list must be a label alias.
+  # that is not a generated BSW replicate column and is not in the physical
+  # table's coded column list must be a label alias.
+  # Replicate columns are identified from the `prefix` used for this call
+  # (default "CPBSW") rather than a hardcoded "*BSW" pattern, so detection stays
+  # correct for custom prefixes.  startsWith + digit-suffix avoids having to
+  # regex-escape a user-supplied prefix.
   physical_cols <- DBI::dbListFields(con, table_name)
-  bsw_col_pat   <- "^[A-Z]+BSW[0-9]+$"   # matches CPBSW1, BSW1, etc.
-  survey_input_cols <- colnames(tbl)[!grepl(bsw_col_pat, colnames(tbl))]
+  in_cols       <- colnames(tbl)
+  is_bsw_rep    <- startsWith(in_cols, prefix) &
+    grepl("^[0-9]+$", substring(in_cols, nchar(prefix) + 1L))
+  survey_input_cols <- in_cols[!is_bsw_rep]
   input_was_labeled <- !all(survey_input_cols %in% physical_cols)
 
   if (bsw_table_auto)

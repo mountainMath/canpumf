@@ -94,6 +94,27 @@ test_that("add_bootstrap_weights (DuckDB): creates BSW table and view", {
   expect_length(bsw_cols, 16L)
 })
 
+test_that("add_bootstrap_weights (DuckDB): re-run with custom prefix keeps coded columns", {
+  tmp <- withr::local_tempdir()
+  .make_bsw_dir(tmp)
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
+
+  # First pass: coded input → coded output plus REP1..REP4 replicate columns.
+  t1 <- suppressMessages(add_bootstrap_weights(
+    tbl, weight_col = "WEIGHT", n_replicates = 4L, prefix = "REP", seed = 1L))
+
+  # Re-running on the augmented (still coded) tbl must not mistake the
+  # custom-prefix replicate columns for label aliases and relabel the output.
+  t2 <- suppressMessages(add_bootstrap_weights(
+    t1, weight_col = "WEIGHT", n_replicates = 4L, prefix = "REP", seed = 1L))
+  on.exit(try(close_pumf(t2), silent = TRUE))
+
+  cn <- colnames(t2)
+  expect_true(all(c("ID", "WEIGHT") %in% cn))   # coded names preserved
+  expect_false("Survey weight" %in% cn)          # not spuriously relabeled
+  expect_false("Record ID" %in% cn)
+})
+
 test_that("bsw_info: reports BSW tables after add_bootstrap_weights", {
   tmp <- withr::local_tempdir()
   .make_bsw_dir(tmp)
