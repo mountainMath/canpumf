@@ -890,6 +890,13 @@ add_bootstrap_weights <- function(tbl,
   if (use_strata_stream) {
     # Case D + strata: split wt_data_all by stratum, generate and write chunk
     # by chunk so peak memory = one stratum's BSW matrix (not the full table).
+    # Warn once on NA weights before splitting (mirrors the non-stratified path)
+    # so the per-stratum zeroing in .gen_bsw is not silent.
+    if (anyNA(wt_data_all$w)) {
+      warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
+              "' replaced with 0.", call. = FALSE)
+      wt_data_all$w[is.na(wt_data_all$w)] <- 0
+    }
     strata_key  <- interaction(wt_data_all[eff_strata], drop = TRUE)
     strata_lvls <- levels(strata_key)
     n_st        <- length(strata_lvls)

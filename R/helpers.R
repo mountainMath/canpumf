@@ -39,12 +39,15 @@ find_unique_layout_file <- function(layout_path, pattern, path_or_pattern = NULL
     # ditto does not support all ZIP compression variants (e.g. newer deflate
     # flavours used by StatCan since 2025).  Fall back to system unzip, then
     # to utils::unzip, if ditto exits non-zero.
-    exit <- system(paste0("ditto -x -k --sequesterRsrc --rsrc '",
-                           path, "' '", exdir, "'"))
+    # system2() still runs via the shell and does not quote its args, so
+    # shQuote() the path/exdir to handle spaces and quote characters safely.
+    exit <- system2("ditto",
+                    c("-x", "-k", "--sequesterRsrc", "--rsrc",
+                      shQuote(path), shQuote(exdir)))
     if (exit != 0L) {
       message("ditto failed (exit ", exit, "); falling back to unzip.")
-      exit2 <- system(paste0("unzip -o '", path, "' -d '", exdir, "'"),
-                      ignore.stdout = TRUE)
+      exit2 <- system2("unzip", c("-o", shQuote(path), "-d", shQuote(exdir)),
+                       stdout = FALSE)
       if (exit2 != 0L) utils::unzip(path, exdir = exdir)
     }
   } else {
