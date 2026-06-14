@@ -12,6 +12,7 @@ get_pumf(
   refresh = FALSE,
   redownload = FALSE,
   read_only = TRUE,
+  registry = NULL,
   ...
 )
 }
@@ -44,6 +45,15 @@ Not valid with `refresh = "auto"`.}
 `TRUE`).  Pass `FALSE` to allow write access, e.g. to persist custom
 views or derived tables in the DuckDB file.  Use [close_pumf()] to
 release the connection when done.}
+
+\item{registry}{Optional custom configuration created by
+[pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
+survey that is not in the built-in registry, or to override fields of one
+that is.  Applied only when a build actually happens — on an
+already-imported survey it has no effect unless `refresh = TRUE` is also
+passed (a message is emitted in that case).  Not supported for LFS.  For a
+survey not in [list_canpumf_collection()], deposit the raw files under
+`<cache_path>/<series>/<version>/` first (there is no download URL).}
 
 \item{...}{Accepts deprecated parameter names (`pumf_series`,
 `pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,

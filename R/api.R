@@ -124,6 +124,14 @@
 #'   `TRUE`).  Pass `FALSE` to allow write access, e.g. to persist custom
 #'   views or derived tables in the DuckDB file.  Use [close_pumf()] to
 #'   release the connection when done.
+#' @param registry Optional custom configuration created by
+#'   [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
+#'   survey that is not in the built-in registry, or to override fields of one
+#'   that is.  Applied only when a build actually happens — on an
+#'   already-imported survey it has no effect unless `refresh = TRUE` is also
+#'   passed (a message is emitted in that case).  Not supported for LFS.  For a
+#'   survey not in [list_canpumf_collection()], deposit the raw files under
+#'   `<cache_path>/<series>/<version>/` first (there is no download URL).
 #' @param ... Accepts deprecated parameter names (`pumf_series`,
 #'   `pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,
 #'   `guess_numeric`, `timeout`, `refresh_layout`) with a warning.
@@ -164,6 +172,7 @@ get_pumf <- function(series     = NULL,
                      refresh    = FALSE,
                      redownload = FALSE,
                      read_only  = TRUE,
+                     registry   = NULL,
                      ...) {
   dots <- list(...)
   resolved <- .api_resolve_deprecated(series, version, cache_path, dots, "get_pumf")
@@ -186,6 +195,15 @@ get_pumf <- function(series     = NULL,
     stop("redownload = TRUE is not compatible with refresh = \"auto\". ",
          "Call lfs_get_pumf() per version instead.")
 
+  if (!is.null(registry)) {
+    if (!inherits(registry, "pumf_registry_entry"))
+      stop("'registry' must be created by pumf_registry_entry() or ",
+           "pumf_registry().", call. = FALSE)
+    if (series == "LFS")
+      stop("'registry' overrides are not supported for LFS, which uses a ",
+           "dedicated pipeline.", call. = FALSE)
+  }
+
   # Resolve single-version non-LFS series so table_name and db_path are known.
   if (series != "LFS" && is.null(version)) {
     collection <- list_canpumf_collection()
@@ -199,6 +217,23 @@ get_pumf <- function(series     = NULL,
            ".\nSpecify 'version' (e.g. get_pumf(\"", series, "\", \"",
            rows$Version[[1L]], "\")).")
     version <- rows$Version[[1L]]
+  }
+
+  # Install the custom registry override for the duration of this call so every
+  # internal pumf_registry_lookup() sees the merged configuration.  The build is
+  # idempotent, so on an already-imported survey the override only takes effect
+  # under refresh/redownload; otherwise warn that it is not applied.
+  if (!is.null(registry)) {
+    .pumf_registry_override_set(series, version, registry)
+    on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
+    eff_rebuild <- isTRUE(refresh) || identical(refresh, "auto") ||
+      isTRUE(redownload)
+    if (!eff_rebuild &&
+        .duckdb_table_exists(.pumf_db_path(series, version, cache_path),
+                             .pumf_table_name(series, version, lang)))
+      message("A built table for ", series, " ", version, " [", lang,
+              "] already exists; the supplied 'registry' is not applied. ",
+              "Pass refresh = TRUE to rebuild with it.")
   }
 
   # For LFS: route directly through lfs_get_pumf so that when data is already
@@ -1294,6 +1329,10 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
 #'   command files (does not re-download).
 #' @param redownload If `TRUE`, delete the cached zip and extracted files and
 #'   re-download from StatCan before re-parsing.  Implies `refresh = TRUE`.
+#' @param registry Optional custom configuration created by
+#'   [pumf_registry_entry()] (or [pumf_registry()]) to drive metadata parsing
+#'   for a survey not in the built-in registry, or to override fields of one
+#'   that is.  Not supported for LFS.
 #'
 #' @return A named list with three elements:
 #'   \describe{
@@ -1319,8 +1358,18 @@ pumf_metadata <- function(series,
                            cache_path = getOption("canpumf.cache_path",
                                                    tempdir()),
                            refresh    = FALSE,
-                           redownload = FALSE) {
+                           redownload = FALSE,
+                           registry   = NULL) {
   version     <- pumf_resolve_version(series, version)
+  if (!is.null(registry)) {
+    if (!inherits(registry, "pumf_registry_entry"))
+      stop("'registry' must be created by pumf_registry_entry() or ",
+           "pumf_registry().", call. = FALSE)
+    if (series == "LFS")
+      stop("'registry' overrides are not supported for LFS.", call. = FALSE)
+    .pumf_registry_override_set(series, version, registry)
+    on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
+  }
   reg         <- pumf_registry_lookup(series, version)
   eff_refresh <- refresh || redownload
   version_dir <- pumf_locate_or_download(series, version,

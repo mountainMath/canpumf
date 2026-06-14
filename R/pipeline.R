@@ -22,6 +22,19 @@
   if (is.null(lm)) lang else paste0(lang, "_", lm)
 }
 
+# Cheap, lock-friendly check for whether a table exists in a DuckDB file.
+# Uses a read-only connection and shutdown = FALSE so it never disturbs an
+# in-process instance another open connection may be sharing.
+.duckdb_table_exists <- function(db_path, table_name) {
+  if (!file.exists(db_path)) return(FALSE)
+  con <- tryCatch(
+    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE),
+    error = function(e) NULL)
+  if (is.null(con)) return(FALSE)
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE))
+  isTRUE(tryCatch(DBI::dbExistsTable(con, table_name), error = function(e) FALSE))
+}
+
 # Probe whether a DuckDB file can be opened for writing.
 #
 # Two failure modes require detection:

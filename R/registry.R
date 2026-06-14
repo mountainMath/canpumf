@@ -1171,7 +1171,18 @@ pumf_resolve_version <- function(series, version) {
 #' @return named list of configuration fields, or `NULL` if not in registry
 #' @keywords internal
 pumf_registry_lookup <- function(series, version) {
-  .pumf_registry[[paste0(series, "/", version)]]
+  base <- .pumf_registry[[paste0(series, "/", version)]]
+  ovr  <- .pumf_registry_override_get(series, version)
+  if (is.null(ovr)) return(base)
+  # Merge the active override patch over the built-in entry (or an all-default
+  # entry when the survey is not registered).  series/version always come from
+  # the lookup arguments, never from the patch.
+  if (is.null(base)) base <- .make_entry(series, version)
+  for (f in setdiff(names(ovr), c("series", "version")))
+    base[[f]] <- ovr[[f]]
+  base$series  <- series
+  base$version <- version
+  base
 }
 
 #' List all registered survey keys
@@ -1180,4 +1191,241 @@ pumf_registry_lookup <- function(series, version) {
 #' @keywords internal
 pumf_registry_keys <- function() {
   names(.pumf_registry)
+}
+
+
+# ---- Public registry API ----------------------------------------------------
+
+# Known registry-entry fields (everything .make_entry() accepts except the
+# series/version key, which is supplied to get_pumf() separately).
+.pumf_registry_fields <- c(
+  "layout_mask", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
+  "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
+  "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
+  "doc_mask")
+
+# Recognised data_fixups sub-fields (for validation warnings).
+.pumf_fixup_fields <- c(
+  "str_pad", "rename", "cols_swap", "na_values", "force_numeric",
+  "codes_supplement", "missing_supplement")
+
+# Validate a (possibly partial) registry entry's field types.  Errors on type
+# mismatches; warns on unrecognised data_fixups names.
+.validate_registry_entry <- function(x) {
+  is_str  <- function(v) is.character(v) && length(v) == 1L && !is.na(v)
+  is_chr  <- function(v) is.character(v)
+  single_string_fields <- c("layout_mask", "bsw_mask", "bsw_file_mask",
+                            "bsw_join_key", "file_mask", "data_encoding",
+                            "metadata_encoding", "bundled_eng_sps",
+                            "bundle_source", "bundle_sps_mask", "doc_mask")
+  for (f in intersect(single_string_fields, names(x))) {
+    v <- x[[f]]
+    if (!is.null(v) && !is_str(v))
+      stop("Registry field '", f, "' must be a single string (or NULL).",
+           call. = FALSE)
+  }
+  for (f in intersect(c("bsw_drop_cols", "bsw_strata"), names(x))) {
+    v <- x[[f]]
+    if (!is.null(v) && !is_chr(v))
+      stop("Registry field '", f, "' must be a character vector (or NULL).",
+           call. = FALSE)
+  }
+  if (!is.null(x$data_fixups)) {
+    if (!is.list(x$data_fixups))
+      stop("Registry field 'data_fixups' must be a list.", call. = FALSE)
+    unknown <- setdiff(names(x$data_fixups), .pumf_fixup_fields)
+    if (length(unknown) > 0L)
+      warning("Unrecognised data_fixups field(s): ",
+              paste(unknown, collapse = ", "),
+              ". Recognised: ", paste(.pumf_fixup_fields, collapse = ", "),
+              call. = FALSE)
+  }
+  invisible(x)
+}
+
+#' Construct a custom PUMF registry entry
+#'
+#' Builds a survey-configuration patch that can be passed to [get_pumf()] (or
+#' [pumf_metadata()]) via the `registry` argument to drive parsing and building
+#' for a survey that is not in the built-in registry, or to override specific
+#' fields of one that is.
+#'
+#' Only the arguments you actually supply are recorded; unspecified fields fall
+#' back to the built-in entry (when overriding a known survey) or to the
+#' pipeline defaults (for a new survey).  This makes the result a *patch* rather
+#' than a full replacement.  Use [pumf_registry()] to inspect an existing entry
+#' as a starting template.
+#'
+#' The custom registry covers parsing and building configuration only; it does
+#' not provide a download URL.  For a survey not in [list_canpumf_collection()],
+#' deposit the raw zip (or extracted files) under
+#' `<cache_path>/<series>/<version>/` first, then call
+#' `get_pumf(series, version, registry = ...)`.
+#'
+#' @param layout_mask SPSS/SAS command-file disambiguator for split-file
+#'   surveys; also becomes part of the DuckDB table name when set.
+#' @param bsw_mask,bsw_file_mask,bsw_join_key,bsw_drop_cols,bsw_strata Bootstrap
+#'   weight join configuration.
+#' @param file_mask Regex selecting the data file (its extension also decides
+#'   CSV vs fixed-width).
+#' @param data_encoding,metadata_encoding Encoding overrides (default
+#'   `"CP1252"` in the pipeline).
+#' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
+#'   `rename`, `cols_swap`, `na_values`, `force_numeric`, `codes_supplement`,
+#'   `missing_supplement`.
+#' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
+#'   bundled-archive and documentation options.
+#' @param ... Reserved; passing any unrecognised field name raises an error.
+#'
+#' @return A classed `"pumf_registry_entry"` list containing only the supplied
+#'   fields.
+#'
+#' @seealso [pumf_registry()], [get_pumf()], [list_pumf_registry()]
+#'
+#' @examples
+#' \dontrun{
+#' # New CSV survey not yet in the registry (raw files already in the cache):
+#' entry <- pumf_registry_entry(
+#'   file_mask   = "DATA\\.csv",
+#'   data_fixups = list(force_numeric = "WEIGHT"))
+#' get_pumf("NEWSURVEY", "2025", registry = entry)
+#' }
+#' @export
+pumf_registry_entry <- function(layout_mask       = NULL,
+                                bsw_mask          = NULL,
+                                bsw_file_mask     = NULL,
+                                bsw_join_key      = NULL,
+                                bsw_drop_cols     = NULL,
+                                bsw_strata        = NULL,
+                                file_mask         = NULL,
+                                data_encoding     = NULL,
+                                metadata_encoding = NULL,
+                                data_fixups       = NULL,
+                                bundled_eng_sps   = NULL,
+                                bundle_source     = NULL,
+                                bundle_sps_mask   = NULL,
+                                doc_mask          = NULL,
+                                ...) {
+  dots <- names(list(...))
+  if (length(dots) > 0L)
+    stop("Unknown registry field(s): ", paste(dots, collapse = ", "),
+         ".\nValid fields: ", paste(.pumf_registry_fields, collapse = ", "),
+         call. = FALSE)
+  supplied <- setdiff(names(match.call())[-1L], "")
+  env <- environment()
+  out <- list()
+  for (f in intersect(supplied, .pumf_registry_fields))
+    out[[f]] <- get(f, envir = env)
+  .validate_registry_entry(out)
+  structure(out, class = "pumf_registry_entry")
+}
+
+#' Inspect a survey's registry configuration
+#'
+#' Returns the resolved configuration entry for a `(series, version)` pair: the
+#' built-in registry entry when one exists, otherwise an all-default entry.
+#' Useful for understanding the parsing strategy and overrides applied to a
+#' survey, and as a template for [pumf_registry_entry()].
+#'
+#' @param series Survey series acronym, e.g. `"SFS"`.
+#' @param version Version string, e.g. `"2019"`.
+#'
+#' @return A classed `"pumf_registry_entry"` list of all configuration fields.
+#'
+#' @seealso [pumf_registry_entry()], [list_pumf_registry()], [get_pumf()]
+#'
+#' @examples
+#' pumf_registry("SFS", "2019")
+#' @export
+pumf_registry <- function(series, version) {
+  version <- pumf_resolve_version(series, version)
+  entry   <- .pumf_registry[[paste0(series, "/", version)]]
+  if (is.null(entry)) entry <- .make_entry(series, version)
+  structure(entry, class = "pumf_registry_entry")
+}
+
+#' Overview of all built-in registry entries
+#'
+#' @return A tibble with one row per registered `(series, version)` and columns
+#'   summarising the key configuration: `file_mask`, `layout_mask`,
+#'   `bsw_join_key`, and `data_fixups` (comma-separated fixup types present).
+#'
+#' @seealso [pumf_registry()], [pumf_registry_entry()]
+#'
+#' @examples
+#' list_pumf_registry()
+#' @export
+list_pumf_registry <- function() {
+  keys <- names(.pumf_registry)
+  rows <- lapply(keys, function(k) {
+    e <- .pumf_registry[[k]]
+    tibble::tibble(
+      series       = e$series,
+      version      = e$version,
+      file_mask    = e$file_mask    %||% NA_character_,
+      layout_mask  = e$layout_mask  %||% NA_character_,
+      bsw_join_key = e$bsw_join_key %||% NA_character_,
+      data_fixups  = if (length(e$data_fixups) > 0L)
+        paste(names(e$data_fixups), collapse = ", ") else NA_character_
+    )
+  })
+  do.call(rbind, rows)
+}
+
+#' @export
+print.pumf_registry_entry <- function(x, ...) {
+  cat("<pumf_registry_entry>",
+      if (!is.null(x$series)) paste0(" ", x$series, " ", x$version) else "",
+      "\n", sep = "")
+  show <- function(label, v) {
+    if (!is.null(v) && length(v) > 0L)
+      cat(sprintf("  %-18s %s\n", paste0(label, ":"),
+                  paste(v, collapse = ", ")))
+  }
+  show("file_mask",         x$file_mask)
+  show("layout_mask",       x$layout_mask)
+  show("data_encoding",     x$data_encoding)
+  show("metadata_encoding", x$metadata_encoding)
+  show("bsw_mask",          x$bsw_mask)
+  show("bsw_file_mask",     x$bsw_file_mask)
+  show("bsw_join_key",      x$bsw_join_key)
+  show("bsw_drop_cols",     x$bsw_drop_cols)
+  show("bsw_strata",        x$bsw_strata)
+  show("bundle_source",     x$bundle_source)
+  show("doc_mask",          x$doc_mask)
+  if (length(x$data_fixups) > 0L) {
+    cat("  data_fixups:\n")
+    for (nm in names(x$data_fixups)) {
+      v <- x$data_fixups[[nm]]
+      detail <- if (is.character(v)) paste(v, collapse = ", ")
+                else if (is.list(v)) paste(names(v), collapse = ", ")
+                else ""
+      cat(sprintf("    - %-16s %s\n", paste0(nm, ":"), detail))
+    }
+  }
+  invisible(x)
+}
+
+
+# ---- Registry override (used by get_pumf(registry=...)) ---------------------
+#
+# A get_pumf()/pumf_metadata() call can install a custom entry for the duration
+# of the call so every internal pumf_registry_lookup() sees the merged config.
+
+.pumf_registry_override_env <- new.env(parent = emptyenv())
+
+.pumf_registry_override_set <- function(series, version, entry) {
+  .pumf_registry_override_env[[paste0(series, "/", version)]] <- entry
+  invisible(NULL)
+}
+
+.pumf_registry_override_clear <- function(series, version) {
+  key <- paste0(series, "/", version)
+  if (!is.null(.pumf_registry_override_env[[key]]))
+    rm(list = key, envir = .pumf_registry_override_env)
+  invisible(NULL)
+}
+
+.pumf_registry_override_get <- function(series, version) {
+  .pumf_registry_override_env[[paste0(series, "/", version)]]
 }
