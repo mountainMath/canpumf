@@ -150,7 +150,12 @@ portal.
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
-| General Social Survey | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| General Social Survey — Caregiving | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| General Social Survey — Safety | GSS | Safety 1993, Safety 1999, Safety 2014, Safety 2019 | ✓ |
+| General Social Survey — Family | GSS | Family 1995, Family 2001, Family 2011, Family 2017 | ✓ |
+| General Social Survey — Social Identity | GSS | Social Identity 2003, Social Identity 2013, Social Identity 2020 | ✓ |
+| General Social Survey — Education | GSS | Education 1994, Education 2002, Education 2007 | ✓ |
+| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 | ✓ |
 | GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
@@ -177,16 +182,32 @@ A BibTeX entry for LaTeX users is
         url = {https://mountainmath.github.io/canpumf/},
       }
 
+### Statistics Canada Attribution
+
+Subject to the Statistics Canada Open Data License Agreement, licensed
+products using Statistics Canada data should employ the following
+acknowledgement of source:
+
+    Acknowledgment of Source
+
+    (a) You shall include and maintain the following notice on all licensed rights of the Information:
+
+      - Source: Statistics Canada, name of product, reference date. Reproduced and distributed on an "as is" basis with the permission of Statistics Canada.
+
+    (b) Where any Information is contained within a Value-added Product, you shall include on such Value-added Product the following notice:
+
+      - Adapted from Statistics Canada, name of product, reference date. This does not constitute an endorsement by Statistics Canada of this product.
+
 # Package index
 
 ## All functions
 
 - [`add_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/add_bootstrap_weights.md)
   : Generate bootstrap weights for a PUMF dataset
-- [`add_gender_sex()`](https://mountainmath.github.io/canpumf/reference/add_gender_sex.md)
-  : Add a harmonised GENDER_SEX column to an LFS table
-- [`add_lfs_date()`](https://mountainmath.github.io/canpumf/reference/add_lfs_date.md)
-  : Add a DATE column to an LFS table
+- [`add_lfs_GENDER_SEX()`](https://mountainmath.github.io/canpumf/reference/add_lfs_GENDER_SEX.md)
+  : Add a harmonised gender/sex column to an LFS table
+- [`add_lfs_SURVDATE()`](https://mountainmath.github.io/canpumf/reference/add_lfs_SURVDATE.md)
+  : Add a date column to an LFS table
 - [`bsw_info()`](https://mountainmath.github.io/canpumf/reference/bsw_info.md)
   : Summarise bootstrap weight tables present in a PUMF DuckDB database
 - [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
@@ -203,10 +224,16 @@ A BibTeX entry for LaTeX users is
   : List Statistics Canada PUMF datasets supported by canpumf
 - [`list_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/list_pumf_cache.md)
   : List the contents of the local canpumf cache
+- [`list_pumf_registry()`](https://mountainmath.github.io/canpumf/reference/list_pumf_registry.md)
+  : Overview of all built-in registry entries
 - [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
   : Open PUMF documentation in the browser
 - [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)
   : Download and parse PUMF metadata without building a DuckDB table
+- [`pumf_registry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry.md)
+  : Inspect a survey's registry configuration
+- [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)
+  : Construct a custom PUMF registry entry
 - [`pumf_var_labels()`](https://mountainmath.github.io/canpumf/reference/pumf_var_labels.md)
   : Retrieve variable labels as a tibble
 - [`remove_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/remove_bootstrap_weights.md)

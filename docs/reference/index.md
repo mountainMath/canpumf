@@ -4,10 +4,10 @@
 
 - [`add_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/add_bootstrap_weights.md)
   : Generate bootstrap weights for a PUMF dataset
-- [`add_gender_sex()`](https://mountainmath.github.io/canpumf/reference/add_gender_sex.md)
-  : Add a harmonised GENDER_SEX column to an LFS table
-- [`add_lfs_date()`](https://mountainmath.github.io/canpumf/reference/add_lfs_date.md)
-  : Add a DATE column to an LFS table
+- [`add_lfs_GENDER_SEX()`](https://mountainmath.github.io/canpumf/reference/add_lfs_GENDER_SEX.md)
+  : Add a harmonised gender/sex column to an LFS table
+- [`add_lfs_SURVDATE()`](https://mountainmath.github.io/canpumf/reference/add_lfs_SURVDATE.md)
+  : Add a date column to an LFS table
 - [`bsw_info()`](https://mountainmath.github.io/canpumf/reference/bsw_info.md)
   : Summarise bootstrap weight tables present in a PUMF DuckDB database
 - [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
@@ -24,10 +24,16 @@
   : List Statistics Canada PUMF datasets supported by canpumf
 - [`list_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/list_pumf_cache.md)
   : List the contents of the local canpumf cache
+- [`list_pumf_registry()`](https://mountainmath.github.io/canpumf/reference/list_pumf_registry.md)
+  : Overview of all built-in registry entries
 - [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
   : Open PUMF documentation in the browser
 - [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)
   : Download and parse PUMF metadata without building a DuckDB table
+- [`pumf_registry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry.md)
+  : Inspect a survey's registry configuration
+- [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)
+  : Construct a custom PUMF registry entry
 - [`pumf_var_labels()`](https://mountainmath.github.io/canpumf/reference/pumf_var_labels.md)
   : Retrieve variable labels as a tibble
 - [`remove_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/remove_bootstrap_weights.md)

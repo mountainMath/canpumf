@@ -99,8 +99,11 @@ lfs_2022 <- lfs_2022 |> label_pumf_columns()
 With this we can do some simple descriptive analysis. We could use the
 `add_bootstrap_weights` function to add bootstrap weights if desired. We
 focus in on February 2022 and add boodstrap weights. By default this
-only adds 16 weights, for more serious applications we would want to add
-more weights.
+adds 500 weights, this will take time to generate for the full LFS
+sample. For LFS data the bootstrap weight generation will automatically
+stratify the generation by year and month. Here we shortcut this by only
+generating bootstrap weihhts for the February 2022 data after calling
+collect, so they just get generated in memory for the resulting tibble.
 
 ``` r
 
@@ -108,6 +111,16 @@ lfs_2022_02_data <- lfs_2022 |>
   filter(`Survey month`==2) |>
   collect() |>
   add_bootstrap_weights(weight_col = "Standard final weight", seed = 42)
+#>   Replicate 50 / 500 ...
+#>   Replicate 100 / 500 ...
+#>   Replicate 150 / 500 ...
+#>   Replicate 200 / 500 ...
+#>   Replicate 250 / 500 ...
+#>   Replicate 300 / 500 ...
+#>   Replicate 350 / 500 ...
+#>   Replicate 400 / 500 ...
+#>   Replicate 450 / 500 ...
+#>   Replicate 500 / 500 ...
 ```
 
 For this vignette we look at gender-specific labour fource status
@@ -116,33 +129,32 @@ rates to even out age-specific effects.
 
 ``` r
 
-data <- lfs_2022_02_data %>%
-  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) %>%
-  filter(`Labour force status`!="Not in labour force") %>%
-  group_by(`Labour force status`,`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`) %>%
-  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") %>%
-  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") %>%
+data <- lfs_2022_02_data |>
+  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) |>
+  filter(`Labour force status`!="Not in labour force") |>
+  summarise(across(matches("Standard final weight|CPBSW\\d+"),sum),
+            .by=c(`Labour force status`,`Five-year age group of respondent`,`Gender of respondent`,
+                  `Marital status of respondent`)) |>
+  pivot_longer(matches("Standard final weight|CPBSW\\d+"),names_to="Weight",values_to="Count") |>
   group_by(`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`, Weight) %>%
-  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) %>%
+           `Marital status of respondent`, Weight) |>
+  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) |>
   ungroup()
 
 data_age_adjusted <- data %>%
-  left_join((.) %>% 
-              group_by(`Five-year age group of respondent`,`Gender of respondent`,Weight) %>%
-              summarize(Count=sum(Count),.groups="drop") %>%
-              group_by(`Gender of respondent`,Weight) %>%
-              mutate(P_age__gender=Count/sum(Count)) %>%
-              ungroup() %>%
+  left_join((.) |> 
+              summarize(Count=sum(Count),
+                        .by=c(`Five-year age group of respondent`,`Gender of respondent`,Weight)) |>
+              mutate(P_age__gender=Count/sum(Count),
+                     .by=c(`Gender of respondent`,Weight)) |>
               select(`Gender of respondent`,`Five-year age group of respondent`,Weight,P_age__gender),
-            by=c("Gender of respondent","Five-year age group of respondent","Weight")) %>%
-  group_by(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight) %>%
-  summarise(age_adjusted=sum(Share*P_age__gender),.groups="drop")
+            by=c("Gender of respondent","Five-year age group of respondent","Weight")) |>
+  summarise(age_adjusted=sum(Share*P_age__gender),
+            .by=c(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight))
   
-data_age_adjusted %>%
-  filter(`Labour force status`=="Unemployed") %>%
-ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
+data_age_adjusted |>
+  filter(`Labour force status`=="Unemployed") |>
+  ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
   scale_x_continuous(labels=scales::percent) +
@@ -153,34 +165,35 @@ ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of res
 
 ![](LFS_files/figure-html/unnamed-chunk-6-1.png)
 
+We can similarly compute the age-adjusted participation rate by gender
+and marital status.
+
 ``` r
 
-data2 <- lfs_2022_02_data %>%
-  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) %>%
-  group_by(`Labour force status`,`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`) %>%
-  summarise(across(matches("Standard final weight|BSW\\d+"),sum),.groups="drop") %>%
-  pivot_longer(matches("Standard final weight|BSW\\d+"),names_to="Weight",values_to="Count") %>%
-  group_by(`Five-year age group of respondent`,`Gender of respondent`,
-           `Marital status of respondent`, Weight) %>%
-  mutate(Share=ifelse(Count==0,0,Count/sum(Count))) %>%
-  ungroup()
+data2 <- lfs_2022_02_data |>
+  filter(substr(`Five-year age group of respondent`,0,2) %in% seq(20,60,5)) |>
+  summarise(across(matches("Standard final weight|CPBSW\\d+"),sum),
+            .by=c(`Labour force status`, `Five-year age group of respondent`,
+                  `Gender of respondent`, `Marital status of respondent`)) |>
+  pivot_longer(matches("Standard final weight|CPBSW\\d+"),names_to="Weight",values_to="Count") |>
+  mutate(Share=ifelse(Count==0,0,Count/sum(Count)),
+         .by=c(`Five-year age group of respondent`,`Gender of respondent`,
+               `Marital status of respondent`, Weight)) 
 
 data_age_adjusted2 <- data2 %>%
-  left_join((.) %>% 
-              group_by(`Five-year age group of respondent`,`Gender of respondent`,Weight) %>%
-              summarize(Count=sum(Count),.groups="drop") %>%
-              group_by(`Gender of respondent`,Weight) %>%
-              mutate(P_age__sex=Count/sum(Count)) %>%
-              ungroup() %>%
+  left_join((.) |> 
+              summarize(Count=sum(Count),
+                        .by=c(`Five-year age group of respondent`,`Gender of respondent`,Weight)) |>
+              mutate(P_age__sex=Count/sum(Count),
+                     .by=c(`Gender of respondent`,Weight)) |>
               select(`Gender of respondent`,`Five-year age group of respondent`,Weight,P_age__sex),
-            by=c("Gender of respondent","Five-year age group of respondent","Weight")) %>%
-  group_by(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight) %>%
-  summarise(age_adjusted=sum(Share*P_age__sex),.groups="drop")
+            by=c("Gender of respondent","Five-year age group of respondent","Weight")) |>
+  summarise(age_adjusted=sum(Share*P_age__sex),
+            .by=c(`Gender of respondent`,`Labour force status`,`Marital status of respondent`, Weight))
   
-data_age_adjusted2 %>%
-  filter(`Labour force status`=="Not in labour force") %>%
-ggplot(aes(x=1-age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
+data_age_adjusted2 |>
+  filter(`Labour force status`=="Not in labour force") |>
+  ggplot(aes(x=1-age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
   scale_x_continuous(labels=scales::percent) +
@@ -191,11 +204,14 @@ ggplot(aes(x=1-age_adjusted, y=`Marital status of respondent`, fill=`Gender of r
 
 ![](LFS_files/figure-html/unnamed-chunk-7-1.png)
 
+Narrowing it down a bit to only look at the share of the population
+employed and at work in February 2022 drops these shares a bit.
+
 ``` r
 
-data_age_adjusted2 %>%
-  filter(`Labour force status`=="Employed, at work") %>%
-ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
+data_age_adjusted2 |>
+  filter(`Labour force status`=="Employed, at work") |>
+  ggplot(aes(x=age_adjusted, y=`Marital status of respondent`, fill=`Gender of respondent`)) +
   geom_boxplot() +
   geom_point(shape=21,data=~filter(.,Weight=="Standard final weight"),position=position_dodge(width=0.75)) +
   scale_x_continuous(labels=scales::percent) +
@@ -227,8 +243,10 @@ lfs_pumf <- get_pumf("LFS", refresh="auto")
 ```
 
 We can now easily extract time series data, we want to perform as many
-operations as possible at the database level. Before plotting we could
-call `collect`, but this does not need to be done explicitly.
+operations as possible at the database level. There are several
+convenience functions when working with the LFS data, one is
+`add_lfs_SURVDATE` which adds a `SURVDATE` column based on the survey
+year and month.
 
 ``` r
 
@@ -238,14 +256,14 @@ unemployment_stats <- lfs_pumf |>
   mutate(jd=case_when(is.na(DURJLESS) ~ "Not applicable",
                       DURJLESS<12 ~ "Less than one year",
                       TRUE ~ "One year or more")) |>
-  mutate(Date=as.Date(paste0(SURVYEAR,"-",SURVMNTH,"-01"))) |>
-  summarize(Count=sum(FINALWT),.by=c(Date,jd,AGE_12)) |>
-  mutate(Share=Count/sum(Count),.by=c(Date,AGE_12)) |>
+  add_lfs_SURVDATE() |>
+  summarize(Count=sum(FINALWT),.by=c(SURVDATE,jd,AGE_12)) |>
+  mutate(Share=Count/sum(Count),.by=c(SURVDATE,AGE_12)) |>
   filter(jd!="Not applicable")
 
 
 unemployment_stats |>
-  ggplot(aes(x=Date,y=Share,colour=AGE_12)) +
+  ggplot(aes(x=SURVDATE,y=Share,colour=AGE_12)) +
   geom_line() +
   facet_wrap(~jd) +
   scale_y_continuous(labels=scales::percent_format()) +
@@ -259,6 +277,9 @@ unemployment_stats |>
 ```
 
 ![](LFS_files/figure-html/unnamed-chunk-11-1.png)
+
+Before plotting we could call `collect`, but this does not need to be
+done explicitly.
 
 Because the data is efficiently ogranzied in DuckDB, this query runs
 quite fast despite no explicit indexing of the database, taking less
@@ -276,21 +297,19 @@ microbenchmark::microbenchmark(collect(unemployment_stats)) |>
 
 The SEX variable has been recategorized into the GENDER concept starting
 in 2011, older LFS PUMF data still uses SEX. We can harmonize this by
-coalescing the values.
+coalescing the values to create a new `GENDER_SEX` colum as done by the
+convenience function `add_lfs_GENDER_SEX`.
 
 ``` r
 
 lfs_pumf |> 
   filter(LFSSTAT !="Not in labour force") |>
-  mutate(GENDER_SEX=coalesce(GENDER,SEX)) |>
-  mutate(GENDER_SEX=case_when(GENDER_SEX=="Female"~"Women+",
-                              GENDER_SEX=="Male"~"Men+",
-                              TRUE ~ GENDER_SEX)) |>
-  mutate(Date=as.Date(paste0(SURVYEAR,"-",SURVMNTH,"-01"))) |>
-  summarise(Count=sum(FINALWT),.by=c(Date,LFSSTAT,GENDER_SEX)) |>
-  mutate(Share=Count/sum(Count),.by=c(Date,GENDER_SEX)) |>
+  add_lfs_SURVDATE() |>
+  add_lfs_GENDER_SEX() |>
+  summarise(Count=sum(FINALWT),.by=c(SURVDATE,LFSSTAT,GENDER_SEX)) |>
+  mutate(Share=Count/sum(Count),.by=c(SURVDATE,GENDER_SEX)) |>
   filter(LFSSTAT=="Unemployed") |>
-  ggplot(aes(x=Date,y=Share,colour=GENDER_SEX)) +
+  ggplot(aes(x=SURVDATE,y=Share,colour=GENDER_SEX)) +
   geom_line() +
   scale_y_continuous(labels=scales::percent_format()) +
   labs(title="Unemployment sex/gender",

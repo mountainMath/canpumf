@@ -10,8 +10,8 @@
 <url><loc>https://mountainmath.github.io/canpumf/authors.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/index.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/add_bootstrap_weights.html</loc></url>
-<url><loc>https://mountainmath.github.io/canpumf/reference/add_gender_sex.html</loc></url>
-<url><loc>https://mountainmath.github.io/canpumf/reference/add_lfs_date.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/add_lfs_GENDER_SEX.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/add_lfs_SURVDATE.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/bsw_info.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/check_bilingual_coverage.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/close_pumf.html</loc></url>
@@ -24,6 +24,7 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_available_lfs_pumf_versions.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_canpumf_collection.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_pumf_cache.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/list_pumf_registry.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/merge_metadata.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/metadata_exists.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.html</loc></url>
@@ -39,6 +40,8 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_metadata.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_open_duckdb.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_parse_metadata.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/pumf_registry.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_registry_keys.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_registry_lookup.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_resolve_version.html</loc></url>

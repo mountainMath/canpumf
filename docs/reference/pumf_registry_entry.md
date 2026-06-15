@@ -1,0 +1,103 @@
+# Construct a custom PUMF registry entry
+
+Builds a survey-configuration patch that can be passed to \[get_pumf()\]
+(or \[pumf_metadata()\]) via the \`registry\` argument to drive parsing
+and building for a survey that is not in the built-in registry, or to
+override specific fields of one that is.
+
+## Usage
+
+``` r
+pumf_registry_entry(
+  layout_mask = NULL,
+  bsw_mask = NULL,
+  bsw_file_mask = NULL,
+  bsw_join_key = NULL,
+  bsw_drop_cols = NULL,
+  bsw_strata = NULL,
+  file_mask = NULL,
+  data_encoding = NULL,
+  metadata_encoding = NULL,
+  data_fixups = NULL,
+  bundled_eng_sps = NULL,
+  bundle_source = NULL,
+  bundle_sps_mask = NULL,
+  doc_mask = NULL,
+  ...
+)
+```
+
+## Arguments
+
+- layout_mask:
+
+  SPSS/SAS command-file disambiguator for split-file surveys; also
+  becomes part of the DuckDB table name when set.
+
+- bsw_mask, bsw_file_mask, bsw_join_key, bsw_drop_cols, bsw_strata:
+
+  Bootstrap weight join configuration.
+
+- file_mask:
+
+  Regex selecting the data file (its extension also decides CSV vs
+  fixed-width).
+
+- data_encoding, metadata_encoding:
+
+  Encoding overrides (default \`"CP1252"\` in the pipeline).
+
+- data_fixups:
+
+  A named list of pre-label fixups: any of \`str_pad\`, \`rename\`,
+  \`cols_swap\`, \`na_values\`, \`force_numeric\`, \`force_character\`,
+  \`force_integer\`, \`force_bigint\`, \`codes_supplement\`,
+  \`missing_supplement\`. The
+  \`force_character\`/\`force_integer\`/\`force_bigint\` fields take
+  character vectors of variable names and override the DuckDB storage
+  type (VARCHAR / INTEGER / BIGINT) so geographic codes keep leading
+  zeros and large IDs are not lost; a variable may appear in at most one
+  \`force\_\*\` set.
+
+- bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask:
+
+  Advanced bundled-archive and documentation options.
+
+- ...:
+
+  Reserved; passing any unrecognised field name raises an error.
+
+## Value
+
+A classed \`"pumf_registry_entry"\` list containing only the supplied
+fields.
+
+## Details
+
+Only the arguments you actually supply are recorded; unspecified fields
+fall back to the built-in entry (when overriding a known survey) or to
+the pipeline defaults (for a new survey). This makes the result a
+\*patch\* rather than a full replacement. Use \[pumf_registry()\] to
+inspect an existing entry as a starting template.
+
+The custom registry covers parsing and building configuration only; it
+does not provide a download URL. For a survey not in
+\[list_canpumf_collection()\], deposit the raw zip (or extracted files)
+under \`\<cache_path\>/\<series\>/\<version\>/\` first, then call
+\`get_pumf(series, version, registry = ...)\`.
+
+## See also
+
+\[pumf_registry()\], \[get_pumf()\], \[list_pumf_registry()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+# New CSV survey not yet in the registry (raw files already in the cache):
+entry <- pumf_registry_entry(
+  file_mask   = "DATA\\.csv",
+  data_fixups = list(force_numeric = "WEIGHT"))
+get_pumf("NEWSURVEY", "2025", registry = entry)
+} # }
+```

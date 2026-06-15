@@ -150,7 +150,12 @@ portal.
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
-| General Social Survey | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| General Social Survey — Caregiving | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| General Social Survey — Safety | GSS | Safety 1993, Safety 1999, Safety 2014, Safety 2019 | ✓ |
+| General Social Survey — Family | GSS | Family 1995, Family 2001, Family 2011, Family 2017 | ✓ |
+| General Social Survey — Social Identity | GSS | Social Identity 2003, Social Identity 2013, Social Identity 2020 | ✓ |
+| General Social Survey — Education | GSS | Education 1994, Education 2002, Education 2007 | ✓ |
+| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 | ✓ |
 | GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
@@ -176,3 +181,19 @@ A BibTeX entry for LaTeX users is
         note = {R package version 0.5.0},
         url = {https://mountainmath.github.io/canpumf/},
       }
+
+### Statistics Canada Attribution
+
+Subject to the Statistics Canada Open Data License Agreement, licensed
+products using Statistics Canada data should employ the following
+acknowledgement of source:
+
+    Acknowledgment of Source
+
+    (a) You shall include and maintain the following notice on all licensed rights of the Information:
+
+      - Source: Statistics Canada, name of product, reference date. Reproduced and distributed on an "as is" basis with the permission of Statistics Canada.
+
+    (b) Where any Information is contained within a Value-added Product, you shall include on such Value-added Product the following notice:
+
+      - Adapted from Statistics Canada, name of product, reference date. This does not constitute an endorsement by Statistics Canada of this product.

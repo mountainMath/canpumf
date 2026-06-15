@@ -117,12 +117,12 @@ reproted time windows get large.
 
 ``` r
 
-plot_data <- renter_chs_pumf %>% 
-  filter(`Geographic grouping`=="Vancouver") %>%
+plot_data <- renter_chs_pumf |> 
+  filter(`Geographic grouping`=="Vancouver") |>
   group_by(`Previous accommodations - when move to current dwelling occurred`,
-           `Previous accommodations - forced to move`) %>%
-  summarise(value=sum(`Household weight`),.groups = "drop") %>%
-  mutate(share=value/sum(value)) %>%
+           `Previous accommodations - forced to move`) |>
+  summarise(value=sum(`Household weight`),.groups = "drop") |>
+  mutate(share=value/sum(value)) |>
   filter(`Previous accommodations - forced to move`=="Yes",
          !grepl("10",`Previous accommodations - when move to current dwelling occurred`))
 
@@ -151,23 +151,31 @@ With PUMF data we need to be aware that we are dealing with a synthetic
 sample that has been altered from the original survey repsonses for
 privacy reasons. With that, and the general unvertainty when dealing
 with survey data, it is important to assess how good these estimates
-are. A simple way to do this is to add bootstrap weights, which is
-facilitated via the `add_bootstrap_weights` function.
+are. Some PUMF data ship with bootstrap weights to facilitate this, when
+this is not the case the **canpumf** package fills the gap via the
+`add_bootstrap_weights` function. By default it adds 500 bootstrap
+weights. The function can act on a database connection or a tibble. If
+it’s a database connection, then the weights get stored in the database
+by default and will be re-used on subsequent calls without the need to
+re-generate them.
 
 ``` r
 
-plot_data <- renter_chs_pumf %>%
+plot_data <- renter_chs_pumf |>
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
+  filter(`Geographic grouping`=="Vancouver") |>
+  summarise(across(matches("CPBSW\\d+|Household weight"),sum),
+            .by=c(`Previous accommodations - when move to current dwelling occurred`,
+                  `Previous accommodations - forced to move`)) |>
   collect() |>
-  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
-  filter(`Geographic grouping`=="Vancouver") %>%
-  group_by(`Previous accommodations - when move to current dwelling occurred`,
-           `Previous accommodations - forced to move`) %>%
-  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") %>%
-  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") %>%
-  group_by(weights) %>%
-  mutate(share=value/sum(value)) %>%
+  pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
+  group_by(weights) |>
+  mutate(share=value/sum(value)) |>
   filter(`Previous accommodations - forced to move`=="Yes",
          !grepl("10",`Previous accommodations - when move to current dwelling occurred`))
+#> Warning: The input tbl has dplyr operations (select, group_by, etc.) that
+#> cannot be replayed on the BSW view — they would drop BSW columns or change
+#> aggregation semantics. Apply them manually to the returned tbl.
 
 
 ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling occurred`,y=share)) +
@@ -198,21 +206,24 @@ what effect it has.
 
 ``` r
 
-plot_data <- renter_chs_pumf %>%
+plot_data <- renter_chs_pumf |>
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
+  filter(`Geographic grouping`=="Vancouver") |>
+  summarise(across(matches("CPBSW\\d+|Household weight"),sum),
+            .by=c(`Previous accommodations - when move to current dwelling occurred`,
+                  `Previous accommodations - location of previous dwelling`,
+                  `Previous accommodations - forced to move`)) |>
   collect() |>
-  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
-  filter(`Geographic grouping`=="Vancouver") %>%
-  group_by(`Previous accommodations - when move to current dwelling occurred`,
-           `Previous accommodations - location of previous dwelling`,
-           `Previous accommodations - forced to move`) %>%
-  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") %>%
-  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") %>%
+  pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(`Previous accommodations - location of previous dwelling`,
-           weights) %>%
-  mutate(share=value/sum(value)) %>%
+           weights) |>
+  mutate(share=value/sum(value)) |>
   filter(`Previous accommodations - forced to move`=="Yes",
-         !grepl("10",`Previous accommodations - when move to current dwelling occurred`)) %>%
+         !grepl("10",`Previous accommodations - when move to current dwelling occurred`)) |>
   mutate(`Location of previous dwelling` = gsub("\\.\\.\\..+$","",`Previous accommodations - location of previous dwelling`))
+#> Warning: The input tbl has dplyr operations (select, group_by, etc.) that
+#> cannot be replayed on the BSW view — they would drop BSW columns or change
+#> aggregation semantics. Apply them manually to the returned tbl.
 
 
 ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling occurred`,
@@ -238,23 +249,33 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 
 ``` r
 
-plot_data <- renter_chs_pumf %>%
+plot_data <- renter_chs_pumf |>
   collect() |>
-  add_bootstrap_weights(weight_col = "Household weight", seed=42) %>%
-  filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) %>%
+  add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
+  filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) |>
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,
            `Geographic grouping`,
-           `Previous accommodations - forced to move`) %>%
-  summarise(across(matches("BSW\\d+|Household weight"),sum),.groups="drop") %>%
-  pivot_longer(matches("BSW\\d+|Household weight"),names_to="weights") %>%
+           `Previous accommodations - forced to move`) |>
+  summarise(across(matches("CPBSW\\d+|Household weight"),sum),.groups="drop") |>
+  pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(`Previous accommodations - location of previous dwelling`,
            `Geographic grouping`,
-           weights) %>%
-  mutate(share=value/sum(value)) %>%
+           weights) |>
+  mutate(share=value/sum(value)) |>
   filter(`Previous accommodations - forced to move`=="Yes",
-         !grepl("10",`Previous accommodations - when move to current dwelling occurred`)) %>%
+         !grepl("10",`Previous accommodations - when move to current dwelling occurred`)) |>
   mutate(`Location of previous dwelling` = gsub("\\/town.+$","",`Previous accommodations - location of previous dwelling`))
+#>   Replicate 50 / 500 ...
+#>   Replicate 100 / 500 ...
+#>   Replicate 150 / 500 ...
+#>   Replicate 200 / 500 ...
+#>   Replicate 250 / 500 ...
+#>   Replicate 300 / 500 ...
+#>   Replicate 350 / 500 ...
+#>   Replicate 400 / 500 ...
+#>   Replicate 450 / 500 ...
+#>   Replicate 500 / 500 ...
 
 
 ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling occurred`,

@@ -13,8 +13,9 @@ add_bootstrap_weights(
   tbl,
   weight_col,
   id_col = NULL,
+  strata_cols = NULL,
   n_replicates = 500L,
-  prefix = "BSW",
+  prefix = "CPBSW",
   bsw_table = NULL,
   seed = NULL,
   overwrite = FALSE
@@ -40,14 +41,24 @@ add_bootstrap_weights(
   used when available; otherwise \`pumf_row_id\` is added to the main
   table.
 
+- strata_cols:
+
+  Optional character vector of column names to stratify on. Resampling
+  is performed independently within each unique combination of stratum
+  values, preserving stratum sample sizes across replicates. For LFS,
+  defaults to \`c("SURVYEAR", "SURVMNTH")\` so each month is resampled
+  separately. For other surveys, use the registry \`bsw_strata\` field
+  or pass explicitly (e.g. province, age group). Pass \`character(0)\`
+  to suppress the LFS default and generate unstratified weights.
+
 - n_replicates:
 
   Number of bootstrap replicates to generate (default \`500L\`).
 
 - prefix:
 
-  Column-name prefix for replicate columns (default \`"BSW"\`). Columns
-  are named \`prefix1\`, \`prefix2\`, …
+  Column-name prefix for replicate columns (default \`"CPBSW"\`).
+  Columns are named \`prefix1\`, \`prefix2\`, …
 
 - bsw_table:
 
@@ -62,8 +73,9 @@ add_bootstrap_weights(
 
 - overwrite:
 
-  If the \`bsw_table\` already exists in the DuckDB file, overwrite it
-  when \`TRUE\`; stop with an error when \`FALSE\` (default).
+  If the \`bsw_table\` already exists in the DuckDB file, regenerate and
+  overwrite it when \`TRUE\`. When \`FALSE\` (default) the existing
+  table is reused silently — no computation is performed.
 
 ## Value
 

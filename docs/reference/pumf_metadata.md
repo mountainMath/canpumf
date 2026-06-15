@@ -14,7 +14,8 @@ pumf_metadata(
   version,
   cache_path = getOption("canpumf.cache_path", tempdir()),
   refresh = FALSE,
-  redownload = FALSE
+  redownload = FALSE,
+  registry = NULL
 )
 ```
 
@@ -42,6 +43,13 @@ pumf_metadata(
 
   If \`TRUE\`, delete the cached zip and extracted files and re-download
   from StatCan before re-parsing. Implies \`refresh = TRUE\`.
+
+- registry:
+
+  Optional custom configuration created by \[pumf_registry_entry()\] (or
+  \[pumf_registry()\]) to drive metadata parsing for a survey not in the
+  built-in registry, or to override fields of one that is. Not supported
+  for LFS.
 
 ## Value
 
