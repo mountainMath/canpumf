@@ -176,3 +176,28 @@ test_that("get_pumf(registry=): cached build reused unless refresh=TRUE", {
   on.exit(try(close_pumf(tbl3), silent = TRUE), add = TRUE)
   expect_equal(dplyr::collect(dplyr::count(tbl3))$n, 2L)  # aaa.csv has 2 rows
 })
+
+test_that("pumf_metadata(registry=): 'already parsed' message; never from get_pumf", {
+  tmp <- withr::local_tempdir()
+  .make_custom_dir(tmp)  # writes metadata/variables.csv + two data files
+
+  # registry supplied + metadata present + no refresh -> message
+  expect_message(
+    m <- pumf_metadata("CUSTOM", "2025", cache_path = tmp,
+                       registry = pumf_registry_entry(metadata_encoding = "UTF-8")),
+    regexp = "already parsed"
+  )
+  expect_true(all(c("variables", "codes") %in% names(m)))
+
+  # without a registry the message is not emitted
+  msgs <- testthat::capture_messages(
+    pumf_metadata("CUSTOM", "2025", cache_path = tmp))
+  expect_false(any(grepl("already parsed", msgs)))
+
+  # get_pumf() parses via a different path and never emits the metadata message
+  msgs2 <- testthat::capture_messages(
+    tbl <- get_pumf("CUSTOM", "2025", cache_path = tmp,
+                    registry = pumf_registry_entry(file_mask = "bbb\\.csv")))
+  on.exit(try(close_pumf(tbl), silent = TRUE), add = TRUE)
+  expect_false(any(grepl("already parsed", msgs2)))
+})

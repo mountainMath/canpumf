@@ -1376,6 +1376,14 @@ pumf_metadata <- function(series,
                                           cache_path = cache_path,
                                           refresh    = eff_refresh,
                                           redownload = redownload)
+  # Parsing is idempotent: with metadata already present and no refresh, a
+  # supplied registry has no effect.  This message lives only here (get_pumf()
+  # parses via pumf_parse_metadata() directly, not pumf_metadata()), so it is
+  # never emitted twice for a get_pumf() call.
+  if (!is.null(registry) && !eff_refresh && metadata_exists(version_dir))
+    message("Metadata for ", series, " ", version, " is already parsed; ",
+            "the supplied 'registry' is not applied. ",
+            "Pass refresh = TRUE to re-parse with it.")
   pumf_parse_metadata(version_dir,
                        layout_mask       = reg$layout_mask,
                        metadata_encoding = reg$metadata_encoding,
