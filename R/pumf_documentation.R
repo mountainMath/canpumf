@@ -229,18 +229,19 @@ open_pumf_documentation <- function(series          = NULL,
 # Exclude docs that live inside sibling version directories (any direct child of
 # parent_dir, other than current_version_dir, that has a metadata/ subdirectory).
 .pumf_drop_version_sibling_docs <- function(paths, parent_dir, current_version_dir) {
+  # normalizePath() returns backslash paths on Windows while .Platform$file.sep
+  # is "/", so force winslash = "/" everywhere and use "/" as the separator —
+  # otherwise the startsWith() prefix match below never fires on Windows.
+  np <- function(x) normalizePath(x, winslash = "/", mustWork = FALSE)
   siblings <- list.dirs(parent_dir, recursive = FALSE, full.names = TRUE)
-  current  <- normalizePath(current_version_dir, mustWork = FALSE)
-  siblings <- siblings[normalizePath(siblings, mustWork = FALSE) != current]
-  ver_sibs <- normalizePath(
-    siblings[vapply(siblings, function(d) dir.exists(file.path(d, "metadata")), logical(1L))],
-    mustWork = FALSE
-  )
+  current  <- np(current_version_dir)
+  siblings <- siblings[np(siblings) != current]
+  ver_sibs <- np(siblings[vapply(siblings,
+    function(d) dir.exists(file.path(d, "metadata")), logical(1L))])
   if (length(ver_sibs) == 0L) return(paths)
-  norm_paths <- normalizePath(paths, mustWork = FALSE)
-  vsep       <- .Platform$file.sep
+  norm_paths <- np(paths)
   in_sib <- vapply(norm_paths, function(p)
-    any(startsWith(p, paste0(ver_sibs, vsep))), logical(1L))
+    any(startsWith(p, paste0(ver_sibs, "/"))), logical(1L))
   paths[!in_sib]
 }
 

@@ -171,6 +171,19 @@ test_that("pumf_locate_or_download: returns version_dir invisibly", {
   expect_equal(result$value, vdir)
 })
 
+# ---- .extract_inner_zips ----------------------------------------------------
+
+test_that(".extract_inner_zips: excludes top-level zips regardless of separator", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_fake_version_dir(tmp)   # writes a placeholder (invalid) fake.zip
+
+  # A trailing separator on `dir` reproduces, on any platform, the mixed-
+  # separator situation seen on Windows (backslash dir vs forward-slash
+  # list.files output): the top-level fake.zip must still be excluded, so no
+  # extraction of the invalid placeholder is attempted.
+  expect_no_warning(canpumf:::.extract_inner_zips(paste0(vdir, "/")))
+})
+
 # ---- pumf_locate_or_download: extraction from zip ---------------------------
 
 test_that("pumf_locate_or_download: extracts zip when only zip is present", {

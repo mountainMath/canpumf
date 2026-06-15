@@ -304,7 +304,13 @@ pumf_locate_or_download <- function(series,
   inner_zips <- list.files(dir, pattern = "\\.zip$",
                             ignore.case = TRUE, recursive = TRUE,
                             full.names = TRUE)
-  inner_zips <- inner_zips[dirname(inner_zips) != dir]
+  # Exclude top-level zips (only nested ones are inner zips).  Compare
+  # normalized paths: on Windows `dir` can carry backslashes from tempdir()
+  # while list.files() returns forward slashes, so a raw dirname() != dir test
+  # wrongly keeps a top-level zip and tries to re-extract it.
+  dir_n <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+  inner_zips <- inner_zips[
+    normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
   for (iz in inner_zips) {
     target_dir <- dirname(iz)
     contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
