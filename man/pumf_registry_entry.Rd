@@ -36,8 +36,12 @@ CSV vs fixed-width).}
 `"CP1252"` in the pipeline).}
 
 \item{data_fixups}{A named list of pre-label fixups: any of `str_pad`,
-`rename`, `cols_swap`, `na_values`, `force_numeric`, `codes_supplement`,
-`missing_supplement`.}
+`rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
+`force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`.
+The `force_character`/`force_integer`/`force_bigint` fields take character
+vectors of variable names and override the DuckDB storage type (VARCHAR /
+INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
+not lost; a variable may appear in at most one `force_*` set.}
 
 \item{bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask}{Advanced
 bundled-archive and documentation options.}

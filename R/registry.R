@@ -13,6 +13,12 @@
 #               (applied only when the old column exists; safe for conditional renames)
 #   na_values:  character vector of raw values that should become NA for all
 #               numeric columns (applied in .apply_numeric_conversion)
+#   force_character/force_integer/force_bigint: character vectors of variable
+#               names whose DuckDB storage type is overridden.  force_character
+#               keeps raw VARCHAR (leading zeros, geo/ID codes); force_integer
+#               and force_bigint keep the raw values and set the column type to
+#               INTEGER / BIGINT after the table is written (large IDs survive).
+#               A variable may appear in at most one force_* set.
 
 .make_entry <- function(series,
                         version,
@@ -1161,6 +1167,15 @@ pumf_resolve_version <- function(series, version) {
   version
 }
 
+# Shared LFS build configuration.  LFS is not keyed per version in
+# .pumf_registry (every version uses one shared DuckDB), so its config lives
+# here and is returned by pumf_registry_lookup()/pumf_registry() for any LFS
+# version.  force_integer keeps the survey-dimension/record columns as integers
+# for make_date() and integer year/month filtering.
+.pumf_lfs_entry <- .make_entry(
+  "LFS", NA_character_,
+  data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
+
 #' Look up survey registry configuration
 #'
 #' Returns the configuration entry for a given survey series and version, or
@@ -1172,6 +1187,7 @@ pumf_resolve_version <- function(series, version) {
 #' @keywords internal
 pumf_registry_lookup <- function(series, version) {
   base <- .pumf_registry[[paste0(series, "/", version)]]
+  if (is.null(base) && series == "LFS") base <- .pumf_lfs_entry
   ovr  <- .pumf_registry_override_get(series, version)
   if (is.null(ovr)) return(base)
   # Merge the active override patch over the built-in entry (or an all-default
@@ -1207,6 +1223,7 @@ pumf_registry_keys <- function() {
 # Recognised data_fixups sub-fields (for validation warnings).
 .pumf_fixup_fields <- c(
   "str_pad", "rename", "cols_swap", "na_values", "force_numeric",
+  "force_character", "force_integer", "force_bigint",
   "codes_supplement", "missing_supplement")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
@@ -1239,6 +1256,14 @@ pumf_registry_keys <- function() {
               paste(unknown, collapse = ", "),
               ". Recognised: ", paste(.pumf_fixup_fields, collapse = ", "),
               call. = FALSE)
+    # A variable may appear in at most one force_* type override.
+    forced <- unlist(x$data_fixups[c("force_numeric", "force_character",
+                                     "force_integer", "force_bigint")],
+                     use.names = FALSE)
+    dups   <- unique(forced[duplicated(forced)])
+    if (length(dups) > 0L)
+      stop("Variable(s) listed in more than one force_* override: ",
+           paste(dups, collapse = ", "), call. = FALSE)
   }
   invisible(x)
 }
@@ -1271,8 +1296,12 @@ pumf_registry_keys <- function() {
 #' @param data_encoding,metadata_encoding Encoding overrides (default
 #'   `"CP1252"` in the pipeline).
 #' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
-#'   `rename`, `cols_swap`, `na_values`, `force_numeric`, `codes_supplement`,
-#'   `missing_supplement`.
+#'   `rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
+#'   `force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`.
+#'   The `force_character`/`force_integer`/`force_bigint` fields take character
+#'   vectors of variable names and override the DuckDB storage type (VARCHAR /
+#'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
+#'   not lost; a variable may appear in at most one `force_*` set.
 #' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
 #'   bundled-archive and documentation options.
 #' @param ... Reserved; passing any unrecognised field name raises an error.
@@ -1340,6 +1369,10 @@ pumf_registry_entry <- function(layout_mask       = NULL,
 pumf_registry <- function(series, version) {
   version <- pumf_resolve_version(series, version)
   entry   <- .pumf_registry[[paste0(series, "/", version)]]
+  if (is.null(entry) && series == "LFS") {
+    entry <- .pumf_lfs_entry
+    entry$version <- version
+  }
   if (is.null(entry)) entry <- .make_entry(series, version)
   structure(entry, class = "pumf_registry_entry")
 }

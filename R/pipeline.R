@@ -829,6 +829,22 @@ pumf_build_duckdb <- function(version_dir,
   # Step 7: numeric types, then code labels → factors
   na_vals <- if (!is.null(reg)) reg$data_fixups$na_values %||% character(0L)
              else character(0L)
+
+  # Storage-type overrides keep a variable's raw string values (no numeric
+  # conversion, no code labeling) so leading zeros and out-of-int-range IDs
+  # survive.  force_character stays VARCHAR; force_integer/bigint additionally
+  # get their DuckDB column type set by ALTER after the table is written.
+  # All force_* sets (including force_numeric) must be disjoint.
+  fx         <- if (!is.null(reg)) reg$data_fixups else list()
+  force_char <- fx$force_character %||% character(0L)
+  force_int  <- fx$force_integer   %||% character(0L)
+  force_big  <- fx$force_bigint    %||% character(0L)
+  force_raw  <- c(force_char, force_int, force_big)
+  all_forced <- c(fx$force_numeric %||% character(0L), force_raw)
+  dup_forced <- unique(all_forced[duplicated(all_forced)])
+  if (length(dup_forced) > 0L)
+    stop("Variable(s) listed in more than one force_* type override: ",
+         paste(dup_forced, collapse = ", "), call. = FALSE)
   # codes_supplement: per-variable extra rows to inject before label mapping.
   # Used for codes that appear in data but are absent from the command files.
   if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {
@@ -864,6 +880,13 @@ pumf_build_duckdb <- function(version_dir,
       }
     }
     codes <- codes[!codes$name %in% fn, ]
+  }
+  # Raw-keep storage-type overrides: treat as character and drop any codes so
+  # the values pass through unconverted (force_integer/bigint are cast in the
+  # DuckDB column type after the write).
+  if (length(force_raw) > 0L) {
+    variables$type[variables$name %in% force_raw] <- "character"
+    codes <- codes[!codes$name %in% force_raw, ]
   }
   # missing_supplement: explicit per-variable missing ranges that override
   # whatever was parsed or derived (e.g. GSS 2007 age variables with special
@@ -914,6 +937,26 @@ pumf_build_duckdb <- function(version_dir,
       con, table_name,
       stats::setNames(lapply(factor_cols, function(c) levels(data[[c]])),
                       factor_cols))
+
+  # Step 8b: set INTEGER/BIGINT storage for the raw-kept ID columns by casting
+  # from VARCHAR.  An INTEGER cast that overflows surfaces as a DuckDB error —
+  # use force_bigint for IDs beyond the 32-bit range.
+  if (length(force_int) > 0L || length(force_big) > 0L) {
+    tbl_fields <- DBI::dbListFields(con, table_name)
+    for (col in intersect(force_int, tbl_fields))
+      tryCatch(
+        DBI::dbExecute(con, sprintf(
+          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE INTEGER',
+          table_name, col)),
+        error = function(e)
+          stop("force_integer: could not cast '", col, "' to INTEGER ",
+               "(values may exceed the 32-bit range; use force_bigint). ",
+               conditionMessage(e), call. = FALSE))
+    for (col in intersect(force_big, tbl_fields))
+      DBI::dbExecute(con, sprintf(
+        'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE BIGINT',
+        table_name, col))
+  }
 
   # Step 10: disconnect writer — no lingering connections so the next
   # pumf_build_duckdb call (e.g. for lang="fra") can open the file read-write.

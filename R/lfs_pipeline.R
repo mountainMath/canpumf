@@ -307,10 +307,11 @@
 
   # SURVYEAR/SURVMNTH/REC_NUM are kept as integer (cast explicitly after numeric
   # conversion below): SURVYEAR/SURVMNTH so make_date() and SQL year/month
-  # filters operate on integers; REC_NUM is a whole-number record counter.  Mark
-  # them numeric so .apply_numeric_conversion parses them — it now always yields
-  # double, so the integer typing is restored by the cast further down.
-  lfs_int_cols <- c("SURVYEAR", "SURVMNTH", "REC_NUM")
+  # filters operate on integers; REC_NUM is a whole-number record counter.  The
+  # column list comes from the shared LFS registry entry's force_integer fixup.
+  # Mark them numeric so .apply_numeric_conversion parses them — it now always
+  # yields double, so the integer typing is restored by the cast further down.
+  lfs_int_cols <- pumf_registry_lookup("LFS", NA_character_)$data_fixups$force_integer
   variables$type[variables$name %in% lfs_int_cols] <- "numeric"
 
   # Exclude these from code labeling (kept as raw integers)
