@@ -143,7 +143,8 @@ list_gss_collection <- function() {
         paste(.data$theme_prefix, .data$year)
       )
     ) |>
-    dplyr::select(Title, Acronym, `Survey Number` = Survey.Number, Version, url)
+    dplyr::rename(`Survey Number` = "Survey.Number") |>
+    dplyr::select("Title", "Acronym", "Survey Number", "Version", "url")
 }
 
 
