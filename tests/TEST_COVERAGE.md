@@ -64,7 +64,7 @@ which cached versions are exercised.
 | SGVP | `test-pipeline-sgvp.R` | 2023, 2018, 2013, 2010, 2007, 2004, 2000, 1997 | ✓ | ✓ | ✓ | 2018 warns codes_supplement injection for BRTHMACR — allowed; 2013 asserts the force_numeric top-code ranges (HSDSIZEC 1–6, CHH0014C 0–3) verified in `override_verification.csv` |
 | CCAHS | `test-pipeline-ccahs.R` | 1 | ✓ | ✓ | ✓ | BSW join tested (PUMFID key, WGT_PUMF dropped from BSW side) |
 | ITS | `test-pipeline-its.R` | 2018, 2019 | ✓ | ✓ | ✓ | |
-| SHS | `test-pipeline-shs.R` | First of: 2021, 2019, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested |
+| SHS | `test-pipeline-shs.R` | First of: 2023, 2021, 2019, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested |
 | CIS | `test-pipeline-cis.R` | First of: 2022, 2021, 2020, 2019, 2018, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test |
 | CPSS | `test-pipeline-cpss.R` | v1 (Stage 1 only†); v2–6 (full) | ✓ | — | ✓ | Cache-gated (`skip_if_not(.cpss_extracted(), ...)`); †v1 has no machine-readable codebook so Stage 2/3 are skipped; Stage 1 download tested in `test-pipeline-stage1.R` |
 | LFS | `test-pipeline-lfs.R` | Synthetic (all); real cache if present | ✓\* | — | — | 47 tests; synthetic fixtures cover schema evolution, ENUM types, version filters, fra labels |

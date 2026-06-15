@@ -116,7 +116,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
-| Survey of Household Spending | SHS | 2017, 2019, 2021 | ✓ |
+| Survey of Household Spending | SHS | 2017, 2019, 2021, 2023 | ✓ |
 
 ### Cite **canpumf**
 

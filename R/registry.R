@@ -155,19 +155,24 @@
     layout_mask   = "chs2018ecl_pumf",
     file_mask     = "CHS2018ECL_PUMF\\.csv"),
 
+  # 2021/2022 use a generic \d{4} year so the entry clones cleanly for new
+  # release years. Masks are anchored by the surrounding literals (chs…ecl_pumf)
+  # and each version dir holds only one year, so \d{4} matches exactly as the
+  # literal year did. The data file_mask ends in pumf\.csv so it never matches
+  # the …pumf_bsw\.csv weight file.
   "CHS/2021" = .make_entry("CHS", "2021",
-    layout_mask   = "CHS2021ECL_PUMF",
-    bsw_mask      = "chs2021ecl_PUMF_bsw",
-    bsw_file_mask = "chs2021ecl_PUMF_bsw\\.csv",
+    layout_mask   = "CHS\\d{4}ECL_PUMF",
+    bsw_mask      = "chs\\d{4}ecl_PUMF_bsw",
+    bsw_file_mask = "chs\\d{4}ecl_PUMF_bsw\\.csv",
     bsw_join_key  = "PUMFID",
-    file_mask     = "CHS2021ECL_PUMF\\.csv"),
+    file_mask     = "CHS\\d{4}ECL_PUMF\\.csv"),
 
   "CHS/2022" = .make_entry("CHS", "2022",
-    layout_mask   = "chs2022ecl_pumf",
-    bsw_mask      = "chs2022ecl_pumf_bsw",
-    bsw_file_mask = "chs2022ecl_pumf_bsw\\.csv",
+    layout_mask   = "chs\\d{4}ecl_pumf",
+    bsw_mask      = "chs\\d{4}ecl_pumf_bsw",
+    bsw_file_mask = "chs\\d{4}ecl_pumf_bsw\\.csv",
     bsw_join_key  = "PUMFID",
-    file_mask     = "chs2022ecl_pumf\\.csv"),
+    file_mask     = "chs\\d{4}ecl_pumf\\.csv"),
 
   # ---- SHS: Survey of Household Spending ------------------------------------
 
@@ -190,10 +195,20 @@
   # 2021: SPSS split-file format; BSW layout is a SAS @pos .txt file co-located
   # with the BSW data (not in the SPSS cards dir); fallback in .read_bsw_data
   # handles this automatically. Join key is CASEID (uppercased from "CaseID").
+  # file_mask uses a generic \d{4} year so the entry can be cloned for new
+  # release years without edits. The BSW files (pumf_shs<year>_bsw_*.txt) have
+  # no underscore before the year and don't end in \d{4}.txt, so the data file
+  # matches unambiguously.
   "SHS/2021" = .make_entry("SHS", "2021",
     bsw_file_mask = "bsw_flatfile\\.txt",
     bsw_join_key  = "CASEID",
-    file_mask     = "PUMF_SHS_2021\\.txt"),
+    file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
+
+  # 2023: same SPSS split-file format as 2021.
+  "SHS/2023" = .make_entry("SHS", "2023",
+    bsw_file_mask = "bsw_flatfile\\.txt",
+    bsw_join_key  = "CASEID",
+    file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
 
   # ---- GSS: General Social Survey -------------------------------------------
   # 1996 (cycle 11): monolithic SPSS; data in C11MDFAscRecLay-Eng/.
@@ -774,8 +789,10 @@
     file_mask     = "ccahs_pumf\\.csv"),
 
   # ---- SGVP: GSS Giving, Volunteering and Participating ---------------------
+  # Generic \d{4} year file_mask (matches GVP_DBP_<year>_PUMF_FMGD.txt, not the
+  # Addendum_*.txt files) so the entry clones cleanly for new release years.
   "SGVP/2023" = .make_entry("SGVP", "2023",
-    file_mask   = "GVP_DBP_2023_PUMF_FMGD\\.txt",
+    file_mask   = "GVP_DBP_\\d{4}_PUMF_FMGD\\.txt",
     data_fixups = list(force_numeric = "HSDSIZEC")),
 
   # 2018 (cycle 33): split-SPSS in Syntax_Syntaxe/SPSS/.
@@ -835,11 +852,12 @@
 
   # ---- ITS: International Travel Survey -------------------------------------
   # Split-SPSS layout (VTS_<year>_PUMF_{i,vale,vare,valf,varf,miss}.sps) in
-  # Layout_Cards/.  Explicit file_mask avoids picking up the README.txt.
+  # Layout_Cards/.  Generic \d{4} year file_mask avoids the README.txt and
+  # clones cleanly for new release years.
   "ITS/2018" = .make_entry("ITS", "2018",
-    file_mask = "VTS_2018_PUMF\\.txt"),
+    file_mask = "VTS_\\d{4}_PUMF\\.txt"),
   "ITS/2019" = .make_entry("ITS", "2019",
-    file_mask = "VTS_2019_PUMF\\.txt"),
+    file_mask = "VTS_\\d{4}_PUMF\\.txt"),
 
   # ---- Census of Population -------------------------------------------------
   # 2021 and 2016 are downloadable. Older years are EFT-only (user deposits zip).
@@ -1188,6 +1206,29 @@ pumf_resolve_version <- function(series, version) {
 pumf_registry_lookup <- function(series, version) {
   base <- .pumf_registry[[paste0(series, "/", version)]]
   if (is.null(base) && series == "LFS") base <- .pumf_lfs_entry
+  # Inherit config from the newest registered sibling when this exact version
+  # isn't registered (e.g. a freshly released year deposited in the cache).
+  # Now that recent file_masks use a generic \d{4} year, the inherited config
+  # usually applies as-is.  A message fires once per session so the implicit
+  # reuse is discoverable -- a genuinely changed release still needs its own
+  # entry.  Skipped when an override is present (handled below).
+  if (is.null(base)) {
+    sib <- .pumf_registry_newest_sibling(series, version)
+    if (!is.null(sib)) {
+      key <- paste0(series, "/", version)
+      if (is.null(.pumf_registry_inherit_announced[[key]])) {
+        message(sprintf(
+          paste0("No %s registry entry; inheriting config from %s/%s. ",
+                 "Verify the new release matches (file layout, codes, BSW ",
+                 "join) and add an explicit entry if it differs."),
+          key, series, sib))
+        .pumf_registry_inherit_announced[[key]] <- TRUE
+      }
+      base <- .pumf_registry[[paste0(series, "/", sib)]]
+      base$series  <- series
+      base$version <- version
+    }
+  }
   ovr  <- .pumf_registry_override_get(series, version)
   if (is.null(ovr)) return(base)
   # Merge the active override patch over the built-in entry (or an all-default
@@ -1207,6 +1248,34 @@ pumf_registry_lookup <- function(series, version) {
 #' @keywords internal
 pumf_registry_keys <- function() {
   names(.pumf_registry)
+}
+
+# Tracks (series/version -> inherited-from) pairs already announced this
+# session so the inheritance message fires once per new version, not once
+# per pumf_registry_lookup() call.
+.pumf_registry_inherit_announced <- new.env(parent = emptyenv())
+
+#' Find the registered sibling whose config best fits an unregistered year
+#'
+#' Considers only plain four-digit-year keys (`series/2023`) so multi-part
+#' versions (Census `1971/individuals_prov`) never inherit across types.
+#' Prefers the newest sibling not later than `version`; if the requested year
+#' predates every entry, falls back to the oldest registered sibling.
+#'
+#' @return the chosen sibling version string, or `NULL` if no year-keyed sibling
+#' @keywords internal
+.pumf_registry_newest_sibling <- function(series, version) {
+  if (!grepl("^\\d{4}$", version)) return(NULL)
+  pre <- paste0(series, "/")
+  sibs <- names(.pumf_registry)[startsWith(names(.pumf_registry), pre)]
+  years <- sub(paste0("^", pre), "", sibs)
+  years <- years[grepl("^\\d{4}$", years)]
+  if (length(years) == 0L) return(NULL)
+  years <- as.integer(years)
+  want  <- as.integer(version)
+  not_later <- years[years <= want]
+  if (length(not_later) > 0L) as.character(max(not_later))
+  else as.character(min(years))
 }
 
 

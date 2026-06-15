@@ -18,7 +18,7 @@
 }
 
 .shs_any_version <- function() {
-  for (v in c("2021", "2019", "2017")) {
+  for (v in c("2023", "2021", "2019", "2017")) {
     if (canpumf:::.version_is_extracted(.shs_vdir(v))) return(v)
   }
   NULL

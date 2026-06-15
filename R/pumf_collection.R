@@ -200,11 +200,12 @@ list_canpumf_collection <- function(){
 
   shs <- tibble(Title="Survey of Household Spending",
                 Acronym="SHS",
-                Version=c("2017","2019","2021"),
+                Version=c("2017","2019","2021","2023"),
                 `Survey Number`="3508",
                 url=c("https://www150.statcan.gc.ca/n1/en/pub/62m0004x/2017001/SHS_EDM_2017-eng.zip",
                       "https://www150.statcan.gc.ca/n1/en/pub/62m0004x/2017001/SHS_EDM_2019.zip",
-                      "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2021.zip"))
+                      "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2021.zip",
+                      "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2023.zip"))
 
   its_versions <- tibble("Acronym"="ITS",
                          Version=c("2019","2018"),

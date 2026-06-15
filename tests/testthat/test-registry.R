@@ -1,8 +1,30 @@
 # ---- pumf_registry_lookup ---------------------------------------------------
 
-test_that("pumf_registry_lookup: returns NULL for unknown survey", {
+test_that("pumf_registry_lookup: returns NULL when no sibling config applies", {
+  # Unknown series: no year-keyed siblings to inherit from.
   expect_null(canpumf:::pumf_registry_lookup("FAKE", "2099"))
-  expect_null(canpumf:::pumf_registry_lookup("SFS", "1900"))
+  # Non-year version: sibling inheritance only fires for plain \d{4} versions.
+  expect_null(canpumf:::pumf_registry_lookup("SFS", "draft"))
+  # Census versions are multi-part (e.g. "2021 (individuals)"), so a bare year
+  # has no plain-year sibling to inherit.
+  expect_null(canpumf:::pumf_registry_lookup("Census", "2099"))
+})
+
+test_that("pumf_registry_lookup: inherits newest sibling config for new year", {
+  # Reset the once-per-session announce memo so the message reliably fires.
+  rm(list = ls(canpumf:::.pumf_registry_inherit_announced),
+     envir = canpumf:::.pumf_registry_inherit_announced)
+  # SHS has 2017/2019/2021/2023; an unregistered later year inherits 2023.
+  expect_message(
+    e <- canpumf:::pumf_registry_lookup("SHS", "2099"),
+    "inheriting config from SHS/2023")
+  expect_equal(e$series,    "SHS")
+  expect_equal(e$version,   "2099")
+  expect_equal(e$file_mask, "PUMF_SHS_\\d{4}\\.txt")
+
+  # A year predating every entry inherits the oldest sibling instead.
+  expect_equal(canpumf:::pumf_registry_lookup("SHS", "1900")$file_mask,
+               canpumf:::pumf_registry_lookup("SHS", "2017")$file_mask)
 })
 
 test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
