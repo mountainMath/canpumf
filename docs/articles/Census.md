@@ -64,8 +64,8 @@ census_2021 |>
 
 ![](Census_files/figure-html/unnamed-chunk-3-1.png)
 
-Census PUMF data is quite rich and faily accurate when slicing it
-coarsly like this, but it’s always good to check for variability in the
+Census PUMF data is quite rich and fairly accurate when slicing it
+coarsely like this, but it’s always good to check for variability in the
 data. Census PUMF (for the recent years) comes with 16 replication
 weights, and we can look at the range they provide for the estimates.
 

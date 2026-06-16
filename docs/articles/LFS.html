@@ -40,10 +40,12 @@
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
+    <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
     <li><a class="dropdown-item" href="../articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul>
 </li>
+<li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul>
 <ul class="navbar-nav">
 <li class="nav-item"><form class="form-inline" role="search">
@@ -146,17 +148,17 @@ generally we want to make sure that the <code>canpumf.cache_path</code>
 option is set to a path to permanently cache the data.</p>
 <p>Values come labelled, but columns are not. People working regularly
 with the LFS data will likely want to keep the short default column
-names, they can be converted to human readable column lables using
+names, they can be converted to human readable column labels using
 <code>label_pumf_columns</code> function.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_2022</span> <span class="op">&lt;-</span> <span class="va">lfs_2022</span> <span class="op">|&gt;</span> <span class="fu"><a href="../reference/label_pumf_columns.html">label_pumf_columns</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <p>With this we can do some simple descriptive analysis. We could use
 the <code>add_bootstrap_weights</code> function to add bootstrap weights
-if desired. We focus in on February 2022 and add boodstrap weights. By
+if desired. We focus in on February 2022 and add bootstrap weights. By
 default this adds 500 weights, this will take time to generate for the
 full LFS sample. For LFS data the bootstrap weight generation will
 automatically stratify the generation by year and month. Here we
-shortcut this by only generating bootstrap weihhts for the February 2022
+shortcut this by only generating bootstrap weights for the February 2022
 data after calling collect, so they just get generated in memory for the
 resulting tibble.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
@@ -174,7 +176,7 @@ resulting tibble.</p>
 <span><span class="co">#&gt;   Replicate 400 / 500 ...</span></span>
 <span><span class="co">#&gt;   Replicate 450 / 500 ...</span></span>
 <span><span class="co">#&gt;   Replicate 500 / 500 ...</span></span></code></pre></div>
-<p>For this vignette we look at gender-specific labour fource status
+<p>For this vignette we look at gender-specific labour force status
 statistics for the 20 to 64 year old population, computing age-adjusted
 rates to even out age-specific effects.</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
@@ -262,12 +264,12 @@ employed and at work in February 2022 drops these shares a bit.</p>
 with a specific task.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_2022</span> <span class="op">|&gt;</span> <span class="fu"><a href="../reference/close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
-<p>Derived connections, like the one to the Februrary 2022 table, will
+<p>Derived connections, like the one to the February 2022 table, will
 automatically be closed too.</p>
 <div class="section level2">
 <h2 id="timelines">Timelines<a class="anchor" aria-label="anchor" href="#timelines"></a>
 </h2>
-<p>LFS data can also easliy be accessed across time.</p>
+<p>LFS data can also easily be accessed across time.</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_pumf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, refresh<span class="op">=</span><span class="st">"auto"</span><span class="op">)</span></span></code></pre></div>
 <p>We can now easily extract time series data, we want to perform as
@@ -303,7 +305,7 @@ based on the survey year and month.</p>
 <p><img src="LFS_files/figure-html/unnamed-chunk-11-1.png" class="r-plt" alt="" width="700"></p>
 <p>Before plotting we could call <code>collect</code>, but this does not
 need to be done explicitly.</p>
-<p>Because the data is efficiently ogranzied in DuckDB, this query runs
+<p>Because the data is efficiently organised in DuckDB, this query runs
 quite fast despite no explicit indexing of the database, taking less
 than half a second.</p>
 <div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
@@ -315,7 +317,7 @@ than half a second.</p>
 <p>The SEX variable has been recategorized into the GENDER concept
 starting in 2011, older LFS PUMF data still uses SEX. We can harmonize
 this by coalescing the values to create a new <code>GENDER_SEX</code>
-colum as done by the convenience function
+column as done by the convenience function
 <code>add_lfs_GENDER_SEX</code>.</p>
 <div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_pumf</span> <span class="op">|&gt;</span> </span>

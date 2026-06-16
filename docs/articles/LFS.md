@@ -88,7 +88,7 @@ path to permanently cache the data.
 
 Values come labelled, but columns are not. People working regularly with
 the LFS data will likely want to keep the short default column names,
-they can be converted to human readable column lables using
+they can be converted to human readable column labels using
 `label_pumf_columns` function.
 
 ``` r
@@ -98,11 +98,11 @@ lfs_2022 <- lfs_2022 |> label_pumf_columns()
 
 With this we can do some simple descriptive analysis. We could use the
 `add_bootstrap_weights` function to add bootstrap weights if desired. We
-focus in on February 2022 and add boodstrap weights. By default this
+focus in on February 2022 and add bootstrap weights. By default this
 adds 500 weights, this will take time to generate for the full LFS
 sample. For LFS data the bootstrap weight generation will automatically
 stratify the generation by year and month. Here we shortcut this by only
-generating bootstrap weihhts for the February 2022 data after calling
+generating bootstrap weights for the February 2022 data after calling
 collect, so they just get generated in memory for the resulting tibble.
 
 ``` r
@@ -123,7 +123,7 @@ lfs_2022_02_data <- lfs_2022 |>
 #>   Replicate 500 / 500 ...
 ```
 
-For this vignette we look at gender-specific labour fource status
+For this vignette we look at gender-specific labour force status
 statistics for the 20 to 64 year old population, computing age-adjusted
 rates to even out age-specific effects.
 
@@ -230,12 +230,12 @@ with a specific task.
 lfs_2022 |> close_pumf()
 ```
 
-Derived connections, like the one to the Februrary 2022 table, will
+Derived connections, like the one to the February 2022 table, will
 automatically be closed too.
 
 ## Timelines
 
-LFS data can also easliy be accessed across time.
+LFS data can also easily be accessed across time.
 
 ``` r
 
@@ -281,7 +281,7 @@ unemployment_stats |>
 Before plotting we could call `collect`, but this does not need to be
 done explicitly.
 
-Because the data is efficiently ogranzied in DuckDB, this query runs
+Because the data is efficiently organised in DuckDB, this query runs
 quite fast despite no explicit indexing of the database, taking less
 than half a second.
 
@@ -297,7 +297,7 @@ microbenchmark::microbenchmark(collect(unemployment_stats)) |>
 
 The SEX variable has been recategorized into the GENDER concept starting
 in 2011, older LFS PUMF data still uses SEX. We can harmonize this by
-coalescing the values to create a new `GENDER_SEX` colum as done by the
+coalescing the values to create a new `GENDER_SEX` column as done by the
 convenience function `add_lfs_GENDER_SEX`.
 
 ``` r

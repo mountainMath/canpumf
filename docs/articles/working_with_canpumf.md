@@ -95,10 +95,10 @@ also avoid downstream errors in the analysis.
 ## Forced moves
 
 We take a simple look at the share of current renters that were forced
-to move on their most recent move, keyed by when the most revent move
-occured. To estimate risk of being forced to move we look at all current
-renters that did not move in the five years prior to the CHS, or those
-that moved in the prior five years and were reners in their old
+to move on their most recent move, keyed by when the most recent move
+occurred. To estimate risk of being forced to move we look at all
+current renters that did not move in the five years prior to the CHS, or
+those that moved in the prior five years and were renters in their old
 accommodation, as a base and ask what share of these were forced to move
 in a given timeframe.
 
@@ -132,7 +132,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
   coord_flip() +
   scale_y_continuous(labels=scales::percent) +
   labs(title="Vancouver renters forced to move",
-       x="When move to current dwelling occured",
+       x="When move to current dwelling occurred",
        y="Share of current renters",
        caption="StatCan CHS PUMF 2018")
 #> Warning: Missing values are always removed in SQL aggregation functions.
@@ -145,7 +145,7 @@ move](working_with_canpumf_files/figure-html/fig-yvr-renters-forced-moves-1.png)
 
 This looks interesting in that there seem to be distinct periods when
 the frequency of being forced to move changed, recognizing that longer
-ago breackets are conditional on not having moved after.
+ago brackets are conditional on not having moved after.
 
 With PUMF data we need to be aware that we are dealing with a synthetic
 sample that has been altered from the original survey repsonses for
@@ -183,7 +183,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
   coord_flip() +
   scale_y_continuous(labels=scales::percent) +
   labs(title="Vancouver renters forced to move",
-       x="When move to current dwelling occured",
+       x="When move to current dwelling occurred",
        y="Share of current renters",
        caption="StatCan CHS PUMF 2018")
 ```
@@ -233,7 +233,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
   coord_flip() +
   scale_y_continuous(labels=scales::percent) +
   labs(title="Vancouver renters forced to move",
-       x="When move to current dwelling occured",
+       x="When move to current dwelling occurred",
        y="Share of current renters",
        caption="StatCan CHS PUMF 2018")
 ```
@@ -288,7 +288,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
   scale_y_continuous(labels=scales::percent) +
   labs(title="Renters forced to move",
        subtitle="(based on households currently renting that did not move in past 5 years or\nhouseholds that moved in past 5 years that rented their previous dweling)",
-       x="When move to current dwelling occured",
+       x="When move to current dwelling occurred",
        y="Share of current renters",
        caption="StatCan CHS PUMF 2018")
 ```
@@ -297,7 +297,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
 move](working_with_canpumf_files/figure-html/fig-renters-forced-moves-1.png)
 
 This shows that patterns vary across cities, Calgary’s elevated rate of
-forced moves in four to five year timeframe may be due to the heated up
+forced moves in four to five year timeframe may be due to the heating up
 of the rental market during the boom phase at that time, where rent
 hikes and lack of rent control may have forced people to move.
 

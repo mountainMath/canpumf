@@ -5,10 +5,12 @@
 <url><loc>https://mountainmath.github.io/canpumf/articles/Census.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/LFS.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/index.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/articles/onboarding.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/pipeline.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/working_with_canpumf.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/authors.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/index.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/news/index.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/add_bootstrap_weights.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/add_lfs_GENDER_SEX.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/add_lfs_SURVDATE.html</loc></url>
@@ -16,6 +18,7 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/check_bilingual_coverage.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/close_pumf.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/detect_formats.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/dot-pumf_registry_newest_sibling.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/get_pumf.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/get_pumf_connection.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/index.html</loc></url>

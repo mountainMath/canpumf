@@ -11,6 +11,11 @@ accumulating pipeline, described separately at the end.
 
 ## High-level flow
 
+![canpumf pipeline: get_pumf dispatches LFS vs. the three-stage pipeline
+(locate/download, parse metadata, build DuckDB), then registers
+provenance and returns a lazy
+tbl.](pipeline_files/figure-html/pipeline-diagram-1.svg)
+
 ------------------------------------------------------------------------
 
 ## Stage 1 — Locate or download
@@ -309,18 +314,40 @@ before label mapping:
   (e.g. WKACTMA/WKACTFA and FAOCC81/MAOCC81 in Census 1981 individuals).
 - **`force_numeric`** — character vector of column names to treat as
   numeric regardless of how many VALUE LABELS are declared. Used when a
-  variable is an integer index that the SPSS file mis-classifies as
-  categorical (e.g. SUBSAMPL in Census 1971).
+  variable carries boundary or top-code labels
+  (e.g. `"85 years and over"`) alongside otherwise-continuous values, or
+  is an integer index the SPSS file mis-classifies as categorical
+  (e.g. SUBSAMPL in Census 1971). The codes are dropped, but any
+  **true-missing** sentinel codes (Not stated, Don’t know, Valid skip, …
+  — *not* zero-value labels like “None”) are first converted into a
+  per-variable `missing_low/missing_high` range so those sentinels still
+  become `NA`. An existing missing range (from `MISSING VALUES` or a
+  split-SPSS miss file) takes precedence.
+- **`force_character` / `force_integer` / `force_bigint`** — character
+  vectors of variable names whose **DuckDB storage type** is overridden.
+  Unlike the conversions above, the raw string values are kept verbatim
+  (no numeric conversion, no code labeling), so geographic codes retain
+  leading zeros and out-of-`int`-range IDs survive. `force_character`
+  keeps the column VARCHAR; `force_integer` / `force_bigint` cast it to
+  INTEGER / BIGINT via `ALTER COLUMN` *after* the table is written (an
+  INTEGER cast that overflows 2^31 errors — use `force_bigint`). A
+  variable may appear in at most one `force_*` set (including
+  `force_numeric`); this is validated at build time. LFS sources its
+  `SURVYEAR` / `SURVMNTH` / `REC_NUM` integer-forcing through this
+  mechanism from the shared LFS registry entry.
 - **`codes_supplement`** — named list of `data.frame`s injecting
-  code-label rows absent from the SPSS command files. Each data frame
-  has columns `val`, `label_en`, `label_fr`. Setting `label_en = NA`
-  marks a value as intentionally missing (produces a silent `NA` factor
-  entry without a warning, and without introducing a spurious factor
-  level). All entries are verified in the override ledger
-  (`tests/testthat/override_verification.csv`).
+  code-label rows absent from the SPSS command files (values present in
+  the data but not declared in the command files, e.g. the CHS `PPROV`
+  territories code). Each data frame has columns `val`, `label_en`,
+  `label_fr`. Setting `label_en = NA` marks a value as intentionally
+  missing (produces a silent `NA` factor entry without a warning, and
+  without introducing a spurious factor level). All entries are verified
+  in the override ledger (`tests/testthat/override_verification.csv`).
 - **`na_values`** — character vector of raw string sentinels that become
-  `NA` for all numeric columns (used for undeclared Census income
-  sentinels).
+  `NA`. In numeric columns they are exact-matched and NA’d during
+  numeric conversion; in labeled (factor) columns they are silently
+  blanked. Used for undeclared Census income sentinels and SAS-style
+  `"."` missing markers.
 
 ### Bootstrap weight join (BSW)
 
@@ -378,7 +405,7 @@ English label.
 ### DuckDB write and ENUM enforcement
 
 The labelled data frame is written to DuckDB with `dbWriteTable()`.
-Factor columns are stored as DuckDB `ENUM` types. DuckDB ≥ 1.5.2 does
+Factor columns are stored as DuckDB `ENUM` types. DuckDB \>= 1.5.2 does
 this automatically; for older versions `ensure_enum_columns()` runs
 `ALTER TABLE ... ALTER COLUMN ... TYPE ENUM(...)` for each factor
 column.
@@ -462,13 +489,22 @@ uses `.pumf_lookup_con()` to retrieve the provenance;
 [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
 removes the entry and disconnects.
 
+This internal provenance registry is distinct from the **RStudio
+Connections pane**. Whether the DuckDB connection is advertised to that
+pane is controlled separately by the `register_connection` argument to
+[`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
+(default `getOption("canpumf.register_connection", TRUE)`); set it to
+`FALSE` to keep the pane from being spammed when opening and closing
+many connections programmatically.
+
 ------------------------------------------------------------------------
 
 ## Registry configuration
 
 `pumf_registry_lookup(series, version)` returns a named list that
 controls every per-survey choice in the pipeline. Surveys without an
-entry use auto-detection with defaults.
+entry use auto-detection with defaults (see *Newest-sibling inheritance*
+below for the one exception).
 
 | Field | Purpose | Default |
 |----|----|----|
@@ -480,6 +516,29 @@ entry use auto-detection with defaults.
 | `bsw_file_mask` | filename pattern for the BSW data file | `NULL` |
 | `bsw_join_key` | column(s) to join BSW onto the main data | `NULL` |
 | `bsw_drop_cols` | BSW columns to drop before joining | `character(0)` |
-| `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `codes_supplement`, `na_values` transforms | [`list()`](https://rdrr.io/r/base/list.html) |
+| `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `force_character`, `force_integer`, `force_bigint`, `codes_supplement`, `na_values` transforms | [`list()`](https://rdrr.io/r/base/list.html) |
 | `missing_supplement` | named list of `c(lo, hi)` pairs — explicit missing-range overrides for sentinels no generic pattern can classify (e.g. non-integer sentinels like `999.5`) | `NULL` |
 | `doc_mask` | regex applied to PDF filenames to filter a shared documentation directory to the relevant file type (e.g. `"Family\|Familles"` for 1986 Census families) | `NULL` |
+
+### Newest-sibling inheritance
+
+Surveys without a registry entry normally fall back to pure
+auto-detection, with one exception. When the requested version is a bare
+four-digit year and the same series already has at least one other
+year-keyed entry,
+[`pumf_registry_lookup()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_lookup.md)
+inherits the configuration of the newest registered sibling whose year
+is \<= the requested year (or the oldest sibling if the requested year
+predates them all). This lets a freshly released year deposited in the
+cache reuse the prior year’s config — which works cleanly now that
+recent `file_mask`s use a generic `\d{4}` year placeholder rather than a
+hard-coded year.
+
+A [`message()`](https://rdrr.io/r/base/message.html) fires once per
+session so the implicit reuse is discoverable; a genuinely changed
+release (new file layout, codes, or BSW join) still needs its own
+explicit entry. Inheritance is **skipped** for multi-part versions (e.g.
+Census `2021 (individuals)`) and for LFS, which has its own shared
+registry entry. \| `doc_mask` \| regex applied to PDF filenames to
+filter a shared documentation directory to the relevant file type
+(e.g. `"Family\|Familles"` for 1986 Census families) \| `NULL` \|

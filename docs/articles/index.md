@@ -4,6 +4,8 @@
 
 - [Census](https://mountainmath.github.io/canpumf/articles/Census.md):
 - [LFS](https://mountainmath.github.io/canpumf/articles/LFS.md):
+- [Onboarding a new
+  PUMF](https://mountainmath.github.io/canpumf/articles/onboarding.md):
 - [canpumf Pipeline
   Architecture](https://mountainmath.github.io/canpumf/articles/pipeline.md):
 - [Working with

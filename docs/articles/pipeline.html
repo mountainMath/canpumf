@@ -40,10 +40,12 @@
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
+    <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
     <li><a class="dropdown-item" href="../articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul>
 </li>
+<li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul>
 <ul class="navbar-nav">
 <li class="nav-item"><form class="form-inline" role="search">
@@ -59,9 +61,8 @@
 
 
 
-<script src="pipeline_files/htmlwidgets-1.6.4/htmlwidgets.js"></script><script src="pipeline_files/d3-3.3.8/d3.min.js"></script><script src="pipeline_files/dagre-0.4.0/dagre-d3.min.js"></script><link href="pipeline_files/mermaid-0.3.0/dist/mermaid.css" rel="stylesheet">
-<script src="pipeline_files/mermaid-0.3.0/dist/mermaid.slim.min.js"></script><link href="pipeline_files/DiagrammeR-styles-0.2/styles.css" rel="stylesheet">
-<script src="pipeline_files/chromatography-0.1/chromatography.js"></script><script src="pipeline_files/DiagrammeR-binding-1.0.12/DiagrammeR.js"></script><div class="row">
+
+<div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
       <img src="../logo.png" class="logo" alt=""><h1>canpumf Pipeline Architecture</h1>
             
@@ -81,8 +82,8 @@ the end.</p>
 <div class="section level2">
 <h2 id="high-level-flow">High-level flow<a class="anchor" aria-label="anchor" href="#high-level-flow"></a>
 </h2>
-<div id="htmlwidget-ac96cb3ee4656e2e9ec3" style="width:1200px;height:650px;" class="DiagrammeR html-widget"></div>
-<script type="application/json" data-for="htmlwidget-ac96cb3ee4656e2e9ec3">{"x":{"diagram":"\ngraph TD\n    A[get_pumf series version lang] --> LFS{series == LFS?}\n    LFS -->|yes| LFSP[lfs_get_pumf]\n    LFS -->|no| S1\n\n    subgraph S1 Stage 1 locate download\n      CHK{version dir exists?}\n      CHK -->|yes, not refresh| EXTR{zip already extracted?}\n      CHK -->|no / refresh| COL[look up collection URL]\n      COL --> EFT{EFT-only?}\n      EFT -->|yes| ERR[stop: deposit zip manually]\n      EFT -->|no| DL[download zip]\n      DL --> UZ[robust_unzip]\n      UZ --> EXTR\n      EXTR -->|yes| S2\n      EXTR -->|no| UZ\n    end\n\n    S1 --> S2\n\n    subgraph S2 Stage 2 parse metadata\n      MC{metadata already exists?}\n      MC -->|yes, not refresh| S3\n      MC -->|no / refresh| DF[detect_formats]\n      DF --> P1{LFS codebook.csv?}\n      DF --> P2{CPSS variables.csv?}\n      DF --> P3{SAS cards .lay plus .lbe?}\n      DF --> P4{SPSS split vare/vale/_i.sps?}\n      DF --> P5{SPSS mono .sps / SPSS.txt / .xmf?}\n      DF --> P6{SPSS .sav?}\n      DF --> P7{PDF Dictionary?}\n      P1 & P2 & P3 & P4 & P5 & P6 & P7 --> MRG[merge_metadata]\n      MRG --> WR[write variables.csv codes.csv layout.csv]\n    end\n\n    S2 --> S3\n\n    subgraph S3 Stage 3 build DuckDB\n      TB{table already in DuckDB?}\n      TB -->|yes, not refresh| OD\n      TB -->|no / refresh| FF[find data file]\n      FF --> FWF{layout.csv exists and file not .csv?}\n      FWF -->|yes FWF| RFW[read_fwf]\n      FWF -->|no CSV| RCS[read_csv]\n      RFW & RCS --> JNK[drop trailing junk rows]\n      JNK --> FX[apply data fixups str_pad rename cols_swap]\n      FX --> BSW{BSW mask in registry?}\n      BSW -->|yes| RBW[join bootstrap weights]\n      BSW -->|no| NC\n      RBW --> NC[numeric conversion missing ranges + na_values]\n      NC --> CL[code labels to factors]\n      CL --> WD[write DuckDB table]\n      WD --> EN[enforce ENUM types]\n      EN --> OD[open read-only connection]\n    end\n\n    S3 --> REG[register provenance series version lang]\n    REG --> TBL[return lazy dplyr tbl]\n\n  "},"evals":[],"jsHooks":[]}</script><hr>
+<p><img src="pipeline_files/figure-html/pipeline-diagram-1.svg" class="r-plt" alt="canpumf pipeline: get_pumf dispatches LFS vs. the three-stage pipeline (locate/download, parse metadata, build DuckDB), then registers provenance and returns a lazy tbl." width="100%"></p>
+<hr>
 </div>
 <div class="section level2">
 <h2 id="stage-1-locate-or-download">Stage 1 — Locate or download<a class="anchor" aria-label="anchor" href="#stage-1-locate-or-download"></a>
@@ -548,22 +549,50 @@ Census 1981 individuals).</li>
 <li>
 <strong><code>force_numeric</code></strong> — character vector of
 column names to treat as numeric regardless of how many VALUE LABELS are
-declared. Used when a variable is an integer index that the SPSS file
-mis-classifies as categorical (e.g. SUBSAMPL in Census 1971).</li>
+declared. Used when a variable carries boundary or top-code labels
+(e.g. <code>"85 years and over"</code>) alongside otherwise-continuous
+values, or is an integer index the SPSS file mis-classifies as
+categorical (e.g. SUBSAMPL in Census 1971). The codes are dropped, but
+any <strong>true-missing</strong> sentinel codes (Not stated, Don’t
+know, Valid skip, … — <em>not</em> zero-value labels like “None”) are
+first converted into a per-variable
+<code>missing_low/missing_high</code> range so those sentinels still
+become <code>NA</code>. An existing missing range (from
+<code>MISSING VALUES</code> or a split-SPSS miss file) takes
+precedence.</li>
+<li>
+<strong><code>force_character</code> / <code>force_integer</code> /
+<code>force_bigint</code></strong> — character vectors of variable names
+whose <strong>DuckDB storage type</strong> is overridden. Unlike the
+conversions above, the raw string values are kept verbatim (no numeric
+conversion, no code labeling), so geographic codes retain leading zeros
+and out-of-<code>int</code>-range IDs survive.
+<code>force_character</code> keeps the column VARCHAR;
+<code>force_integer</code> / <code>force_bigint</code> cast it to
+INTEGER / BIGINT via <code>ALTER COLUMN</code> <em>after</em> the table
+is written (an INTEGER cast that overflows 2^31 errors — use
+<code>force_bigint</code>). A variable may appear in at most one
+<code>force_*</code> set (including <code>force_numeric</code>); this is
+validated at build time. LFS sources its <code>SURVYEAR</code> /
+<code>SURVMNTH</code> / <code>REC_NUM</code> integer-forcing through
+this mechanism from the shared LFS registry entry.</li>
 <li>
 <strong><code>codes_supplement</code></strong> — named list of
 <code>data.frame</code>s injecting code-label rows absent from the SPSS
-command files. Each data frame has columns <code>val</code>,
-<code>label_en</code>, <code>label_fr</code>. Setting
-<code>label_en = NA</code> marks a value as intentionally missing
-(produces a silent <code>NA</code> factor entry without a warning, and
-without introducing a spurious factor level). All entries are verified
-in the override ledger
+command files (values present in the data but not declared in the
+command files, e.g. the CHS <code>PPROV</code> territories code). Each
+data frame has columns <code>val</code>, <code>label_en</code>,
+<code>label_fr</code>. Setting <code>label_en = NA</code> marks a value
+as intentionally missing (produces a silent <code>NA</code> factor entry
+without a warning, and without introducing a spurious factor level). All
+entries are verified in the override ledger
 (<code>tests/testthat/override_verification.csv</code>).</li>
 <li>
 <strong><code>na_values</code></strong> — character vector of raw
-string sentinels that become <code>NA</code> for all numeric columns
-(used for undeclared Census income sentinels).</li>
+string sentinels that become <code>NA</code>. In numeric columns they
+are exact-matched and NA’d during numeric conversion; in labeled
+(factor) columns they are silently blanked. Used for undeclared Census
+income sentinels and SAS-style <code>"."</code> missing markers.</li>
 </ul>
 </div>
 <div class="section level3">
@@ -652,7 +681,7 @@ per-row to the English label.</p>
 </h3>
 <p>The labelled data frame is written to DuckDB with
 <code>dbWriteTable()</code>. Factor columns are stored as DuckDB
-<code>ENUM</code> types. DuckDB ≥ 1.5.2 does this automatically; for
+<code>ENUM</code> types. DuckDB &gt;= 1.5.2 does this automatically; for
 older versions <code>ensure_enum_columns()</code> runs
 <code>ALTER TABLE ... ALTER COLUMN ... TYPE ENUM(...)</code> for each
 factor column.</p>
@@ -724,6 +753,13 @@ operations do not create new connections.
 <code><a href="../reference/label_pumf_columns.html">label_pumf_columns()</a></code> uses <code>.pumf_lookup_con()</code>
 to retrieve the provenance; <code><a href="../reference/close_pumf.html">close_pumf()</a></code> removes the entry
 and disconnects.</p>
+<p>This internal provenance registry is distinct from the
+<strong>RStudio Connections pane</strong>. Whether the DuckDB connection
+is advertised to that pane is controlled separately by the
+<code>register_connection</code> argument to <code><a href="../reference/get_pumf.html">get_pumf()</a></code>
+(default <code>getOption("canpumf.register_connection", TRUE)</code>);
+set it to <code>FALSE</code> to keep the pane from being spammed when
+opening and closing many connections programmatically.</p>
 <hr>
 </div>
 <div class="section level2">
@@ -731,7 +767,8 @@ and disconnects.</p>
 </h2>
 <p><code>pumf_registry_lookup(series, version)</code> returns a named
 list that controls every per-survey choice in the pipeline. Surveys
-without an entry use auto-detection with defaults.</p>
+without an entry use auto-detection with defaults (see
+<em>Newest-sibling inheritance</em> below for the one exception).</p>
 <table class="table">
 <colgroup>
 <col width="33%">
@@ -790,7 +827,9 @@ without an entry use auto-detection with defaults.</p>
 <td><code>data_fixups</code></td>
 <td>list of <code>str_pad</code>, <code>rename</code>,
 <code>cols_swap</code>, <code>force_numeric</code>,
-<code>codes_supplement</code>, <code>na_values</code> transforms</td>
+<code>force_character</code>, <code>force_integer</code>,
+<code>force_bigint</code>, <code>codes_supplement</code>,
+<code>na_values</code> transforms</td>
 <td><code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code></td>
 </tr>
 <tr class="even">
@@ -809,6 +848,29 @@ directory to the relevant file type
 </tr>
 </tbody>
 </table>
+<div class="section level3">
+<h3 id="newest-sibling-inheritance">Newest-sibling inheritance<a class="anchor" aria-label="anchor" href="#newest-sibling-inheritance"></a>
+</h3>
+<p>Surveys without a registry entry normally fall back to pure
+auto-detection, with one exception. When the requested version is a bare
+four-digit year and the same series already has at least one other
+year-keyed entry, <code><a href="../reference/pumf_registry_lookup.html">pumf_registry_lookup()</a></code> inherits the
+configuration of the newest registered sibling whose year is &lt;= the
+requested year (or the oldest sibling if the requested year predates
+them all). This lets a freshly released year deposited in the cache
+reuse the prior year’s config — which works cleanly now that recent
+<code>file_mask</code>s use a generic <code>\d{4}</code> year
+placeholder rather than a hard-coded year.</p>
+<p>A <code><a href="https://rdrr.io/r/base/message.html" class="external-link">message()</a></code> fires once per session so the implicit reuse
+is discoverable; a genuinely changed release (new file layout, codes, or
+BSW join) still needs its own explicit entry. Inheritance is
+<strong>skipped</strong> for multi-part versions (e.g. Census
+<code>2021 (individuals)</code>) and for LFS, which has its own shared
+registry entry. | <code>doc_mask</code> | regex applied to PDF filenames
+to filter a shared documentation directory to the relevant file type
+(e.g. <code>"Family\|Familles"</code> for 1986 Census families) |
+<code>NULL</code> |</p>
+</div>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
