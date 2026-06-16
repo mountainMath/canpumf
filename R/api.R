@@ -132,6 +132,14 @@
 #'   passed (a message is emitted in that case).  Not supported for LFS.  For a
 #'   survey not in [list_canpumf_collection()], deposit the raw files under
 #'   `<cache_path>/<series>/<version>/` first (there is no download URL).
+#' @param register_connection If `TRUE` (default), the DuckDB connection backing
+#'   the returned tbl may appear in the RStudio Connections pane (subject to
+#'   RStudio/duckdb settings).  Pass `FALSE` to suppress that registration —
+#'   useful when opening and closing many connections programmatically (e.g.
+#'   iterating over surveys in a notebook), where the pane would otherwise be
+#'   spammed.  Defaults to `getOption("canpumf.register_connection", TRUE)`, so
+#'   you can disable it globally with
+#'   `options(canpumf.register_connection = FALSE)`.
 #' @param ... Accepts deprecated parameter names (`pumf_series`,
 #'   `pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,
 #'   `guess_numeric`, `timeout`, `refresh_layout`) with a warning.
@@ -173,6 +181,8 @@ get_pumf <- function(series     = NULL,
                      redownload = FALSE,
                      read_only  = TRUE,
                      registry   = NULL,
+                     register_connection =
+                       getOption("canpumf.register_connection", TRUE),
                      ...) {
   dots <- list(...)
   resolved <- .api_resolve_deprecated(series, version, cache_path, dots, "get_pumf")
@@ -202,6 +212,19 @@ get_pumf <- function(series     = NULL,
     if (series == "LFS")
       stop("'registry' overrides are not supported for LFS, which uses a ",
            "dedicated pipeline.", call. = FALSE)
+  }
+
+  # Optionally keep the DuckDB connection out of the RStudio Connections pane.
+  # duckdb registers the connection during dbConnect(), gated by these two
+  # options; forcing them off for the duration of this call suppresses
+  # registration on every connection opened here (non-LFS, LFS, and the
+  # read-only re-open).  Useful when iterating over many surveys in a notebook,
+  # where rapidly opening/closing connections would otherwise spam the pane.
+  if (!isTRUE(register_connection)) {
+    old_pane_opts <- options(
+      duckdb.enable_rstudio_connection_pane = FALSE,
+      duckdb.force_rstudio_connection_pane  = FALSE)
+    on.exit(options(old_pane_opts), add = TRUE)
   }
 
   # Resolve single-version non-LFS series so table_name and db_path are known.

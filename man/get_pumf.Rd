@@ -13,6 +13,7 @@ get_pumf(
   redownload = FALSE,
   read_only = TRUE,
   registry = NULL,
+  register_connection = getOption("canpumf.register_connection", TRUE),
   ...
 )
 }
@@ -54,6 +55,15 @@ already-imported survey it has no effect unless `refresh = TRUE` is also
 passed (a message is emitted in that case).  Not supported for LFS.  For a
 survey not in [list_canpumf_collection()], deposit the raw files under
 `<cache_path>/<series>/<version>/` first (there is no download URL).}
+
+\item{register_connection}{If `TRUE` (default), the DuckDB connection backing
+the returned tbl may appear in the RStudio Connections pane (subject to
+RStudio/duckdb settings).  Pass `FALSE` to suppress that registration —
+useful when opening and closing many connections programmatically (e.g.
+iterating over surveys in a notebook), where the pane would otherwise be
+spammed.  Defaults to `getOption("canpumf.register_connection", TRUE)`, so
+you can disable it globally with
+`options(canpumf.register_connection = FALSE)`.}
 
 \item{...}{Accepts deprecated parameter names (`pumf_series`,
 `pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,
