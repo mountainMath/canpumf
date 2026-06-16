@@ -1,40 +1,95 @@
-# Open PUMF documentation in browser
+# Open PUMF documentation in the browser
 
-When available this will open the PUF user guide in the default browser.
+Scans the cached version directory for PDF documentation files and opens
+them interactively. If no PDFs are found, falls back to small text files
+(filtering out large FWF data files by size). When multiple candidate
+files exist, an interactive menu lets you choose which to open, with
+"Open all" as the last option. In non-interactive mode the first
+preferred-language file is opened automatically.
 
 ## Usage
 
 ``` r
 open_pumf_documentation(
-  pumf_series,
+  series = NULL,
+  version = NULL,
+  lang = NULL,
+  cache_path = getOption("canpumf.cache_path", tempdir()),
+  pumf_series = NULL,
   pumf_version = NULL,
-  documentation_type = "user_guide",
-  pumf_cache_path = getOption("canpumf.cache_path")
+  pumf_cache_path = NULL
 )
 ```
 
 ## Arguments
 
+- series:
+
+  Survey series acronym (e.g. \`"SFS"\`, \`"Census"\`), \*\*or\*\* a
+  lazy \`dplyr::tbl()\` / DuckDB connection returned by \[get_pumf()\].
+  When a tbl or connection is supplied, \`version\`, \`cache_path\`, and
+  \`lang\` are read from the connection provenance; explicit arguments
+  take precedence.
+
+- version:
+
+  Version string (e.g. \`"2019"\`, \`"2021 (individuals)"\`). For LFS,
+  omit to open documentation for the most recently downloaded version.
+  Ignored when \`series\` is a tbl or connection.
+
+- lang:
+
+  \`"eng"\` (default) or \`"fra"\`. Documentation files whose names
+  match the requested language are sorted first. When \`series\` is a
+  connection and \`lang\` is not supplied, the connection's language is
+  used.
+
+- cache_path:
+
+  Root cache directory. Defaults to \`getOption("canpumf.cache_path",
+  tempdir())\`.
+
 - pumf_series:
 
-  sereis for the pumf data, like LSF, or CHS
+  Deprecated; use \`series\`.
 
 - pumf_version:
 
-  In case there are several versions of a given series, like for LFS,
-  the version
-
-- documentation_type:
-
-  which documentation to open, either "user_guide", "reference_guide" or
-  "quality" or "errata". Not all types are available for all PUMFs.
-  identifiers. For LFS this is the month/year.
+  Deprecated; use \`version\`.
 
 - pumf_cache_path:
 
-  A path to a permanent cache. If none is fould the data is stored in
-  the temporary directory for the duration of the session.
+  Deprecated; use \`cache_path\`.
 
 ## Value
 
-nothing, opens document in browser
+Invisibly, the file path(s) of the opened documentation, or
+\`invisible(NULL)\` when no documentation is found or data has not been
+downloaded yet.
+
+## Details
+
+After opening documentation, emits a message listing any manual registry
+overrides (sentinel values, forced-numeric columns, column swaps, etc.)
+that were applied at import so values can be interpreted correctly.
+
+## See also
+
+\[get_pumf()\], \[pumf_metadata()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+# Open by series and version
+open_pumf_documentation("SFS", "2019")
+
+# Open from an existing tbl (reads provenance automatically)
+sfs <- get_pumf("SFS", "2019")
+open_pumf_documentation(sfs)
+close_pumf(sfs)
+
+# French documentation
+open_pumf_documentation("SFS", "2019", lang = "fra")
+} # }
+```

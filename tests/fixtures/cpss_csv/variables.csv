@@ -1,0 +1,9 @@
+Variable,Variable Name - English,Variable Name - French,Code,Label - English,Label - French
+PUMFID,Respondent identification,Identification du repondant,,,
+PROV,Province,Province,,,
+,,,10,Newfoundland and Labrador,Terre-Neuve-et-Labrador
+,,,24,Quebec,Quebec
+,,,35,Ontario,Ontario
+GENDER,Gender,Genre,,,
+,,,1,Male,Masculin
+,,,2,Female,Feminin

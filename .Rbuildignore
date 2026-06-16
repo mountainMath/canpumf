@@ -12,3 +12,11 @@ test_data/*
 ^pkgdown$
 ^\.positai$
 ^\.claude$
+^documentation/
+^tools$
+^\.github$
+^canpumf-logo\.png$
+^canpumf\.png$
+^hexSticker\.png$
+^CRAN-SUBMISSION$
+^cran-comments\.md$

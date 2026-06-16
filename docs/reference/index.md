@@ -3,39 +3,40 @@
 ## All functions
 
 - [`add_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/add_bootstrap_weights.md)
-  : Add bootstrap weights to PUMF data
-
-- [`convert_pumf_numeric_columns()`](https://mountainmath.github.io/canpumf/reference/convert_pumf_numeric_columns.md)
-  :
-
-  Convert columns to numeric and convert all missing values to `NA`
-
+  : Generate bootstrap weights for a PUMF dataset
+- [`add_lfs_GENDER_SEX()`](https://mountainmath.github.io/canpumf/reference/add_lfs_GENDER_SEX.md)
+  : Add a harmonised gender/sex column to an LFS table
+- [`add_lfs_SURVDATE()`](https://mountainmath.github.io/canpumf/reference/add_lfs_SURVDATE.md)
+  : Add a date column to an LFS table
+- [`bsw_info()`](https://mountainmath.github.io/canpumf/reference/bsw_info.md)
+  : Summarise bootstrap weight tables present in a PUMF DuckDB database
+- [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
+  : Close the DuckDB connection backing a PUMF lazy table
 - [`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
-  : Get select pumf data files
-
-- [`guess_numeric_pumf_columns()`](https://mountainmath.github.io/canpumf/reference/guess_numeric_pumf_columns.md)
-  : Guess which columns in pumf data are numeric
-
+  : Get a Statistics Canada PUMF dataset as a lazy DuckDB table
+- [`get_pumf_connection()`](https://mountainmath.github.io/canpumf/reference/get_pumf_connection.md)
+  : Get a read-write DuckDB connection to a PUMF database
 - [`label_pumf_columns()`](https://mountainmath.github.io/canpumf/reference/label_pumf_columns.md)
-  : Rename to human readable column names
-
-- [`label_pumf_data()`](https://mountainmath.github.io/canpumf/reference/label_pumf_data.md)
-  : Add variable labels and rename to human readable column names
-
+  : Rename PUMF table columns to human-readable variable labels
 - [`list_available_lfs_pumf_versions()`](https://mountainmath.github.io/canpumf/reference/list_available_lfs_pumf_versions.md)
-  : List available PUMF LFS versions
-
+  : List available LFS PUMF versions
 - [`list_canpumf_collection()`](https://mountainmath.github.io/canpumf/reference/list_canpumf_collection.md)
-  : List StatCan PUMF collection with canpumf wrappers
-
+  : List Statistics Canada PUMF datasets supported by canpumf
+- [`list_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/list_pumf_cache.md)
+  : List the contents of the local canpumf cache
+- [`list_pumf_registry()`](https://mountainmath.github.io/canpumf/reference/list_pumf_registry.md)
+  : Overview of all built-in registry entries
 - [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
-  : Open PUMF documentation in browser
-
-- [`read_pumf_miss_labels()`](https://mountainmath.github.io/canpumf/reference/read_pumf_miss_labels.md)
-  : Read PUMF missing data information
-
-- [`read_pumf_val_labels()`](https://mountainmath.github.io/canpumf/reference/read_pumf_val_labels.md)
-  : Get PUMF value labels
-
-- [`read_pumf_var_labels()`](https://mountainmath.github.io/canpumf/reference/read_pumf_var_labels.md)
-  : Read PUMF variable labels
+  : Open PUMF documentation in the browser
+- [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)
+  : Download and parse PUMF metadata without building a DuckDB table
+- [`pumf_registry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry.md)
+  : Inspect a survey's registry configuration
+- [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)
+  : Construct a custom PUMF registry entry
+- [`pumf_var_labels()`](https://mountainmath.github.io/canpumf/reference/pumf_var_labels.md)
+  : Retrieve variable labels as a tibble
+- [`remove_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/remove_bootstrap_weights.md)
+  : Remove bootstrap weight tables and views from a PUMF DuckDB database
+- [`remove_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/remove_pumf_cache.md)
+  : Remove a PUMF version from the local cache

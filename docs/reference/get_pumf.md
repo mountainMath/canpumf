@@ -1,68 +1,141 @@
-# Get select pumf data files
+# Get a Statistics Canada PUMF dataset as a lazy DuckDB table
 
-This is a convenience function that downloads and accesses pumf data for
-a curated set of pumf datasets.
+Main entry point for the canpumf package. Downloads (if needed), parses
+metadata, applies bilingual labels, and returns a lazy \`dplyr::tbl()\`
+backed by a DuckDB file in the cache directory. Subsequent calls reuse
+the cached DuckDB without re-downloading.
 
 ## Usage
 
 ``` r
 get_pumf(
-  pumf_series,
-  pumf_version = NULL,
-  layout_mask = NULL,
-  file_mask = layout_mask,
-  guess_numeric = TRUE,
-  pumf_cache_path = getOption("canpumf.cache_path"),
+  series = NULL,
+  version = NULL,
+  lang = "eng",
+  cache_path = getOption("canpumf.cache_path", tempdir()),
   refresh = FALSE,
-  refresh_layout = FALSE,
-  timeout = 3000
+  redownload = FALSE,
+  read_only = TRUE,
+  registry = NULL,
+  register_connection = getOption("canpumf.register_connection", TRUE),
+  ...
 )
 ```
 
 ## Arguments
 
-- pumf_series:
+- series:
 
-  sereis for the pumf data, like LSF, or CHS
+  Survey series acronym, e.g. \`"SFS"\`, \`"CHS"\`, \`"LFS"\`,
+  \`"Census"\`, \`"CPSS"\`. See \[list_canpumf_collection()\] for all
+  supported series and versions.
 
-- pumf_version:
+- version:
 
-  In case there are several versions of a given series, like for LFS,
-  the version
+  Version string (e.g. \`"2019"\`, \`"2021 (individuals)"\`,
+  \`"2023-06"\`). For series with a single version omit or pass
+  \`NULL\`.
 
-- layout_mask:
+- lang:
 
-  optional layout mask in case there are several files. identifiers. For
-  LFS this is the month/year.
+  \`"eng"\` (default) or \`"fra"\`. Selects which set of labels to
+  apply. Each language creates a separate DuckDB table (created lazily
+  on first request).
 
-- file_mask:
+- cache_path:
 
-  optional additional mask to filter down to specific PUMF file if there
-  are several
-
-- guess_numeric:
-
-  logical, will guess numeric columns and covert to numeric and set
-  missing values to `NA` if set to `TRUE` (default)
-
-- pumf_cache_path:
-
-  A path to a permanent cache. If none is fould the data is stored in
-  the temporary directory for the duration of the session.
+  Root cache directory. Defaults to \`getOption("canpumf.cache_path",
+  tempdir())\`. Set persistently in \`.Rprofile\` with
+  \`options(canpumf.cache_path = "\<path\>")\`.
 
 - refresh:
 
-  optionall re-downlad pumf data, only for series that can be downloaded
-  directly from StatCan
+  \`FALSE\` (default) reuses cached data. \`TRUE\` clears the DuckDB
+  table and metadata and rebuilds from the already-extracted raw files
+  (does not re-download). \`"auto"\` is accepted for LFS only and
+  downloads all available versions not yet in the database.
 
-- refresh_layout:
+- redownload:
 
-  (optional) regenerate the layout and metadata
+  If \`TRUE\`, delete the cached zip and extracted files and re-download
+  from StatCan before rebuilding. Implies \`refresh = TRUE\`. Not valid
+  with \`refresh = "auto"\`.
 
-- timeout:
+- read_only:
 
-  Optional parameter to specify connection timeout for download
+  Open the DuckDB connection in read-only mode (default \`TRUE\`). Pass
+  \`FALSE\` to allow write access, e.g. to persist custom views or
+  derived tables in the DuckDB file. Use \[close_pumf()\] to release the
+  connection when done.
+
+- registry:
+
+  Optional custom configuration created by \[pumf_registry_entry()\] (or
+  \[pumf_registry()\]), used to parse and build a survey that is not in
+  the built-in registry, or to override fields of one that is. Applied
+  only when a build actually happens — on an already-imported survey it
+  has no effect unless \`refresh = TRUE\` is also passed (a message is
+  emitted in that case). Not supported for LFS. For a survey not in
+  \[list_canpumf_collection()\], deposit the raw files under
+  \`\<cache_path\>/\<series\>/\<version\>/\` first (there is no download
+  URL).
+
+- register_connection:
+
+  If \`TRUE\` (default), the DuckDB connection backing the returned tbl
+  may appear in the RStudio Connections pane (subject to RStudio/duckdb
+  settings). Pass \`FALSE\` to suppress that registration — useful when
+  opening and closing many connections programmatically (e.g. iterating
+  over surveys in a notebook), where the pane would otherwise be
+  spammed. Defaults to \`getOption("canpumf.register_connection",
+  TRUE)\`, so you can disable it globally with
+  \`options(canpumf.register_connection = FALSE)\`.
+
+- ...:
+
+  Accepts deprecated parameter names (\`pumf_series\`, \`pumf_version\`,
+  \`pumf_cache_path\`, \`layout_mask\`, \`file_mask\`,
+  \`guess_numeric\`, \`timeout\`, \`refresh_layout\`) with a warning.
 
 ## Value
 
-A tibble with the pumf data.
+A lazy \`dplyr::tbl()\` backed by a DuckDB connection. Data values are
+pre-labeled as factors. Call \`dplyr::collect()\` to materialise a local
+tibble, \[label_pumf_columns()\] to rename columns to their
+human-readable labels, or \[close_pumf()\] to release the connection.
+
+## Details
+
+The LFS is treated specially: all versions share a single \`LFS.duckdb\`
+database. Pass \`version = "YYYY"\` (annual) or \`"YYYY-MM"\` (monthly).
+\`refresh = "auto"\` downloads every available LFS version that is not
+yet in the database; this is only valid for LFS.
+
+## See also
+
+\[label_pumf_columns()\], \[pumf_var_labels()\], \[pumf_metadata()\],
+\[close_pumf()\], \[list_canpumf_collection()\]
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+# Download and open the SFS 2019 as a lazy DuckDB table
+sfs <- get_pumf("SFS", "2019")
+dplyr::glimpse(sfs)
+
+# Collect a local tibble after filtering
+high_wealth <- sfs |>
+  dplyr::filter(PEFAMID == 1) |>
+  dplyr::collect()
+
+# French labels
+sfs_fr <- get_pumf("SFS", "2019", lang = "fra")
+
+# LFS: annual version
+lfs <- get_pumf("LFS", "2022")
+
+# Release the connection when done
+close_pumf(sfs)
+} # }
+```

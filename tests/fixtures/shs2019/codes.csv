@@ -1,0 +1,115 @@
+name,val,label_en,label_fr
+COMPUTERYN,1,Yes,Oui
+COMPUTERYN,2,No,Non
+DWELTYP,1,Single detached,Maison individuelle non attenante
+DWELTYP,2,"Double, row, terrace or duplex","Maison double, en rangÃ©e, en terrasse ou duplex"
+DWELTYP,3,Apartment or other,Appartement ou autre
+HH_MAJINCSRC,1,Earnings (employment income),Revenu dâemploi
+HH_MAJINCSRC,2,Investment income,Revenu d'investissement
+HH_MAJINCSRC,3,Government transfer payments,Transferts gouvernementaux
+HH_MAJINCSRC,4,Other income,Autres revenus
+HHSIZE,1,1,1
+HHSIZE,2,2,2
+HHSIZE,3,3,3
+HHSIZE,4,4 or more,4 ou plus
+HHTYPE6,1,One person household,MÃ©nage d'une personne
+HHTYPE6,2,Couple without children,Couple sans enfant
+HHTYPE6,3,Couple with children,Couple avec enfants
+HHTYPE6,4,Couple with other related or unrelated persons,Couple avec d'autres personnes apparentÃ©es ou non
+HHTYPE6,5,Lone parent family with no additional persons,Famille monoparentale sans personnes additionnelles
+HHTYPE6,6,Other household with related or unrelated persons,Autre mÃ©nage composÃ© de personnes apparentÃ©es ou non
+INTCON_CABLE,1,Yes,Oui
+INTCON_CABLE,2,No,Non
+INTCON_HSTEL,1,Yes,Oui
+INTCON_HSTEL,2,No,Non
+INTCON_OTHER,1,Yes,Oui
+INTCON_OTHER,2,No,Non
+INTCON_WIRELESS,1,Yes,Oui
+INTCON_WIRELESS,2,No,Non
+INTERNETYN,1,Yes,Oui
+INTERNETYN,2,No,Non
+LANDLINEYN,1,Yes,Oui
+LANDLINEYN,2,No,Non
+NUMBEDR,1,0 or 1,0 ou 1
+NUMBEDR,2,2,2
+NUMBEDR,3,3,3
+NUMBEDR,4,4 or more,4 ou plus
+NUMBEDR,9,Masked records (Prince Edward Island and the territorial capitals),Enregistrements masquÃ©s (Ãle-du-Prince-Ãdouard et capitales territoriales)
+NUMCELL,0,0,0
+NUMCELL,1,1,1
+NUMCELL,2,2,2
+NUMCELL,3,3 or more,3 ou plus
+OTHPROPYN,1,Yes,Oui
+OTHPROPYN,2,No,Non
+P0TO4YN,1,Yes,Oui
+P0TO4YN,2,No,Non
+P16TO29YN,1,Yes,Oui
+P16TO29YN,2,No,Non
+P30TO64YN,1,Yes,Oui
+P30TO64YN,2,No,Non
+P5TO15YN,1,Yes,Oui
+P5TO15YN,2,No,Non
+P65TO74YN,1,Yes,Oui
+P65TO74YN,2,No,Non
+P75PLUSYN,1,Yes,Oui
+P75PLUSYN,2,No,Non
+PROV,10,Newfoundland and Labrador,Terre-Neuve-et-Labrador
+PROV,11,Prince Edward Island,Ãle-du-Prince-Ãdouard
+PROV,12,Nova Scotia,Nouvelle-Ãcosse
+PROV,13,New Brunswick,Nouveau-Brunswick
+PROV,24,Quebec,QuÃ©bec
+PROV,35,Ontario,Ontario
+PROV,46,Manitoba,Manitoba
+PROV,47,Saskatchewan,Saskatchewan
+PROV,48,Alberta,Alberta
+PROV,59,British Columbia,Colombie-Britannique
+PROV,63,Territorial capitals,Capitales territoriales
+RECVEHYN,1,Yes,Oui
+RECVEHYN,2,No,Non
+RP_AGEGRP,01,Less than 30 years,Moins de 30 ans
+RP_AGEGRP,02,30 to 39 years,30 Ã  39 ans
+RP_AGEGRP,03,40 to 54 years,40 Ã  54 ans
+RP_AGEGRP,04,55 to 64 years,55 Ã  64 ans
+RP_AGEGRP,05,65 to 74 years,65 Ã  74 ans
+RP_AGEGRP,06,75 years and over,75 ans et plus
+RP_EDUC,1,Less than high school diploma or its equivalent,Niveau infÃ©rieur Ã  un diplÃ´me dâÃ©tudes secondaires ou Ã  son Ã©quivalent
+RP_EDUC,2,"High school diploma, high school equivalency certificate, or not stated","DiplÃ´me dâÃ©tudes secondaires, certificat d'Ã©quivalence d'Ã©tudes secondaires, ou non dÃ©clarÃ©"
+RP_EDUC,3,"Certificate or diploma from a trades school, college, CEGEP or other non-university educational institution","Certificat ou diplÃ´me dâune Ã©cole de mÃ©tiers, dâun collÃ¨ge, dâun cÃ©gep ou dâun autre Ã©tablissement non universitaire"
+RP_EDUC,4,University certificate or diploma,Certificat ou diplÃ´me universitaire
+RP_EDUC,9,Masked records (Prince Edward Island and the territorial capitals),Enregistrements masquÃ©s (Ãle-du-Prince-Ãdouard et capitales territoriales)
+RP_GENDER,1,Male,Homme
+RP_GENDER,2,Female,Femme
+RP_MARSTAT,1,Married or common-law,Conjoint(e) mariÃ©(e) ou conjoint(e) de fait
+RP_MARSTAT,2,"Single, never married","CÃ©libataire, jamais mariÃ©(e)"
+RP_MARSTAT,3,"Separated, widowed or divorced","SÃ©parÃ©(e), veuf(ve) ou divorcÃ©(e)"
+SECRESYN,1,Yes,Oui
+SECRESYN,2,No,Non
+SP_AGEGRP,01,Less than 30 years,Moins de 30 ans
+SP_AGEGRP,02,30 to 39 years,30 Ã  39 ans
+SP_AGEGRP,03,40 to 54 years,40 Ã  54 ans
+SP_AGEGRP,04,55 to 64 years,55 Ã  64 ans
+SP_AGEGRP,05,65 to 74 years,65 Ã  74 ans
+SP_AGEGRP,06,75 years and over,75 ans et plus
+SP_AGEGRP,96,No spouse,Pas de conjoint(e)
+SP_EDUC,1,Less than high school diploma or its equivalent,Niveau infÃ©rieur Ã  un diplÃ´me dâÃ©tudes secondaires ou Ã  son Ã©quivalent
+SP_EDUC,2,"High school diploma, high school equivalency certificate, or not stated","DiplÃ´me dâÃ©tudes secondaires, certificat d'Ã©quivalence d'Ã©tudes secondaires, ou non dÃ©clarÃ©"
+SP_EDUC,3,"Certificate or diploma from a trades school, college, CEGEP or other non-university educational institution","Certificat ou diplÃ´me dâune Ã©cole de mÃ©tiers, dâun collÃ¨ge, dâun cÃ©gep ou dâun autre Ã©tablissement non universitaire"
+SP_EDUC,4,University certificate or diploma,Certificat ou diplÃ´me universitaire
+SP_EDUC,6,No spouse,Pas de conjoint(e)
+SP_EDUC,9,Masked records (Prince Edward Island and the territorial capitals),Enregistrements masquÃ©s (Ãle-du-Prince-Ãdouard et capitales territoriales)
+SP_GENDER,1,Male,Homme
+SP_GENDER,2,Female,Femme
+SP_GENDER,6,No spouse,Pas de conjoint(e)
+SPOUSEYN,1,Yes,Oui
+SPOUSEYN,2,No,Non
+TENURE,1,Owned with mortgage,PossÃ©dÃ© avec hypothÃ¨que
+TENURE,2,Owned without mortgage,PossÃ©dÃ© sans hypothÃ¨que
+TENURE,3,Rented,LouÃ©
+TVCON_CABLE,1,Yes,Oui
+TVCON_CABLE,2,No,Non
+TVCON_PHONE,1,Yes,Oui
+TVCON_PHONE,2,No,Non
+TVCON_SATDISH,1,Yes,Oui
+TVCON_SATDISH,2,No,Non
+VEHICLEYN,1,Yes,Oui
+VEHICLEYN,2,No,Non
