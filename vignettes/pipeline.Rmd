@@ -20,72 +20,138 @@ separately at the end.
 
 ## High-level flow
 
-```{r pipeline-diagram, echo=FALSE, fig.width=12, fig.height=6, out.width="100%"}
-if (requireNamespace("DiagrammeR", quietly = TRUE)) {
-  DiagrammeR::mermaid("
-graph TD
-    A[get_pumf series version lang] --> LFS{series == LFS?}
-    LFS -->|yes| LFSP[lfs_get_pumf]
-    LFS -->|no| S1
+```{r pipeline-diagram, echo=FALSE, out.width="100%", fig.alt="canpumf pipeline: get_pumf dispatches LFS vs. the three-stage pipeline (locate/download, parse metadata, build DuckDB), then registers provenance and returns a lazy tbl."}
+# The diagram is rendered to a static image (SVG for HTML, PNG for PDF) via
+# Graphviz so it renders identically and reliably in every output format,
+# without relying on JavaScript htmlwidgets (which never render in PDF).
+dot <- '
+digraph pipeline {
+  graph [rankdir = TB, fontname = "Helvetica", nodesep = 0.30, ranksep = 0.40, compound = true];
+  node  [fontname = "Helvetica", fontsize = 10, style = "filled", fillcolor = "#eef3f8", color = "#5b7da3", margin = "0.09,0.05"];
+  edge  [fontname = "Helvetica", fontsize = 9, color = "#666666", arrowsize = 0.7];
 
-    subgraph S1 Stage 1 locate download
-      CHK{version dir exists?}
-      CHK -->|yes, not refresh| EXTR{zip already extracted?}
-      CHK -->|no / refresh| COL[look up collection URL]
-      COL --> EFT{EFT-only?}
-      EFT -->|yes| ERR[stop: deposit zip manually]
-      EFT -->|no| DL[download zip]
-      DL --> UZ[robust_unzip]
-      UZ --> EXTR
-      EXTR -->|yes| S2
-      EXTR -->|no| UZ
-    end
+  A    [label = "get_pumf(series, version, lang)", shape = box, style = "filled,rounded", fillcolor = "#d9ead3"];
+  LFS  [label = "series == LFS?", shape = diamond, fillcolor = "#fce8b2"];
+  LFSP [label = "lfs_get_pumf()", shape = box, style = "filled,rounded", fillcolor = "#d9ead3"];
 
-    S1 --> S2
+  A   -> LFS;
+  LFS -> LFSP [label = "yes"];
+  LFS -> CHK  [label = "no", lhead = cluster_s1];
 
-    subgraph S2 Stage 2 parse metadata
-      MC{metadata already exists?}
-      MC -->|yes, not refresh| S3
-      MC -->|no / refresh| DF[detect_formats]
-      DF --> P1{LFS codebook.csv?}
-      DF --> P2{CPSS variables.csv?}
-      DF --> P3{SAS cards .lay plus .lbe?}
-      DF --> P4{SPSS split vare/vale/_i.sps?}
-      DF --> P5{SPSS mono .sps / SPSS.txt / .xmf?}
-      DF --> P6{SPSS .sav?}
-      DF --> P7{PDF Dictionary?}
-      P1 & P2 & P3 & P4 & P5 & P6 & P7 --> MRG[merge_metadata]
-      MRG --> WR[write variables.csv codes.csv layout.csv]
-    end
+  subgraph cluster_s1 {
+    label = "Stage 1  —  locate / download";
+    labeljust = "l"; fontname = "Helvetica-Bold"; fontsize = 11;
+    style = "rounded,filled"; fillcolor = "#fbfdff"; color = "#9fb6cc";
+    CHK  [label = "version dir exists?", shape = diamond, fillcolor = "#fce8b2"];
+    COL  [label = "look up collection URL", shape = box];
+    EFT  [label = "EFT-only?", shape = diamond, fillcolor = "#fce8b2"];
+    ERR  [label = "stop: deposit zip manually", shape = box, fillcolor = "#f4cccc"];
+    DL   [label = "download zip", shape = box];
+    UZ   [label = "robust_unzip()", shape = box];
+    EXTR [label = "zip already extracted?", shape = diamond, fillcolor = "#fce8b2"];
 
-    S2 --> S3
+    CHK  -> EXTR [label = "yes, not refresh"];
+    CHK  -> COL  [label = "no / refresh"];
+    COL  -> EFT;
+    EFT  -> ERR  [label = "yes"];
+    EFT  -> DL   [label = "no"];
+    DL   -> UZ;
+    UZ   -> EXTR;
+    EXTR -> UZ   [label = "no"];
+  }
 
-    subgraph S3 Stage 3 build DuckDB
-      TB{table already in DuckDB?}
-      TB -->|yes, not refresh| OD
-      TB -->|no / refresh| FF[find data file]
-      FF --> FWF{layout.csv exists and file not .csv?}
-      FWF -->|yes FWF| RFW[read_fwf]
-      FWF -->|no CSV| RCS[read_csv]
-      RFW & RCS --> JNK[drop trailing junk rows]
-      JNK --> FX[apply data fixups str_pad rename cols_swap]
-      FX --> BSW{BSW mask in registry?}
-      BSW -->|yes| RBW[join bootstrap weights]
-      BSW -->|no| NC
-      RBW --> NC[numeric conversion missing ranges + na_values]
-      NC --> CL[code labels to factors]
-      CL --> WD[write DuckDB table]
-      WD --> EN[enforce ENUM types]
-      EN --> OD[open read-only connection]
-    end
+  subgraph cluster_s2 {
+    label = "Stage 2  —  parse metadata";
+    labeljust = "l"; fontname = "Helvetica-Bold"; fontsize = 11;
+    style = "rounded,filled"; fillcolor = "#fbfdff"; color = "#9fb6cc";
+    MC   [label = "metadata already exists?", shape = diamond, fillcolor = "#fce8b2"];
+    DF   [label = "detect_formats()", shape = box];
+    P1   [label = "LFS codebook.csv", shape = box];
+    P2   [label = "CPSS variables.csv", shape = box];
+    P3   [label = "SAS cards (.lay + .lbe)", shape = box];
+    P4   [label = "SPSS split (vare/vale/_i)", shape = box];
+    P5   [label = "SPSS mono (.sps / SPSS.txt / .xmf)", shape = box];
+    P6   [label = "SPSS .sav", shape = box];
+    P7   [label = "PDF Dictionary", shape = box];
+    MRG  [label = "merge_metadata()", shape = box];
+    WR   [label = "write variables.csv / codes.csv / layout.csv", shape = box];
 
-    S3 --> REG[register provenance series version lang]
-    REG --> TBL[return lazy dplyr tbl]
+    MC -> DF [label = "no / refresh"];
+    DF -> P1; DF -> P2; DF -> P3; DF -> P4; DF -> P5; DF -> P6; DF -> P7;
+    P1 -> MRG; P2 -> MRG; P3 -> MRG; P4 -> MRG; P5 -> MRG; P6 -> MRG; P7 -> MRG;
+    MRG -> WR;
+  }
 
-  ", height = 650, width = 1200) |>
-     htmltools::tagList()
+  EXTR -> MC [label = "yes", lhead = cluster_s2];
+
+  subgraph cluster_s3 {
+    label = "Stage 3  —  build DuckDB";
+    labeljust = "l"; fontname = "Helvetica-Bold"; fontsize = 11;
+    style = "rounded,filled"; fillcolor = "#fbfdff"; color = "#9fb6cc";
+    TB   [label = "table already in DuckDB?", shape = diamond, fillcolor = "#fce8b2"];
+    FF   [label = "find data file", shape = box];
+    FWF  [label = "layout.csv exists\nand file not .csv?", shape = diamond, fillcolor = "#fce8b2"];
+    RFW  [label = "read_fwf", shape = box];
+    RCS  [label = "read_csv", shape = box];
+    JNK  [label = "drop trailing junk rows", shape = box];
+    FX   [label = "apply data fixups\n(str_pad, rename, cols_swap, force_*)", shape = box];
+    BSW  [label = "BSW mask in registry?", shape = diamond, fillcolor = "#fce8b2"];
+    RBW  [label = "join bootstrap weights", shape = box];
+    NC   [label = "numeric conversion\n(missing ranges + na_values)", shape = box];
+    CL   [label = "code labels to factors", shape = box];
+    WD   [label = "write DuckDB table", shape = box];
+    EN   [label = "enforce ENUM / force_* types", shape = box];
+    OD   [label = "open read-only connection", shape = box];
+
+    TB  -> FF  [label = "no / refresh"];
+    FF  -> FWF;
+    FWF -> RFW [label = "yes (FWF)"];
+    FWF -> RCS [label = "no (CSV)"];
+    RFW -> JNK; RCS -> JNK;
+    JNK -> FX;
+    FX  -> BSW;
+    BSW -> RBW [label = "yes"];
+    BSW -> NC  [label = "no"];
+    RBW -> NC;
+    NC  -> CL;
+    CL  -> WD;
+    WD  -> EN;
+    EN  -> OD;
+  }
+
+  WR -> TB  [lhead = cluster_s3];
+  MC -> TB  [label = "yes, not refresh"];
+  TB -> OD  [label = "yes, not refresh"];
+
+  REG [label = "register provenance (series, version, lang)", shape = box, style = "filled,rounded", fillcolor = "#d9ead3"];
+  TBL [label = "return lazy dplyr::tbl()", shape = box, style = "filled,rounded", fillcolor = "#d9ead3"];
+  OD  -> REG;
+  REG -> TBL;
+}
+'
+
+have_render <- requireNamespace("DiagrammeR", quietly = TRUE) &&
+  requireNamespace("DiagrammeRsvg", quietly = TRUE)
+
+if (have_render) {
+  svg <- DiagrammeRsvg::export_svg(DiagrammeR::grViz(dot))
+  if (knitr::is_latex_output()) {
+    if (requireNamespace("rsvg", quietly = TRUE)) {
+      png <- knitr::fig_path(".png")
+      dir.create(dirname(png), recursive = TRUE, showWarnings = FALSE)
+      rsvg::rsvg_png(charToRaw(svg), png, width = 1800)
+      knitr::include_graphics(png)
+    } else {
+      message("Install rsvg to render the pipeline diagram in PDF output.")
+    }
+  } else {
+    svg_file <- knitr::fig_path(".svg")
+    dir.create(dirname(svg_file), recursive = TRUE, showWarnings = FALSE)
+    writeLines(svg, svg_file)
+    knitr::include_graphics(svg_file)
+  }
 } else {
-  cat("Install DiagrammeR to render this diagram: install.packages('DiagrammeR')")
+  cat("Install DiagrammeR and DiagrammeRsvg to render this diagram.")
 }
 ```
 
@@ -368,17 +434,38 @@ label mapping:
   are transposed relative to the PDF documentation (e.g. WKACTMA/WKACTFA and
   FAOCC81/MAOCC81 in Census 1981 individuals).
 - **`force_numeric`** — character vector of column names to treat as numeric
-  regardless of how many VALUE LABELS are declared.  Used when a variable is an
-  integer index that the SPSS file mis-classifies as categorical (e.g. SUBSAMPL
-  in Census 1971).
+  regardless of how many VALUE LABELS are declared.  Used when a variable
+  carries boundary or top-code labels (e.g. `"85 years and over"`) alongside
+  otherwise-continuous values, or is an integer index the SPSS file
+  mis-classifies as categorical (e.g. SUBSAMPL in Census 1971).  The codes are
+  dropped, but any **true-missing** sentinel codes (Not stated, Don't know,
+  Valid skip, … — *not* zero-value labels like "None") are first converted into
+  a per-variable `missing_low/missing_high` range so those sentinels still
+  become `NA`.  An existing missing range (from `MISSING VALUES` or a split-SPSS
+  miss file) takes precedence.
+- **`force_character` / `force_integer` / `force_bigint`** — character vectors
+  of variable names whose **DuckDB storage type** is overridden.  Unlike the
+  conversions above, the raw string values are kept verbatim (no numeric
+  conversion, no code labeling), so geographic codes retain leading zeros and
+  out-of-`int`-range IDs survive.  `force_character` keeps the column VARCHAR;
+  `force_integer` / `force_bigint` cast it to INTEGER / BIGINT via
+  `ALTER COLUMN` *after* the table is written (an INTEGER cast that overflows
+  2^31 errors — use `force_bigint`).  A variable may appear in at most one
+  `force_*` set (including `force_numeric`); this is validated at build time.
+  LFS sources its `SURVYEAR` / `SURVMNTH` / `REC_NUM` integer-forcing through
+  this mechanism from the shared LFS registry entry.
 - **`codes_supplement`** — named list of `data.frame`s injecting code-label
-  rows absent from the SPSS command files.  Each data frame has columns `val`,
-  `label_en`, `label_fr`.  Setting `label_en = NA` marks a value as
-  intentionally missing (produces a silent `NA` factor entry without a
-  warning, and without introducing a spurious factor level).  All entries are
-  verified in the override ledger (`tests/testthat/override_verification.csv`).
-- **`na_values`** — character vector of raw string sentinels that become `NA`
-  for all numeric columns (used for undeclared Census income sentinels).
+  rows absent from the SPSS command files (values present in the data but not
+  declared in the command files, e.g. the CHS `PPROV` territories code).  Each
+  data frame has columns `val`, `label_en`, `label_fr`.  Setting `label_en = NA`
+  marks a value as intentionally missing (produces a silent `NA` factor entry
+  without a warning, and without introducing a spurious factor level).  All
+  entries are verified in the override ledger
+  (`tests/testthat/override_verification.csv`).
+- **`na_values`** — character vector of raw string sentinels that become `NA`.
+  In numeric columns they are exact-matched and NA'd during numeric conversion;
+  in labeled (factor) columns they are silently blanked.  Used for undeclared
+  Census income sentinels and SAS-style `"."` missing markers.
 
 ### Bootstrap weight join (BSW)
 
@@ -431,7 +518,7 @@ English label.
 ### DuckDB write and ENUM enforcement
 
 The labelled data frame is written to DuckDB with `dbWriteTable()`.  Factor
-columns are stored as DuckDB `ENUM` types.  DuckDB ≥ 1.5.2 does this
+columns are stored as DuckDB `ENUM` types.  DuckDB >= 1.5.2 does this
 automatically; for older versions `ensure_enum_columns()` runs
 `ALTER TABLE ... ALTER COLUMN ... TYPE ENUM(...)` for each factor column.
 
@@ -500,13 +587,21 @@ because those operations do not create new connections.  `label_pumf_columns()`
 uses `.pumf_lookup_con()` to retrieve the provenance; `close_pumf()` removes
 the entry and disconnects.
 
+This internal provenance registry is distinct from the **RStudio Connections
+pane**.  Whether the DuckDB connection is advertised to that pane is controlled
+separately by the `register_connection` argument to `get_pumf()` (default
+`getOption("canpumf.register_connection", TRUE)`); set it to `FALSE` to keep
+the pane from being spammed when opening and closing many connections
+programmatically.
+
 ---
 
 ## Registry configuration
 
 `pumf_registry_lookup(series, version)` returns a named list that controls
 every per-survey choice in the pipeline.  Surveys without an entry use
-auto-detection with defaults.
+auto-detection with defaults (see *Newest-sibling inheritance* below for the
+one exception).
 
 | Field | Purpose | Default |
 |---|---|---|
@@ -518,6 +613,25 @@ auto-detection with defaults.
 | `bsw_file_mask` | filename pattern for the BSW data file | `NULL` |
 | `bsw_join_key` | column(s) to join BSW onto the main data | `NULL` |
 | `bsw_drop_cols` | BSW columns to drop before joining | `character(0)` |
-| `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `codes_supplement`, `na_values` transforms | `list()` |
+| `data_fixups` | list of `str_pad`, `rename`, `cols_swap`, `force_numeric`, `force_character`, `force_integer`, `force_bigint`, `codes_supplement`, `na_values` transforms | `list()` |
 | `missing_supplement` | named list of `c(lo, hi)` pairs — explicit missing-range overrides for sentinels no generic pattern can classify (e.g. non-integer sentinels like `999.5`) | `NULL` |
+| `doc_mask` | regex applied to PDF filenames to filter a shared documentation directory to the relevant file type (e.g. `"Family\|Familles"` for 1986 Census families) | `NULL` |
+
+### Newest-sibling inheritance
+
+Surveys without a registry entry normally fall back to pure auto-detection,
+with one exception.  When the requested version is a bare four-digit year and
+the same series already has at least one other year-keyed entry,
+`pumf_registry_lookup()` inherits the configuration of the newest registered
+sibling whose year is <= the requested year (or the oldest sibling if the
+requested year predates them all).  This lets a freshly released year deposited
+in the cache reuse the prior year's config — which works cleanly now that recent
+`file_mask`s use a generic `\d{4}` year placeholder rather than a hard-coded
+year.
+
+A `message()` fires once per session so the implicit reuse is discoverable; a
+genuinely changed release (new file layout, codes, or BSW join) still needs its
+own explicit entry.  Inheritance is **skipped** for multi-part versions (e.g.
+Census `2021 (individuals)`) and for LFS, which has its own shared registry
+entry.
 | `doc_mask` | regex applied to PDF filenames to filter a shared documentation directory to the relevant file type (e.g. `"Family\|Familles"` for 1986 Census families) | `NULL` |
