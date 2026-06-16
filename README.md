@@ -118,7 +118,14 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
 | Survey of Household Spending | SHS | 2017, 2019, 2021, 2023 | ✓ |
 
-### Cite **canpumf**
+## Related packages
+
+The [**cansim** package](https://mountainmath.github.io/cansim/index.html) is designed to retrieve and work with public Statistics Canada data tables. **cansim** prepares retrieved data tables as analysis-ready tidy dataframes and provides a number of convenience tools and functions to make it easier to work with Statistics Canada data. It is available on CRAN and on [Github](https://github.com/mountainMath/cansim).
+
+The [**cancensus** package](https://mountainmath.github.io/cancensus/index.html) is designed to retrieve and work with public Statistics Canada census data via the [CensusMapper API](https::censusmapper.ca/api). It is available on CRAN and on [Github](https://github.com/mountainMath/cancensus).
+
+
+## Cite **canpumf**
 
 If you wish to cite the `canpumf` package in your work:
 

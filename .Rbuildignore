@@ -18,3 +18,5 @@ test_data/*
 ^canpumf-logo\.png$
 ^canpumf\.png$
 ^hexSticker\.png$
+^CRAN-SUBMISSION$
+^cran-comments\.md$
