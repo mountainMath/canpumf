@@ -92,8 +92,8 @@
 <div class="section level2">
 <h2 id="duckdb">DuckDB<a class="anchor" aria-label="anchor" href="#duckdb"></a>
 </h2>
-<p>On first use PUMF data is imported into DuckDB. To see the data in the RStudio (or Positron) Connections Pane, set the following option or add this to your .Rprofile:</p>
-<pre><code><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span><span class="st">"duckdb.enable_rstudio_connection_pane"</span> <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre>
+<p>On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connection will be shown in the RStudio (or Positron) Connections Pane once a connection is opened, you control the default behaviour by setting the <code>canpumf.register_connection</code> optin in your .Rprofile:</p>
+<pre><code><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span><span class="st">"canpumf.register_connection"</span> <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre>
 </div>
 <div class="section level2">
 <h2 id="basic-usage">Basic usage<a class="anchor" aria-label="anchor" href="#basic-usage"></a>

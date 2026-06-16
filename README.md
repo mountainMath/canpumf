@@ -26,9 +26,10 @@ PUMF data can be large and should be cached locally. Set the `canpumf.cache_path
 
 ## DuckDB
 
-On first use PUMF data is imported into DuckDB. To see the data in the RStudio (or Positron) Connections Pane, set the following option or add this to your .Rprofile:
+On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connection will be shown in the RStudio (or Positron) Connections Pane once a connection is opened, you control the default behaviour by setting the `canpumf.register_connection` optin in your .Rprofile:
+
 ```
-options("duckdb.enable_rstudio_connection_pane" = TRUE)
+options("canpumf.register_connection" = TRUE)
 ```
 
 ## Basic usage
