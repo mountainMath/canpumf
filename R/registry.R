@@ -151,9 +151,21 @@
 
   # ---- CHS: Canadian Housing Survey ----------------------------------------
 
+  # PPROV code 95 is the combined territories, so individual codes 60/61/62
+  # never appear in the data. The command file declares 60/61/62 but not 95,
+  # leaving 95 unlabeled; supplement it. (Absent from the 2022 PUMF, which has
+  # no territorial sample.) The label differs by cycle: the 2018 dictionary
+  # labels 95 "Territories" (universe: all private households, incl. the 2019
+  # NWT Community Survey), whereas 2021 covers only the three territorial
+  # capitals and ships no label for 95.
   "CHS/2018" = .make_entry("CHS", "2018",
     layout_mask   = "chs2018ecl_pumf",
-    file_mask     = "CHS2018ECL_PUMF\\.csv"),
+    file_mask     = "CHS2018ECL_PUMF\\.csv",
+    data_fixups   = list(codes_supplement = list(
+      PPROV = data.frame(val = "95",
+                         label_en = "Territories",
+                         label_fr = "Territoires",
+                         stringsAsFactors = FALSE)))),
 
   # 2021/2022 use a generic \d{4} year so the entry clones cleanly for new
   # release years. Masks are anchored by the surrounding literals (chs…ecl_pumf)
@@ -165,7 +177,12 @@
     bsw_mask      = "chs\\d{4}ecl_PUMF_bsw",
     bsw_file_mask = "chs\\d{4}ecl_PUMF_bsw\\.csv",
     bsw_join_key  = "PUMFID",
-    file_mask     = "CHS\\d{4}ECL_PUMF\\.csv"),
+    file_mask     = "CHS\\d{4}ECL_PUMF\\.csv",
+    data_fixups   = list(codes_supplement = list(
+      PPROV = data.frame(val = "95",
+                         label_en = "Territorial capitals",
+                         label_fr = "Capitales territoriales",
+                         stringsAsFactors = FALSE)))),
 
   "CHS/2022" = .make_entry("CHS", "2022",
     layout_mask   = "chs\\d{4}ecl_pumf",
