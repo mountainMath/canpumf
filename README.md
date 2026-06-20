@@ -1,11 +1,11 @@
 # canpumf <a href="https://mountainmath.github.io/canpumf/"><img src="man/figures/logo.png" align="right" height="120" alt="canpumf website" /></a>
 
 <!-- badges: start -->
-[![CRAN status](https://www.r-pkg.org/badges/version/canpumf)](https://CRAN.R-project.org/package=canpumf)
+<!-- [![CRAN status](https://www.r-pkg.org/badges/version/canpumf)](https://CRAN.R-project.org/package=canpumf) -->
 [![R-CMD-check](https://github.com/mountainMath/canpumf/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mountainMath/canpumf/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
-The goal of {canpumf} is to facilitate ingesting StatCan PUMF data in R.
+The goal of **canpumf** is to facilitate ingesting, organizing, and working with StatCan PUMF data in R.
 
 ## Installation
 
@@ -26,7 +26,7 @@ PUMF data can be large and should be cached locally. Set the `canpumf.cache_path
 
 ## DuckDB
 
-On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connection will be shown in the RStudio (or Positron) Connections Pane once a connection is opened, you control the default behaviour by setting the `canpumf.register_connection` optin in your .Rprofile:
+On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connection will be shown in the RStudio (or Positron) Connections Pane once a connection is opened, you control the default behaviour by setting the `canpumf.register_connection` option in your .Rprofile:
 
 ```
 options("canpumf.register_connection" = TRUE)
@@ -115,7 +115,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
-| Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
+| Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
 | Survey of Household Spending | SHS | 2017, 2019, 2021, 2023 | ✓ |
 
@@ -123,14 +123,14 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 
 The [**cansim** package](https://mountainmath.github.io/cansim/index.html) is designed to retrieve and work with public Statistics Canada data tables. **cansim** prepares retrieved data tables as analysis-ready tidy dataframes and provides a number of convenience tools and functions to make it easier to work with Statistics Canada data. It is available on CRAN and on [Github](https://github.com/mountainMath/cansim).
 
-The [**cancensus** package](https://mountainmath.github.io/cancensus/index.html) is designed to retrieve and work with public Statistics Canada census data via the [CensusMapper API](https::censusmapper.ca/api). It is available on CRAN and on [Github](https://github.com/mountainMath/cancensus).
+The [**cancensus** package](https://mountainmath.github.io/cancensus/index.html) is designed to retrieve and work with public Statistics Canada census data via the [CensusMapper API](https://censusmapper.ca/api). It is available on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 
 
 ## Cite **canpumf**
 
 If you wish to cite the `canpumf` package in your work:
 
-  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.0.
+  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.1.
 
 A BibTeX entry for LaTeX users is
 ```
@@ -138,7 +138,7 @@ A BibTeX entry for LaTeX users is
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
-    note = {R package version 0.5.0},
+    note = {R package version 0.5.1},
     url = {https://mountainmath.github.io/canpumf/},
   }
 ```

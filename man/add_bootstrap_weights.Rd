@@ -39,7 +39,7 @@ suppress the LFS default and generate unstratified weights.}
 `500L`).}
 
 \item{prefix}{Column-name prefix for replicate columns (default `"CPBSW"`).
-Columns are named `prefix1`, `prefix2`, …}
+Columns are named `prefix1`, `prefix2`, ...}
 
 \item{bsw_table}{Name of the DuckDB table that stores the replicate weights
 (DuckDB path only).  Defaults to `NULL`, which auto-names it
@@ -50,7 +50,7 @@ different weight columns do not overwrite each other.}
 
 \item{overwrite}{If the `bsw_table` already exists in the DuckDB file,
 regenerate and overwrite it when `TRUE`.  When `FALSE` (default) the
-existing table is reused silently — no computation is performed.}
+existing table is reused silently -- no computation is performed.}
 }
 \value{
 * **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
@@ -106,13 +106,13 @@ same DuckDB file become invalid after the call.  Use the returned tbl instead.
 complete physical survey table.  If `tbl` has dplyr `filter()` operations
 applied, they are captured and automatically re-applied to the returned VIEW
 tbl so the visible rows match the original subset.  Other operations
-(`select()`, `mutate()`, etc.) are not replayed — they would interfere with
-the BSW columns — so apply them manually to the returned tbl if needed.
+(`select()`, `mutate()`, etc.) are not replayed -- they would interfere with
+the BSW columns -- so apply them manually to the returned tbl if needed.
 
 **ID column (DuckDB path):** a stable row identifier is needed to link the
 main table to the BSW table.  If `id_col` is `NULL` (the default):
   * The survey registry `bsw_join_key` is used when available (e.g.
-    `"PEFAMID"` for SFS 2016–2023) — no table modification needed.
+    `"PEFAMID"` for SFS 2016-2023) -- no table modification needed.
   * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
     survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
     fills the values is O(n).

@@ -58,7 +58,7 @@ renter_chs_pumf <- chs_pumf |>
               `Previous accommodations - tenure`== "Rent it"))
 ```
 
-We will also focus on people that did move in the past 5 years, as recall bias might make data from longer timeframes less reliable and the reproted time windows get large.
+We will also focus on people that did move in the past 5 years, as recall bias might make data from longer timeframes less reliable and the reported time windows get large.
 
 ```{r fig-yvr-renters-forced-moves, fig.alt="Vancouver renters forced to move"}
 plot_data <- renter_chs_pumf |> 
@@ -83,7 +83,7 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
 
 This looks interesting in that there seem to be distinct periods when the frequency of being forced to move changed, recognizing that longer ago brackets are conditional on not having moved after.
 
-With PUMF data we need to be aware that we are dealing with a synthetic sample that has been altered from the original survey repsonses for privacy reasons. With that, and the general unvertainty when dealing with survey data, it is important to assess how good these estimates are. Some PUMF data ship with bootstrap weights to facilitate this, when this is not the case the **canpumf** package fills the gap via the `add_bootstrap_weights` function. By default it adds 500 bootstrap weights. The function can act on a database connection or a tibble. If it's a database connection, then the weights get stored in the database by default and will be re-used on subsequent calls without the need to re-generate them.
+With PUMF data we need to be aware that we are dealing with a synthetic sample that has been altered from the original survey responses for privacy reasons. With that, and the general uncertainty when dealing with survey data, it is important to assess how good these estimates are. Some PUMF data ship with bootstrap weights to facilitate this, when this is not the case the **canpumf** package fills the gap via the `add_bootstrap_weights` function. By default it adds 500 bootstrap weights. The function can act on a database connection or a tibble. If it's a database connection, then the weights get stored in the database by default and will be re-used on subsequent calls without the need to re-generate them.
 
 ```{r fig-yvr-renters-forced-moves-bootstrap, fig.alt="Vancouver renters forced to move with bootstrap weights"}
 plot_data <- renter_chs_pumf |>

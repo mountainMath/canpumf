@@ -74,7 +74,7 @@ census_2021 |>
        caption="StatCan Census 2021 PUMF") 
 ```
 
-However, if we want a deeper understanding of the robustness of the results we can add bootstrap weights, by default `add_bootstrap_weights` weill add 500 bootstrap weights and save them to the database for later reference.
+However, if we want a deeper understanding of the robustness of the results we can add bootstrap weights, by default `add_bootstrap_weights` will add 500 bootstrap weights and save them to the database for later reference.
 
 
 ```{r}
