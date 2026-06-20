@@ -68,7 +68,7 @@ which cached versions are exercised.
 | ITS | `test-pipeline-its.R` | 2018, 2019 | ✓ | ✓ | ✓ | |
 | SHS | `test-pipeline-shs.R` | First of: 2023, 2021, 2019, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test; BSW join tested |
 | CIS | `test-pipeline-cis.R` | First of: 2022, 2021, 2020, 2019, 2018, 2017 | ✓\* | — | ✓ | Stage 2 smoke-test |
-| CPSS | `test-pipeline-cpss.R` | v1 (Stage 1 only†); v2–6 (full) | ✓ | — | ✓ | Cache-gated (`skip_if_not(.cpss_extracted(), ...)`); †v1 has no machine-readable codebook so Stage 2/3 are skipped; Stage 1 download tested in `test-pipeline-stage1.R` |
+| CPSS | `test-pipeline-cpss.R` | v1 (full, via PDF codebook†); v2–6 (full) | ✓ | — | ✓ | Cache-gated (`skip_if_not(.cpss_extracted(), ...)`); †v1 has no machine-readable codebook — `parse_pdf_codebook()` recovers bilingual labels from the codebook PDF, so Stage 2/3 run when `pdftools` is installed (`skip_if_not_installed("pdftools")`); Stage 1 download tested in `test-pipeline-stage1.R` |
 | LFS | `test-pipeline-lfs.R` | Synthetic (all); real cache if present | ✓\* | — | — | 47 tests; synthetic fixtures cover schema evolution, ENUM types, version filters, fra labels |
 
 \* For CHS, SHS, CIS, and LFS the **W** category is "emits no warnings during

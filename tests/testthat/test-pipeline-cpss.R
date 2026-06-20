@@ -26,21 +26,24 @@ test_that("CPSS v1: locate_or_download creates version_dir with zip + content", 
 })
 
 # ---- Stage 2 ----------------------------------------------------------------
-# CPSS v1 ships only PDF codebooks — no machine-readable variables.csv.
-# Stage 2 and 3 tests are skipped automatically when detect_formats finds
-# nothing to parse.  CPSS v2–v6 include a variables.csv and will run fully.
+# CPSS v1 ships only bilingual PDF codebooks — no machine-readable
+# variables.csv (unlike CPSS v2–v6).  parse_pdf_codebook() recovers the
+# variable and value labels from the codebook PDF, so Stage 2/3 run fully when
+# pdftools is installed.  Without pdftools, detect_formats() records the PDF as
+# unparseable and these tests skip.
 
 .cpss_has_metadata <- function() {
   vdir <- .cpss_vdir()
   canpumf:::.version_is_extracted(vdir) &&
-    length(canpumf:::detect_formats(vdir)) > 0L
+    !is.null(canpumf:::detect_formats(vdir)$pdf_codebook)
 }
 
 test_that("CPSS v1: pumf_parse_metadata produces canonical CSV files", {
   skip_if_not(.cpss_extracted(), "CPSS v1 not in cache")
+  skip_if_not_installed("pdftools")
   skip_if_not(.cpss_has_metadata(), "CPSS v1 has no machine-readable codebook")
 
-  canpumf:::pumf_parse_metadata(.cpss_vdir())
+  canpumf:::pumf_parse_metadata(.cpss_vdir(), refresh = TRUE)
 
   meta_dir <- file.path(.cpss_vdir(), "metadata")
   expect_true(file.exists(file.path(meta_dir, "variables.csv")))
@@ -53,6 +56,34 @@ test_that("CPSS v1: pumf_parse_metadata produces canonical CSV files", {
                c("name","label_en","label_fr","type","decimals",
                  "missing_low","missing_high"),
                ignore.order = TRUE)
+})
+
+test_that("CPSS v1: PDF codebook supplies bilingual variable and code labels", {
+  skip_if_not(.cpss_extracted(), "CPSS v1 not in cache")
+  skip_if_not_installed("pdftools")
+  skip_if_not(.cpss_has_metadata(), "CPSS v1 has no machine-readable codebook")
+
+  canpumf:::pumf_parse_metadata(.cpss_vdir(), refresh = TRUE)
+  meta <- canpumf:::read_metadata(file.path(.cpss_vdir(), "metadata"))
+
+  # Variable labels (Concept) in both languages.
+  agegrp <- meta$variables[meta$variables$name == "AGEGRP", ]
+  expect_equal(agegrp$label_en, "Age group of respondent")
+  expect_equal(agegrp$label_fr, "Groupe d’âge du répondant")
+
+  # Wrapped multi-line answer-category labels are joined.
+  bh05 <- meta$codes[meta$codes$name == "BH_05" & meta$codes$val == "01", ]
+  expect_equal(bh05$label_en,
+               "News outlets including local, national and internat sources")
+
+  # Single-character category labels (where label == code) are kept.
+  hh <- meta$codes[meta$codes$name == "HHLDSIZC", ]
+  expect_true(all(c("1", "2", "3", "4", "5") %in% hh$val))
+  expect_equal(hh$label_en[hh$val == "5"], "5 and more")
+
+  # Every code carries both language labels.
+  expect_equal(sum(is.na(meta$codes$label_en)), 0L)
+  expect_equal(sum(is.na(meta$codes$label_fr)), 0L)
 })
 
 # ---- Stage 3 — eng ----------------------------------------------------------

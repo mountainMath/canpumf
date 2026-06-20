@@ -1,5 +1,8 @@
 # canpumf 0.5.1
 
+## New features
+* New `parse_pdf_codebook()` metadata parser for StatCan bilingual PDF *frequency codebooks*. This recovers variable and value labels for surveys whose only machine-readable companion is the data file — notably CPSS cycle 1, which (unlike CPSS 2–6) ships no `variables.csv`. CPSS 1 now imports with full bilingual labels (parity with the other cycles) when `pdftools` is installed. Like the existing PDF data-dictionary parser, it is a label fallback that only fires when no command file or codebook CSV is found, and requires `pdftools` (Suggests).
+
 ## Documentation
 * New "Bootstrap weights" vignette documenting the resampling method, how the weights are stored, stratification, estimating uncertainty, and the incremental re-run behaviour (reuse, adding replicates, and regeneration when rows are added).
 

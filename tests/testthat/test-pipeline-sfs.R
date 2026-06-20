@@ -348,6 +348,9 @@ for (.v in .sfs_verified) {
 test_that("SFS 1999: full pipeline emits no unexpected warnings", {
   skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
               "SFS 1999 not extracted in cache")
+  # Without pdftools the parse deliberately warns that the PDF-only labels are
+  # unavailable; this "no unexpected warnings" check only applies to a full parse.
+  skip_if_not_installed("pdftools")
 
   tmp <- tempfile(fileext = ".duckdb")
   on.exit(unlink(tmp), add = TRUE)
@@ -402,8 +405,13 @@ test_that("SFS 1999: table has expected row and column counts", {
 test_that("SFS 1999: PDF dictionary labels applied (English only)", {
   skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
               "SFS 1999 not extracted in cache")
-  skip_if_not(.sfs_metadata_exists("1999"), "SFS 1999 metadata not parsed")
+  # SFS 1999 has DATA LIST-only SPSS command files; all labels come from the
+  # PDF Data Dictionary via parse_pdf_dictionary(), which needs pdftools.
+  skip_if_not_installed("pdftools")
 
+  # Re-parse so the cached metadata reflects current pdftools availability
+  # rather than whatever an earlier (possibly pdftools-less) run wrote.
+  canpumf:::pumf_parse_metadata(.sfs_vdir("1999"), refresh = TRUE)
   meta <- canpumf:::read_metadata(file.path(.sfs_vdir("1999"), "metadata"))
 
   # All 80 variables should have English labels from the PDF dictionary
@@ -424,7 +432,12 @@ test_that("SFS 1999: PDF dictionary labels applied (English only)", {
 test_that("SFS 1999: binary indicator variables are categorical", {
   skip_if_not(canpumf:::.version_is_extracted(.sfs_vdir("1999")),
               "SFS 1999 not extracted in cache")
-  skip_if_not(.sfs_metadata_exists("1999"), "SFS 1999 metadata not parsed")
+  # Promotion of the ECFSZ* indicators to categorical depends on the value
+  # labels, which for SFS 1999 only exist when the PDF dictionary is parsed.
+  skip_if_not_installed("pdftools")
+
+  # Ensure the metadata carries the PDF-derived labels before building.
+  canpumf:::pumf_parse_metadata(.sfs_vdir("1999"), refresh = TRUE)
 
   tmp <- tempfile(fileext = ".duckdb")
   on.exit(unlink(tmp), add = TRUE)
