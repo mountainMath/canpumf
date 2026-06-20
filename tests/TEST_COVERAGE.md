@@ -27,6 +27,7 @@ is added, or the scope of an existing test changes.
 | `test-pipeline-stage3.R` | Stage 3 helpers: `.find_pumf_data_file()`, `pumf_build_duckdb()` end-to-end with synthetic data |
 | `test-api.R` | `get_pumf()`, `label_pumf_columns()`, `close_pumf()`, `pumf_metadata()` — mostly synthetic; some use `skip_if_offline()` |
 | `test-connection-pane.R` | `.duckdb_connect_quiet()` keeps transient internal connections out of the RStudio Connections pane (only the final returned connection registers); guards the `dbSendQuery` pane-popup regression |
+| `test-bsw-and-helpers.R` | `add_bootstrap_weights()` (in-memory + DuckDB), `remove_bootstrap_weights()`, `bsw_info()`, `pumf_var_labels()`, collection listers. Bootstrap-weight coverage spans every incremental re-run branch: reuse (no recompute), extend columns (unstratified + within-strata), added rows → full regen (unstratified) / affected-strata-only regen (stratified), combined rows+columns, and `overwrite=TRUE` full regen. Stratified resampling is verified via the constant-weight within-stratum total invariant |
 
 ---
 
