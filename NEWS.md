@@ -3,6 +3,7 @@
 ## Bug fixes
 * `get_pumf("LFS")` (and other calls) no longer trigger spurious RStudio "Error in dbSendQuery(...)" Connections-pane popups. Transient internal DuckDB connections (status checks, write phases, BSW edits) are no longer registered in the RStudio Connections pane; only the final connection returned to the user is registered.
 * `add_bootstrap_weights()` on an in-memory `data.frame`/`tibble` that already has replicate columns now extends the existing set (generating only the additional replicates) instead of regenerating a full set and producing duplicate column names. This matches the DuckDB-backed behaviour.
+* `add_bootstrap_weights()` now handles rows added to a survey table that already has bootstrap weights correctly. Previously it generated replicates for the new rows in isolation (resampling only among the new rows), which is statistically wrong. It now deletes and regenerates the affected weights: every row when unstratified, or only the strata that gained rows when `strata_cols` are in effect (complete strata keep their existing weights).
 
 # canpumf 0.5.0
 

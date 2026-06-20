@@ -31,6 +31,37 @@
   vdir
 }
 
+# Build a DuckDB-backed survey table directly (with an optional strata column)
+# and return a handle; used by the row-addition regeneration tests, which need
+# to append rows to the physical table between add_bootstrap_weights() calls.
+.bsw_db <- function(df, env = parent.frame()) {
+  cache   <- withr::local_tempdir(.local_envir = env)
+  s <- list(cache = cache, series = "ROWT", version = "2020", lang = "eng")
+  s$db_path <- .pumf_db_path(s$series, s$version, cache)
+  dir.create(dirname(s$db_path), recursive = TRUE, showWarnings = FALSE)
+  s$tname <- .pumf_table_name(s$series, s$version, s$lang)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path)
+  DBI::dbWriteTable(con, s$tname, df)
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  s
+}
+.bsw_open <- function(s) {
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path, read_only = TRUE)
+  t   <- dplyr::tbl(con, s$tname)
+  .pumf_register_con(con, s$series, s$version, s$cache, s$lang)
+  t
+}
+.bsw_append <- function(s, df) {
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, s$tname, df, append = TRUE)
+}
+.bsw_read <- function(s) {
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbGetQuery(con, 'SELECT * FROM "pumf_bsw_wt" ORDER BY "ID"')
+}
+
 
 # ============================================================
 # add_bootstrap_weights() — in-memory path
@@ -140,6 +171,59 @@ test_that("add_bootstrap_weights (DuckDB): re-run with custom prefix keeps coded
   expect_true(all(c("ID", "WEIGHT") %in% cn))   # coded names preserved
   expect_false("Survey weight" %in% cn)          # not spuriously relabeled
   expect_false("Record ID" %in% cn)
+})
+
+test_that("add_bootstrap_weights (DuckDB): added rows regenerate all weights (unstratified)", {
+  set.seed(0)
+  s  <- .bsw_db(data.frame(ID = 1:8, WT = runif(8, 100, 200)))
+  r1 <- suppressMessages(add_bootstrap_weights(
+    .bsw_open(s), "WT", id_col = "ID", n_replicates = 3L, seed = 1L))
+  close_pumf(r1)
+  before <- .bsw_read(s)
+  expect_equal(nrow(before), 8L)
+
+  # Append 4 rows, then re-add: every replicate weight must be regenerated
+  # because the whole resampling population changed.
+  .bsw_append(s, data.frame(ID = 9:12, WT = runif(4, 100, 200)))
+  r2 <- suppressMessages(add_bootstrap_weights(
+    .bsw_open(s), "WT", id_col = "ID", n_replicates = 3L, seed = 1L))
+  close_pumf(r2)
+  after <- .bsw_read(s)
+
+  expect_equal(nrow(after), 12L)
+  expect_setequal(after$ID, 1:12)
+  expect_false("CPBSW4" %in% names(after))      # still 3 replicates, no new cols
+  # Pre-existing rows were regenerated, not carried over unchanged.
+  expect_false(isTRUE(all.equal(before[before$ID <= 8L, -1L],
+                                after[after$ID <= 8L, -1L])))
+})
+
+test_that("add_bootstrap_weights (DuckDB): added rows regenerate only affected strata", {
+  set.seed(0)
+  s  <- .bsw_db(data.frame(ID = 1:10, WT = runif(10, 100, 200),
+                           G = rep(c("A", "B"), each = 5)))
+  r1 <- suppressMessages(add_bootstrap_weights(
+    .bsw_open(s), "WT", id_col = "ID", strata_cols = "G",
+    n_replicates = 3L, seed = 1L))
+  close_pumf(r1)
+  before <- .bsw_read(s)
+
+  # New rows only in stratum B: stratum A must be left untouched.
+  .bsw_append(s, data.frame(ID = 11:12, WT = runif(2, 100, 200), G = c("B", "B")))
+  r2 <- suppressMessages(add_bootstrap_weights(
+    .bsw_open(s), "WT", id_col = "ID", strata_cols = "G",
+    n_replicates = 3L, seed = 1L))
+  close_pumf(r2)
+  after <- .bsw_read(s)
+
+  expect_equal(nrow(after), 12L)
+  expect_true(all(11:12 %in% after$ID))
+  # Stratum A (ID 1-5): weights preserved bit-for-bit.
+  expect_equal(after[after$ID <= 5L, ], before[before$ID <= 5L, ],
+               ignore_attr = TRUE)
+  # Stratum B (ID 6-10): pre-existing rows regenerated.
+  expect_false(isTRUE(all.equal(before[before$ID %in% 6:10, -1L],
+                                after[after$ID %in% 6:10, -1L])))
 })
 
 test_that("bsw_info: reports BSW tables after add_bootstrap_weights", {

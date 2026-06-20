@@ -78,6 +78,19 @@ a sample of \eqn{n} rows is drawn with replacement; the bootstrap weight for
 row \eqn{i} in replicate \eqn{b} is `original_weight[i] * count[i,b]`, where
 `count[i,b]` is the number of times row \eqn{i} appeared in draw \eqn{b}.
 
+**Incremental re-runs (DuckDB path):** when a BSW table already exists the
+call only does the work needed to satisfy the request:
+  * **More replicates** than stored (and no new rows): the additional
+    replicate columns are appended; existing columns are kept.
+  * **New rows** in the main table (some rows have no weights yet): because a
+    bootstrap replicate resamples the full population, added rows invalidate
+    the existing weights of their resampling universe, so those weights are
+    deleted and regenerated.  Unstratified, this regenerates every row; when
+    `strata_cols` are in effect, only the strata that gained rows are
+    regenerated and complete strata keep their existing weights.
+  * **Neither:** the stored weights are reused without recomputation.
+Pass `overwrite = TRUE` to force a full fresh regeneration regardless.
+
 **Multiple weight columns (hierarchical data):** by default `bsw_table` is
 named after `weight_col` (e.g. `"pumf_bsw_wstpwgt"`), so calling the
 function twice with different weight columns (e.g. household weight and

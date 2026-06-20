@@ -540,6 +540,19 @@ close_pumf <- function(tbl) {
 #' row \eqn{i} in replicate \eqn{b} is `original_weight[i] * count[i,b]`, where
 #' `count[i,b]` is the number of times row \eqn{i} appeared in draw \eqn{b}.
 #'
+#' **Incremental re-runs (DuckDB path):** when a BSW table already exists the
+#' call only does the work needed to satisfy the request:
+#'   * **More replicates** than stored (and no new rows): the additional
+#'     replicate columns are appended; existing columns are kept.
+#'   * **New rows** in the main table (some rows have no weights yet): because a
+#'     bootstrap replicate resamples the full population, added rows invalidate
+#'     the existing weights of their resampling universe, so those weights are
+#'     deleted and regenerated.  Unstratified, this regenerates every row; when
+#'     `strata_cols` are in effect, only the strata that gained rows are
+#'     regenerated and complete strata keep their existing weights.
+#'   * **Neither:** the stored weights are reused without recomputation.
+#' Pass `overwrite = TRUE` to force a full fresh regeneration regardless.
+#'
 #' **Multiple weight columns (hierarchical data):** by default `bsw_table` is
 #' named after `weight_col` (e.g. `"pumf_bsw_wstpwgt"`), so calling the
 #' function twice with different weight columns (e.g. household weight and
@@ -810,25 +823,19 @@ add_bootstrap_weights <- function(tbl,
   else
     ""
 
-  if (bsw_exists && need_more_rows) {
-    # Pull ONLY rows missing from the BSW table.
-    new_wt_data <- DBI::dbGetQuery(con, sprintf(
-      'SELECT %s, CAST("%s" AS DOUBLE) AS w%s
-       FROM "%s"
-       WHERE "%s" NOT IN (SELECT "%s" FROM "%s")',
-      id_sql, weight_col, strata_sql, table_name,
-      id_col, id_col, bsw_table
-    ))
-  }
-  if (!bsw_exists || need_more_cols) {
-    # Pull ALL rows' weights: needed for fresh generation or adding columns.
+  # Pull ALL rows' weights whenever we (re)generate: fresh build, added columns,
+  # or added rows.  The former "pull only the new rows" shortcut is gone:
+  # bootstrap replicates resample the full (stratum) population, so added rows
+  # invalidate — and require regenerating — every row in the affected resampling
+  # universe, not just the new rows themselves.
+  if (!bsw_exists || need_more_cols || need_more_rows) {
     wt_data_all <- DBI::dbGetQuery(con, sprintf(
       'SELECT %s, CAST("%s" AS DOUBLE) AS w%s FROM "%s"',
       id_sql, weight_col, strata_sql, table_name
     ))
   }
   if (bsw_exists && (need_more_rows || need_more_cols)) {
-    # Read the current BSW table for merging.
+    # Read the current BSW table to preserve the still-valid replicate weights.
     old_bsw <- DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', bsw_table))
   }
 
@@ -890,37 +897,96 @@ add_bootstrap_weights <- function(tbl,
         "Generating %d %s replicates for %d observations...",
         n_replicates, prefix, nrow(wt_data_all)))
       bsw_df <- .gen_bsw(wt_data_all, 0L, n_replicates, seed)
-    } else if (need_more_rows && !need_more_cols) {
-      # Case B: insert new rows with the same n_existing columns.
-      if (nrow(new_wt_data) > 0L) {
-        message(sprintf("Adding %d new rows to BSW table...", nrow(new_wt_data)))
-        new_rows_df <- .gen_bsw(new_wt_data, 0L, n_existing, seed)
-        bsw_df      <- rbind(old_bsw, new_rows_df)
-      } else {
-        bsw_df <- old_bsw
-      }
-    } else if (!need_more_rows && need_more_cols) {
-      # Case C: add more replicate columns for all existing rows.
-      message(sprintf(
-        "Adding replicates %d-%d to BSW table...", n_existing + 1L, n_replicates))
-      add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
-      bsw_df  <- merge(old_bsw, add_df,
-                       by = intersect(names(old_bsw), names(add_df)),
-                       all = TRUE)
     } else {
-      # Case B+C: new rows AND more replicate columns.
-      message(sprintf(
-        "Adding replicates %d-%d and %d new rows to BSW table...",
-        n_existing + 1L, n_replicates, nrow(new_wt_data)))
-      add_df  <- .gen_bsw(wt_data_all, n_existing, n_replicates, seed)
-      old_aug <- merge(old_bsw, add_df,
-                       by = intersect(names(old_bsw), names(add_df)),
-                       all = TRUE)
-      if (nrow(new_wt_data) > 0L) {
-        new_rows_df <- .gen_bsw(new_wt_data, 0L, n_replicates, seed)
-        bsw_df      <- rbind(old_aug, new_rows_df)
+      # bsw_exists, with added rows and/or added replicate columns.
+      #
+      # Bootstrap replicate weights are produced by resampling the full
+      # population (or, when stratified, the full stratum).  Therefore:
+      #   * Added ROWS invalidate the replicate weights of their resampling
+      #     universe and force regeneration there — the whole table when
+      #     unstratified, or just the strata that gained rows when stratified
+      #     (complete strata keep their existing weights).
+      #   * Added COLUMNS are independent extra replicates appended to rows
+      #     whose resampling universe is unchanged.
+      n_target <- max(n_existing, n_replicates)
+      id_name  <- id_col %||% "pumf_row_id"
+      canon    <- c(id_name, paste0(prefix, seq_len(n_target)))
+
+      if (anyNA(wt_data_all$w)) {
+        warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
+                "' replaced with 0.", call. = FALSE)
+        wt_data_all$w[is.na(wt_data_all$w)] <- 0
+      }
+      has_bsw <- wt_data_all$row_id %in% old_bsw[[id_name]]
+      n_new   <- sum(!has_bsw)
+
+      if (is.null(eff_strata)) {
+        if (need_more_rows) {
+          # Whole population changed: every replicate weight is stale.
+          message(sprintf(
+            "%d new row(s) detected; deleting and regenerating all %d %s replicates for %d observations...",
+            n_new, n_target, prefix, nrow(wt_data_all)))
+          bsw_df <- .gen_bsw(wt_data_all, 0L, n_target, seed)[, canon, drop = FALSE]
+        } else {
+          # Case C: population unchanged, only add independent replicates.
+          message(sprintf("Adding replicates %d-%d to BSW table...",
+                          n_existing + 1L, n_target))
+          add_df <- .gen_bsw(wt_data_all, n_existing, n_target, seed)
+          bsw_df <- merge(old_bsw, add_df,
+                          by = intersect(names(old_bsw), names(add_df)),
+                          all = TRUE)[, canon, drop = FALSE]
+        }
       } else {
-        bsw_df <- old_aug
+        # Stratified: regenerate only the strata that have missing weights.
+        strata_key  <- interaction(wt_data_all[eff_strata], drop = TRUE)
+        affected    <- if (need_more_rows)
+          unique(as.character(strata_key[!has_bsw])) else character(0L)
+        is_affected <- as.character(strata_key) %in% affected
+
+        if (!is.null(seed)) set.seed(seed)
+        parts <- list()
+
+        # 1) Affected strata: full fresh resample within each (n_target cols).
+        if (any(is_affected)) {
+          message(sprintf(
+            "%d new row(s) in %d of %d strata; deleting and regenerating those strata in full (%d %s replicates)...",
+            n_new, length(affected), nlevels(strata_key), n_target, prefix))
+          aff_dat <- wt_data_all[is_affected, , drop = FALSE]
+          aff_key <- droplevels(strata_key[is_affected])
+          for (lv in levels(aff_key)) {
+            s_data <- aff_dat[aff_key == lv, , drop = FALSE]
+            parts[[length(parts) + 1L]] <-
+              .gen_bsw(s_data, 0L, n_target, NULL,
+                       show_progress = FALSE)[, canon, drop = FALSE]
+          }
+        }
+
+        # 2) Unaffected strata: keep existing weights; add columns if requested,
+        #    resampling within each stratum (independent extra replicates).
+        if (any(!is_affected)) {
+          unaff_dat <- wt_data_all[!is_affected, , drop = FALSE]
+          keep_bsw  <- old_bsw[old_bsw[[id_name]] %in% unaff_dat$row_id, ,
+                               drop = FALSE]
+          if (n_target > n_existing) {
+            unaff_key <- droplevels(strata_key[!is_affected])
+            message(sprintf(
+              "Adding replicates %d-%d to %d unaffected stratum/strata...",
+              n_existing + 1L, n_target, nlevels(unaff_key)))
+            add_parts <- list()
+            for (lv in levels(unaff_key)) {
+              s_data <- unaff_dat[unaff_key == lv, , drop = FALSE]
+              add_parts[[length(add_parts) + 1L]] <-
+                .gen_bsw(s_data, n_existing, n_target, NULL, show_progress = FALSE)
+            }
+            add_df   <- do.call(rbind, add_parts)
+            keep_bsw <- merge(keep_bsw, add_df,
+                              by = intersect(names(keep_bsw), names(add_df)),
+                              all = TRUE)
+          }
+          parts[[length(parts) + 1L]] <- keep_bsw[, canon, drop = FALSE]
+        }
+
+        bsw_df <- do.call(rbind, parts)
       }
     }
   }
