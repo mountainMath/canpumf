@@ -116,6 +116,31 @@ get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
 }
 
 
+# Open a DuckDB connection that never registers in the RStudio Connections pane.
+#
+# Used for the many short-lived internal connections (status checks, write
+# phases, BSW edits, lock probes) that are opened and disconnected within a
+# single call.  Registering these in the pane — and tearing them down moments
+# later, often while another connection to the *same* database file is still
+# open — is what triggers RStudio's "Error in dbSendQuery(conn, statement, ...)"
+# pane popups: the pane observer enumerates objects on a handle that has already
+# been shut down, or on a duplicate entry for the same database file.  Only the
+# final connection returned to the user (via pumf_open_duckdb() / .lfs_open_tbl(),
+# and the BSW read-only reopen) should ever appear in the pane; those honour
+# getOption("canpumf.register_connection") via the option block in get_pumf().
+#
+# duckdb registers the connection synchronously inside dbConnect() when these
+# options are enabled, so forcing them FALSE for the duration of the call
+# suppresses registration entirely.  All other dbConnect arguments are passed
+# through; the caller keeps its own disconnect / shutdown handling.
+.duckdb_connect_quiet <- function(dbdir, read_only = FALSE, ...) {
+  old <- options(duckdb.enable_rstudio_connection_pane = FALSE,
+                 duckdb.force_rstudio_connection_pane  = FALSE)
+  on.exit(options(old), add = TRUE)
+  DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = read_only, ...)
+}
+
+
 #' @import dplyr
 #' @importFrom stats setNames na.omit
 #' @importFrom utils head

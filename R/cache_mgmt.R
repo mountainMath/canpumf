@@ -59,7 +59,7 @@
   loaded <- character(0L)
   if (file.exists(db_path)) {
     con <- tryCatch(
-      DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE),
+      .duckdb_connect_quiet(db_path, read_only = TRUE),
       error = function(e) NULL
     )
     if (!is.null(con)) {
@@ -254,7 +254,7 @@ remove_pumf_cache <- function(series,
 
   if (file.exists(db_path)) {
     .assert_duckdb_writable(db_path)
-    con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+    con <- .duckdb_connect_quiet(db_path)
 
     for (tbl in c("lfs_eng", "lfs_fra")) {
       if (!DBI::dbExistsTable(con, tbl)) next

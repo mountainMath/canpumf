@@ -1,3 +1,8 @@
+# canpumf 0.5.1
+
+## Bug fixes
+* `get_pumf("LFS")` (and other calls) no longer trigger spurious RStudio "Error in dbSendQuery(...)" Connections-pane popups. Transient internal DuckDB connections (status checks, write phases, BSW edits) are no longer registered in the RStudio Connections pane; only the final connection returned to the user is registered.
+
 # canpumf 0.5.0
 
 ## Major changes

@@ -28,7 +28,7 @@
 .duckdb_table_exists <- function(db_path, table_name) {
   if (!file.exists(db_path)) return(FALSE)
   con <- tryCatch(
-    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE),
+    .duckdb_connect_quiet(db_path, read_only = TRUE),
     error = function(e) NULL)
   if (is.null(con)) return(FALSE)
   on.exit(DBI::dbDisconnect(con, shutdown = FALSE))
@@ -52,7 +52,7 @@
 .assert_duckdb_writable <- function(db_path) {
   if (!file.exists(db_path)) return(invisible(NULL))
   con <- tryCatch(
-    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path),
+    .duckdb_connect_quiet(db_path),
     error = function(e) e
   )
   if (inherits(con, "error")) {
@@ -725,8 +725,7 @@ pumf_build_duckdb <- function(version_dir,
   # Open a temporary connection just for the existence check, then close it so
   # no lock is held when we return.
   if (!refresh && file.exists(db_path)) {
-    con_chk <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                               read_only = TRUE)
+    con_chk <- .duckdb_connect_quiet(db_path, read_only = TRUE)
     exists  <- DBI::dbExistsTable(con_chk, table_name)
     DBI::dbDisconnect(con_chk, shutdown = TRUE)
     if (exists) return(invisible(result))
@@ -930,7 +929,7 @@ pumf_build_duckdb <- function(version_dir,
 
   # Step 9: write to DuckDB
   .assert_duckdb_writable(db_path)
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  con <- .duckdb_connect_quiet(db_path)
   if (DBI::dbExistsTable(con, table_name))
     DBI::dbRemoveTable(con, table_name)
   message("Writing DuckDB table '", table_name, "' ...")

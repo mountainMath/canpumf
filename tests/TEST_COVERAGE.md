@@ -26,6 +26,7 @@ is added, or the scope of an existing test changes.
 | `test-pipeline-stage1.R` | `pumf_locate_or_download()` (download, unzip, collision handling) — uses `skip_if_offline()` for download tests; download attempts wrapped in `tryCatch` → `skip()` so StatCan downtime produces a skip, not a failure |
 | `test-pipeline-stage3.R` | Stage 3 helpers: `.find_pumf_data_file()`, `pumf_build_duckdb()` end-to-end with synthetic data |
 | `test-api.R` | `get_pumf()`, `label_pumf_columns()`, `close_pumf()`, `pumf_metadata()` — mostly synthetic; some use `skip_if_offline()` |
+| `test-connection-pane.R` | `.duckdb_connect_quiet()` keeps transient internal connections out of the RStudio Connections pane (only the final returned connection registers); guards the `dbSendQuery` pane-popup regression |
 
 ---
 

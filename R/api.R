@@ -345,7 +345,7 @@ get_pumf <- function(series     = NULL,
           "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
       else character(0L)
     } else {
-      con_tmp <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+      con_tmp <- .duckdb_connect_quiet(db_path, read_only = TRUE)
       all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
         DBI::dbGetQuery(
           con_tmp,
@@ -932,7 +932,7 @@ add_bootstrap_weights <- function(tbl,
     DBI::dbDisconnect(con, shutdown = TRUE)
 
   # --- Write BSW table and VIEW to DuckDB ------------------------------------
-  rw_con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = FALSE)
+  rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
   on.exit(
     if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
     add = TRUE
@@ -1297,7 +1297,7 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
      envir = .pumf_con_registry, inherits = FALSE)
   if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
 
-  rw_con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = FALSE)
+  rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
   on.exit(
     if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
     add = TRUE
