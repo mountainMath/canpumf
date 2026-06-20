@@ -19,6 +19,10 @@
 #               and force_bigint keep the raw values and set the column type to
 #               INTEGER / BIGINT after the table is written (large IDs survive).
 #               A variable may appear in at most one force_* set.
+#   labels_supplement: named list c(VAR = c(label_en=, label_fr=)) supplying
+#               variable labels the source metadata leaves blank (e.g. a weight
+#               variable with an empty Concept line in the PDF codebook).  Fills
+#               only NA labels, so genuine source labels always win.
 
 .make_entry <- function(series,
                         version,
@@ -792,6 +796,20 @@
   # ASCII FWF or SPSS command files) — cannot be read by the current pipeline.
   # No registry entry; get_pumf() will fail with an informative error.
 
+  # ---- CPSS: Canadian Perspectives Survey Series ----------------------------
+  # Cycle 1 ships only bilingual PDF codebooks (no machine-readable variables.csv;
+  # parse_pdf_codebook() recovers the labels).  The survey weight COVID_WT has an
+  # empty Concept line in BOTH the English and French codebooks, so it arrives
+  # with no label in either language; supply the standard StatCan weight label.
+  # parse_pdf_codebook() types every variable character for parity, so the
+  # continuous weight (PDF "12.4", values like 2599.5633) needs force_numeric.
+  "CPSS/1" = .make_entry("CPSS", "1",
+    data_fixups = list(
+      force_numeric     = "COVID_WT",
+      labels_supplement = list(
+        COVID_WT = c(label_en = "Survey weight",
+                     label_fr = "Poids d'enqu\u00eate")))),
+
   # ---- CCAHS: Canadian COVID-19 Antibody and Health Survey ------------------
   # Split-SPSS layout (CCAHS_PUMF_{i,vale,vare,valf,varf,miss}.sps).
   # Both a CSV and a TXT data file are shipped; use the CSV to avoid ambiguity.
@@ -1259,6 +1277,24 @@ pumf_registry_lookup <- function(series, version) {
   base
 }
 
+# Fill in variable labels that the source metadata leaves blank, using a
+# registry `labels_supplement` fixup.  Only NA labels are filled, so a genuine
+# source label always wins.  `variables$name` must already be uppercased.
+# Shared by the Stage 3 build (pumf_build_duckdb) and label_pumf_columns() so a
+# supplemented label is applied consistently wherever variables are read.
+.pumf_apply_labels_supplement <- function(variables, reg) {
+  sup_list <- if (is.null(reg)) NULL else reg$data_fixups$labels_supplement
+  if (length(sup_list) == 0L) return(variables)
+  for (vname in names(sup_list)) {
+    sup <- sup_list[[vname]]
+    i   <- which(variables$name == toupper(vname))
+    if (length(i) != 1L) next
+    for (lc in intersect(c("label_en", "label_fr"), names(sup)))
+      if (is.na(variables[[lc]][i])) variables[[lc]][i] <- sup[[lc]]
+  }
+  variables
+}
+
 #' List all registered survey keys
 #'
 #' @return character vector of `"series/version"` keys
@@ -1310,7 +1346,7 @@ pumf_registry_keys <- function() {
 .pumf_fixup_fields <- c(
   "str_pad", "rename", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
-  "codes_supplement", "missing_supplement")
+  "codes_supplement", "missing_supplement", "labels_supplement")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.
@@ -1383,7 +1419,8 @@ pumf_registry_keys <- function() {
 #'   `"CP1252"` in the pipeline).
 #' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
 #'   `rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
-#'   `force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`.
+#'   `force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`,
+#'   `labels_supplement`.
 #'   The `force_character`/`force_integer`/`force_bigint` fields take character
 #'   vectors of variable names and override the DuckDB storage type (VARCHAR /
 #'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are

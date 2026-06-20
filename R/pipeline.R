@@ -751,22 +751,38 @@ pumf_build_duckdb <- function(version_dir,
   codes$name     <- toupper(codes$name)
   if (!is.null(layout)) layout$name <- toupper(layout$name)
 
-  # Warn about missing French labels; fall back per-row to English
+  reg <- pumf_registry_lookup(series, version)
+
+  # labels_supplement: supply variable labels that the source metadata leaves
+  # blank (e.g. CPSS 1 ships only a PDF codebook whose weight variable COVID_WT
+  # has an empty Concept line in BOTH the English and French documents).
+  variables <- .pumf_apply_labels_supplement(variables, reg)
+
+  # Warn about missing French labels.  Separate the two cases: variables that
+  # have an English label fall back to it, but variables the source documents in
+  # neither language (e.g. an unlabeled CPSS weight) have nothing to fall back to
+  # -- conflating them wrongly implies a label_en exists.
   if (lang == "fra") {
-    na_var <- variables$name[is.na(variables[[label_col]])]
-    if (length(na_var) > 0L)
-      warning("lang='fra': ", length(na_var),
+    fmt_vars <- function(v) paste0(
+      paste(head(v, 5L), collapse = ", "),
+      if (length(v) > 5L) paste0(" ... and ", length(v) - 5L, " more."))
+    na_fr    <- is.na(variables$label_fr)
+    fallback <- variables$name[na_fr & !is.na(variables$label_en)]
+    neither  <- variables$name[na_fr &  is.na(variables$label_en)]
+    if (length(fallback) > 0L)
+      warning("lang='fra': ", length(fallback),
               " variable(s) have no French label; using label_en for: ",
-              paste(head(na_var, 5L), collapse = ", "),
-              if (length(na_var) > 5L)
-                paste0(" ... and ", length(na_var) - 5L, " more."))
+              fmt_vars(fallback))
+    if (length(neither) > 0L)
+      warning("lang='fra': ", length(neither),
+              " variable(s) have no label in either language: ",
+              fmt_vars(neither))
 
     na_code <- is.na(codes[[label_col]])
     if (any(na_code)) codes[[label_col]][na_code] <- codes$label_en[na_code]
   }
 
   # Step 5: read data file
-  reg      <- pumf_registry_lookup(series, version)
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
   eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
 

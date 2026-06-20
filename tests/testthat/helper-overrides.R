@@ -10,6 +10,7 @@
 #   rename             — one row per renamed pair (variable = old, value = new)
 #   codes_supplement   — one row per supplemented (variable, val) pair
 #   missing_supplement — one row per variable (value = "lo-hi" range)
+#   labels_supplement  — one row per variable (value = supplied label_en)
 enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
   rows <- list()
   add <- function(series, version, type, variable = "", value = "") {
@@ -47,6 +48,10 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
         for (j in seq_len(nrow(df)))
           add(entry$series, entry$version, "codes_supplement", nm, df$val[j])
       }
+    if (!is.null(fx$labels_supplement))
+      for (nm in names(fx$labels_supplement))
+        add(entry$series, entry$version, "labels_supplement", nm,
+            unname(fx$labels_supplement[[nm]]["label_en"]))
   }
   do.call(rbind, rows)
 }

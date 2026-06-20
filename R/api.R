@@ -372,7 +372,10 @@ get_pumf <- function(series     = NULL,
            call. = FALSE)
     vars <- read_metadata(meta_dir)$variables
     vars$name <- toupper(vars$name)
-    vars
+    # Apply the same labels_supplement the Stage 3 build uses, so a label
+    # supplied for a variable the source leaves blank (e.g. CPSS COVID_WT) is
+    # visible to label_pumf_columns() and pumf_var_labels().
+    .pumf_apply_labels_supplement(vars, pumf_registry_lookup(series, version))
   }
 }
 

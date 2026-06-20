@@ -7,7 +7,8 @@
 .wt_cache <- function() getOption("canpumf.cache_path", "")
 
 .is_weight_col <- function(name) {
-  grepl("WEIGHT|WGHT|^WGT_|FINWGH|FAMWGT|WTPP", name, ignore.case = TRUE) &
+  grepl("WEIGHT|WGHT|^WGT_|FINWGH|FAMWGT|WTPP|^COVID_WT$", name,
+        ignore.case = TRUE) &
   !grepl("^WT\\d+$|^WTBS_|^WTI", name, ignore.case = TRUE)
 }
 
@@ -18,7 +19,7 @@ test_that(".is_weight_col: includes main survey weight columns", {
                "PWEIGHT", "FWEIGHT", "PFWEIGHT", "RWEIGHT",
                "WGHT_PER", "WGHT_FNL", "WGHT_HSD",
                "WGHTEPI", "WGHTFIN", "PERWGHT",
-               "WGT_PUMF", "VWEIGHTP", "FINWGHT", "FAMWGT", "WTPP")
+               "WGT_PUMF", "VWEIGHTP", "FINWGHT", "FAMWGT", "WTPP", "COVID_WT")
   expect_true(all(.is_weight_col(include)), info = paste("excluded:", paste(include[!.is_weight_col(include)], collapse=",")))
 })
 
