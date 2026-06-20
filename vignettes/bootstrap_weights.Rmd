@@ -15,10 +15,9 @@ knitr::opts_chunk$set(
 )
 ```
 
-```{r setup}
+```{r setup, warning=FALSE}
 library(dplyr)
 library(canpumf)
-options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
 PUMF data are a synthetic sample, altered from the original survey responses for
@@ -62,13 +61,13 @@ for each:
   Nothing is persisted.
 
 ```{r}
-sfs <- get_pumf("SFS", "2019")
+cis <- get_pumf("CIS", "2019")
 
-sfs_bsw <- sfs |>
-  add_bootstrap_weights(weight_col = "PWEIGHT", n_replicates = 200, seed = 42)
+cis_bsw <- cis |>
+  add_bootstrap_weights(weight_col = "FWEIGHT", n_replicates = 200, seed = 42)
 
 # 200 replicate columns CPBSW1 … CPBSW200 are now available
-grep("^CPBSW", colnames(sfs_bsw), value = TRUE) |> head()
+grep("^CPBSW", colnames(cis_bsw), value = TRUE) |> head()
 ```
 
 ## Where the weights are stored (DuckDB path)
@@ -87,7 +86,7 @@ The replicate weights are **not** copied into the main survey table. Instead:
 `bsw_info()` summarises what is stored:
 
 ```{r}
-bsw_info(sfs_bsw)
+bsw_info(cis_bsw)
 ```
 
 This separation keeps the main table untouched and lets you add, inspect, or
@@ -111,8 +110,8 @@ each replicate should resample **within** each stratum, preserving the stratum
 sample sizes. Pass `strata_cols`:
 
 ```{r, eval = FALSE}
-sfs_bsw <- sfs |>
-  add_bootstrap_weights(weight_col = "PWEIGHT", strata_cols = "PREGION",
+cis_bsw <- cis |>
+  add_bootstrap_weights(weight_col = "FWEIGHT", strata_cols = "PROV",
                         n_replicates = 200, seed = 42)
 ```
 
@@ -138,18 +137,20 @@ applies to any weighted statistic — replace `sum(.x)` with your estimator
 (a weighted mean, share, total, …) evaluated with each weight column.
 
 ```{r}
-est <- sfs_bsw |>
-  summarise(across(c(PWEIGHT, matches("^CPBSW[0-9]+$")), ~ sum(.x))) |>
+est <- cis_bsw |>
+  summarise(across(c(FWEIGHT, matches("^CPBSW[0-9]+$")), ~ sum(.x))) |>
   collect()
 
-point_estimate      <- est$PWEIGHT
+point_estimate      <- est$FWEIGHT
 replicate_estimates <- est |> select(matches("^CPBSW[0-9]+$")) |> unlist()
 
 # Bootstrap variance: mean squared deviation of the replicate estimates from
 # the full-sample estimate; the standard error is its square root.
+# Confidence intervals can be obtained by taking the appropriate quantiles.
+confidence_interval <- quantile(replicate_estimates,c(0.025,0.975))
 std_error <- sqrt(mean((replicate_estimates - point_estimate)^2))
 
-c(estimate = point_estimate, se = std_error)
+c(estimate = point_estimate, se = std_error, conf=confidence_interval)
 ```
 
 The same pattern works after `group_by()` / `summarise()`: carry the `CPBSW*`
@@ -178,9 +179,9 @@ strata, consistent with the existing ones.
 
 ```{r, eval = FALSE}
 # First 200 replicates …
-sfs_bsw <- add_bootstrap_weights(sfs, "PWEIGHT", n_replicates = 200, seed = 42)
+cis_bsw <- add_bootstrap_weights(cis, "FWEIGHT", n_replicates = 200, seed = 42)
 # … later, extend to 500: only CPBSW201 … CPBSW500 are generated.
-sfs_bsw <- add_bootstrap_weights(sfs, "PWEIGHT", n_replicates = 500, seed = 42)
+cis_bsw <- add_bootstrap_weights(cis, "FWEIGHT", n_replicates = 500, seed = 42)
 ```
 
 ### Rows added to the survey table
@@ -211,7 +212,7 @@ Pass `overwrite = TRUE` to discard the stored weights and regenerate from
 scratch regardless of what is already there.
 
 ```{r, eval = FALSE}
-sfs_bsw <- add_bootstrap_weights(sfs, "PWEIGHT", n_replicates = 200,
+cis_bsw <- add_bootstrap_weights(cis, "PWEIGHT", n_replicates = 200,
                                  seed = 42, overwrite = TRUE)
 ```
 
@@ -248,8 +249,8 @@ backed by the same DuckDB file) are invalid after the call.
 ## Inspecting and removing weights
 
 ```{r, eval = FALSE}
-bsw_info(sfs_bsw)                      # list stored BSW tables and replicate counts
-sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
+bsw_info(cis_bsw)                      # list stored BSW tables and replicate counts
+cis_clean <- remove_bootstrap_weights(cis_bsw, weight_col = "PWEIGHT")
 ```
 
 `remove_bootstrap_weights()` drops the BSW table and its companion view and
