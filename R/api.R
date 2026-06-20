@@ -582,7 +582,7 @@ close_pumf <- function(tbl) {
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()], **or** an
 #'   in-memory `data.frame` / `tibble`.
 #' @param weight_col Name of the column holding the survey weights (string,
-#'   e.g. `"WSTPWGT"`).
+#'   e.g. `"PWEIGHT"`).
 #' @param id_col Optional name of a column that uniquely identifies each row
 #'   (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key` is
 #'   used when available; otherwise `pumf_row_id` is added to the main table.
@@ -621,7 +621,7 @@ close_pumf <- function(tbl) {
 #' @examples
 #' \dontrun{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT",
+#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
 #'                                  n_replicates = 200L, seed = 42L)
 #' bsw_info(sfs_bsw)
 #' close_pumf(sfs_bsw)
@@ -681,7 +681,7 @@ add_bootstrap_weights <- function(tbl,
 
   # Resolve weight_col / id_col: if label_pumf_columns() was called, the user
   # may pass a human-readable label (e.g. "Person weight") rather than the
-  # coded column name (e.g. "WSTPWGT"). Translate back to the coded name so
+  # coded column name (e.g. "PWEIGHT"). Translate back to the coded name so
   # SQL queries against the raw DuckDB table work correctly.
   weight_col <- .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", prov)
   if (!is.null(id_col))
@@ -1224,7 +1224,7 @@ add_bootstrap_weights <- function(tbl,
 #' @examples
 #' \dontrun{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
 #' bsw_info(sfs_bsw)
 #' close_pumf(sfs_bsw)
 #' }
@@ -1329,7 +1329,7 @@ bsw_info <- function(tbl) {
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
 #'   [add_bootstrap_weights()].
 #' @param weight_col Name of the weight column whose BSW table should be
-#'   removed (e.g. `"WSTPWGT"`).  If `NULL` (default), **all** bootstrap
+#'   removed (e.g. `"PWEIGHT"`).  If `NULL` (default), **all** bootstrap
 #'   weight tables (and their companion VIEWs) are removed.
 #'
 #' @return A lazy `dplyr::tbl()` backed by the original physical survey table
@@ -1340,9 +1340,9 @@ bsw_info <- function(tbl) {
 #' @examples
 #' \dontrun{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
-#' # Remove only the WSTPWGT BSW table
-#' sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "WSTPWGT")
+#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+#' # Remove only the PWEIGHT BSW table
+#' sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
 #' close_pumf(sfs_clean)
 #' }
 #' @export

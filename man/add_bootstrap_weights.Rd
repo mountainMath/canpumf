@@ -21,7 +21,7 @@ add_bootstrap_weights(
 in-memory `data.frame` / `tibble`.}
 
 \item{weight_col}{Name of the column holding the survey weights (string,
-e.g. `"WSTPWGT"`).}
+e.g. `"PWEIGHT"`).}
 
 \item{id_col}{Optional name of a column that uniquely identifies each row
 (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key` is
@@ -120,7 +120,7 @@ main table to the BSW table.  If `id_col` is `NULL` (the default):
 \examples{
 \dontrun{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT",
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
                                  n_replicates = 200L, seed = 42L)
 bsw_info(sfs_bsw)
 close_pumf(sfs_bsw)
