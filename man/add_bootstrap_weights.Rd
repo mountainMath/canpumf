@@ -56,8 +56,11 @@ existing table is reused silently — no computation is performed.}
 * **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
     VIEW that contains all original survey columns plus the `n_replicates`
     bootstrap weight columns, with any input `filter()` operations re-applied.
-  * **In-memory path:** the input `data.frame` / `tibble` with
-    `n_replicates` new BSW columns appended.
+  * **In-memory path:** the input `data.frame` / `tibble` with bootstrap
+    weight columns appended so that `n_replicates` replicates are present.
+    If the input already carries replicate columns for `prefix`, only the
+    additional ones are generated (existing columns are preserved); when it
+    already has at least `n_replicates`, the data frame is returned unchanged.
 }
 \description{
 For a **DuckDB-backed lazy table** (the typical case), bootstrap replicate

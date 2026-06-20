@@ -72,6 +72,33 @@ test_that("add_bootstrap_weights (in-memory): seed gives reproducible results", 
   expect_equal(r1, r2)
 })
 
+test_that("add_bootstrap_weights (in-memory): re-run extends without duplicating columns", {
+  df <- tibble::tibble(ID = 1:10, WEIGHT = rep(100, 10))
+  r1 <- add_bootstrap_weights(df, "WEIGHT", n_replicates = 4L, seed = 1L)
+  expect_length(grep("^CPBSW", names(r1), value = TRUE), 4L)
+
+  # Requesting more replicates must extend the existing set (CPBSW5..CPBSW8),
+  # not regenerate CPBSW1..CPBSW8 and duplicate the column names.
+  r2 <- suppressMessages(
+    add_bootstrap_weights(r1, "WEIGHT", n_replicates = 8L, seed = 1L))
+  bsw_cols <- grep("^CPBSW", names(r2), value = TRUE)
+  expect_length(bsw_cols, 8L)
+  expect_false(anyDuplicated(names(r2)) > 0L)
+  expect_setequal(bsw_cols, paste0("CPBSW", 1:8))
+  # The original replicate columns are preserved unchanged.
+  expect_equal(r2[paste0("CPBSW", 1:4)], r1[paste0("CPBSW", 1:4)])
+})
+
+test_that("add_bootstrap_weights (in-memory): re-run reuses when enough replicates exist", {
+  df <- tibble::tibble(ID = 1:10, WEIGHT = rep(100, 10))
+  r1 <- add_bootstrap_weights(df, "WEIGHT", n_replicates = 8L, seed = 1L)
+  r2 <- suppressMessages(
+    add_bootstrap_weights(r1, "WEIGHT", n_replicates = 5L, seed = 1L))
+  # No regeneration, no new columns, no duplicates.
+  expect_identical(names(r2), names(r1))
+  expect_equal(r2, r1)
+})
+
 
 # ============================================================
 # add_bootstrap_weights() + remove_bootstrap_weights() + bsw_info()

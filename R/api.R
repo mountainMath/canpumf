@@ -597,8 +597,11 @@ close_pumf <- function(tbl) {
 #'   * **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
 #'     VIEW that contains all original survey columns plus the `n_replicates`
 #'     bootstrap weight columns, with any input `filter()` operations re-applied.
-#'   * **In-memory path:** the input `data.frame` / `tibble` with
-#'     `n_replicates` new BSW columns appended.
+#'   * **In-memory path:** the input `data.frame` / `tibble` with bootstrap
+#'     weight columns appended so that `n_replicates` replicates are present.
+#'     If the input already carries replicate columns for `prefix`, only the
+#'     additional ones are generated (existing columns are preserved); when it
+#'     already has at least `n_replicates`, the data frame is returned unchanged.
 #'
 #' @seealso [bsw_info()], [remove_bootstrap_weights()], [get_pumf()]
 #'
@@ -1062,6 +1065,27 @@ add_bootstrap_weights <- function(tbl,
 .add_bsw_inmemory <- function(df, weight_col, n_replicates, prefix, seed,
                                strata_cols = NULL) {
   n <- nrow(df)
+
+  # Detect replicate columns already present for THIS prefix so a second call
+  # extends the set instead of regenerating and duplicating column names
+  # (mirrors the DuckDB-backed Cases A/C in add_bootstrap_weights()).
+  rep_pat      <- paste0("^", prefix, "[0-9]+$")
+  existing_rep <- grep(rep_pat, names(df), value = TRUE)
+  existing_rep <- existing_rep[order(
+    as.integer(sub(paste0("^", prefix), "", existing_rep)))]
+  n_existing   <- length(existing_rep)
+
+  # Case A: enough replicates already present — reuse silently, no regeneration.
+  if (n_existing >= n_replicates) {
+    message(sprintf(
+      "Data frame already has %d '%s' replicate(s) (≥ %d requested); reusing.",
+      n_existing, prefix, n_replicates))
+    return(df)
+  }
+
+  # Case C: generate only the missing replicates (n_existing+1 .. n_replicates).
+  n_new <- n_replicates - n_existing
+
   w <- df[[weight_col]]
   if (!is.numeric(w)) w <- suppressWarnings(as.numeric(w))
   if (anyNA(w)) {
@@ -1069,16 +1093,20 @@ add_bootstrap_weights <- function(tbl,
             "' replaced with 0.", call. = FALSE)
     w[is.na(w)] <- 0
   }
+  if (n_existing > 0L)
+    message(sprintf("Adding replicates %d-%d (data frame already has %d)...",
+                    n_existing + 1L, n_replicates, n_existing))
+
   if (!is.null(seed)) set.seed(seed)
-  report_at <- if (n_replicates >= 10L)
-    unique(round(seq(n_replicates / 10, n_replicates, length.out = 10L)))
+  report_at <- if (n_new >= 10L)
+    unique(round(seq(n_new / 10, n_new, length.out = 10L)))
   else
     integer(0L)
-  counts <- matrix(0L, nrow = n, ncol = n_replicates)
+  counts <- matrix(0L, nrow = n, ncol = n_new)
   if (!is.null(strata_cols)) {
     strata_key  <- interaction(df[strata_cols], drop = TRUE)
     strata_lvls <- levels(strata_key)
-    for (i in seq_len(n_replicates)) {
+    for (i in seq_len(n_new)) {
       ct <- integer(n)
       for (lv in strata_lvls) {
         idx <- which(strata_key == lv)
@@ -1086,17 +1114,17 @@ add_bootstrap_weights <- function(tbl,
       }
       counts[, i] <- ct
       if (i %in% report_at)
-        message(sprintf("  Replicate %d / %d ...", i, n_replicates))
+        message(sprintf("  Replicate %d / %d ...", i + n_existing, n_replicates))
     }
   } else {
-    for (i in seq_len(n_replicates)) {
+    for (i in seq_len(n_new)) {
       counts[, i] <- tabulate(sample.int(n, n, replace = TRUE), nbins = n)
       if (i %in% report_at)
-        message(sprintf("  Replicate %d / %d ...", i, n_replicates))
+        message(sprintf("  Replicate %d / %d ...", i + n_existing, n_replicates))
     }
   }
   bsw_matrix <- w * counts
-  colnames(bsw_matrix) <- paste0(prefix, seq_len(n_replicates))
+  colnames(bsw_matrix) <- paste0(prefix, seq(n_existing + 1L, n_replicates))
   cbind(df, as.data.frame(bsw_matrix))
 }
 
