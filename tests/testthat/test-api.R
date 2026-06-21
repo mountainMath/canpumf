@@ -398,6 +398,20 @@ test_that("close_pumf: is idempotent on already-closed connection", {
   expect_no_error(close_pumf(tbl))
 })
 
+test_that("close_pumf: closes a raw DuckDB connection (get_pumf_connection)", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  # get_pumf_connection() hands back a DBIConnection, not a tbl; close_pumf()
+  # must accept it directly even though it was never registered by get_pumf().
+  con <- suppressMessages(get_pumf_connection("FAKE", "2099", cache_path = tmp))
+  expect_true(inherits(con, "DBIConnection"))
+  expect_true(DBI::dbIsValid(con))
+
+  expect_no_error(close_pumf(con))
+  expect_false(DBI::dbIsValid(con))
+})
+
 # ---- read_only parameter ----------------------------------------------------
 
 test_that("get_pumf: read_only=TRUE (default) returns a valid tbl", {

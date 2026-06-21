@@ -4,20 +4,26 @@
 \alias{close_pumf}
 \title{Close the DuckDB connection backing a PUMF lazy table}
 \usage{
-close_pumf(tbl)
+close_pumf(x)
 }
 \arguments{
-\item{tbl}{A lazy `dplyr::tbl()` returned by [get_pumf()].}
+\item{x}{A lazy `dplyr::tbl()` returned by [get_pumf()], or a DuckDB
+connection returned by [get_pumf_connection()].}
 }
 \value{
 Invisibly `NULL`.
 }
 \description{
-Disconnects the DuckDB connection embedded in a lazy `dplyr::tbl()` returned
-by [get_pumf()].  After calling this function the table can no longer be
-queried.
+Disconnects the DuckDB connection associated with `x`.  `x` may be either a
+lazy `dplyr::tbl()` returned by [get_pumf()] (the connection embedded in the
+tbl is closed) or a DuckDB connection object returned by
+[get_pumf_connection()] (closed directly).  After calling this function the
+table or connection can no longer be queried.
 }
 \details{
+All lazy tables and sibling modules opened from one [get_pumf()] call share a
+single connection, so a single `close_pumf()` on any of them releases it.
+
 Closing is only necessary when you need to release the file lock -- for
 example, before calling `get_pumf(..., refresh = TRUE)` on the same survey,
 or before writing to the DuckDB from another process.  Read-only connections
@@ -28,8 +34,13 @@ or before writing to the DuckDB from another process.  Read-only connections
 sfs <- get_pumf("SFS", "2019")
 # ... analysis ...
 close_pumf(sfs)
+
+# Also accepts a raw connection from get_pumf_connection()
+con <- get_pumf_connection("SHS", "2017")
+DBI::dbListTables(con)
+close_pumf(con)
 }
 }
 \seealso{
-[get_pumf()]
+[get_pumf()], [get_pumf_connection()]
 }
