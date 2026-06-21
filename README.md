@@ -110,15 +110,15 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | General Social Survey — Family | GSS | Family 1995, Family 2001, Family 2011, Family 2017 | ✓ |
 | General Social Survey — Social Identity | GSS | Social Identity 2003, Social Identity 2013, Social Identity 2020 | ✓ |
 | General Social Survey — Education | GSS | Education 1994, Education 2007 | ✓ |
-| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 | ✓ |
-| GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
+| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 (each Main + Episode modules joinable on PUMFID/RECID) | ✓ |
+| GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 (1997–2010 add GS/VD/GIVE/VOLNTR detail modules joinable on PUMFID/MICRO_ID/IDNUM) | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
-| Survey of Household Spending | SHS | 2017, 2019, 2021, 2023 | ✓ |
+| Survey of Household Spending | SHS | 2017 (Interview + Diary modules joinable on CASEID), 2019, 2021, 2023 | ✓ |
 
 ## Related packages
 

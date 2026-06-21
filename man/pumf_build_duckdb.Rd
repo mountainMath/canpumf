@@ -14,7 +14,8 @@ pumf_build_duckdb(
   refresh = FALSE,
   db_path = NULL,
   meta_subdir = NULL,
-  data_fixups = NULL
+  data_fixups = NULL,
+  bsw_override = NULL
 )
 }
 \arguments{
@@ -31,6 +32,26 @@ pumf_build_duckdb(
 \item{file_mask}{Optional regex to select the data file.  Overrides registry.}
 
 \item{refresh}{If `TRUE`, drop and rewrite the DuckDB table.}
+
+\item{db_path}{Optional explicit path to the DuckDB file.  Defaults to
+`<version_dir>/<series>_<version>.duckdb`.  Multi-module surveys pass one
+shared path so every module table lands in the same file.}
+
+\item{meta_subdir}{Optional metadata subdirectory under `metadata/` to read
+for this build.  `NULL` (default) uses `metadata/` (the primary module);
+secondary modules pass their module id so `metadata/<id>/` is read.}
+
+\item{data_fixups}{Optional `data_fixups` list overriding the registry
+entry's for this build.  Used by secondary modules, which supply their own
+complete fixup set (e.g. `force_numeric`), replacing the entry's primary
+fixups.}
+
+\item{bsw_override}{Optional list of bootstrap-weight config
+(`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`,
+`bsw_strata`) overriding the registry entry's BSW config for this build.
+Each module of a multi-module survey joins its own bootstrap weights (or
+none), so the caller passes that module's BSW config; an override whose
+fields are all `NULL` means "this module has no bootstrap weights".}
 }
 \value{
 Invisibly, a named list with `db_path` and `table_name`.

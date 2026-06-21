@@ -1,0 +1,133 @@
+---
+title: "Working with multi-module PUMF surveys"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Working with multi-module PUMF surveys}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = nzchar(Sys.getenv("COMPILE_VIG_CANPUMF"))
+)
+```
+
+```{r setup}
+library(dplyr)
+library(canpumf)
+options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
+```
+
+Some Statistics Canada PUMF surveys ship **several linked data files** rather
+than one. Each file is a different unit of analysis that shares a common
+respondent key, and the files are meant to be joined for analysis. Examples
+include:
+
+| Survey | Modules | Join key |
+|---|---|---|
+| GSS cycle 16 — Aging and Social Support (2002) | `MAIN` + `CG4` + `CG6` + `CR` | `RECID` |
+| GSS — Time Use (1998, 2010, 2015, 2022) | `Main` + `Episode` | `RECID` / `PUMFID` |
+| Survey of Household Spending (2017) | `Interview` + `Diary` | `CASEID` |
+| Giving, Volunteering and Participating (1997–2010) | `MAIN` + `GS` / `VD` / `GIVE` / `VOLNTR` | `PUMFID` / `MICRO_ID` / `IDNUM` |
+
+`canpumf` models these as **several tables inside one DuckDB file**, so the
+modules can be joined on a single connection. `get_pumf()` always returns the
+survey's **primary module** (the respondent-level file that carries the survey
+weight), and tells you which sibling modules are available.
+
+## Loading the primary module
+
+`get_pumf()` returns the main file as usual. For a multi-module survey it also
+emits a one-time message listing the other modules and how to open one:
+
+```{r}
+main <- get_pumf("GSS", "2002")   # primary module (MAIN), carries WGHT_PER
+#> GSS/2002 is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
+#> Open one on the same connection with pumf_module(), e.g.:
+#>   cg4 <- pumf_module(main, "CG4")
+
+main |> select(1:5) |> head()
+```
+
+Everything you already know about `get_pumf()` output applies to the primary
+module: values come pre-labelled, `label_pumf_columns()` renames columns to
+their human-readable labels, and `dplyr::collect()` pulls a local tibble.
+
+## Opening a sibling module
+
+Use `pumf_module()` to open another module. Crucially, it opens on the **same
+DuckDB connection** as `main`, so the two tbls are joinable without a second
+connection. The first time you open a module for a survey, `canpumf` reminds
+you of the key the modules join on:
+
+```{r}
+cg4 <- pumf_module(main, "CG4")   # the caregiving module
+#> GSS/2002 modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
+
+cg4 |> select(1:5) |> head()
+```
+
+## Joining modules for analysis
+
+Because both tbls share one connection, the join runs entirely inside DuckDB —
+nothing is pulled into R until you `collect()`. The respondent-level survey
+weight lives only on the primary module, so a typical pattern is to join the
+detail module to the columns you need from `main`:
+
+```{r}
+joined <- cg4 |>
+  inner_join(
+    main |> select(RECID, WGHT_PER),
+    by = "RECID"
+  )
+
+joined |>
+  summarise(weighted_n = sum(WGHT_PER, na.rm = TRUE)) |>
+  collect()
+```
+
+The detail modules typically have a different row count than the primary
+module — for example a caregiving or time-use episode module has one row per
+episode rather than one row per respondent — so use the join direction that
+fits your unit of analysis.
+
+## A second example: the Survey of Household Spending
+
+The 2017 SHS pairs an `Interview` file (one row per household) with a `Diary`
+file (one row per recorded purchase), joined on `CASEID`. Each module ships its
+own bootstrap-weight set, so replicate weights stay attached to the correct
+unit of analysis:
+
+```{r}
+shs   <- get_pumf("SHS", "2017")          # Interview (primary)
+diary <- pumf_module(shs, "Diary")        # one row per purchase, same connection
+
+diary |>
+  inner_join(shs |> select(CASEID), by = "CASEID") |>
+  tally() |>
+  collect()
+```
+
+## Cleaning up
+
+All modules opened from one `get_pumf()` call share a single connection, so a
+single `close_pumf()` on any of the tbls releases it:
+
+```{r}
+close_pumf(main)
+```
+
+## Notes
+
+- `get_pumf("GSS", "2002", module = "CG4")` opens a module **standalone** (its
+  own connection). Prefer `pumf_module()` when you intend to join, so both tbls
+  share one connection.
+- The join key is recorded in the survey registry and surfaced in the messages
+  above, so you never have to guess it — it varies across surveys
+  (`RECID`, `PUMFID`, `MICRO_ID`, `CASEID`, `IDNUM`).
+- `label_pumf_columns()` and `pumf_var_labels()` are module-aware: each module
+  is labelled from its own metadata even though all modules share one
+  connection.

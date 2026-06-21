@@ -137,9 +137,10 @@
 #' @param module For multi-module surveys (several linked files in one DuckDB,
 #'   e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,
 #'   `CG6` and `CR` files join on `RECID`), selects which module table to
-#'   return.  `NULL` (default) returns the survey's primary module.  Use
-#'   [pumf_module()] to open a sibling module on the *same* connection so the
-#'   two tbls are joinable.  Not supported for LFS.
+#'   return.  `NULL` (default) returns the survey's primary module; for a
+#'   multi-module survey a one-time message then lists the sibling modules and
+#'   shows how to open one.  Use [pumf_module()] to open a sibling module on the
+#'   *same* connection so the two tbls are joinable.  Not supported for LFS.
 #' @param register_connection If `TRUE` (default), the DuckDB connection backing
 #'   the returned tbl may appear in the RStudio Connections pane (subject to
 #'   RStudio/duckdb settings).  Pass `FALSE` to suppress that registration --
@@ -333,8 +334,41 @@ get_pumf <- function(series     = NULL,
   # connection's stable C++ pointer address.
   .pumf_register_con(tbl$src$con, series, version, cache_path, lang, module)
 
+  # When the user loaded the survey's primary module (module = NULL) and the
+  # survey is multi-module, list the sibling modules and show how to open one.
+  if (is.null(module)) .pumf_announce_modules(series, version)
 
   tbl
+}
+
+# Tracks which (series/version) multi-module hints have been announced this
+# session so get_pumf() lists the available modules only once per survey.
+.pumf_modules_announced <- new.env(parent = emptyenv())
+
+# Emit a one-time hint, when get_pumf() returns the primary module of a
+# multi-module survey, listing the sibling modules and how to open one on the
+# same connection with pumf_module().  pumf_module() then announces the join
+# key (the two messages are complementary).
+.pumf_announce_modules <- function(series, version) {
+  reg  <- tryCatch(pumf_registry_lookup(series, version),
+                   error = function(e) NULL)
+  mods <- .pumf_entry_modules(reg)
+  if (is.null(mods) || length(mods) < 2L) return(invisible(NULL))
+
+  akey <- paste(series, version, sep = "/")
+  if (!is.null(.pumf_modules_announced[[akey]])) return(invisible(NULL))
+  .pumf_modules_announced[[akey]] <- TRUE
+
+  secondary <- names(mods)[!vapply(mods, function(m) isTRUE(m$is_primary),
+                                   logical(1L))]
+  ex <- secondary[[1L]]
+  message(sprintf(
+    paste0("%s is a multi-module survey; you loaded the primary module. ",
+           "Other linked modules: %s.\n",
+           "Open one on the same connection with pumf_module(), e.g.:\n",
+           "  %s <- pumf_module(main, \"%s\")"),
+    akey, paste(secondary, collapse = ", "), tolower(ex), ex))
+  invisible(NULL)
 }
 
 
@@ -376,8 +410,24 @@ pumf_module <- function(tbl, module) {
   out <- dplyr::tbl(con, table_name)
   .pumf_register_con(con, prov$series, prov$version, prov$cache_path,
                      prov$lang, module)
+  # Surface the shared respondent key so callers know how to join the modules.
+  # The key varies across surveys (PUMFID / RECID / MICRO_ID / CASEID / IDNUM);
+  # announce it once per survey per session to keep repeated calls quiet.
+  key <- .pumf_module_key(pumf_registry_lookup(prov$series, prov$version))
+  if (!is.null(key)) {
+    akey <- paste(prov$series, prov$version, sep = "/")
+    if (is.null(.pumf_module_key_announced[[akey]])) {
+      .pumf_module_key_announced[[akey]] <- TRUE
+      message(sprintf("%s modules join on '%s' (e.g. dplyr::inner_join(main, %s, by = \"%s\")).",
+                      akey, key, module, key))
+    }
+  }
   out
 }
+
+# Tracks which (series/version) module-key hints have been announced this
+# session so pumf_module() messages the join key only once per survey.
+.pumf_module_key_announced <- new.env(parent = emptyenv())
 
 
 # ---- shared metadata helper -------------------------------------------------

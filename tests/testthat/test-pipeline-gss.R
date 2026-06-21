@@ -318,3 +318,55 @@ test_that("get_pumf rejects module for non-modular surveys", {
     canpumf:::.pumf_table_name("GSS", "2018", "eng", module = "MAIN"),
     "no modules")
 })
+
+# Time Use cycles ship a Main respondent file and an Episode file (one row per
+# diary episode) sharing the respondent key; both land in one DuckDB as linked
+# tables. Each cycle keys on its own respondent id (PUMFID for 2015/2022, RECID
+# for 1998/2010).
+.gss_timeuse_modules <- list(
+  "Time Use 2022" = "PUMFID",
+  "Time Use 2015" = "PUMFID",
+  "Time Use 2010" = "RECID",
+  "Time Use 1998" = "RECID"
+)
+
+for (.v in names(.gss_timeuse_modules)) {
+  local({
+    ver <- .v
+    key <- .gss_timeuse_modules[[ver]]
+
+    test_that(paste0("GSS '", ver, "' registry exposes Main + Episode modules"), {
+      reg  <- canpumf:::pumf_registry_lookup("GSS", ver)
+      mods <- canpumf:::.pumf_entry_modules(reg)
+      expect_identical(sort(names(mods)), c("Episode", "Main"))
+      expect_true(mods$Main$is_primary)
+      # primary (Main) drives the top-level layout_mask / file_mask
+      expect_identical(reg$layout_mask, mods$Main$layout_mask)
+      expect_null(mods$Main$meta_subdir)
+      expect_identical(mods$Episode$meta_subdir, "Episode")
+    })
+
+    test_that(paste0("GSS '", ver, "' builds joinable Main + Episode"), {
+      skip_if_not(canpumf:::.version_is_extracted(.gss_vdir(ver)),
+                  paste("GSS", ver, "not extracted in cache"))
+
+      main <- suppressWarnings(get_pumf("GSS", ver))
+      on.exit(close_pumf(main), add = TRUE)
+      expect_true(key %in% colnames(main))
+
+      epi <- pumf_module(main, "Episode")
+      expect_true(key %in% colnames(epi))
+      # sibling module shares the Main connection, so the two are joinable
+      expect_identical(main$src$con, epi$src$con)
+      # every episode belongs to a respondent in Main
+      main_keys <- dplyr::distinct(dplyr::select(main, dplyr::all_of(key)))
+      matched   <- dplyr::inner_join(
+        dplyr::select(epi, dplyr::all_of(key)), main_keys, by = key)
+      expect_identical(dplyr::pull(dplyr::tally(epi)),
+                       dplyr::pull(dplyr::tally(matched)))
+
+      # module-aware labeling reads the Episode module's own metadata
+      expect_silent(suppressWarnings(label_pumf_columns(epi)))
+    })
+  })
+}

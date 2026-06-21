@@ -710,6 +710,22 @@ pumf_locate_or_download <- function(series,
 #' @param layout_mask Optional layout mask; used in the DuckDB table name.
 #' @param file_mask Optional regex to select the data file.  Overrides registry.
 #' @param refresh If `TRUE`, drop and rewrite the DuckDB table.
+#' @param db_path Optional explicit path to the DuckDB file.  Defaults to
+#'   `<version_dir>/<series>_<version>.duckdb`.  Multi-module surveys pass one
+#'   shared path so every module table lands in the same file.
+#' @param meta_subdir Optional metadata subdirectory under `metadata/` to read
+#'   for this build.  `NULL` (default) uses `metadata/` (the primary module);
+#'   secondary modules pass their module id so `metadata/<id>/` is read.
+#' @param data_fixups Optional `data_fixups` list overriding the registry
+#'   entry's for this build.  Used by secondary modules, which supply their own
+#'   complete fixup set (e.g. `force_numeric`), replacing the entry's primary
+#'   fixups.
+#' @param bsw_override Optional list of bootstrap-weight config
+#'   (`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`,
+#'   `bsw_strata`) overriding the registry entry's BSW config for this build.
+#'   Each module of a multi-module survey joins its own bootstrap weights (or
+#'   none), so the caller passes that module's BSW config; an override whose
+#'   fields are all `NULL` means "this module has no bootstrap weights".
 #'
 #' @return Invisibly, a named list with `db_path` and `table_name`.
 #' @keywords internal
@@ -719,10 +735,11 @@ pumf_build_duckdb <- function(version_dir,
                                lang        = "eng",
                                layout_mask = NULL,
                                file_mask   = NULL,
-                               refresh     = FALSE,
-                               db_path     = NULL,
-                               meta_subdir = NULL,
-                               data_fixups = NULL) {
+                               refresh      = FALSE,
+                               db_path      = NULL,
+                               meta_subdir  = NULL,
+                               data_fixups  = NULL,
+                               bsw_override = NULL) {
   stopifnot(lang %in% c("eng", "fra"))
 
   # Step 1: DuckDB path and table name
@@ -770,6 +787,17 @@ pumf_build_duckdb <- function(version_dir,
   # For a secondary module, the caller supplies that module's complete fixup set
   # (force_numeric etc.); it replaces the registry entry's primary fixups.
   if (!is.null(data_fixups)) reg$data_fixups <- data_fixups
+  # Likewise each module joins its OWN bootstrap weights (or none): the caller
+  # passes that module's BSW config, replacing the entry's primary BSW so the
+  # Interview BSW is not mis-joined onto the Diary table, etc.  An explicit
+  # bsw_override with NULL fields means "this module has no BSW".
+  if (!is.null(bsw_override)) {
+    reg$bsw_mask      <- bsw_override$bsw_mask
+    reg$bsw_file_mask <- bsw_override$bsw_file_mask
+    reg$bsw_join_key  <- bsw_override$bsw_join_key
+    reg$bsw_drop_cols <- bsw_override$bsw_drop_cols %||% character(0L)
+    reg$bsw_strata    <- bsw_override$bsw_strata
+  }
 
   # labels_supplement: supply variable labels that the source metadata leaves
   # blank (e.g. CPSS 1 ships only a PDF codebook whose weight variable COVID_WT
@@ -1122,12 +1150,18 @@ pumf_run_pipeline <- function(series,
                            refresh           = eff_refresh,
                            meta_subdir       = m$meta_subdir)
       r <- pumf_build_duckdb(version_dir, series, version,
-                              lang        = lang,
-                              layout_mask = m$layout_mask,
-                              file_mask   = m$file_mask,
-                              refresh     = eff_refresh,
-                              meta_subdir = m$meta_subdir,
-                              data_fixups = m$data_fixups)
+                              lang         = lang,
+                              layout_mask  = m$layout_mask,
+                              file_mask    = m$file_mask,
+                              refresh      = eff_refresh,
+                              meta_subdir  = m$meta_subdir,
+                              data_fixups  = m$data_fixups,
+                              bsw_override = list(
+                                bsw_mask      = m$bsw_mask,
+                                bsw_file_mask = m$bsw_file_mask,
+                                bsw_join_key  = m$bsw_join_key,
+                                bsw_drop_cols = m$bsw_drop_cols,
+                                bsw_strata    = m$bsw_strata))
       if (isTRUE(m$is_primary)) result <- r
     }
   }

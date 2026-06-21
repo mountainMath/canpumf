@@ -149,6 +149,31 @@ test_that("label_pumf_columns: errors clearly when tbl has no provenance", {
   DBI::dbDisconnect(con, shutdown = TRUE)
 })
 
+# ---- multi-module announcement (registry-only, no cache) --------------------
+
+test_that(".pumf_announce_modules: lists sibling modules once per survey", {
+  # Reset the once-per-session memo so the message reliably fires.
+  rm(list = ls(canpumf:::.pumf_modules_announced),
+     envir = canpumf:::.pumf_modules_announced)
+
+  # SHS/2017 is multi-module (Interview primary + Diary): get_pumf() loads the
+  # primary, so the hint must name the Diary module and a pumf_module() example.
+  expect_message(
+    canpumf:::.pumf_announce_modules("SHS", "2017"),
+    "multi-module")
+  rm(list = ls(canpumf:::.pumf_modules_announced),
+     envir = canpumf:::.pumf_modules_announced)
+  expect_message(
+    canpumf:::.pumf_announce_modules("SHS", "2017"),
+    'pumf_module\\(main, "Diary"\\)')
+
+  # Second call for the same survey is silent (announced only once).
+  expect_silent(canpumf:::.pumf_announce_modules("SHS", "2017"))
+
+  # Single-module surveys never announce.
+  expect_silent(canpumf:::.pumf_announce_modules("SFS", "2019"))
+})
+
 # ---- get_pumf end-to-end (uses synthetic fixture) ---------------------------
 
 make_e2e_version_dir <- function(tmp, series = "FAKE", version = "2099") {
