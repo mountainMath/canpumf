@@ -92,7 +92,8 @@ joined |>
 The detail modules typically have a different row count than the primary
 module — for example a caregiving or time-use episode module has one row per
 episode rather than one row per respondent — so use the join direction that
-fits your unit of analysis.
+fits your unit of analysis. But specific requirements may vary by use case, and
+an inner join might not always be the right choice. This decision is thus left to the user.
 
 ## A second example: the Survey of Household Spending
 
@@ -118,7 +119,24 @@ single `close_pumf()` on any of the tbls releases it:
 
 ```{r}
 close_pumf(main)
+close_pumf(shs)
 ```
+
+## Database connections
+
+Alternatively the same functionality can be achieved by opening a general database connection that does not immediately select tables, and then manually select appropriate subtables:
+
+```{r}
+con<-get_pumf_connection("SHS", "2017") 
+
+DBI::dbListTables(con)
+```
+
+
+```{r}
+close_pumf(con)
+```
+
 
 ## Notes
 
