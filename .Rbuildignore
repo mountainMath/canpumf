@@ -20,3 +20,5 @@ test_data/*
 ^hexSticker\.png$
 ^CRAN-SUBMISSION$
 ^cran-comments\.md$
+^.*\.Rcheck$
+^.*\.tar\.gz$
