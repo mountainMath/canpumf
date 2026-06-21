@@ -15,7 +15,7 @@ dplyr operations have access to every replicate."><meta property="og:image" cont
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -26,7 +26,8 @@ dplyr operations have access to every replicate."><meta property="og:image" cont
       <ul class="navbar-nav me-auto"><li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
@@ -82,7 +83,7 @@ in-memory `data.frame` / `tibble`.</p></dd>
 
 <dt id="arg-weight-col">weight_col<a class="anchor" aria-label="anchor" href="#arg-weight-col"></a></dt>
 <dd><p>Name of the column holding the survey weights (string,
-e.g. `"WSTPWGT"`).</p></dd>
+e.g. `"PWEIGHT"`).</p></dd>
 
 
 <dt id="arg-id-col">id_col<a class="anchor" aria-label="anchor" href="#arg-id-col"></a></dt>
@@ -108,7 +109,7 @@ suppress the LFS default and generate unstratified weights.</p></dd>
 
 <dt id="arg-prefix">prefix<a class="anchor" aria-label="anchor" href="#arg-prefix"></a></dt>
 <dd><p>Column-name prefix for replicate columns (default `"CPBSW"`).
-Columns are named `prefix1`, `prefix2`, …</p></dd>
+Columns are named `prefix1`, `prefix2`, ...</p></dd>
 
 
 <dt id="arg-bsw-table">bsw_table<a class="anchor" aria-label="anchor" href="#arg-bsw-table"></a></dt>
@@ -125,7 +126,7 @@ different weight columns do not overwrite each other.</p></dd>
 <dt id="arg-overwrite">overwrite<a class="anchor" aria-label="anchor" href="#arg-overwrite"></a></dt>
 <dd><p>If the `bsw_table` already exists in the DuckDB file,
 regenerate and overwrite it when `TRUE`.  When `FALSE` (default) the
-existing table is reused silently — no computation is performed.</p></dd>
+existing table is reused silently – no computation is performed.</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -133,8 +134,11 @@ existing table is reused silently — no computation is performed.</p></dd>
     <p>* **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
     VIEW that contains all original survey columns plus the `n_replicates`
     bootstrap weight columns, with any input `filter()` operations re-applied.
-  * **In-memory path:** the input `data.frame` / `tibble` with
-    `n_replicates` new BSW columns appended.</p>
+  * **In-memory path:** the input `data.frame` / `tibble` with bootstrap
+    weight columns appended so that `n_replicates` replicates are present.
+    If the input already carries replicate columns for `prefix`, only the
+    additional ones are generated (existing columns are preserved); when it
+    already has at least `n_replicates`, the data frame is returned unchanged.</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
@@ -144,6 +148,18 @@ generated entirely in memory and the augmented data frame is returned.</p>
 a sample of \(n\) rows is drawn with replacement; the bootstrap weight for
 row \(i\) in replicate \(b\) is `original_weight[i] * count[i,b]`, where
 `count[i,b]` is the number of times row \(i\) appeared in draw \(b\).</p>
+<p>**Incremental re-runs (DuckDB path):** when a BSW table already exists the
+call only does the work needed to satisfy the request:
+  * **More replicates** than stored (and no new rows): the additional
+    replicate columns are appended; existing columns are kept.
+  * **New rows** in the main table (some rows have no weights yet): because a
+    bootstrap replicate resamples the full population, added rows invalidate
+    the existing weights of their resampling universe, so those weights are
+    deleted and regenerated.  Unstratified, this regenerates every row; when
+    `strata_cols` are in effect, only the strata that gained rows are
+    regenerated and complete strata keep their existing weights.
+  * **Neither:** the stored weights are reused without recomputation.
+Pass `overwrite = TRUE` to force a full fresh regeneration regardless.</p>
 <p>**Multiple weight columns (hierarchical data):** by default `bsw_table` is
 named after `weight_col` (e.g. `"pumf_bsw_wstpwgt"`), so calling the
 function twice with different weight columns (e.g. household weight and
@@ -157,12 +173,12 @@ same DuckDB file become invalid after the call.  Use the returned tbl instead.</
 complete physical survey table.  If `tbl` has dplyr `filter()` operations
 applied, they are captured and automatically re-applied to the returned VIEW
 tbl so the visible rows match the original subset.  Other operations
-(`select()`, `mutate()`, etc.) are not replayed — they would interfere with
-the BSW columns — so apply them manually to the returned tbl if needed.</p>
+(`select()`, `mutate()`, etc.) are not replayed – they would interfere with
+the BSW columns – so apply them manually to the returned tbl if needed.</p>
 <p>**ID column (DuckDB path):** a stable row identifier is needed to link the
 main table to the BSW table.  If `id_col` is `NULL` (the default):
   * The survey registry `bsw_join_key` is used when available (e.g.
-    `"PEFAMID"` for SFS 2016–2023) — no table modification needed.
+    `"PEFAMID"` for SFS 2016-2023) – no table modification needed.
   * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
     survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
     fills the values is O(n).</p>
@@ -176,7 +192,7 @@ main table to the BSW table.  If `id_col` is `NULL` (the default):
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
 <span class="r-in"><span><span class="va">sfs</span> <span class="op">&lt;-</span> <span class="fu"><a href="get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"SFS"</span>, <span class="st">"2019"</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">sfs_bsw</span> <span class="op">&lt;-</span> <span class="fu">add_bootstrap_weights</span><span class="op">(</span><span class="va">sfs</span>, weight_col <span class="op">=</span> <span class="st">"WSTPWGT"</span>,</span></span>
+<span class="r-in"><span><span class="va">sfs_bsw</span> <span class="op">&lt;-</span> <span class="fu">add_bootstrap_weights</span><span class="op">(</span><span class="va">sfs</span>, weight_col <span class="op">=</span> <span class="st">"PWEIGHT"</span>,</span></span>
 <span class="r-in"><span>                                 n_replicates <span class="op">=</span> <span class="fl">200L</span>, seed <span class="op">=</span> <span class="fl">42L</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="bsw_info.html">bsw_info</a></span><span class="op">(</span><span class="va">sfs_bsw</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">sfs_bsw</span><span class="op">)</span></span></span>

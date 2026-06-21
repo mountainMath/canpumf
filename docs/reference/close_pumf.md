@@ -22,7 +22,7 @@ Invisibly \`NULL\`.
 
 ## Details
 
-Closing is only necessary when you need to release the file lock — for
+Closing is only necessary when you need to release the file lock – for
 example, before calling \`get_pumf(..., refresh = TRUE)\` on the same
 survey, or before writing to the DuckDB from another process. Read-only
 connections (the default) do not block other readers.

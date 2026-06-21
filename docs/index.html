@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>Parse StatCan PUMF files • canpumf</title>
+<title>Parse StatCan PUMF Files • canpumf</title>
 <!-- favicons --><link rel="icon" type="image/png" sizes="96x96" href="favicon-96x96.png">
 <link rel="icon" type="”image/svg+xml”" href="favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -15,9 +15,9 @@
 <link href="deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
-<script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Parse StatCan PUMF files">
-<meta name="description" content="Facilitate working with StatCan Public Use Microdata Files (PUMF) Enables downloading of available PUMF data, parsing of metadata from Command Files or other sources to infer the layout structure, variable labels and value labels as well as missing data values and retun a connection to a DuckDB database with the labelled data.">
-<meta property="og:description" content="Facilitate working with StatCan Public Use Microdata Files (PUMF) Enables downloading of available PUMF data, parsing of metadata from Command Files or other sources to infer the layout structure, variable labels and value labels as well as missing data values and retun a connection to a DuckDB database with the labelled data.">
+<script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Parse StatCan PUMF Files">
+<meta name="description" content="Facilitate working with Statistics Canada (StatCan) Public Use Microdata Files (PUMF). Enables downloading of available PUMF data, parsing of metadata from command files or other sources to infer the layout structure, variable labels and value labels as well as missing data values, and returns a connection to a DuckDB database with the labelled data.">
+<meta property="og:description" content="Facilitate working with Statistics Canada (StatCan) Public Use Microdata Files (PUMF). Enables downloading of available PUMF data, parsing of metadata from command files or other sources to infer the layout structure, variable labels and value labels as well as missing data values, and returns a connection to a DuckDB database with the labelled data.">
 <meta property="og:image" content="https://mountainmath.github.io/canpumf/logo.png">
 </head>
 <body>
@@ -28,7 +28,7 @@
 
     <a class="navbar-brand me-2" href="index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -41,7 +41,8 @@
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
-<li><a class="dropdown-item" href="articles/Census.html">Census</a></li>
+<li><a class="dropdown-item" href="articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="articles/pipeline.html">canpumf Pipeline Architecture</a></li>
@@ -69,14 +70,15 @@
 </h1>
 </div>
 <!-- badges: start -->
+<!-- [![CRAN status](https://www.r-pkg.org/badges/version/canpumf)](https://CRAN.R-project.org/package=canpumf) -->
 
-<p>The goal of {canpumf} is to facilitate ingesting StatCan PUMF data in R.</p>
+<p>The goal of <strong>canpumf</strong> is to facilitate ingesting, organizing, and working with StatCan PUMF data in R.</p>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
 <p>You can install the current development version of canpumf from <a href="https://github.com/mountainMath/canpumf" class="external-link">GitHub</a> with:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"mountainmath/canpumf"</span><span class="op">)</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"mountainmath/canpumf"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
@@ -92,7 +94,7 @@
 <div class="section level2">
 <h2 id="duckdb">DuckDB<a class="anchor" aria-label="anchor" href="#duckdb"></a>
 </h2>
-<p>On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connection will be shown in the RStudio (or Positron) Connections Pane once a connection is opened, you control the default behaviour by setting the <code>canpumf.register_connection</code> optin in your .Rprofile:</p>
+<p>On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connection will be shown in the RStudio (or Positron) Connections Pane once a connection is opened, you control the default behaviour by setting the <code>canpumf.register_connection</code> option in your .Rprofile:</p>
 <pre><code><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span><span class="st">"canpumf.register_connection"</span> <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre>
 </div>
 <div class="section level2">
@@ -286,7 +288,7 @@
 <tr>
 <td>Canadian Perspectives Survey Series</td>
 <td>CPSS</td>
-<td>2–6</td>
+<td>1–6</td>
 <td align="center">✓</td>
 </tr>
 <tr>
@@ -308,20 +310,20 @@
 <h2 id="related-packages">Related packages<a class="anchor" aria-label="anchor" href="#related-packages"></a>
 </h2>
 <p>The <a href="https://mountainmath.github.io/cansim/index.html" class="external-link"><strong>cansim</strong> package</a> is designed to retrieve and work with public Statistics Canada data tables. <strong>cansim</strong> prepares retrieved data tables as analysis-ready tidy dataframes and provides a number of convenience tools and functions to make it easier to work with Statistics Canada data. It is available on CRAN and on <a href="https://github.com/mountainMath/cansim" class="external-link">Github</a>.</p>
-<p>The <a href="https://mountainmath.github.io/cancensus/index.html" class="external-link"><strong>cancensus</strong> package</a> is designed to retrieve and work with public Statistics Canada census data via the <a href="https::censusmapper.ca/api">CensusMapper API</a>. It is available on CRAN and on <a href="https://github.com/mountainMath/cancensus" class="external-link">Github</a>.</p>
+<p>The <a href="https://mountainmath.github.io/cancensus/index.html" class="external-link"><strong>cancensus</strong> package</a> is designed to retrieve and work with public Statistics Canada census data via the <a href="https://censusmapper.ca/api" class="external-link">CensusMapper API</a>. It is available on CRAN and on <a href="https://github.com/mountainMath/cancensus" class="external-link">Github</a>.</p>
 </div>
 <div class="section level2">
 <h2 id="cite-canpumf">Cite <strong>canpumf</strong>
 <a class="anchor" aria-label="anchor" href="#cite-canpumf"></a>
 </h2>
 <p>If you wish to cite the <code>canpumf</code> package in your work:</p>
-<p>von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.0.</p>
+<p>von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.1.</p>
 <p>A BibTeX entry for LaTeX users is</p>
 <pre><code>  @Manual{,
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
-    note = {R package version 0.5.0},
+    note = {R package version 0.5.1},
     url = {https://mountainmath.github.io/canpumf/},
   }</code></pre>
 <div class="section level3">
@@ -367,14 +369,13 @@
 <div class="developers">
 <h2 data-toc-skip>Developers</h2>
 <ul class="list-unstyled">
-<li>Jens von Bergmann <br><small class="roles"> Maintainer </small>   </li>
+<li>Jens von Bergmann <br><small class="roles"> Author, maintainer </small>   </li>
 </ul>
 </div>
 
 <div class="dev-status">
 <h2 data-toc-skip>Dev status</h2>
 <ul class="list-unstyled">
-<li><a href="https://CRAN.R-project.org/package=canpumf" class="external-link"><img src="https://www.r-pkg.org/badges/version/canpumf" alt="CRAN status"></a></li>
 <li><a href="https://github.com/mountainMath/canpumf/actions/workflows/R-CMD-check.yaml" class="external-link"><img src="https://github.com/mountainMath/canpumf/actions/workflows/R-CMD-check.yaml/badge.svg" alt="R-CMD-check"></a></li>
 </ul>
 </div>

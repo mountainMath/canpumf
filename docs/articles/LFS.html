@@ -25,7 +25,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -38,7 +38,8 @@
 <li class="active nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
-<li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
+<li><a class="dropdown-item" href="../articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
@@ -86,16 +87,6 @@
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://tidyr.tidyverse.org" class="external-link">tidyr</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/mountainMath/canpumf" class="external-link">canpumf</a></span><span class="op">)</span></span>
-<span><span class="co">#&gt; The <span style="color: #0000BB;">duckplyr</span> package is configured to fall back to <span style="color: #0000BB;">dplyr</span> when it encounters an</span></span>
-<span><span class="co">#&gt; incompatibility. Fallback events can be collected and uploaded for analysis to</span></span>
-<span><span class="co">#&gt; guide future development. By default, data will be collected but no data will</span></span>
-<span><span class="co">#&gt; be uploaded.</span></span>
-<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Automatic fallback uploading is not controlled and therefore disabled, see</span></span>
-<span><span class="co">#&gt;   `?duckplyr::fallback()`.</span></span>
-<span><span class="co">#&gt; <span style="color: #00BB00;">✔</span> Number of reports ready for upload: <span style="font-weight: bold;">3</span>.</span></span>
-<span><span class="co">#&gt; → Review with `duckplyr::fallback_review()`, upload with</span></span>
-<span><span class="co">#&gt;   `duckplyr::fallback_upload()`.</span></span>
-<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> <span style="color: #555555;">Configure automatic uploading with `duckplyr::fallback_config()`.</span></span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>canpumf.cache_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Sys.getenv.html" class="external-link">Sys.getenv</a></span><span class="op">(</span><span class="st">"COMPILE_VIG_CANPUMF"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>The LFS is one of the most-used PUMF series, since January 2021 the
 LFS PUMF is now easily available for direct download instead of needing
@@ -129,8 +120,8 @@ download the LFS pumf for 2022 we use</p>
 <span><span class="va">lfs_2022</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># Source:   SQL [?? x 5]</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/LFS/LFS.duckdb]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A query:  ?? x 5</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]</span></span></span>
 <span><span class="co">#&gt;    REC_NUM SURVYEAR SURVMNTH LFSSTAT                    PROV            </span></span>
 <span><span class="co">#&gt;      <span style="color: #949494; font-style: italic;">&lt;int&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>                      <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>           </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span>       1     <span style="text-decoration: underline;">2</span>022        1 Not in labour force        Quebec          </span></span>

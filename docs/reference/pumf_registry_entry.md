@@ -52,7 +52,7 @@ pumf_registry_entry(
   A named list of pre-label fixups: any of \`str_pad\`, \`rename\`,
   \`cols_swap\`, \`na_values\`, \`force_numeric\`, \`force_character\`,
   \`force_integer\`, \`force_bigint\`, \`codes_supplement\`,
-  \`missing_supplement\`. The
+  \`missing_supplement\`, \`labels_supplement\`. The
   \`force_character\`/\`force_integer\`/\`force_bigint\` fields take
   character vectors of variable names and override the DuckDB storage
   type (VARCHAR / INTEGER / BIGINT) so geographic codes keep leading

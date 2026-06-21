@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -18,7 +18,8 @@
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
@@ -39,6 +40,26 @@
       <small>Source: <a href="https://github.com/mountainMath/canpumf/blob/HEAD/NEWS.md" class="external-link"><code>NEWS.md</code></a></small>
     </div>
 
+    <div class="section level2">
+<h2 class="pkg-version" data-toc-text="0.5.1" id="canpumf-051">canpumf 0.5.1<a class="anchor" aria-label="anchor" href="#canpumf-051"></a></h2>
+<div class="section level3">
+<h3 id="new-features-0-5-1">New features<a class="anchor" aria-label="anchor" href="#new-features-0-5-1"></a></h3>
+<ul><li>New <code><a href="../reference/parse_pdf_codebook.html">parse_pdf_codebook()</a></code> metadata parser for StatCan bilingual PDF <em>frequency codebooks</em>. This recovers variable and value labels for surveys whose only machine-readable companion is the data file — notably CPSS cycle 1, which (unlike CPSS 2–6) ships no <code>variables.csv</code>. CPSS 1 now imports with full bilingual labels (parity with the other cycles) when <code>pdftools</code> is installed. Like the existing PDF data-dictionary parser, it is a label fallback that only fires when no command file or codebook CSV is found, and requires <code>pdftools</code> (Suggests).</li>
+</ul></div>
+<div class="section level3">
+<h3 id="documentation-0-5-1">Documentation<a class="anchor" aria-label="anchor" href="#documentation-0-5-1"></a></h3>
+<ul><li>New “Bootstrap weights” vignette documenting the resampling method, how the weights are stored, stratification, estimating uncertainty, and the incremental re-run behaviour (reuse, adding replicates, and regeneration when rows are added).</li>
+</ul></div>
+<div class="section level3">
+<h3 id="bug-fixes-0-5-1">Bug fixes<a class="anchor" aria-label="anchor" href="#bug-fixes-0-5-1"></a></h3>
+<ul><li>
+<code>get_pumf("LFS")</code> (and other calls) no longer trigger spurious RStudio “Error in dbSendQuery(…)” Connections-pane popups. Transient internal DuckDB connections (status checks, write phases, BSW edits) are no longer registered in the RStudio Connections pane; only the final connection returned to the user is registered.</li>
+<li>
+<code><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights()</a></code> on an in-memory <code>data.frame</code>/<code>tibble</code> that already has replicate columns now extends the existing set (generating only the additional replicates) instead of regenerating a full set and producing duplicate column names. This matches the DuckDB-backed behaviour.</li>
+<li>
+<code><a href="../reference/add_bootstrap_weights.html">add_bootstrap_weights()</a></code> now handles rows added to a survey table that already has bootstrap weights correctly. Previously it generated replicates for the new rows in isolation (resampling only among the new rows), which is statistically wrong. It now deletes and regenerates the affected weights: every row when unstratified, or only the strata that gained rows when <code>strata_cols</code> are in effect (complete strata keep their existing weights).</li>
+</ul></div>
+</div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.5.0" id="canpumf-050">canpumf 0.5.0<a class="anchor" aria-label="anchor" href="#canpumf-050"></a></h2>
 <div class="section level3">

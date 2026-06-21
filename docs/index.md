@@ -1,6 +1,7 @@
 # canpumf
 
-The goal of {canpumf} is to facilitate ingesting StatCan PUMF data in R.
+The goal of **canpumf** is to facilitate ingesting, organizing, and
+working with StatCan PUMF data in R.
 
 ## Installation
 
@@ -37,7 +38,7 @@ only.
 On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB
 connection will be shown in the RStudio (or Positron) Connections Pane
 once a connection is opened, you control the default behaviour by
-setting the `canpumf.register_connection` optin in your .Rprofile:
+setting the `canpumf.register_connection` option in your .Rprofile:
 
     options("canpumf.register_connection" = TRUE)
 
@@ -162,7 +163,7 @@ portal.
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
-| Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
+| Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
 | Survey of Household Spending | SHS | 2017, 2019, 2021, 2023 | ✓ |
 
@@ -179,7 +180,7 @@ CRAN and on [Github](https://github.com/mountainMath/cansim).
 The [**cancensus**
 package](https://mountainmath.github.io/cancensus/index.html) is
 designed to retrieve and work with public Statistics Canada census data
-via the [CensusMapper API](https::censusmapper.ca/api). It is available
+via the [CensusMapper API](https://censusmapper.ca/api). It is available
 on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 
 ## Cite **canpumf**
@@ -187,7 +188,7 @@ on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 If you wish to cite the `canpumf` package in your work:
 
 von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R.
-v0.5.0.
+v0.5.1.
 
 A BibTeX entry for LaTeX users is
 
@@ -195,7 +196,7 @@ A BibTeX entry for LaTeX users is
         author = {Jens {von Bergmann}},
         title = {canpumf: Import StatCan PUMF data into R},
         year = {2026},
-        note = {R package version 0.5.0},
+        note = {R package version 0.5.1},
         url = {https://mountainmath.github.io/canpumf/},
       }
 

@@ -73,7 +73,7 @@ get_pumf(
   Optional custom configuration created by \[pumf_registry_entry()\] (or
   \[pumf_registry()\]), used to parse and build a survey that is not in
   the built-in registry, or to override fields of one that is. Applied
-  only when a build actually happens — on an already-imported survey it
+  only when a build actually happens – on an already-imported survey it
   has no effect unless \`refresh = TRUE\` is also passed (a message is
   emitted in that case). Not supported for LFS. For a survey not in
   \[list_canpumf_collection()\], deposit the raw files under
@@ -84,7 +84,7 @@ get_pumf(
 
   If \`TRUE\` (default), the DuckDB connection backing the returned tbl
   may appear in the RStudio Connections pane (subject to RStudio/duckdb
-  settings). Pass \`FALSE\` to suppress that registration — useful when
+  settings). Pass \`FALSE\` to suppress that registration – useful when
   opening and closing many connections programmatically (e.g. iterating
   over surveys in a notebook), where the pane would otherwise be
   spammed. Defaults to \`getOption("canpumf.register_connection",

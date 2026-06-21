@@ -13,7 +13,7 @@ fields of one that is."><meta property="og:image" content="https://mountainmath.
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -24,7 +24,8 @@ fields of one that is."><meta property="og:image" content="https://mountainmath.
       <ul class="navbar-nav me-auto"><li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
@@ -101,7 +102,8 @@ CSV vs fixed-width).</p></dd>
 <dt id="arg-data-fixups">data_fixups<a class="anchor" aria-label="anchor" href="#arg-data-fixups"></a></dt>
 <dd><p>A named list of pre-label fixups: any of `str_pad`,
 `rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
-`force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`.
+`force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`,
+`labels_supplement`.
 The `force_character`/`force_integer`/`force_bigint` fields take character
 vectors of variable names and override the DuckDB storage type (VARCHAR /
 INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are

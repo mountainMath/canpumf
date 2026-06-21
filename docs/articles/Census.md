@@ -3,16 +3,6 @@
 ``` r
 
 library(canpumf)
-#> The duckplyr package is configured to fall back to dplyr when it encounters an
-#> incompatibility. Fallback events can be collected and uploaded for analysis to
-#> guide future development. By default, data will be collected but no data will
-#> be uploaded.
-#> ℹ Automatic fallback uploading is not controlled and therefore disabled, see
-#>   `?duckplyr::fallback()`.
-#> ✔ Number of reports ready for upload: 3.
-#> → Review with `duckplyr::fallback_review()`, upload with
-#>   `duckplyr::fallback_upload()`.
-#> ℹ Configure automatic uploading with `duckplyr::fallback_config()`.
 library(dplyr)
 #> 
 #> Attaching package: 'dplyr'
@@ -97,7 +87,7 @@ census_2021 |>
 
 However, if we want a deeper understanding of the robustness of the
 results we can add bootstrap weights, by default `add_bootstrap_weights`
-weill add 500 bootstrap weights and save them to the database for later
+will add 500 bootstrap weights and save them to the database for later
 reference.
 
 ``` r

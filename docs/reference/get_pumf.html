@@ -13,7 +13,7 @@ DuckDB without re-downloading."><meta property="og:image" content="https://mount
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -24,7 +24,8 @@ DuckDB without re-downloading."><meta property="og:image" content="https://mount
       <ul class="navbar-nav me-auto"><li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
@@ -120,7 +121,7 @@ release the connection when done.</p></dd>
 <dd><p>Optional custom configuration created by
 [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
 survey that is not in the built-in registry, or to override fields of one
-that is.  Applied only when a build actually happens — on an
+that is.  Applied only when a build actually happens – on an
 already-imported survey it has no effect unless `refresh = TRUE` is also
 passed (a message is emitted in that case).  Not supported for LFS.  For a
 survey not in [list_canpumf_collection()], deposit the raw files under
@@ -130,7 +131,7 @@ survey not in [list_canpumf_collection()], deposit the raw files under
 <dt id="arg-register-connection">register_connection<a class="anchor" aria-label="anchor" href="#arg-register-connection"></a></dt>
 <dd><p>If `TRUE` (default), the DuckDB connection backing
 the returned tbl may appear in the RStudio Connections pane (subject to
-RStudio/duckdb settings).  Pass `FALSE` to suppress that registration —
+RStudio/duckdb settings).  Pass `FALSE` to suppress that registration –
 useful when opening and closing many connections programmatically (e.g.
 iterating over surveys in a notebook), where the pane would otherwise be
 spammed.  Defaults to `getOption("canpumf.register_connection", TRUE)`, so

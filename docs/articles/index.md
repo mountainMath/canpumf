@@ -2,6 +2,8 @@
 
 ### All vignettes
 
+- [Bootstrap
+  weights](https://mountainmath.github.io/canpumf/articles/bootstrap_weights.md):
 - [Census](https://mountainmath.github.io/canpumf/articles/Census.md):
 - [LFS](https://mountainmath.github.io/canpumf/articles/LFS.md):
 - [Onboarding a new
