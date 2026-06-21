@@ -105,10 +105,11 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | General Social Survey — Caregiving | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| General Social Survey — Aging and Social Support (cycle 16) | GSS | 2002 (a.k.a. "Cycle 16"; MAIN + CG4 + CG6 + CR modules joinable on RECID) | ✓ |
 | General Social Survey — Safety | GSS | Safety 1993, Safety 1999, Safety 2014, Safety 2019 | ✓ |
 | General Social Survey — Family | GSS | Family 1995, Family 2001, Family 2011, Family 2017 | ✓ |
 | General Social Survey — Social Identity | GSS | Social Identity 2003, Social Identity 2013, Social Identity 2020 | ✓ |
-| General Social Survey — Education | GSS | Education 1994, Education 2002, Education 2007 | ✓ |
+| General Social Survey — Education | GSS | Education 1994, Education 2007 | ✓ |
 | General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 | ✓ |
 | GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |

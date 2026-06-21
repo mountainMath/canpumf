@@ -39,7 +39,27 @@
                         bundled_eng_sps   = NULL,
                         bundle_source     = NULL,
                         bundle_sps_mask   = NULL,
-                        doc_mask          = NULL) {
+                        doc_mask          = NULL,
+                        modules           = NULL,
+                        primary_module    = NULL) {
+  # Multi-module surveys (e.g. GSS cycle 16) ship several related files that
+  # share a respondent key (RECID) and must be linked for analysis because the
+  # survey weight lives only in the primary file.  `modules` is a named list
+  # keyed by module id; each element is list(layout_mask=, file_mask=,
+  # data_fixups=).  Every module becomes its own table in the one DuckDB file so
+  # callers can join them (see pumf_module()).  The primary module supplies the
+  # top-level layout_mask/file_mask/data_fixups so all default code paths (table
+  # name, single-table build) return it unchanged.
+  if (!is.null(modules)) {
+    if (is.null(primary_module)) primary_module <- names(modules)[[1L]]
+    pm <- modules[[primary_module]]
+    if (is.null(pm))
+      stop("primary_module '", primary_module, "' not found in modules for ",
+           series, "/", version)
+    if (is.null(layout_mask))      layout_mask <- pm$layout_mask
+    if (is.null(file_mask))        file_mask   <- pm$file_mask
+    if (length(data_fixups) == 0L) data_fixups <- pm$data_fixups %||% list()
+  }
   list(
     series            = series,
     version           = version,
@@ -56,8 +76,33 @@
     bundled_eng_sps   = bundled_eng_sps,
     bundle_source     = bundle_source,
     bundle_sps_mask   = bundle_sps_mask,
-    doc_mask          = doc_mask
+    doc_mask          = doc_mask,
+    modules           = modules,
+    primary_module    = primary_module
   )
+}
+
+# Return the uniform module table for a registry entry as a named list keyed by
+# module id, each element list(layout_mask, file_mask, data_fixups, is_primary,
+# meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
+# unset), so callers can branch on is.null() to keep the legacy path untouched.
+# The primary module's metadata stays in `metadata/` (meta_subdir = NULL) for
+# backward compatibility; secondary modules use `metadata/<id>/`.
+.pumf_entry_modules <- function(reg) {
+  if (is.null(reg) || is.null(reg$modules)) return(NULL)
+  pm  <- reg$primary_module %||% names(reg$modules)[[1L]]
+  ids <- names(reg$modules)
+  stats::setNames(lapply(ids, function(id) {
+    m <- reg$modules[[id]]
+    list(
+      id          = id,
+      layout_mask = m$layout_mask,
+      file_mask   = m$file_mask,
+      data_fixups = m$data_fixups %||% list(),
+      is_primary  = identical(id, pm),
+      meta_subdir = if (identical(id, pm)) NULL else id
+    )
+  }), ids)
 }
 
 # Census of Population income variables use undeclared sentinel codes.
@@ -95,6 +140,26 @@
 # individuals/families), but all six SPSS files only declare code 1 -> 'one'.
 # Force it to numeric so the integer values come through correctly.
 .census_fixup_1971 <- list(force_numeric = "SUBSAMPL")
+
+# GSS cycle 16 (2002) per-module force_numeric: count/age/date variables whose
+# SPSS value-label blocks declare only boundary/sentinel codes (e.g. a top-code
+# and a "Not stated") alongside otherwise-continuous numeric data.  Derived from
+# each module's SPSS command file (C16PUMF_<MODULE>_SPSS_CARDS_E.sps) and
+# verified in tests/testthat/override_verification.csv.
+.gss_c16_force_numeric <- list(
+  # MAIN count/hours variables: a top-code boundary label (e.g. "75 and more
+  # hours", "4 Brothers or more", "6 employees or more") plus true-missing
+  # sentinels (Not asked/applicable, Don't know, Not stated) over otherwise
+  # unlabeled continuous values.
+  MAIN = c(
+    "WKWEHR_C", "WKWEHOHR_C", "MAR_Q161_C",
+    "RSL_Q110_C", "RSL_Q120_C", "RSL_Q130_C",
+    "RSL_Q140_C", "RSL_Q150_C", "RSL_Q160_C"),
+  # CG4/CG6/CR are fully categorical/already-numeric: no force_numeric needed.
+  CG4  = character(0L),
+  CG6  = character(0L),
+  CR   = character(0L)
+)
 
 
 .pumf_registry <- list(
@@ -695,40 +760,39 @@
       "WKWEHR_C",     "MAP_Q135C"
     ))),
 
-  # Education 2002 (cycle 16): monolithic SPSS + SAS; MAIN + CG4/CG6/CR files;
-  # use the MAIN. 111 count/education variables need force_numeric.
-  "GSS/Education 2002" = .make_entry("GSS", "Education 2002",
-    file_mask   = "C16PUMF_MAIN\\.DAT",
-    data_fixups = list(force_numeric = c(
-      "CG4_FR_Q100_C",  "CG4_FR_Q104",    "CG4_FR_Q105",    "CG4_FR_Q107",
-      "CG4_FR_Q110",    "CG4_FR_Q115",    "CG4_FR_Q120",    "CG4_FR_Q125",
-      "CG4_FR_Q200",    "CG4_FR_Q220",    "CG4_FR_Q230",    "CG4_FR_Q300",
-      "CG4_FR_Q301",    "CG4_FR_Q315",    "CG4_FR_Q316",    "CG4_FR_Q325_AST",
-      "CG4_FR_Q325_DIE","CG4_FR_Q325_RMO","CG4_FR_Q325_RJB","CG4_FR_Q325_GJB",
-      "CG4_FR_Q325_OTH","CG4_FR_Q327_AST","CG4_FR_Q327_DIE","CG4_FR_Q327_GMO",
-      "CG4_FR_Q327_RJB","CG4_FR_Q327_GJB","CG4_FR_Q327_OTH","CG4_FR_Q330_11",
-      "CG4_FR_Q330_15", "CG4_FR_Q330_16", "CG4_FR_Q330_17", "CG4_FR_Q330_18",
-      "CG4_FR_Q330_45_C","CG4_FR_Q330_80","CG4_FR_Q330_81", "CG4_FR_Q330_83",
-      "CG4_FR_Q330_85_C","CG4_FR_Q330_86","CG4_FR_Q330_91", "CG4_FR_Q345_11",
-      "CG4_FR_Q345_13", "CG4_FR_Q345_14", "CG4_FR_Q345_15", "CG4_FR_Q345_16",
-      "CG4_FR_Q345_17", "CG4_FR_Q345_18", "CG4_FR_Q345_34", "CG4_FR_Q345_35",
-      "CG4_FR_Q345_45_C","CG4_FR_Q345_80","CG4_FR_Q345_81", "CG4_FR_Q345_83",
-      "CG4_FR_Q345_85_C","CG4_FR_Q345_86","CG4_FR_Q345_95", "CG4_FR_Q360",
-      "CG4_FR_Q370",    "CG4_FR_Q380",    "CG4_FR_Q381_FAM","CG4_FR_Q381_TIM",
-      "CG4_FR_Q381_CLS","CG4_FR_Q381_EXP","CG4_FR_Q381_HEL","CG4_FR_Q381_TRN",
-      "CG4_FR_Q381_OTH","CG4_FR_Q400",    "CG4_FR_Q410",    "CG4_FR_Q420",
-      "CG4_FR_Q430_11", "CG4_FR_Q430_13", "CG4_FR_Q430_14", "CG4_FR_Q430_17",
-      "CG4_FR_Q430_18", "CG4_FR_Q430_45_C","CG4_FR_Q430_80","CG4_FR_Q430_81",
-      "CG4_FR_Q430_83", "CG4_FR_Q430_85_C","CG4_FR_Q430_86","CG4_FR_Q500",
-      "CG4_FR_Q505",    "CG4_FR_Q511",    "CG4_FR_Q512",    "CG4_FR_Q513",
-      "CG4_FR_Q530",    "CG4_FR_Q600",    "CG4_FR_Q605",    "CG4_FR_Q611",
-      "CG4_FR_Q612",    "CG4_FR_Q630",    "CG4_FR_Q700",    "CG4_FR_Q705",
-      "CG4_FR_Q711",    "CG4_FR_Q712",    "CG4_FR_Q713",    "CG4_FR_Q730",
-      "CG4_FR_Q800",    "CG4_FR_Q805",    "CG4_FR_Q830",    "CG4_FR_Q900",
-      "CG4_FR_Q910",    "CG4_FR_Q920",    "CG4_FR_Q930",    "CG4_FR_Q940",
-      "CG4_VT_Q951_FAM","CG4_VT_Q951_TIM","CG4_VT_Q951_CLS","CG4_VT_Q951_EXP",
-      "CG4_VT_Q951_HEL","CG4_VT_Q951_TRN","CG4_VT_Q951_OTH"
-    ))),
+  # 2002 (cycle 16, "Aging and Social Support"): part of the Caregiving series
+  # (survey 4502), registered as a plain year like 1996/2007/2012/2018.  Unlike
+  # other GSS cycles this ships FOUR linked fixed-width files that share the
+  # respondent key RECID and must be joined for analysis -- the survey weight
+  # WGHT_PER lives only in the MAIN file:
+  #   MAIN  one row per respondent (weight, demographics)
+  #   CG4   one row per care receiver  (caregiving to others)
+  #   CG6   one row per care provider  (care received)
+  #   CR    one row per care-relationship
+  # Each module is built as its own table in the shared DuckDB file; MAIN is the
+  # primary (default) table.  Use module="CG4" / pumf_module() to reach the rest
+  # and join on RECID.  Aliases "Cycle 16"/"16" and "Aging and Social Support
+  # 2002" resolve to "2002" (see pumf_resolve_version()).
+  # force_numeric per module covers count/age/date variables that carry
+  # boundary/sentinel labels alongside otherwise-continuous values.
+  "GSS/2002" = .make_entry("GSS", "2002",
+    modules = list(
+      MAIN = list(
+        layout_mask = "C16PUMF_MAIN",
+        file_mask   = "C16PUMF_MAIN\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$MAIN)),
+      CG4 = list(
+        layout_mask = "C16PUMF_CG4",
+        file_mask   = "C16PUMF_CG4\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$CG4)),
+      CG6 = list(
+        layout_mask = "C16PUMF_CG6",
+        file_mask   = "C16PUMF_CG6\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$CG6)),
+      CR = list(
+        layout_mask = "C16PUMF_CR",
+        file_mask   = "C16PUMF_CR\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$CR)))),
 
   # Education 1994 (cycle 9): monolithic SPSS + SAS; single data file.
   "GSS/Education 1994" = .make_entry("GSS", "Education 1994",
@@ -1197,6 +1261,10 @@
 #' @keywords internal
 pumf_resolve_version <- function(series, version) {
   if (is.null(version)) return(NULL)
+  if (series == "GSS") {
+    a <- .pumf_gss_alias(version)
+    if (!is.null(a)) return(a)
+  }
   if (series == "Census" && grepl("^\\d{4}", version)) {
     year <- substr(version, 1L, 4L)
 
@@ -1218,6 +1286,33 @@ pumf_resolve_version <- function(series, version) {
     return(paste0(year, " (", type, ")"))
   }
   version
+}
+
+# GSS theme/cycle aliases.  GSS surveys are commonly referenced by cycle number
+# ("Cycle 16") or by theme name with year ("Aging and Social Support (2002)"),
+# but the registry keys a few cycles by plain year (the caregiving series:
+# 1996/2002/2007/2012/2018).  This maps those alternative references to the
+# canonical registry version.  Keys are matched case-insensitively after
+# stripping punctuation and collapsing whitespace, so "Cycle 16", "cycle16",
+# "16", and "Aging and Social Support 2002" all resolve to "2002".
+.pumf_gss_aliases <- list(
+  "2002" = c("cycle 16", "16",
+             "aging and social support 2002",
+             "aging and social support",
+             "aging and social support (2002)")
+)
+
+.pumf_gss_alias <- function(version) {
+  norm <- function(x) {
+    x <- tolower(gsub("[[:punct:]]", " ", x))
+    x <- gsub("([a-z])([0-9])", "\\1 \\2", x)  # "cycle16" -> "cycle 16"
+    trimws(gsub("\\s+", " ", x))
+  }
+  v <- norm(version)
+  for (canon in names(.pumf_gss_aliases)) {
+    if (v %in% norm(.pumf_gss_aliases[[canon]])) return(canon)
+  }
+  NULL
 }
 
 # Shared LFS build configuration.  LFS is not keyed per version in

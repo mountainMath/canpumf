@@ -30,14 +30,17 @@ list_census_collection <- function() {
 # get_pumf() still works for already-cached data when StatCan is unreachable.
 .gss_collection_fallback <- function() {
   tibble::tibble(
-    Title          = c(rep("General Social Survey - Caregiving", 4L),
+    Title          = c(rep("General Social Survey - Caregiving", 5L),
                        rep("General Social Survey - Giving",     8L)),
-    Acronym        = c(rep("GSS",  4L), rep("SGVP", 8L)),
-    `Survey Number` = c(rep("4502", 4L), rep("4430", 8L)),
-    Version        = c("1996", "2007", "2012", "2018",
+    Acronym        = c(rep("GSS",  5L), rep("SGVP", 8L)),
+    `Survey Number` = c(rep("4502", 5L), rep("4430", 8L)),
+    Version        = c("1996", "2002", "2007", "2012", "2018",
                        "1997", "2000", "2004", "2007", "2010", "2013", "2018", "2023"),
     url            = c(
       "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c11_1996.zip",
+      # Cycle 16 ("Aging and Social Support", 2002); StatCan files it under the
+      # Education category (cat9) and mislabels it "Education 2002".
+      "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat9/c16_2002.zip",
       "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c21_2007.zip",
       "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c26_2012.zip",
       "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c32_2018.zip",
@@ -141,7 +144,14 @@ list_gss_collection <- function() {
         is.na(.data$theme_prefix),
         .data$year,
         paste(.data$theme_prefix, .data$year)
-      )
+      ),
+      # StatCan files the GSS cycle 16 PUMF ("Aging and Social Support", 2002,
+      # zip cat9/c16_2002.zip) under the Education category, mislabeling it
+      # "Education 2002".  It is registered under the canonical year "2002"
+      # (a multi-module survey), so surface it as such -- this keeps it
+      # auto-downloadable via get_pumf("GSS", "2002") / "Cycle 16".
+      Version = dplyr::if_else(grepl("c16_2002\\.zip$", .data$href),
+                               "2002", .data$Version)
     ) |>
     dplyr::rename(`Survey Number` = "Survey.Number") |>
     dplyr::select("Title", "Acronym", "Survey Number", "Version", "url")

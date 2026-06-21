@@ -12,7 +12,9 @@ pumf_build_duckdb(
   layout_mask = NULL,
   file_mask = NULL,
   refresh = FALSE,
-  db_path = NULL
+  db_path = NULL,
+  meta_subdir = NULL,
+  data_fixups = NULL
 )
 }
 \arguments{

@@ -176,10 +176,14 @@ read_metadata <- function(metadata_dir) {
 #' Check whether canonical metadata exists for a version directory
 #'
 #' @param version_dir Path to the version directory.
+#' @param bare When `TRUE`, treat `version_dir` as the metadata directory itself
+#'   (used for per-module subdirectories), checking it directly for
+#'   `variables.csv` instead of a `metadata/` child.
 #' @return Logical.
 #' @keywords internal
-metadata_exists <- function(version_dir) {
-  file.exists(file.path(version_dir, "metadata", "variables.csv"))
+metadata_exists <- function(version_dir, bare = FALSE) {
+  d <- if (bare) version_dir else file.path(version_dir, "metadata")
+  file.exists(file.path(d, "variables.csv"))
 }
 
 
@@ -679,6 +683,14 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     code_lines <- code_lines[!grepl("^/", code_lines)]
     code_lines <- code_lines[nchar(code_lines) > 0L]
     code_lines <- c(inline_code, code_lines)
+
+    # String-valued codes may be single-quoted with a double-quoted label, e.g.
+    # GSS cycle 16:  '1' "Male"  /  '08' "..." .  Convert only the LEADING
+    # single-quoted value token to double quotes so it is captured verbatim
+    # (preserving zero-padding like "08") by the quoted (is_q) branch below;
+    # the double-quoted label -- which may legitimately contain an apostrophe --
+    # is left untouched.
+    code_lines <- sub("^(\\s*)'([^']*)'", '\\1"\\2"', code_lines)
 
     if (length(code_lines) == 0L)
       return(tibble::tibble(name = character(), val = character(), label = character()))
@@ -1621,7 +1633,11 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   all_files <- all_files[!grepl("/metadata/", all_files, fixed = TRUE)]
   # For bundled-archive versions with multiple per-type command files in the
   # same directory, sps_mask filters which SPSS/XMF files are visible so the
-  # right type's command file is selected.
+  # right type's command file is selected.  Only .sps/.xmf are filtered, not
+  # .sas: the .sas scan (result$sas_labels) is a low-priority label supplement,
+  # and constraining it to the masked module would merge that module's PROC
+  # FORMAT codes over the authoritative SPSS codes, producing spurious
+  # unmatched-value warnings (e.g. GSS Safety 1999 main file).
   if (!is.null(sps_mask)) {
     is_spss  <- grepl("\\.(sps|xmf)$", all_files, ignore.case = TRUE)
     all_files <- all_files[!is_spss | grepl(sps_mask, all_files, ignore.case = TRUE)]
@@ -2010,10 +2026,15 @@ merge_metadata <- function(parsed_list) {
 pumf_parse_metadata <- function(version_dir,
                                 layout_mask       = NULL,
                                 metadata_encoding = NULL,
-                                refresh           = FALSE) {
-  metadata_dir <- file.path(version_dir, "metadata")
+                                refresh           = FALSE,
+                                meta_subdir       = NULL) {
+  # meta_subdir routes multi-module surveys: each module's canonical CSVs are
+  # written under metadata/<meta_subdir>/ (the primary module uses metadata/
+  # with meta_subdir = NULL).
+  metadata_dir <- if (is.null(meta_subdir)) file.path(version_dir, "metadata")
+                  else file.path(version_dir, "metadata", meta_subdir)
 
-  if (!refresh && metadata_exists(version_dir)) {
+  if (!refresh && metadata_exists(metadata_dir, bare = TRUE)) {
     return(invisible(metadata_dir))
   }
 
@@ -2044,10 +2065,12 @@ pumf_parse_metadata <- function(version_dir,
   # For standalone deposits with layout_mask: apply it as sps_mask so that
   # surveys with multiple SPSS file sets (e.g. SGVP MAIN vs GIVING subset)
   # pick the right one.  sps_mask only filters SPSS files, not data files.
+  # An explicit layout_mask argument (e.g. a secondary module's mask) overrides
+  # the registry's; otherwise fall back to the registry config.
   effective_sps_mask <- if (!identical(source_dir, version_dir))
     reg$bundle_sps_mask
   else
-    reg$layout_mask
+    layout_mask %||% reg$layout_mask
   formats <- detect_formats(source_dir, sps_mask = effective_sps_mask)
   if (length(formats) == 0L) {
     stop("No parseable metadata files found in: ", source_dir)

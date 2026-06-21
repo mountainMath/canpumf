@@ -16,9 +16,21 @@
 }
 
 # Compute the DuckDB table name for a given series / version / lang.
-.pumf_table_name <- function(series, version, lang) {
+.pumf_table_name <- function(series, version, lang, module = NULL) {
   if (series == "LFS") return(paste0("lfs_", lang))
-  lm <- pumf_registry_lookup(series, version)$layout_mask
+  reg <- pumf_registry_lookup(series, version)
+  lm  <- reg$layout_mask
+  if (!is.null(module)) {
+    mods <- .pumf_entry_modules(reg)
+    if (is.null(mods))
+      stop(series, " ", version, " has no modules; omit 'module'.",
+           call. = FALSE)
+    if (is.null(mods[[module]]))
+      stop("Unknown module '", module, "' for ", series, " ", version,
+           ". Available: ", paste(names(mods), collapse = ", "), ".",
+           call. = FALSE)
+    lm <- mods[[module]]$layout_mask
+  }
   if (is.null(lm)) lang else paste0(lang, "_", lm)
 }
 
@@ -708,7 +720,9 @@ pumf_build_duckdb <- function(version_dir,
                                layout_mask = NULL,
                                file_mask   = NULL,
                                refresh     = FALSE,
-                               db_path     = NULL) {
+                               db_path     = NULL,
+                               meta_subdir = NULL,
+                               data_fixups = NULL) {
   stopifnot(lang %in% c("eng", "fra"))
 
   # Step 1: DuckDB path and table name
@@ -731,8 +745,9 @@ pumf_build_duckdb <- function(version_dir,
     if (exists) return(invisible(result))
   }
 
-  # Step 4: read canonical metadata
-  meta_dir <- file.path(version_dir, "metadata")
+  # Step 4: read canonical metadata (a per-module subdir for secondary modules)
+  meta_dir <- if (is.null(meta_subdir)) file.path(version_dir, "metadata")
+              else file.path(version_dir, "metadata", meta_subdir)
   if (!dir.exists(meta_dir))
     stop("metadata/ not found in ", version_dir,
          ". Run pumf_parse_metadata() first.")
@@ -752,6 +767,9 @@ pumf_build_duckdb <- function(version_dir,
   if (!is.null(layout)) layout$name <- toupper(layout$name)
 
   reg <- pumf_registry_lookup(series, version)
+  # For a secondary module, the caller supplies that module's complete fixup set
+  # (force_numeric etc.); it replaces the registry entry's primary fixups.
+  if (!is.null(data_fixups)) reg$data_fixups <- data_fixups
 
   # labels_supplement: supply variable labels that the source metadata leaves
   # blank (e.g. CPSS 1 ships only a PDF codebook whose weight variable COVID_WT
@@ -1081,17 +1099,38 @@ pumf_run_pipeline <- function(series,
                                           refresh    = eff_refresh,
                                           redownload = redownload)
 
-  # Stage 2 — parse metadata
-  pumf_parse_metadata(version_dir,
-                       layout_mask       = reg$layout_mask,
-                       metadata_encoding = reg$metadata_encoding,
-                       refresh           = eff_refresh)
-
-  # Stage 3 — build DuckDB
-  result <- pumf_build_duckdb(version_dir, series, version,
-                               lang        = lang,
-                               layout_mask = reg$layout_mask,
-                               refresh     = eff_refresh)
+  # Stages 2 + 3 — parse metadata and build DuckDB.
+  # Multi-module surveys (reg$modules) build every module as its own table in
+  # the one shared DuckDB file so callers can join them; the primary module's
+  # table is returned by default.  Single-table surveys take the legacy path.
+  mods <- .pumf_entry_modules(reg)
+  if (is.null(mods)) {
+    pumf_parse_metadata(version_dir,
+                         layout_mask       = reg$layout_mask,
+                         metadata_encoding = reg$metadata_encoding,
+                         refresh           = eff_refresh)
+    result <- pumf_build_duckdb(version_dir, series, version,
+                                 lang        = lang,
+                                 layout_mask = reg$layout_mask,
+                                 refresh     = eff_refresh)
+  } else {
+    result <- NULL
+    for (m in mods) {
+      pumf_parse_metadata(version_dir,
+                           layout_mask       = m$layout_mask,
+                           metadata_encoding = reg$metadata_encoding,
+                           refresh           = eff_refresh,
+                           meta_subdir       = m$meta_subdir)
+      r <- pumf_build_duckdb(version_dir, series, version,
+                              lang        = lang,
+                              layout_mask = m$layout_mask,
+                              file_mask   = m$file_mask,
+                              refresh     = eff_refresh,
+                              meta_subdir = m$meta_subdir,
+                              data_fixups = m$data_fixups)
+      if (isTRUE(m$is_primary)) result <- r
+    }
+  }
 
   pumf_open_duckdb(result$db_path, result$table_name, read_only = read_only)
 }

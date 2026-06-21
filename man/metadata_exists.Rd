@@ -4,10 +4,14 @@
 \alias{metadata_exists}
 \title{Check whether canonical metadata exists for a version directory}
 \usage{
-metadata_exists(version_dir)
+metadata_exists(version_dir, bare = FALSE)
 }
 \arguments{
 \item{version_dir}{Path to the version directory.}
+
+\item{bare}{When `TRUE`, treat `version_dir` as the metadata directory itself
+(used for per-module subdirectories), checking it directly for
+`variables.csv` instead of a `metadata/` child.}
 }
 \value{
 Logical.

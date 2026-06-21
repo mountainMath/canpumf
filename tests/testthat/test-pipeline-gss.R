@@ -7,8 +7,10 @@
   file.path(.gss_cache(), "GSS", version)
 }
 
-# All end-to-end verified versions (Caregiving series, registered as plain years)
-.gss_verified <- c("2018", "2012", "2007", "1996")
+# All end-to-end verified versions (Caregiving series, registered as plain years).
+# 2002 is GSS cycle 16 ("Aging and Social Support"), a multi-module survey
+# (MAIN + CG4 + CG6 + CR linked on RECID); the primary module is MAIN.
+.gss_verified <- c("2018", "2012", "2007", "2002", "1996")
 
 # Non-caregiving GSS themes with their version strings
 .gss_theme_verified <- c(
@@ -16,7 +18,7 @@
   "Family 2017", "Safety 2014", "Social Identity 2013", "Time Use 2015",
   "Family 2011", "Education 2007", "Social Identity 2003",
   "Time Use 2010", "Education 1994", "Safety 1993", "Safety 1999",
-  "Family 1995", "Family 2001", "Education 2002", "Time Use 1998"
+  "Family 1995", "Family 2001", "Time Use 1998"
 )
 
 # Versions whose StatCan distribution contains only English command files;
@@ -26,9 +28,9 @@
 # Versions where StatCan's SPSS/SAS command files carry no French code labels;
 # bilingual parity tests are skipped for these.
 # Education 1994: English-only command files.
-# Education 2002: variables.csv has French variable names, but codes.csv has
+# 2002 (cycle 16): variables.csv has French variable names, but codes.csv has
 #   none — the SPSS value-label blocks are English-only.
-.gss_no_french_codes <- c("Education 1994", "Education 2002")
+.gss_no_french_codes <- c("Education 1994", "2002")
 
 # GSS versions with known expected warnings (pattern matched against each warning).
 # Any warning NOT matching this pattern is unexpected and fails the test.
@@ -41,6 +43,8 @@
   # 2007: WTBS_002–WTBS_500 unlabeled in VARIABLE LABELS (StatCan only labels #1);
   #        the French SPSS file for Cycle 21 covers only ~26 of 951 variables
   "2007" = "Variables in layout but not in variable labels|no French translation",
+  # 2002 (cycle 16, MAIN module): force_numeric injects boundary-label variables
+  "2002" = "absent from command files",
   # Non-caregiving themes with force_numeric (boundary labels → continuous data)
   "Safety 2019"         = "absent from command files",
   "Safety 2014"         = "absent from command files",
@@ -53,7 +57,6 @@
   "Social Identity 2013"= "absent from command files",
   "Social Identity 2003"= "absent from command files|Variables in layout but not in variable labels",
   "Education 2007"      = "absent from command files|Variables in layout but not in variable labels",
-  "Education 2002"      = "absent from command files",
   "Education 1994"      = "absent from command files",
   "Time Use 2015"       = "absent from command files",
   "Time Use 2010"       = "Variables in layout but not in variable labels",
@@ -205,6 +208,9 @@ for (.v in .gss_verified) {
                   paste("GSS", ver, "not extracted in cache"))
       skip_if_not(file.exists(file.path(.gss_vdir(ver), "metadata", "variables.csv")),
                   paste("GSS", ver, "metadata not parsed"))
+      if (ver %in% .gss_no_french_codes) {
+        skip(paste("GSS", ver, "has no French code labels; bilingual parity not testable"))
+      }
 
       tmp <- tempfile(fileext = ".duckdb")
       on.exit(unlink(tmp), add = TRUE)
@@ -256,3 +262,59 @@ for (.v in .gss_theme_verified) {
     })
   })
 }
+
+
+# ---- GSS cycle 16 (2002) multi-module support -------------------------------
+
+test_that("GSS cycle/theme aliases resolve to canonical 2002", {
+  expect_identical(canpumf:::pumf_resolve_version("GSS", "Cycle 16"), "2002")
+  expect_identical(canpumf:::pumf_resolve_version("GSS", "cycle16"), "2002")
+  expect_identical(canpumf:::pumf_resolve_version("GSS", "16"), "2002")
+  expect_identical(
+    canpumf:::pumf_resolve_version("GSS", "Aging and Social Support (2002)"),
+    "2002")
+  # plain year and unrelated themes pass through unchanged
+  expect_identical(canpumf:::pumf_resolve_version("GSS", "2002"), "2002")
+  expect_identical(canpumf:::pumf_resolve_version("GSS", "Safety 1999"),
+                   "Safety 1999")
+})
+
+test_that("GSS 2002 registry exposes four linked modules with MAIN primary", {
+  reg  <- canpumf:::pumf_registry_lookup("GSS", "2002")
+  mods <- canpumf:::.pumf_entry_modules(reg)
+  expect_identical(sort(names(mods)), c("CG4", "CG6", "CR", "MAIN"))
+  expect_true(mods$MAIN$is_primary)
+  # primary module drives the top-level layout_mask / file_mask
+  expect_identical(reg$layout_mask, "C16PUMF_MAIN")
+  # secondary modules keep metadata in metadata/<module>/, primary in metadata/
+  expect_null(mods$MAIN$meta_subdir)
+  expect_identical(mods$CG4$meta_subdir, "CG4")
+})
+
+test_that("GSS 2002 builds joinable modules sharing one connection", {
+  skip_if_not(canpumf:::.version_is_extracted(.gss_vdir("2002")),
+              "GSS 2002 not extracted in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  # MAIN carries the respondent key and the person weight
+  expect_true(all(c("RECID", "WGHT_PER") %in% colnames(main)))
+
+  cg4 <- pumf_module(main, "CG4")
+  expect_true("RECID" %in% colnames(cg4))
+  # sibling module shares MAIN's connection, so the two are joinable
+  expect_identical(main$src$con, cg4$src$con)
+  joined <- dplyr::inner_join(main, cg4, by = "RECID")
+  expect_gt(dplyr::pull(dplyr::tally(joined)), 0L)
+
+  # module-aware labeling reads each module's own metadata
+  expect_silent(suppressWarnings(label_pumf_columns(cg4)))
+  expect_error(pumf_module(main, "NOPE"), "Unknown module")
+})
+
+test_that("get_pumf rejects module for non-modular surveys", {
+  expect_error(
+    canpumf:::.pumf_table_name("GSS", "2018", "eng", module = "MAIN"),
+    "no modules")
+})

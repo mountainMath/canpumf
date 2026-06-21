@@ -19,14 +19,16 @@
 
 .pumf_con_registry <- new.env(hash = TRUE, parent = emptyenv())
 
-.pumf_register_con <- function(con, series, version, cache_path, lang) {
+.pumf_register_con <- function(con, series, version, cache_path, lang,
+                               module = NULL) {
   key <- format(con@conn_ref)
   .pumf_con_registry[[key]] <- list(
     con        = con,
     series     = series,
     version    = version,
     cache_path = cache_path,
-    lang       = lang
+    lang       = lang,
+    module     = module
   )
   invisible(NULL)
 }
@@ -132,6 +134,12 @@
 #'   passed (a message is emitted in that case).  Not supported for LFS.  For a
 #'   survey not in [list_canpumf_collection()], deposit the raw files under
 #'   `<cache_path>/<series>/<version>/` first (there is no download URL).
+#' @param module For multi-module surveys (several linked files in one DuckDB,
+#'   e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,
+#'   `CG6` and `CR` files join on `RECID`), selects which module table to
+#'   return.  `NULL` (default) returns the survey's primary module.  Use
+#'   [pumf_module()] to open a sibling module on the *same* connection so the
+#'   two tbls are joinable.  Not supported for LFS.
 #' @param register_connection If `TRUE` (default), the DuckDB connection backing
 #'   the returned tbl may appear in the RStudio Connections pane (subject to
 #'   RStudio/duckdb settings).  Pass `FALSE` to suppress that registration --
@@ -181,6 +189,7 @@ get_pumf <- function(series     = NULL,
                      redownload = FALSE,
                      read_only  = TRUE,
                      registry   = NULL,
+                     module     = NULL,
                      register_connection =
                        getOption("canpumf.register_connection", TRUE),
                      ...) {
@@ -194,6 +203,10 @@ get_pumf <- function(series     = NULL,
     stop("'series' must be specified (e.g. get_pumf(\"SFS\", \"2019\")).")
   version <- pumf_resolve_version(series, version)
   stopifnot(lang %in% c("eng", "fra"))
+
+  if (!is.null(module) && series == "LFS")
+    stop("'module' is not supported for LFS, which has a single shared table.",
+         call. = FALSE)
 
   if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
       !identical(refresh, "auto"))
@@ -297,8 +310,11 @@ get_pumf <- function(series     = NULL,
   )
   if (is.null(con)) return(invisible(NULL))
 
-  # Select the language table from the connection.
-  table_name <- .pumf_table_name(series, version, lang)
+  # Select the language table from the connection.  For multi-module surveys
+  # (e.g. GSS cycle 16) `module` selects which linked table to return; all
+  # modules share one DuckDB file and are joinable on RECID.  `.pumf_table_name`
+  # validates the module name against the registry.
+  table_name <- .pumf_table_name(series, version, lang, module)
   db_path    <- .pumf_db_path(series, version, cache_path)
 
   if (read_only) {
@@ -315,10 +331,52 @@ get_pumf <- function(series     = NULL,
 
   # Register provenance so label_pumf_columns() can find it later via the
   # connection's stable C++ pointer address.
-  .pumf_register_con(tbl$src$con, series, version, cache_path, lang)
+  .pumf_register_con(tbl$src$con, series, version, cache_path, lang, module)
 
 
   tbl
+}
+
+
+#' Open a sibling module of a multi-module survey
+#'
+#' Some surveys ship several linked fixed-width files that share a respondent
+#' key (e.g. GSS cycle 16, "Aging and Social Support", 2002, whose MAIN, CG4,
+#' CG6 and CR files all join on `RECID`, with the person weight `WGHT_PER`
+#' living only in MAIN).  `get_pumf()` returns the survey's primary module;
+#' `pumf_module()` returns one of its sibling modules **on the same DuckDB
+#' connection**, so the two tbls are joinable on the shared key without opening
+#' a second connection.
+#'
+#' @param tbl A lazy tbl returned by [get_pumf()] for a multi-module survey.
+#' @param module Name of the module to open (e.g. `"CG4"`).  See the survey's
+#'   registry entry for available module ids.
+#' @return A lazy `dplyr::tbl()` for the requested module, backed by the same
+#'   connection as `tbl`.
+#' @examples
+#' \dontrun{
+#' main <- get_pumf("GSS", "2002")          # primary module (MAIN), has WGHT_PER
+#' cg4  <- pumf_module(main, "CG4")         # caregiving module, same connection
+#' dplyr::left_join(main, cg4, by = "RECID")
+#' }
+#' @export
+pumf_module <- function(tbl, module) {
+  if (is.null(module) || !is.character(module) || length(module) != 1L)
+    stop("'module' must be a single module name (e.g. \"CG4\").", call. = FALSE)
+  con <- tbl$src$con
+  prov <- .pumf_lookup_con(con)
+  if (is.null(prov))
+    stop("Could not find survey provenance for this tbl. ",
+         "pumf_module() only works on tbls returned by get_pumf().",
+         call. = FALSE)
+  table_name <- .pumf_table_name(prov$series, prov$version, prov$lang, module)
+  if (!DBI::dbExistsTable(con, table_name))
+    stop("Module table '", table_name, "' not found. The survey may not have ",
+         "been built with this module.", call. = FALSE)
+  out <- dplyr::tbl(con, table_name)
+  .pumf_register_con(con, prov$series, prov$version, prov$cache_path,
+                     prov$lang, module)
+  out
 }
 
 
@@ -365,7 +423,17 @@ get_pumf <- function(series     = NULL,
       stop("No LFS metadata found in any version directory.", call. = FALSE)
     all_vars[!duplicated(all_vars$name, fromLast = TRUE), , drop = FALSE]
   } else {
-    meta_dir <- file.path(cache_path, series, version, "metadata")
+    # Multi-module surveys keep each secondary module's metadata in a
+    # metadata/<module>/ subdir; the primary module uses metadata/.
+    reg      <- pumf_registry_lookup(series, version)
+    mods     <- .pumf_entry_modules(reg)
+    subdir   <- if (!is.null(prov$module) && !is.null(mods) &&
+                    !is.null(mods[[prov$module]]))
+      mods[[prov$module]]$meta_subdir else NULL
+    meta_dir <- if (is.null(subdir))
+      file.path(cache_path, series, version, "metadata")
+    else
+      file.path(cache_path, series, version, "metadata", subdir)
     if (!dir.exists(meta_dir))
       stop("Metadata directory not found: '", meta_dir, "'. ",
            "Run get_pumf(\"", series, "\", \"", version, "\") first.",
@@ -379,11 +447,38 @@ get_pumf <- function(series     = NULL,
   }
 }
 
+# Derive which module a tbl points at from its remote DuckDB table name.
+# All modules of a multi-module survey share one connection, so the
+# connection-keyed provenance registry can only remember one module at a time.
+# When the tbl is a plain base-table reference (or a simple lazy query over
+# one) `dbplyr::remote_name()` still resolves the underlying table name, which
+# encodes the module's layout_mask; we reverse-map it to the module id so the
+# correct metadata/<module>/ subdir is read regardless of which module was most
+# recently registered.  Falls back to the stored prov$module for tbls whose
+# base table can no longer be recovered (e.g. after a join).
+.pumf_tbl_module <- function(tbl, prov) {
+  if (identical(prov$series, "LFS")) return(prov$module)
+  reg  <- pumf_registry_lookup(prov$series, prov$version)
+  mods <- .pumf_entry_modules(reg)
+  if (is.null(mods)) return(prov$module)
+  tname <- tryCatch(as.character(dbplyr::remote_name(tbl)),
+                    error = function(e) NULL)
+  if (is.null(tname) || length(tname) != 1L || is.na(tname))
+    return(prov$module)
+  for (id in names(mods)) {
+    if (identical(.pumf_table_name(prov$series, prov$version, prov$lang, id),
+                  tname))
+      return(id)
+  }
+  prov$module
+}
+
 .pumf_read_variables <- function(tbl) {
   prov <- .pumf_lookup_con(tbl$src$con)
   if (is.null(prov))
     stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
          call. = FALSE)
+  prov$module <- .pumf_tbl_module(tbl, prov)
   .pumf_read_variables_from_prov(prov)
 }
 

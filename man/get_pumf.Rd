@@ -13,6 +13,7 @@ get_pumf(
   redownload = FALSE,
   read_only = TRUE,
   registry = NULL,
+  module = NULL,
   register_connection = getOption("canpumf.register_connection", TRUE),
   ...
 )
@@ -55,6 +56,13 @@ already-imported survey it has no effect unless `refresh = TRUE` is also
 passed (a message is emitted in that case).  Not supported for LFS.  For a
 survey not in [list_canpumf_collection()], deposit the raw files under
 `<cache_path>/<series>/<version>/` first (there is no download URL).}
+
+\item{module}{For multi-module surveys (several linked files in one DuckDB,
+e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,
+`CG6` and `CR` files join on `RECID`), selects which module table to
+return.  `NULL` (default) returns the survey's primary module.  Use
+[pumf_module()] to open a sibling module on the *same* connection so the
+two tbls are joinable.  Not supported for LFS.}
 
 \item{register_connection}{If `TRUE` (default), the DuckDB connection backing
 the returned tbl may appear in the RStudio Connections pane (subject to
