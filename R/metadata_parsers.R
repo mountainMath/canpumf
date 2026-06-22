@@ -1973,8 +1973,17 @@ merge_metadata <- function(parsed_list) {
         fr <- grp$label_fr[!is.na(grp$label_fr)]
         if (length(fr) > 0L) row$label_fr <- fr[[1L]]
       }
-      en <- unique(grp$label_en[!is.na(grp$label_en)])
-      if (length(en) > 1L)
+      # Warn only when *authoritative* sources disagree.  sas_labels and the PDF
+      # parsers are the lowest-priority, label-only supplements; their PROC
+      # FORMAT / PDF labels are routinely truncated or reformatted (e.g. a SAS
+      # format renders "September 1998" as "Septembe   1998"), so a divergence
+      # introduced solely by one of them is expected and the higher-priority
+      # label is kept silently.
+      lossy_sources <- c("sas_labels", "pdf_dict", "pdf_codebook")
+      is_lossy <- names(parsed_list)[grp$.src] %in% lossy_sources
+      en      <- unique(grp$label_en[!is.na(grp$label_en)])
+      en_auth <- unique(grp$label_en[!is.na(grp$label_en) & !is_lossy])
+      if (length(en_auth) > 1L)
         warning("Conflicting English labels for ", row$name, " val=", row$val,
                 ": using '", en[[1L]], "'", call. = FALSE)
       row

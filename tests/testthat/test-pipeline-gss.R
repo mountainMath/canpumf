@@ -59,8 +59,10 @@
   "Education 2007"      = "absent from command files|Variables in layout but not in variable labels",
   "Education 1994"      = "absent from command files",
   "Time Use 2015"       = "absent from command files",
-  "Time Use 2010"       = "Variables in layout but not in variable labels",
-  "Time Use 1998"       = "absent from command files"
+  "Time Use 2010"       = "Variables in layout but not in variable labels"
+  # Time Use 1998: force_numeric for its continuous clock-time/duration/year
+  # variables + lossy-source conflict suppression in merge_metadata() now leave
+  # zero warnings under both C and UTF-8 list.files() ordering, so no allowance.
 )
 
 

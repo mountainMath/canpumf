@@ -929,10 +929,23 @@
       Main = list(
         layout_mask = "C12micm",
         file_mask   = "C12MICME\\.DAT",
+        # The main SAS PROC FORMAT (C12MICME.SAS) injects categorical codes for
+        # a set of continuous clock-time / duration / decimal-hour / year
+        # variables that the authoritative SPSS file types as plain numerics;
+        # the SAS file is only selected under a C-locale list.files() ordering
+        # (e.g. R CMD check), so the codes — and a handful of truncated month
+        # labels — appear there but not under a UTF-8 locale.  force_numeric
+        # re-asserts the SPSS typing so the continuous values survive.
         data_fixups = list(force_numeric = c(
           "DDAY",    "PLACE",   "ALONE",   "SPOUSE",  "PARHSD",  "MEMBHSD",
           "NHSDCL15","NHSDC15P","NHSDPAR", "OTHFAM",  "FRIENDS", "OTHERS",
-          "HELP65",  "HELPLIM", "HELPREL", "ORGCON",  "ENJOYAC"))),
+          "HELP65",  "HELPLIM", "HELPREL", "ORGCON",  "ENJOYAC",
+          "AGECHRYC","C4",      "C5",      "C4C5",    "C6DUR",   "F47",
+          "H9",      "H11A",
+          "C6EPI01", "C6EPI02", "C6EPI03", "C6EPI04",
+          "C6EPI05", "C6EPI06", "C6EPI07", "C6EPI08",
+          "C6EPIE01","C6EPIE02","C6EPIE03","C6EPIE04",
+          "C6EPIE05","C6EPIE06","C6EPIE07","C6EPIE08"))),
       Episode = list(
         layout_mask = "C12mice",
         file_mask   = "C12MICEE\\.DAT")),
