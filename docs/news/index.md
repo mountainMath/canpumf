@@ -73,6 +73,17 @@
   weights: every row when unstratified, or only the strata that gained
   rows when `strata_cols` are in effect (complete strata keep their
   existing weights).
+- GSS Time Use 1998 now imports cleanly regardless of locale. Under a C
+  locale (as in `R CMD check`)
+  [`list.files()`](https://rdrr.io/r/base/list.files.html) selected the
+  Main module’s SAS `PROC FORMAT`, which injected categorical codes onto
+  continuous clock-time, duration, decimal-hour and birth-year
+  variables; these are now declared `force_numeric` so their values are
+  preserved. In addition,
+  [`merge_metadata()`](https://mountainmath.github.io/canpumf/reference/merge_metadata.md)
+  no longer warns about label conflicts that arise solely from lossy
+  supplement parsers (SAS labels, PDF dictionary/codebook) —
+  authoritative-source conflicts still warn.
 
 ## canpumf 0.5.0
 
