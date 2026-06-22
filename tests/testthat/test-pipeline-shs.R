@@ -138,6 +138,47 @@ test_that("SHS: pumf_run_pipeline returns lazy tbl without warnings", {
   })
 })
 
+# ---- Multi-module (2017: Interview + Diary) ---------------------------------
+
+test_that("SHS 2017 registry exposes Interview + Diary modules with own BSW", {
+  reg  <- canpumf:::pumf_registry_lookup("SHS", "2017")
+  mods <- canpumf:::.pumf_entry_modules(reg)
+  expect_identical(sort(names(mods)), c("Diary", "Interview"))
+  expect_true(mods$Interview$is_primary)
+  expect_null(mods$Interview$meta_subdir)
+  expect_identical(mods$Diary$meta_subdir, "Diary")
+  # each module carries its own BSW flatfile so the Interview replicate weights
+  # are not mis-joined onto the Diary table
+  expect_identical(mods$Interview$bsw_file_mask, "interview_bsw_flatfile\\.txt")
+  expect_identical(mods$Diary$bsw_file_mask,     "diary_bsw_flatfile\\.txt")
+  expect_identical(canpumf:::.pumf_module_key(reg), "CASEID")
+})
+
+test_that("SHS 2017 builds joinable Interview + Diary, each with BSW", {
+  skip_if_not(canpumf:::.version_is_extracted(.shs_vdir("2017")),
+              "SHS 2017 not extracted in cache")
+
+  main <- suppressMessages(get_pumf("SHS", "2017"))
+  on.exit(close_pumf(main), add = TRUE)
+  expect_true("CASEID" %in% colnames(main))
+
+  diary <- suppressMessages(pumf_module(main, "Diary"))
+  expect_true("CASEID" %in% colnames(diary))
+  expect_identical(main$src$con, diary$src$con)
+
+  # every diary row belongs to an interview respondent
+  ik      <- dplyr::distinct(dplyr::select(main, CASEID))
+  matched <- dplyr::inner_join(dplyr::select(diary, CASEID), ik, by = "CASEID")
+  expect_identical(dplyr::pull(dplyr::tally(diary)),
+                   dplyr::pull(dplyr::tally(matched)))
+
+  # both modules carry their own replicate weights
+  expect_gt(sum(grepl("^BSW", colnames(main),  ignore.case = TRUE)), 50L)
+  expect_gt(sum(grepl("^BSW", colnames(diary), ignore.case = TRUE)), 50L)
+
+  expect_silent(suppressWarnings(label_pumf_columns(diary)))
+})
+
 test_that("SHS: eng/fra bilingual parity", {
   v <- .shs_any_version()
   skip_if(is.null(v), "No SHS version in cache")

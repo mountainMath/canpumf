@@ -57,7 +57,7 @@ A tibble with columns:
 ``` r
 if (FALSE) { # \dontrun{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
 bsw_info(sfs_bsw)
 close_pumf(sfs_bsw)
 } # }

@@ -21,7 +21,7 @@ add_bootstrap_weights(
 in-memory `data.frame` / `tibble`.}
 
 \item{weight_col}{Name of the column holding the survey weights (string,
-e.g. `"WSTPWGT"`).}
+e.g. `"PWEIGHT"`).}
 
 \item{id_col}{Optional name of a column that uniquely identifies each row
 (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key` is
@@ -39,7 +39,7 @@ suppress the LFS default and generate unstratified weights.}
 `500L`).}
 
 \item{prefix}{Column-name prefix for replicate columns (default `"CPBSW"`).
-Columns are named `prefix1`, `prefix2`, …}
+Columns are named `prefix1`, `prefix2`, ...}
 
 \item{bsw_table}{Name of the DuckDB table that stores the replicate weights
 (DuckDB path only).  Defaults to `NULL`, which auto-names it
@@ -50,14 +50,17 @@ different weight columns do not overwrite each other.}
 
 \item{overwrite}{If the `bsw_table` already exists in the DuckDB file,
 regenerate and overwrite it when `TRUE`.  When `FALSE` (default) the
-existing table is reused silently — no computation is performed.}
+existing table is reused silently -- no computation is performed.}
 }
 \value{
 * **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
     VIEW that contains all original survey columns plus the `n_replicates`
     bootstrap weight columns, with any input `filter()` operations re-applied.
-  * **In-memory path:** the input `data.frame` / `tibble` with
-    `n_replicates` new BSW columns appended.
+  * **In-memory path:** the input `data.frame` / `tibble` with bootstrap
+    weight columns appended so that `n_replicates` replicates are present.
+    If the input already carries replicate columns for `prefix`, only the
+    additional ones are generated (existing columns are preserved); when it
+    already has at least `n_replicates`, the data frame is returned unchanged.
 }
 \description{
 For a **DuckDB-backed lazy table** (the typical case), bootstrap replicate
@@ -75,6 +78,19 @@ a sample of \eqn{n} rows is drawn with replacement; the bootstrap weight for
 row \eqn{i} in replicate \eqn{b} is `original_weight[i] * count[i,b]`, where
 `count[i,b]` is the number of times row \eqn{i} appeared in draw \eqn{b}.
 
+**Incremental re-runs (DuckDB path):** when a BSW table already exists the
+call only does the work needed to satisfy the request:
+  * **More replicates** than stored (and no new rows): the additional
+    replicate columns are appended; existing columns are kept.
+  * **New rows** in the main table (some rows have no weights yet): because a
+    bootstrap replicate resamples the full population, added rows invalidate
+    the existing weights of their resampling universe, so those weights are
+    deleted and regenerated.  Unstratified, this regenerates every row; when
+    `strata_cols` are in effect, only the strata that gained rows are
+    regenerated and complete strata keep their existing weights.
+  * **Neither:** the stored weights are reused without recomputation.
+Pass `overwrite = TRUE` to force a full fresh regeneration regardless.
+
 **Multiple weight columns (hierarchical data):** by default `bsw_table` is
 named after `weight_col` (e.g. `"pumf_bsw_wstpwgt"`), so calling the
 function twice with different weight columns (e.g. household weight and
@@ -90,13 +106,13 @@ same DuckDB file become invalid after the call.  Use the returned tbl instead.
 complete physical survey table.  If `tbl` has dplyr `filter()` operations
 applied, they are captured and automatically re-applied to the returned VIEW
 tbl so the visible rows match the original subset.  Other operations
-(`select()`, `mutate()`, etc.) are not replayed — they would interfere with
-the BSW columns — so apply them manually to the returned tbl if needed.
+(`select()`, `mutate()`, etc.) are not replayed -- they would interfere with
+the BSW columns -- so apply them manually to the returned tbl if needed.
 
 **ID column (DuckDB path):** a stable row identifier is needed to link the
 main table to the BSW table.  If `id_col` is `NULL` (the default):
   * The survey registry `bsw_join_key` is used when available (e.g.
-    `"PEFAMID"` for SFS 2016–2023) — no table modification needed.
+    `"PEFAMID"` for SFS 2016-2023) -- no table modification needed.
   * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
     survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
     fills the values is O(n).
@@ -104,7 +120,7 @@ main table to the BSW table.  If `id_col` is `NULL` (the default):
 \examples{
 \dontrun{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT",
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
                                  n_replicates = 200L, seed = 42L)
 bsw_info(sfs_bsw)
 close_pumf(sfs_bsw)

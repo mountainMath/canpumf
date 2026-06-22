@@ -1,6 +1,7 @@
 # canpumf
 
-The goal of {canpumf} is to facilitate ingesting StatCan PUMF data in R.
+The goal of **canpumf** is to facilitate ingesting, organizing, and
+working with StatCan PUMF data in R.
 
 ## Installation
 
@@ -37,7 +38,7 @@ only.
 On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB
 connection will be shown in the RStudio (or Positron) Connections Pane
 once a connection is opened, you control the default behaviour by
-setting the `canpumf.register_connection` optin in your .Rprofile:
+setting the `canpumf.register_connection` option in your .Rprofile:
 
     options("canpumf.register_connection" = TRUE)
 
@@ -152,19 +153,20 @@ portal.
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | General Social Survey — Caregiving | GSS | 1996, 2007, 2012, 2018 | ✓ |
+| General Social Survey — Aging and Social Support (cycle 16) | GSS | 2002 (a.k.a. “Cycle 16”; MAIN + CG4 + CG6 + CR modules joinable on RECID) | ✓ |
 | General Social Survey — Safety | GSS | Safety 1993, Safety 1999, Safety 2014, Safety 2019 | ✓ |
 | General Social Survey — Family | GSS | Family 1995, Family 2001, Family 2011, Family 2017 | ✓ |
 | General Social Survey — Social Identity | GSS | Social Identity 2003, Social Identity 2013, Social Identity 2020 | ✓ |
-| General Social Survey — Education | GSS | Education 1994, Education 2002, Education 2007 | ✓ |
-| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 | ✓ |
-| GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 | ✓ |
+| General Social Survey — Education | GSS | Education 1994, Education 2007 | ✓ |
+| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 (each Main + Episode modules joinable on PUMFID/RECID) | ✓ |
+| GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 (1997–2010 add GS/VD/GIVE/VOLNTR detail modules joinable on PUMFID/MICRO_ID/IDNUM) | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
-| Canadian Perspectives Survey Series | CPSS | 2–6 | ✓ |
+| Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
-| Survey of Household Spending | SHS | 2017, 2019, 2021, 2023 | ✓ |
+| Survey of Household Spending | SHS | 2017 (Interview + Diary modules joinable on CASEID), 2019, 2021, 2023 | ✓ |
 
 ## Related packages
 
@@ -179,7 +181,7 @@ CRAN and on [Github](https://github.com/mountainMath/cansim).
 The [**cancensus**
 package](https://mountainmath.github.io/cancensus/index.html) is
 designed to retrieve and work with public Statistics Canada census data
-via the [CensusMapper API](https::censusmapper.ca/api). It is available
+via the [CensusMapper API](https://censusmapper.ca/api). It is available
 on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 
 ## Cite **canpumf**
@@ -187,7 +189,7 @@ on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 If you wish to cite the `canpumf` package in your work:
 
 von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R.
-v0.5.0.
+v0.5.1.
 
 A BibTeX entry for LaTeX users is
 
@@ -195,7 +197,7 @@ A BibTeX entry for LaTeX users is
         author = {Jens {von Bergmann}},
         title = {canpumf: Import StatCan PUMF data into R},
         year = {2026},
-        note = {R package version 0.5.0},
+        note = {R package version 0.5.1},
         url = {https://mountainmath.github.io/canpumf/},
       }
 
@@ -247,6 +249,8 @@ acknowledgement of source:
   : Open PUMF documentation in the browser
 - [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)
   : Download and parse PUMF metadata without building a DuckDB table
+- [`pumf_module()`](https://mountainmath.github.io/canpumf/reference/pumf_module.md)
+  : Open a sibling module of a multi-module survey
 - [`pumf_registry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry.md)
   : Inspect a survey's registry configuration
 - [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)
@@ -262,11 +266,15 @@ acknowledgement of source:
 
 ### All vignettes
 
+- [Bootstrap
+  weights](https://mountainmath.github.io/canpumf/articles/bootstrap_weights.md):
 - [Census](https://mountainmath.github.io/canpumf/articles/Census.md):
 - [LFS](https://mountainmath.github.io/canpumf/articles/LFS.md):
 - [Onboarding a new
   PUMF](https://mountainmath.github.io/canpumf/articles/onboarding.md):
 - [canpumf Pipeline
   Architecture](https://mountainmath.github.io/canpumf/articles/pipeline.md):
+- [Working with multi-module PUMF
+  surveys](https://mountainmath.github.io/canpumf/articles/submodules.md):
 - [Working with
   canpumf](https://mountainmath.github.io/canpumf/articles/working_with_canpumf.md):

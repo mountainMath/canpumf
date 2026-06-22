@@ -2,20 +2,20 @@
 
 ## Authors
 
-- **Jens von Bergmann**. Maintainer.
+- **Jens von Bergmann**. Author, maintainer.
 
 ## Citation
 
 Source:
 [`DESCRIPTION`](https://github.com/mountainMath/canpumf/blob/HEAD/DESCRIPTION)
 
-von Bergmann J (2026). *canpumf: Parse StatCan PUMF files*. R package
-version 0.5.0, <https://github.com/mountainMath/canpumf>.
+von Bergmann J (2026). *canpumf: Parse StatCan PUMF Files*. R package
+version 0.5.1, <https://github.com/mountainMath/canpumf>.
 
     @Manual{,
-      title = {canpumf: Parse StatCan PUMF files},
+      title = {canpumf: Parse StatCan PUMF Files},
       author = {Jens {von Bergmann}},
       year = {2026},
-      note = {R package version 0.5.0},
+      note = {R package version 0.5.1},
       url = {https://github.com/mountainMath/canpumf},
     }

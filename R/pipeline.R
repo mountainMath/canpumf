@@ -16,9 +16,21 @@
 }
 
 # Compute the DuckDB table name for a given series / version / lang.
-.pumf_table_name <- function(series, version, lang) {
+.pumf_table_name <- function(series, version, lang, module = NULL) {
   if (series == "LFS") return(paste0("lfs_", lang))
-  lm <- pumf_registry_lookup(series, version)$layout_mask
+  reg <- pumf_registry_lookup(series, version)
+  lm  <- reg$layout_mask
+  if (!is.null(module)) {
+    mods <- .pumf_entry_modules(reg)
+    if (is.null(mods))
+      stop(series, " ", version, " has no modules; omit 'module'.",
+           call. = FALSE)
+    if (is.null(mods[[module]]))
+      stop("Unknown module '", module, "' for ", series, " ", version,
+           ". Available: ", paste(names(mods), collapse = ", "), ".",
+           call. = FALSE)
+    lm <- mods[[module]]$layout_mask
+  }
   if (is.null(lm)) lang else paste0(lang, "_", lm)
 }
 
@@ -28,7 +40,7 @@
 .duckdb_table_exists <- function(db_path, table_name) {
   if (!file.exists(db_path)) return(FALSE)
   con <- tryCatch(
-    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE),
+    .duckdb_connect_quiet(db_path, read_only = TRUE),
     error = function(e) NULL)
   if (is.null(con)) return(FALSE)
   on.exit(DBI::dbDisconnect(con, shutdown = FALSE))
@@ -52,7 +64,7 @@
 .assert_duckdb_writable <- function(db_path) {
   if (!file.exists(db_path)) return(invisible(NULL))
   con <- tryCatch(
-    DBI::dbConnect(duckdb::duckdb(), dbdir = db_path),
+    .duckdb_connect_quiet(db_path),
     error = function(e) e
   )
   if (inherits(con, "error")) {
@@ -698,6 +710,22 @@ pumf_locate_or_download <- function(series,
 #' @param layout_mask Optional layout mask; used in the DuckDB table name.
 #' @param file_mask Optional regex to select the data file.  Overrides registry.
 #' @param refresh If `TRUE`, drop and rewrite the DuckDB table.
+#' @param db_path Optional explicit path to the DuckDB file.  Defaults to
+#'   `<version_dir>/<series>_<version>.duckdb`.  Multi-module surveys pass one
+#'   shared path so every module table lands in the same file.
+#' @param meta_subdir Optional metadata subdirectory under `metadata/` to read
+#'   for this build.  `NULL` (default) uses `metadata/` (the primary module);
+#'   secondary modules pass their module id so `metadata/<id>/` is read.
+#' @param data_fixups Optional `data_fixups` list overriding the registry
+#'   entry's for this build.  Used by secondary modules, which supply their own
+#'   complete fixup set (e.g. `force_numeric`), replacing the entry's primary
+#'   fixups.
+#' @param bsw_override Optional list of bootstrap-weight config
+#'   (`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`,
+#'   `bsw_strata`) overriding the registry entry's BSW config for this build.
+#'   Each module of a multi-module survey joins its own bootstrap weights (or
+#'   none), so the caller passes that module's BSW config; an override whose
+#'   fields are all `NULL` means "this module has no bootstrap weights".
 #'
 #' @return Invisibly, a named list with `db_path` and `table_name`.
 #' @keywords internal
@@ -707,8 +735,11 @@ pumf_build_duckdb <- function(version_dir,
                                lang        = "eng",
                                layout_mask = NULL,
                                file_mask   = NULL,
-                               refresh     = FALSE,
-                               db_path     = NULL) {
+                               refresh      = FALSE,
+                               db_path      = NULL,
+                               meta_subdir  = NULL,
+                               data_fixups  = NULL,
+                               bsw_override = NULL) {
   stopifnot(lang %in% c("eng", "fra"))
 
   # Step 1: DuckDB path and table name
@@ -725,15 +756,15 @@ pumf_build_duckdb <- function(version_dir,
   # Open a temporary connection just for the existence check, then close it so
   # no lock is held when we return.
   if (!refresh && file.exists(db_path)) {
-    con_chk <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                               read_only = TRUE)
+    con_chk <- .duckdb_connect_quiet(db_path, read_only = TRUE)
     exists  <- DBI::dbExistsTable(con_chk, table_name)
     DBI::dbDisconnect(con_chk, shutdown = TRUE)
     if (exists) return(invisible(result))
   }
 
-  # Step 4: read canonical metadata
-  meta_dir <- file.path(version_dir, "metadata")
+  # Step 4: read canonical metadata (a per-module subdir for secondary modules)
+  meta_dir <- if (is.null(meta_subdir)) file.path(version_dir, "metadata")
+              else file.path(version_dir, "metadata", meta_subdir)
   if (!dir.exists(meta_dir))
     stop("metadata/ not found in ", version_dir,
          ". Run pumf_parse_metadata() first.")
@@ -752,22 +783,52 @@ pumf_build_duckdb <- function(version_dir,
   codes$name     <- toupper(codes$name)
   if (!is.null(layout)) layout$name <- toupper(layout$name)
 
-  # Warn about missing French labels; fall back per-row to English
+  reg <- pumf_registry_lookup(series, version)
+  # For a secondary module, the caller supplies that module's complete fixup set
+  # (force_numeric etc.); it replaces the registry entry's primary fixups.
+  if (!is.null(data_fixups)) reg$data_fixups <- data_fixups
+  # Likewise each module joins its OWN bootstrap weights (or none): the caller
+  # passes that module's BSW config, replacing the entry's primary BSW so the
+  # Interview BSW is not mis-joined onto the Diary table, etc.  An explicit
+  # bsw_override with NULL fields means "this module has no BSW".
+  if (!is.null(bsw_override)) {
+    reg$bsw_mask      <- bsw_override$bsw_mask
+    reg$bsw_file_mask <- bsw_override$bsw_file_mask
+    reg$bsw_join_key  <- bsw_override$bsw_join_key
+    reg$bsw_drop_cols <- bsw_override$bsw_drop_cols %||% character(0L)
+    reg$bsw_strata    <- bsw_override$bsw_strata
+  }
+
+  # labels_supplement: supply variable labels that the source metadata leaves
+  # blank (e.g. CPSS 1 ships only a PDF codebook whose weight variable COVID_WT
+  # has an empty Concept line in BOTH the English and French documents).
+  variables <- .pumf_apply_labels_supplement(variables, reg)
+
+  # Warn about missing French labels.  Separate the two cases: variables that
+  # have an English label fall back to it, but variables the source documents in
+  # neither language (e.g. an unlabeled CPSS weight) have nothing to fall back to
+  # -- conflating them wrongly implies a label_en exists.
   if (lang == "fra") {
-    na_var <- variables$name[is.na(variables[[label_col]])]
-    if (length(na_var) > 0L)
-      warning("lang='fra': ", length(na_var),
+    fmt_vars <- function(v) paste0(
+      paste(head(v, 5L), collapse = ", "),
+      if (length(v) > 5L) paste0(" ... and ", length(v) - 5L, " more."))
+    na_fr    <- is.na(variables$label_fr)
+    fallback <- variables$name[na_fr & !is.na(variables$label_en)]
+    neither  <- variables$name[na_fr &  is.na(variables$label_en)]
+    if (length(fallback) > 0L)
+      warning("lang='fra': ", length(fallback),
               " variable(s) have no French label; using label_en for: ",
-              paste(head(na_var, 5L), collapse = ", "),
-              if (length(na_var) > 5L)
-                paste0(" ... and ", length(na_var) - 5L, " more."))
+              fmt_vars(fallback))
+    if (length(neither) > 0L)
+      warning("lang='fra': ", length(neither),
+              " variable(s) have no label in either language: ",
+              fmt_vars(neither))
 
     na_code <- is.na(codes[[label_col]])
     if (any(na_code)) codes[[label_col]][na_code] <- codes$label_en[na_code]
   }
 
   # Step 5: read data file
-  reg      <- pumf_registry_lookup(series, version)
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
   eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
 
@@ -930,7 +991,7 @@ pumf_build_duckdb <- function(version_dir,
 
   # Step 9: write to DuckDB
   .assert_duckdb_writable(db_path)
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  con <- .duckdb_connect_quiet(db_path)
   if (DBI::dbExistsTable(con, table_name))
     DBI::dbRemoveTable(con, table_name)
   message("Writing DuckDB table '", table_name, "' ...")
@@ -1066,17 +1127,44 @@ pumf_run_pipeline <- function(series,
                                           refresh    = eff_refresh,
                                           redownload = redownload)
 
-  # Stage 2 — parse metadata
-  pumf_parse_metadata(version_dir,
-                       layout_mask       = reg$layout_mask,
-                       metadata_encoding = reg$metadata_encoding,
-                       refresh           = eff_refresh)
-
-  # Stage 3 — build DuckDB
-  result <- pumf_build_duckdb(version_dir, series, version,
-                               lang        = lang,
-                               layout_mask = reg$layout_mask,
-                               refresh     = eff_refresh)
+  # Stages 2 + 3 — parse metadata and build DuckDB.
+  # Multi-module surveys (reg$modules) build every module as its own table in
+  # the one shared DuckDB file so callers can join them; the primary module's
+  # table is returned by default.  Single-table surveys take the legacy path.
+  mods <- .pumf_entry_modules(reg)
+  if (is.null(mods)) {
+    pumf_parse_metadata(version_dir,
+                         layout_mask       = reg$layout_mask,
+                         metadata_encoding = reg$metadata_encoding,
+                         refresh           = eff_refresh)
+    result <- pumf_build_duckdb(version_dir, series, version,
+                                 lang        = lang,
+                                 layout_mask = reg$layout_mask,
+                                 refresh     = eff_refresh)
+  } else {
+    result <- NULL
+    for (m in mods) {
+      pumf_parse_metadata(version_dir,
+                           layout_mask       = m$layout_mask,
+                           metadata_encoding = reg$metadata_encoding,
+                           refresh           = eff_refresh,
+                           meta_subdir       = m$meta_subdir)
+      r <- pumf_build_duckdb(version_dir, series, version,
+                              lang         = lang,
+                              layout_mask  = m$layout_mask,
+                              file_mask    = m$file_mask,
+                              refresh      = eff_refresh,
+                              meta_subdir  = m$meta_subdir,
+                              data_fixups  = m$data_fixups,
+                              bsw_override = list(
+                                bsw_mask      = m$bsw_mask,
+                                bsw_file_mask = m$bsw_file_mask,
+                                bsw_join_key  = m$bsw_join_key,
+                                bsw_drop_cols = m$bsw_drop_cols,
+                                bsw_strata    = m$bsw_strata))
+      if (isTRUE(m$is_primary)) result <- r
+    }
+  }
 
   pumf_open_duckdb(result$db_path, result$table_name, read_only = read_only)
 }

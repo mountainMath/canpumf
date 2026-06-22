@@ -14,16 +14,6 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(canpumf)
-#> The duckplyr package is configured to fall back to dplyr when it encounters an
-#> incompatibility. Fallback events can be collected and uploaded for analysis to
-#> guide future development. By default, data will be collected but no data will
-#> be uploaded.
-#> ℹ Automatic fallback uploading is not controlled and therefore disabled, see
-#>   `?duckplyr::fallback()`.
-#> ✔ Number of reports ready for upload: 3.
-#> → Review with `duckplyr::fallback_review()`, upload with
-#>   `duckplyr::fallback_upload()`.
-#> ℹ Configure automatic uploading with `duckplyr::fallback_config()`.
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
@@ -41,8 +31,8 @@ chs_pumf <- get_pumf("CHS","2018")
 chs_pumf |> 
   select(1:5) |>
   head(10)
-#> # Source:   SQL [?? x 5]
-#> # Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#> # A query:  ?? x 5
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
 #>    PUMFID PHHSIZE PAGEGR1 PAGEGR2 PAGEGR3
 #>    <chr>  <fct>   <fct>   <fct>   <fct>  
 #>  1 00001  1       No      No      No     
@@ -70,8 +60,8 @@ chs_pumf <- chs_pumf |>
 chs_pumf |> 
   select(1:5) |>
   head(10)
-#> # Source:   SQL [?? x 5]
-#> # Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#> # A query:  ?? x 5
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
 #>    `Unique household identifier` `Household size` Demographic information - ag…¹
 #>    <chr>                         <fct>            <fct>                         
 #>  1 00001                         1                No                            
@@ -113,7 +103,7 @@ renter_chs_pumf <- chs_pumf |>
 
 We will also focus on people that did move in the past 5 years, as
 recall bias might make data from longer timeframes less reliable and the
-reproted time windows get large.
+reported time windows get large.
 
 ``` r
 
@@ -148,8 +138,8 @@ the frequency of being forced to move changed, recognizing that longer
 ago brackets are conditional on not having moved after.
 
 With PUMF data we need to be aware that we are dealing with a synthetic
-sample that has been altered from the original survey repsonses for
-privacy reasons. With that, and the general unvertainty when dealing
+sample that has been altered from the original survey responses for
+privacy reasons. With that, and the general uncertainty when dealing
 with survey data, it is important to assess how good these estimates
 are. Some PUMF data ship with bootstrap weights to facilitate this, when
 this is not the case the **canpumf** package fills the gap via the

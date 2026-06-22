@@ -4,9 +4,11 @@
 <url><loc>https://mountainmath.github.io/canpumf/LICENSE.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/Census.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/LFS.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/articles/bootstrap_weights.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/index.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/onboarding.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/pipeline.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/articles/submodules.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/articles/working_with_canpumf.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/authors.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/index.html</loc></url>
@@ -33,6 +35,7 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_cpss_csv.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_lfs_codebook.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/parse_pdf_codebook.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_pdf_dictionary.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_sas_cards.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_spss_mono.html</loc></url>
@@ -41,6 +44,7 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_build_duckdb.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_locate_or_download.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_metadata.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/pumf_module.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_open_duckdb.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_parse_metadata.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/pumf_registry.html</loc></url>

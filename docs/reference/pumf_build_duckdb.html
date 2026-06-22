@@ -11,7 +11,7 @@ numeric columns, and writes to a `.duckdb` file."><meta property="og:image" cont
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -22,10 +22,12 @@ numeric columns, and writes to a `.duckdb` file."><meta property="og:image" cont
       <ul class="navbar-nav me-auto"><li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/bootstrap_weights.html">Bootstrap weights</a></li>
+    <li><a class="dropdown-item" href="../articles/Census.html">Census</a></li>
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
+    <li><a class="dropdown-item" href="../articles/submodules.html">Working with multi-module PUMF surveys</a></li>
     <li><a class="dropdown-item" href="../articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -60,7 +62,10 @@ numeric columns, and writes to a `.duckdb` file.</p>
 <span>  layout_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  file_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  refresh <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  db_path <span class="op">=</span> <span class="cn">NULL</span></span>
+<span>  db_path <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  meta_subdir <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  data_fixups <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  bsw_override <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -94,6 +99,34 @@ numeric columns, and writes to a `.duckdb` file.</p>
 
 <dt id="arg-refresh">refresh<a class="anchor" aria-label="anchor" href="#arg-refresh"></a></dt>
 <dd><p>If `TRUE`, drop and rewrite the DuckDB table.</p></dd>
+
+
+<dt id="arg-db-path">db_path<a class="anchor" aria-label="anchor" href="#arg-db-path"></a></dt>
+<dd><p>Optional explicit path to the DuckDB file.  Defaults to
+`&lt;version_dir&gt;/&lt;series&gt;_&lt;version&gt;.duckdb`.  Multi-module surveys pass one
+shared path so every module table lands in the same file.</p></dd>
+
+
+<dt id="arg-meta-subdir">meta_subdir<a class="anchor" aria-label="anchor" href="#arg-meta-subdir"></a></dt>
+<dd><p>Optional metadata subdirectory under `metadata/` to read
+for this build.  `NULL` (default) uses `metadata/` (the primary module);
+secondary modules pass their module id so `metadata/&lt;id&gt;/` is read.</p></dd>
+
+
+<dt id="arg-data-fixups">data_fixups<a class="anchor" aria-label="anchor" href="#arg-data-fixups"></a></dt>
+<dd><p>Optional `data_fixups` list overriding the registry
+entry's for this build.  Used by secondary modules, which supply their own
+complete fixup set (e.g. `force_numeric`), replacing the entry's primary
+fixups.</p></dd>
+
+
+<dt id="arg-bsw-override">bsw_override<a class="anchor" aria-label="anchor" href="#arg-bsw-override"></a></dt>
+<dd><p>Optional list of bootstrap-weight config
+(`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`,
+`bsw_strata`) overriding the registry entry's BSW config for this build.
+Each module of a multi-module survey joins its own bootstrap weights (or
+none), so the caller passes that module's BSW config; an override whose
+fields are all `NULL` means "this module has no bootstrap weights".</p></dd>
 
 </dl></div>
     <div class="section level2">

@@ -30,6 +30,8 @@
   : Open PUMF documentation in the browser
 - [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)
   : Download and parse PUMF metadata without building a DuckDB table
+- [`pumf_module()`](https://mountainmath.github.io/canpumf/reference/pumf_module.md)
+  : Open a sibling module of a multi-module survey
 - [`pumf_registry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry.md)
   : Inspect a survey's registry configuration
 - [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)

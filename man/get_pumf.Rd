@@ -13,6 +13,7 @@ get_pumf(
   redownload = FALSE,
   read_only = TRUE,
   registry = NULL,
+  module = NULL,
   register_connection = getOption("canpumf.register_connection", TRUE),
   ...
 )
@@ -50,15 +51,23 @@ release the connection when done.}
 \item{registry}{Optional custom configuration created by
 [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
 survey that is not in the built-in registry, or to override fields of one
-that is.  Applied only when a build actually happens — on an
+that is.  Applied only when a build actually happens -- on an
 already-imported survey it has no effect unless `refresh = TRUE` is also
 passed (a message is emitted in that case).  Not supported for LFS.  For a
 survey not in [list_canpumf_collection()], deposit the raw files under
 `<cache_path>/<series>/<version>/` first (there is no download URL).}
 
+\item{module}{For multi-module surveys (several linked files in one DuckDB,
+e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,
+`CG6` and `CR` files join on `RECID`), selects which module table to
+return.  `NULL` (default) returns the survey's primary module; for a
+multi-module survey a one-time message then lists the sibling modules and
+shows how to open one.  Use [pumf_module()] to open a sibling module on the
+*same* connection so the two tbls are joinable.  Not supported for LFS.}
+
 \item{register_connection}{If `TRUE` (default), the DuckDB connection backing
 the returned tbl may appear in the RStudio Connections pane (subject to
-RStudio/duckdb settings).  Pass `FALSE` to suppress that registration —
+RStudio/duckdb settings).  Pass `FALSE` to suppress that registration --
 useful when opening and closing many connections programmatically (e.g.
 iterating over surveys in a notebook), where the pane would otherwise be
 spammed.  Defaults to `getOption("canpumf.register_connection", TRUE)`, so

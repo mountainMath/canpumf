@@ -1,19 +1,20 @@
 Package: canpumf
 Type: Package
-Title: Parse StatCan PUMF files
-Version: 0.5.0
+Title: Parse StatCan PUMF Files
+Version: 0.5.1
 Authors@R: c(
-    person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("cre"))
+    person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("aut", "cre"))
     )
-Maintainer: Jens von Bergmann <jens@mountainmath.ca>
-Description: Facilitate working with StatCan Public Use Microdata Files (PUMF)
-    Enables downloading of available PUMF data, parsing of metadata from Command Files or other sources to infer the layout structure, variable labels and value labels as well as missing data values and retun a connection to a DuckDB database with the labelled data.
+Description: Facilitate working with Statistics Canada (StatCan) Public Use
+    Microdata Files (PUMF). Enables downloading of available PUMF data,
+    parsing of metadata from command files or other sources to infer the layout
+    structure, variable labels and value labels as well as missing data values,
+    and returns a connection to a 'DuckDB' database with the labelled data.
 License: MIT + file LICENSE
 Encoding: UTF-8
-LazyData: true
 Depends: R (>= 4.2)
 Imports:
-    dplyr (>= 1.0),
+    dplyr (>= 1.1.0),
     readr,
     stringr,
     rlang,
@@ -25,7 +26,7 @@ Imports:
     duckdb  (>= 1.5.2),
     duckplyr  (>= 1.2.1),
     dbplyr,
-    haven
+    haven (>= 2.5.0)
 Suggests:
     rmarkdown,
     knitr,

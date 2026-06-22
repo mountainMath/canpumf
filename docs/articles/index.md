@@ -2,11 +2,15 @@
 
 ### All vignettes
 
+- [Bootstrap
+  weights](https://mountainmath.github.io/canpumf/articles/bootstrap_weights.md):
 - [Census](https://mountainmath.github.io/canpumf/articles/Census.md):
 - [LFS](https://mountainmath.github.io/canpumf/articles/LFS.md):
 - [Onboarding a new
   PUMF](https://mountainmath.github.io/canpumf/articles/onboarding.md):
 - [canpumf Pipeline
   Architecture](https://mountainmath.github.io/canpumf/articles/pipeline.md):
+- [Working with multi-module PUMF
+  surveys](https://mountainmath.github.io/canpumf/articles/submodules.md):
 - [Working with
   canpumf](https://mountainmath.github.io/canpumf/articles/working_with_canpumf.md):

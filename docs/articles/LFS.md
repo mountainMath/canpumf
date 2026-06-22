@@ -14,16 +14,6 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(canpumf)
-#> The duckplyr package is configured to fall back to dplyr when it encounters an
-#> incompatibility. Fallback events can be collected and uploaded for analysis to
-#> guide future development. By default, data will be collected but no data will
-#> be uploaded.
-#> ℹ Automatic fallback uploading is not controlled and therefore disabled, see
-#>   `?duckplyr::fallback()`.
-#> ✔ Number of reports ready for upload: 3.
-#> → Review with `duckplyr::fallback_review()`, upload with
-#>   `duckplyr::fallback_upload()`.
-#> ℹ Configure automatic uploading with `duckplyr::fallback_config()`.
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
@@ -66,8 +56,8 @@ lfs_2022 <- get_pumf("LFS","2022")
 lfs_2022 |>
   select(1:5) |>
   head(10)
-#> # Source:   SQL [?? x 5]
-#> # Database: DuckDB 1.5.2 [root@Darwin 25.5.0:R 4.5.2//Users/jens/data/pumf.data/LFS/LFS.duckdb]
+#> # A query:  ?? x 5
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]
 #>    REC_NUM SURVYEAR SURVMNTH LFSSTAT                    PROV            
 #>      <int>    <int>    <int> <fct>                      <fct>           
 #>  1       1     2022        1 Not in labour force        Quebec          

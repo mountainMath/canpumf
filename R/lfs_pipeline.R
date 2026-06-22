@@ -438,8 +438,16 @@
     return(invisible(NULL))
   }
 
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
-  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  # A single connection serves both the status summary and the returned tbl —
+  # there is no need for a secondary short-lived connection.  It is opened with
+  # a plain dbConnect (not .duckdb_connect_quiet) because it is the connection
+  # handed back to the caller, so it should appear in the RStudio Connections
+  # pane (gated by get_pumf()'s register_connection option block).  On the
+  # early-exit paths that return no tbl, `keep` stays FALSE and the connection
+  # is closed before returning.
+  con  <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = read_only)
+  keep <- FALSE
+  on.exit(if (!keep) DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   .lfs_ensure_versions_table(con)
 
@@ -468,7 +476,10 @@
   message("LFS database contains: ", paste(parts, collapse = ", "), lang_tag)
 
   if (!has_lang) return(invisible(NULL))
-  .lfs_open_tbl(db_path, data_tbl, read_only = read_only)
+
+  # Reuse the connection for the returned tbl instead of opening a second one.
+  keep <- TRUE
+  tbl(con, data_tbl)
 }
 
 
@@ -488,7 +499,7 @@
   loaded <- character(0L)
   if (file.exists(db_path)) {
     con_ro <- tryCatch(
-      DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE),
+      .duckdb_connect_quiet(db_path, read_only = TRUE),
       error = function(e) NULL
     )
     if (!is.null(con_ro)) {
@@ -583,7 +594,7 @@ lfs_get_pumf <- function(version    = NULL,
               "get_pumf(\"LFS\", \"2024\")")
       return(invisible(NULL))
     }
-    con_e <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path_e, read_only = TRUE)
+    con_e <- .duckdb_connect_quiet(db_path_e, read_only = TRUE)
     loaded <- if (DBI::dbExistsTable(con_e, "lfs_versions"))
       DBI::dbGetQuery(con_e,
         "SELECT version FROM lfs_versions ORDER BY survyear, survmnth NULLS LAST")$version
@@ -636,8 +647,7 @@ lfs_get_pumf <- function(version    = NULL,
 
   # --- check existing data via a read-only connection ---
   if (file.exists(db_path)) {
-    con_chk <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                               read_only = TRUE)
+    con_chk <- .duckdb_connect_quiet(db_path, read_only = TRUE)
     .lfs_ensure_versions_table(con_chk)
 
     # Monthly requested but an annual already covers this year: the monthly is
@@ -686,7 +696,7 @@ lfs_get_pumf <- function(version    = NULL,
   n    <- nrow(data)
 
   # Write phase: open RW, append, close
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  con <- .duckdb_connect_quiet(db_path)
   .lfs_ensure_versions_table(con)
 
   if (eff_refresh) {

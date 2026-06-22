@@ -23,7 +23,7 @@ remove_bootstrap_weights(tbl, weight_col = NULL)
 - weight_col:
 
   Name of the weight column whose BSW table should be removed (e.g.
-  \`"WSTPWGT"\`). If \`NULL\` (default), \*\*all\*\* bootstrap weight
+  \`"PWEIGHT"\`). If \`NULL\` (default), \*\*all\*\* bootstrap weight
   tables (and their companion VIEWs) are removed.
 
 ## Value
@@ -46,9 +46,9 @@ tables are dropped, and a fresh read-only connection is returned.
 ``` r
 if (FALSE) { # \dontrun{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "WSTPWGT", seed = 1L)
-# Remove only the WSTPWGT BSW table
-sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "WSTPWGT")
+sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+# Remove only the PWEIGHT BSW table
+sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
 close_pumf(sfs_clean)
 } # }
 ```

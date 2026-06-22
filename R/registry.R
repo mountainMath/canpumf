@@ -19,6 +19,10 @@
 #               and force_bigint keep the raw values and set the column type to
 #               INTEGER / BIGINT after the table is written (large IDs survive).
 #               A variable may appear in at most one force_* set.
+#   labels_supplement: named list c(VAR = c(label_en=, label_fr=)) supplying
+#               variable labels the source metadata leaves blank (e.g. a weight
+#               variable with an empty Concept line in the PDF codebook).  Fills
+#               only NA labels, so genuine source labels always win.
 
 .make_entry <- function(series,
                         version,
@@ -35,7 +39,40 @@
                         bundled_eng_sps   = NULL,
                         bundle_source     = NULL,
                         bundle_sps_mask   = NULL,
-                        doc_mask          = NULL) {
+                        doc_mask          = NULL,
+                        modules           = NULL,
+                        primary_module    = NULL,
+                        module_key        = NULL) {
+  # Multi-module surveys (e.g. GSS cycle 16) ship several related files that
+  # share a respondent key (RECID) and must be linked for analysis because the
+  # survey weight lives only in the primary file.  `modules` is a named list
+  # keyed by module id; each element is list(layout_mask=, file_mask=,
+  # data_fixups=).  Every module becomes its own table in the one DuckDB file so
+  # callers can join them (see pumf_module()).  The primary module supplies the
+  # top-level layout_mask/file_mask/data_fixups (and BSW config) so all default
+  # code paths (table name, single-table build) return it unchanged.
+  # `module_key` records the shared respondent key the modules join on (it varies
+  # by survey: PUMFID/RECID/MICRO_ID/CASEID/IDNUM) so it lives in one source of
+  # truth; get_pumf()/pumf_module() surface it to callers (see .pumf_module_key).
+  if (!is.null(modules)) {
+    if (is.null(primary_module)) primary_module <- names(modules)[[1L]]
+    pm <- modules[[primary_module]]
+    if (is.null(pm))
+      stop("primary_module '", primary_module, "' not found in modules for ",
+           series, "/", version)
+    if (is.null(layout_mask))      layout_mask <- pm$layout_mask
+    if (is.null(file_mask))        file_mask   <- pm$file_mask
+    if (length(data_fixups) == 0L) data_fixups <- pm$data_fixups %||% list()
+    # Bootstrap-weight config can live per-module (e.g. SHS Interview and Diary
+    # each ship their own BSW flatfile; SGVP MAIN carries a Bootstrap file the
+    # GS/VD modules lack).  Derive the primary module's BSW to the top level so
+    # the single-table code paths and .read_bsw_data(reg) see it unchanged.
+    if (is.null(bsw_mask))             bsw_mask      <- pm$bsw_mask
+    if (is.null(bsw_file_mask))        bsw_file_mask <- pm$bsw_file_mask
+    if (is.null(bsw_join_key))         bsw_join_key  <- pm$bsw_join_key
+    if (length(bsw_drop_cols) == 0L)   bsw_drop_cols <- pm$bsw_drop_cols %||% character(0L)
+    if (is.null(bsw_strata))           bsw_strata    <- pm$bsw_strata
+  }
   list(
     series            = series,
     version           = version,
@@ -52,8 +89,49 @@
     bundled_eng_sps   = bundled_eng_sps,
     bundle_source     = bundle_source,
     bundle_sps_mask   = bundle_sps_mask,
-    doc_mask          = doc_mask
+    doc_mask          = doc_mask,
+    modules           = modules,
+    primary_module    = primary_module,
+    module_key        = module_key
   )
+}
+
+# The shared respondent key on which a multi-module survey's tables join (e.g.
+# "PUMFID", "RECID", "MICRO_ID", "CASEID"). Recorded per registry entry so the
+# key is discoverable from one source of truth rather than only documented in
+# tests. Returns NULL for single-table surveys (or modular entries that predate
+# the field). pumf_module() surfaces it in a message so callers know how to join.
+.pumf_module_key <- function(reg) {
+  if (is.null(reg)) return(NULL)
+  reg$module_key
+}
+
+# Return the uniform module table for a registry entry as a named list keyed by
+# module id, each element list(layout_mask, file_mask, data_fixups, is_primary,
+# meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
+# unset), so callers can branch on is.null() to keep the legacy path untouched.
+# The primary module's metadata stays in `metadata/` (meta_subdir = NULL) for
+# backward compatibility; secondary modules use `metadata/<id>/`.
+.pumf_entry_modules <- function(reg) {
+  if (is.null(reg) || is.null(reg$modules)) return(NULL)
+  pm  <- reg$primary_module %||% names(reg$modules)[[1L]]
+  ids <- names(reg$modules)
+  stats::setNames(lapply(ids, function(id) {
+    m <- reg$modules[[id]]
+    list(
+      id            = id,
+      layout_mask   = m$layout_mask,
+      file_mask     = m$file_mask,
+      data_fixups   = m$data_fixups %||% list(),
+      bsw_mask      = m$bsw_mask,
+      bsw_file_mask = m$bsw_file_mask,
+      bsw_join_key  = m$bsw_join_key,
+      bsw_drop_cols = m$bsw_drop_cols %||% character(0L),
+      bsw_strata    = m$bsw_strata,
+      is_primary    = identical(id, pm),
+      meta_subdir   = if (identical(id, pm)) NULL else id
+    )
+  }), ids)
 }
 
 # Census of Population income variables use undeclared sentinel codes.
@@ -91,6 +169,26 @@
 # individuals/families), but all six SPSS files only declare code 1 -> 'one'.
 # Force it to numeric so the integer values come through correctly.
 .census_fixup_1971 <- list(force_numeric = "SUBSAMPL")
+
+# GSS cycle 16 (2002) per-module force_numeric: count/age/date variables whose
+# SPSS value-label blocks declare only boundary/sentinel codes (e.g. a top-code
+# and a "Not stated") alongside otherwise-continuous numeric data.  Derived from
+# each module's SPSS command file (C16PUMF_<MODULE>_SPSS_CARDS_E.sps) and
+# verified in tests/testthat/override_verification.csv.
+.gss_c16_force_numeric <- list(
+  # MAIN count/hours variables: a top-code boundary label (e.g. "75 and more
+  # hours", "4 Brothers or more", "6 employees or more") plus true-missing
+  # sentinels (Not asked/applicable, Don't know, Not stated) over otherwise
+  # unlabeled continuous values.
+  MAIN = c(
+    "WKWEHR_C", "WKWEHOHR_C", "MAR_Q161_C",
+    "RSL_Q110_C", "RSL_Q120_C", "RSL_Q130_C",
+    "RSL_Q140_C", "RSL_Q150_C", "RSL_Q160_C"),
+  # CG4/CG6/CR are fully categorical/already-numeric: no force_numeric needed.
+  CG4  = character(0L),
+  CG6  = character(0L),
+  CR   = character(0L)
+)
 
 
 .pumf_registry <- list(
@@ -193,13 +291,25 @@
 
   # ---- SHS: Survey of Household Spending ------------------------------------
 
-  # 2017: Interview and Diary files in same directory; layout_mask selects the
-  # Interview reading cards. BSW layout is a SAS @pos .txt co-located with data.
+  # 2017: ships two linked data files — Interview (household, one row per
+  # respondent) and Diary (one row per recorded purchase) — both keyed on
+  # CaseID. They are modelled as two tables in one DuckDB so callers can join
+  # them; Interview is primary (the default get_pumf() table). Each module
+  # carries its own BSW flatfile (interview_/diary_bsw_flatfile.txt), joined per
+  # module on CASEID. layout_mask selects each module's SPSS reading cards.
   "SHS/2017" = .make_entry("SHS", "2017",
-    layout_mask   = "Interview",
-    bsw_file_mask = "interview_bsw_flatfile\\.txt",
-    bsw_join_key  = "CASEID",
-    file_mask     = "interview_flatfile\\.txt"),
+    modules = list(
+      Interview = list(
+        layout_mask   = "Interview",
+        file_mask     = "interview_flatfile\\.txt",
+        bsw_file_mask = "interview_bsw_flatfile\\.txt",
+        bsw_join_key  = "CASEID"),
+      Diary = list(
+        layout_mask   = "Diary",
+        file_mask     = "diary_flatfile\\.txt",
+        bsw_file_mask = "diary_bsw_flatfile\\.txt",
+        bsw_join_key  = "CASEID")),
+    module_key = "CASEID"),
 
   # 2019: fixed-width flatfile; BSW layout is a SAS @pos .txt co-located with data.
   "SHS/2019" = .make_entry("SHS", "2019",
@@ -691,40 +801,40 @@
       "WKWEHR_C",     "MAP_Q135C"
     ))),
 
-  # Education 2002 (cycle 16): monolithic SPSS + SAS; MAIN + CG4/CG6/CR files;
-  # use the MAIN. 111 count/education variables need force_numeric.
-  "GSS/Education 2002" = .make_entry("GSS", "Education 2002",
-    file_mask   = "C16PUMF_MAIN\\.DAT",
-    data_fixups = list(force_numeric = c(
-      "CG4_FR_Q100_C",  "CG4_FR_Q104",    "CG4_FR_Q105",    "CG4_FR_Q107",
-      "CG4_FR_Q110",    "CG4_FR_Q115",    "CG4_FR_Q120",    "CG4_FR_Q125",
-      "CG4_FR_Q200",    "CG4_FR_Q220",    "CG4_FR_Q230",    "CG4_FR_Q300",
-      "CG4_FR_Q301",    "CG4_FR_Q315",    "CG4_FR_Q316",    "CG4_FR_Q325_AST",
-      "CG4_FR_Q325_DIE","CG4_FR_Q325_RMO","CG4_FR_Q325_RJB","CG4_FR_Q325_GJB",
-      "CG4_FR_Q325_OTH","CG4_FR_Q327_AST","CG4_FR_Q327_DIE","CG4_FR_Q327_GMO",
-      "CG4_FR_Q327_RJB","CG4_FR_Q327_GJB","CG4_FR_Q327_OTH","CG4_FR_Q330_11",
-      "CG4_FR_Q330_15", "CG4_FR_Q330_16", "CG4_FR_Q330_17", "CG4_FR_Q330_18",
-      "CG4_FR_Q330_45_C","CG4_FR_Q330_80","CG4_FR_Q330_81", "CG4_FR_Q330_83",
-      "CG4_FR_Q330_85_C","CG4_FR_Q330_86","CG4_FR_Q330_91", "CG4_FR_Q345_11",
-      "CG4_FR_Q345_13", "CG4_FR_Q345_14", "CG4_FR_Q345_15", "CG4_FR_Q345_16",
-      "CG4_FR_Q345_17", "CG4_FR_Q345_18", "CG4_FR_Q345_34", "CG4_FR_Q345_35",
-      "CG4_FR_Q345_45_C","CG4_FR_Q345_80","CG4_FR_Q345_81", "CG4_FR_Q345_83",
-      "CG4_FR_Q345_85_C","CG4_FR_Q345_86","CG4_FR_Q345_95", "CG4_FR_Q360",
-      "CG4_FR_Q370",    "CG4_FR_Q380",    "CG4_FR_Q381_FAM","CG4_FR_Q381_TIM",
-      "CG4_FR_Q381_CLS","CG4_FR_Q381_EXP","CG4_FR_Q381_HEL","CG4_FR_Q381_TRN",
-      "CG4_FR_Q381_OTH","CG4_FR_Q400",    "CG4_FR_Q410",    "CG4_FR_Q420",
-      "CG4_FR_Q430_11", "CG4_FR_Q430_13", "CG4_FR_Q430_14", "CG4_FR_Q430_17",
-      "CG4_FR_Q430_18", "CG4_FR_Q430_45_C","CG4_FR_Q430_80","CG4_FR_Q430_81",
-      "CG4_FR_Q430_83", "CG4_FR_Q430_85_C","CG4_FR_Q430_86","CG4_FR_Q500",
-      "CG4_FR_Q505",    "CG4_FR_Q511",    "CG4_FR_Q512",    "CG4_FR_Q513",
-      "CG4_FR_Q530",    "CG4_FR_Q600",    "CG4_FR_Q605",    "CG4_FR_Q611",
-      "CG4_FR_Q612",    "CG4_FR_Q630",    "CG4_FR_Q700",    "CG4_FR_Q705",
-      "CG4_FR_Q711",    "CG4_FR_Q712",    "CG4_FR_Q713",    "CG4_FR_Q730",
-      "CG4_FR_Q800",    "CG4_FR_Q805",    "CG4_FR_Q830",    "CG4_FR_Q900",
-      "CG4_FR_Q910",    "CG4_FR_Q920",    "CG4_FR_Q930",    "CG4_FR_Q940",
-      "CG4_VT_Q951_FAM","CG4_VT_Q951_TIM","CG4_VT_Q951_CLS","CG4_VT_Q951_EXP",
-      "CG4_VT_Q951_HEL","CG4_VT_Q951_TRN","CG4_VT_Q951_OTH"
-    ))),
+  # 2002 (cycle 16, "Aging and Social Support"): part of the Caregiving series
+  # (survey 4502), registered as a plain year like 1996/2007/2012/2018.  Unlike
+  # other GSS cycles this ships FOUR linked fixed-width files that share the
+  # respondent key RECID and must be joined for analysis -- the survey weight
+  # WGHT_PER lives only in the MAIN file:
+  #   MAIN  one row per respondent (weight, demographics)
+  #   CG4   one row per care receiver  (caregiving to others)
+  #   CG6   one row per care provider  (care received)
+  #   CR    one row per care-relationship
+  # Each module is built as its own table in the shared DuckDB file; MAIN is the
+  # primary (default) table.  Use module="CG4" / pumf_module() to reach the rest
+  # and join on RECID.  Aliases "Cycle 16"/"16" and "Aging and Social Support
+  # 2002" resolve to "2002" (see pumf_resolve_version()).
+  # force_numeric per module covers count/age/date variables that carry
+  # boundary/sentinel labels alongside otherwise-continuous values.
+  "GSS/2002" = .make_entry("GSS", "2002",
+    modules = list(
+      MAIN = list(
+        layout_mask = "C16PUMF_MAIN",
+        file_mask   = "C16PUMF_MAIN\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$MAIN)),
+      CG4 = list(
+        layout_mask = "C16PUMF_CG4",
+        file_mask   = "C16PUMF_CG4\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$CG4)),
+      CG6 = list(
+        layout_mask = "C16PUMF_CG6",
+        file_mask   = "C16PUMF_CG6\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$CG6)),
+      CR = list(
+        layout_mask = "C16PUMF_CR",
+        file_mask   = "C16PUMF_CR\\.DAT",
+        data_fixups = list(force_numeric = .gss_c16_force_numeric$CR))),
+    module_key = "RECID"),
 
   # Education 1994 (cycle 9): monolithic SPSS + SAS; single data file.
   "GSS/Education 1994" = .make_entry("GSS", "Education 1994",
@@ -732,25 +842,50 @@
     data_fixups = list(force_numeric = c("DVD7", "DVEXREAG", "L11"))),
 
   # ---- Time Use --------------------------------------------------------------
-  # Time Use 2022: split-SPSS; Main + Episode datasets; no force_numeric needed.
+  # Time Use cycles ship a respondent-level Main file and a much larger Episode
+  # file (one row per activity episode), each with its own command files; they
+  # share the respondent key PUMFID (Main weight WGHT_PER, Episode weight
+  # WGHT_EPI).  Modelled as two linked tables in one DuckDB (Main primary): use
+  # module="Episode" / pumf_module(tbl, "Episode") and join on PUMFID.
+  #
+  # Time Use 2022: split-SPSS; layout_mask "_Main_"/"_Episode_" disambiguate the
+  # per-module SPS files.  Episode force_numeric covers the detailed-code
+  # variables (ACTIVITY/LOCATION/TUI_01/TUI_03) whose value labels enumerate
+  # only the aggregate groups plus 9996-9999 sentinels while the data carries
+  # the full detailed numeric codes; force_numeric keeps the raw code and turns
+  # the sentinels into NA.  The 500 WEPI_* episode bootstrap weights are
+  # unlabeled (expected).
   "GSS/Time Use 2022" = .make_entry("GSS", "Time Use 2022",
-    layout_mask = "_Main_",
-    file_mask   = "Main-Principal_PUMF\\.txt"),
+    modules = list(
+      Main = list(
+        layout_mask = "_Main_",
+        file_mask   = "Main-Principal_PUMF\\.txt"),
+      Episode = list(
+        layout_mask = "_Episode_",
+        file_mask   = "Episode_PUMF\\.txt",
+        data_fixups = list(force_numeric = c(
+          "ACTIVITY", "LOCATION", "TUI_01", "TUI_03")))),
+    module_key = "PUMFID"),
 
-  # Time Use 2015 (cycle 29): monolithic SPSS; Main + Episode datasets.
-  # SPS files are named c29pumf_*.sps (Main) and c29pumfe_*.sps (Episode);
-  # layout_mask selects only Main. file_mask selects the Main data file.
-  # 16 location/activity-count variables have boundary labels alongside
-  # unlabeled continuous values.
+  # Time Use 2015 (cycle 29): monolithic SPSS; Main + Episode datasets joined on
+  # PUMFID (Main weight WGHT_PER, Episode weight WGHT_EPI).  SPS files are named
+  # c29pumf_*.sps (Main) and c29pumfe_*.sps (Episode).  Main keeps its existing
+  # verified force_numeric set; the Episode value labels are complete, so the
+  # Episode module needs no force_numeric.
   "GSS/Time Use 2015" = .make_entry("GSS", "Time Use 2015",
-    layout_mask = "c29pumf_",
-    file_mask   = "GSS29PUMFM\\.txt",
-    data_fixups = list(force_numeric = c(
-      "LOCATION", "TUI_06A", "TUI_06B", "TUI_06C", "TUI_06D", "TUI_06E",
-      "TUI_06F",  "TUI_06G", "TUI_06H", "TUI_06I", "TUI_06J", "TUI_03A",
-      "TUI_03B",  "TUI_07",  "TECHFLAG","TUI_10",
-      "AGEHSDYC", "AGELSWKC", "WLY_170C"
-    ))),
+    modules = list(
+      Main = list(
+        layout_mask = "c29pumf_",
+        file_mask   = "GSS29PUMFM\\.txt",
+        data_fixups = list(force_numeric = c(
+          "LOCATION", "TUI_06A", "TUI_06B", "TUI_06C", "TUI_06D", "TUI_06E",
+          "TUI_06F",  "TUI_06G", "TUI_06H", "TUI_06I", "TUI_06J", "TUI_03A",
+          "TUI_03B",  "TUI_07",  "TECHFLAG","TUI_10",
+          "AGEHSDYC", "AGELSWKC", "WLY_170C"))),
+      Episode = list(
+        layout_mask = "c29pumfe_",
+        file_mask   = "GSS29PUMFE\\.txt")),
+    module_key = "PUMFID"),
 
   # Time Use 2010 (cycle 24): monolithic SPSS + SAS; data in PUMF/Data_DonnÇes/.
   # layout_mask selects only the Main SPS files (SPSS_PUMF in filename) and
@@ -759,38 +894,81 @@
   # layout but not in variable labels" warning (expected).
   # 42 time-use, age, and date variables have boundary/sentinel-only labels
   # alongside continuous minute/hour/count data; force_numeric prevents NA.
+  # Main + Episode join on RECID (Main weight WGHT_PER, Episode WGHT_EPI).  The
+  # Episode module uses the "withno_bootstrap"/"sans_bootstrap" command + data
+  # files (the variants WITHOUT the embedded bootstrap-weight columns).
   "GSS/Time Use 2010" = .make_entry("GSS", "Time Use 2010",
-    layout_mask = "SPSS_PUMF",
-    file_mask   = "C24PUMFM\\.DAT",
-    data_fixups = list(force_numeric = c(
-      "AGECHRYC", "AGEHSDYC",
-      "DVPAID",   "DVDOM",    "DVCHILDC", "DVSHOP",   "DVPERS",   "DVEDUCAT",
-      "DVORGAN",  "DVENTERT", "DVSPORT",  "DVMEDIA",  "DVRESID",  "DVTRANS",
-      "WORKPAID", "OTHRPAID",
-      "COOKDOMS", "HSKPDOMS", "MAINDOMS", "OTHRDOMS", "SHOPDOMS", "CHLDDOMS",
-      "VLNTORGN", "SCHLEDUC",
-      "MEALPERS", "OTHRPERS",
-      "RESTSOCL", "HOMESOCL", "OTHRSOCL",
-      "TELEMDIA", "READMDIA", "OTHRMDIA",
-      "ENTREVNT", "SPRTACTV", "OTHRACTV",
-      "TIMECR",   "TIMENS",
-      "AGE_LSTPDWK_C", "MAR_Q174_C", "WKWEHOHR_C", "MAR_Q370_C", "EOR_Q320"
-    ))),
+    modules = list(
+      Main = list(
+        layout_mask = "SPSS_PUMF",
+        file_mask   = "C24PUMFM\\.DAT",
+        data_fixups = list(force_numeric = c(
+          "AGECHRYC", "AGEHSDYC",
+          "DVPAID",   "DVDOM",    "DVCHILDC", "DVSHOP",   "DVPERS",   "DVEDUCAT",
+          "DVORGAN",  "DVENTERT", "DVSPORT",  "DVMEDIA",  "DVRESID",  "DVTRANS",
+          "WORKPAID", "OTHRPAID",
+          "COOKDOMS", "HSKPDOMS", "MAINDOMS", "OTHRDOMS", "SHOPDOMS", "CHLDDOMS",
+          "VLNTORGN", "SCHLEDUC",
+          "MEALPERS", "OTHRPERS",
+          "RESTSOCL", "HOMESOCL", "OTHRSOCL",
+          "TELEMDIA", "READMDIA", "OTHRMDIA",
+          "ENTREVNT", "SPRTACTV", "OTHRACTV",
+          "TIMECR",   "TIMENS",
+          "AGE_LSTPDWK_C", "MAR_Q174_C", "WKWEHOHR_C", "MAR_Q370_C", "EOR_Q320"))),
+      Episode = list(
+        layout_mask = "_SPSS_(withno|sans)_bootstrap",
+        file_mask   = "C24EPISODE_withno_bootstrap\\.DAT")),
+    module_key = "RECID"),
 
-  # Time Use 1998 (cycle 12): monolithic SPSS + SAS; M + E files.
-  # 17 place/companion episode variables need force_numeric.
+  # Time Use 1998 (cycle 12): monolithic SPSS + SAS; Main (C12MICM*) + Episode
+  # (C12MICE*) files join on RECID (Main weight WGHTFIN, Episode WGHTEPI).  Main
+  # keeps its existing verified force_numeric set; the Episode module adds
+  # force_numeric for the per-episode place/companion variables.
   "GSS/Time Use 1998" = .make_entry("GSS", "Time Use 1998",
-    file_mask   = "C12MICME\\.DAT",
-    data_fixups = list(force_numeric = c(
-      "DDAY",    "PLACE",   "ALONE",   "SPOUSE",  "PARHSD",  "MEMBHSD",
-      "NHSDCL15","NHSDC15P","NHSDPAR", "OTHFAM",  "FRIENDS", "OTHERS",
-      "HELP65",  "HELPLIM", "HELPREL", "ORGCON",  "ENJOYAC"
-    ))),
+    modules = list(
+      Main = list(
+        layout_mask = "C12micm",
+        file_mask   = "C12MICME\\.DAT",
+        # The main SAS PROC FORMAT (C12MICME.SAS) injects categorical codes for
+        # a set of continuous clock-time / duration / decimal-hour / year
+        # variables that the authoritative SPSS file types as plain numerics;
+        # the SAS file is only selected under a C-locale list.files() ordering
+        # (e.g. R CMD check), so the codes — and a handful of truncated month
+        # labels — appear there but not under a UTF-8 locale.  force_numeric
+        # re-asserts the SPSS typing so the continuous values survive.
+        data_fixups = list(force_numeric = c(
+          "DDAY",    "PLACE",   "ALONE",   "SPOUSE",  "PARHSD",  "MEMBHSD",
+          "NHSDCL15","NHSDC15P","NHSDPAR", "OTHFAM",  "FRIENDS", "OTHERS",
+          "HELP65",  "HELPLIM", "HELPREL", "ORGCON",  "ENJOYAC",
+          "AGECHRYC","C4",      "C5",      "C4C5",    "C6DUR",   "F47",
+          "H9",      "H11A",
+          "C6EPI01", "C6EPI02", "C6EPI03", "C6EPI04",
+          "C6EPI05", "C6EPI06", "C6EPI07", "C6EPI08",
+          "C6EPIE01","C6EPIE02","C6EPIE03","C6EPIE04",
+          "C6EPIE05","C6EPIE06","C6EPIE07","C6EPIE08"))),
+      Episode = list(
+        layout_mask = "C12mice",
+        file_mask   = "C12MICEE\\.DAT")),
+    module_key = "RECID"),
 
   # ---- Work and Home ---------------------------------------------------------
   # Work and Home 2016 (cycle 30): only a .sas7bdat binary file shipped (no
   # ASCII FWF or SPSS command files) — cannot be read by the current pipeline.
   # No registry entry; get_pumf() will fail with an informative error.
+
+  # ---- CPSS: Canadian Perspectives Survey Series ----------------------------
+  # Cycle 1 ships only bilingual PDF codebooks (no machine-readable variables.csv;
+  # parse_pdf_codebook() recovers the labels).  The survey weight COVID_WT has an
+  # empty Concept line in BOTH the English and French codebooks, so it arrives
+  # with no label in either language; supply the standard StatCan weight label.
+  # parse_pdf_codebook() types every variable character for parity, so the
+  # continuous weight (PDF "12.4", values like 2599.5633) needs force_numeric.
+  "CPSS/1" = .make_entry("CPSS", "1",
+    data_fixups = list(
+      force_numeric     = "COVID_WT",
+      labels_supplement = list(
+        COVID_WT = c(label_en = "Survey weight",
+                     label_fr = "Poids d'enqu\u00eate")))),
 
   # ---- CCAHS: Canadian COVID-19 Antibody and Health Survey ------------------
   # Split-SPSS layout (CCAHS_PUMF_{i,vale,vare,valf,varf,miss}.sps).
@@ -835,37 +1013,82 @@
     file_mask   = "GVP_PUMF_MAIN\\.txt",
     data_fixups = list(force_numeric = c("HSDSIZEC", "CHH0014C"))),
 
-  # 2010 (cycle 22): monolithic SPSS; MAIN file only (GS subset excluded).
-  # layout_mask filters to the MAIN SPSS so the GIVING subset SPSS is ignored.
+  # 2010 (cycle 22): two linked monolithic-SPSS files — MAIN (one row per
+  # respondent) and GS, the Giving sub-file (one row per donation, keyed on
+  # PUMFID + GSMID/GSMSEQID).  Modelled as two tables in one DuckDB joinable on
+  # PUMFID; MAIN is primary.  The English/French command files use inconsistent
+  # names for the giving module (EN "GIVING", FR "GS"); the GS layout_mask is a
+  # regex alternation that matches both.
   "SGVP/2010" = .make_entry("SGVP", "2010",
-    layout_mask = "_MAIN_",
-    file_mask   = "CSGVP2010_MAIN_PUMF\\.txt$"),
+    modules = list(
+      MAIN = list(
+        layout_mask = "_MAIN_",
+        file_mask   = "CSGVP2010_MAIN_PUMF\\.txt$"),
+      GS = list(
+        layout_mask = "GIVING|_GS_",
+        file_mask   = "CSGVP2010_GS_PUMF\\.txt$")),
+    module_key = "PUMFID"),
 
-  # 2007 (cycle 17): same layout as 2010.
+  # 2007 (cycle 17): same MAIN+GS structure as 2010; both modules' command files
+  # use "_GS_" in EN and FR, so the GS layout_mask is simply "_GS_".
   "SGVP/2007" = .make_entry("SGVP", "2007",
-    layout_mask = "_MAIN_",
-    file_mask   = "CSGVP2007_MAIN_PUMF\\.txt$"),
+    modules = list(
+      MAIN = list(
+        layout_mask = "_MAIN_",
+        file_mask   = "CSGVP2007_MAIN_PUMF\\.txt$"),
+      GS = list(
+        layout_mask = "_GS_",
+        file_mask   = "CSGVP2007_GS_PUMF\\.txt$")),
+    module_key = "PUMFID"),
 
-  # 2004 (cycle 13): same layout; readme/lisezmoi.txt files excluded via mask.
+  # 2004 (cycle 13): MAIN+GS; readme/lisezmoi.txt files excluded via mask.
   "SGVP/2004" = .make_entry("SGVP", "2004",
-    layout_mask = "_MAIN_",
-    file_mask   = "CSGVP2004_MAIN_PUMF\\.txt$"),
+    modules = list(
+      MAIN = list(
+        layout_mask = "_MAIN_",
+        file_mask   = "CSGVP2004_MAIN_PUMF\\.txt$"),
+      GS = list(
+        layout_mask = "_GS_",
+        file_mask   = "CSGVP2004_GS_PUMF\\.txt$")),
+    module_key = "PUMFID"),
 
-  # 2000 (cycle 9): MAIN file; Readme/Lisezmoi excluded via mask.
+  # 2000 (cycle 9): three linked files — MAIN, GS (giving) and VD (volunteer
+  # detail) — joining on MICRO_ID (not PUMFID; this cycle predates the PUMFID
+  # naming).  Readme/Lisezmoi excluded via the file masks.
   "SGVP/2000" = .make_entry("SGVP", "2000",
-    layout_mask = "_MAIN_",
-    file_mask   = "NSGVP2000_MAIN_PUMF\\.txt"),
+    modules = list(
+      MAIN = list(
+        layout_mask = "_MAIN_",
+        file_mask   = "NSGVP2000_MAIN_PUMF\\.txt$"),
+      GS = list(
+        layout_mask = "_GS_",
+        file_mask   = "NSGVP2000_GS_PUMF\\.txt$"),
+      VD = list(
+        layout_mask = "_VD_",
+        file_mask   = "NSGVP2000_VD_PUMF\\.txt$")),
+    module_key = "MICRO_ID"),
 
-  # 1997 (cycle 4): three separate PUMF files (SGVP = combined main file).
-  # SAS text files also present; layout_mask and file_mask select the SGVP main.
-  # AQ03 (org-type count) has code 0="0" (numeric string, not a sentinel phrase)
-  # alongside unlabeled values 1-15; force_numeric preserves those counts.
-  # The fixed-width data uses SAS-style "." for missing values; na_values
-  # turns them into NA in labeled columns without unmatched-value warnings.
+  # 1997 (cycle 4): three linked files joining on IDNUM — the combined SGVP main
+  # (one row per respondent; modelled as the MAIN module) plus the GIVE and
+  # VOLNTR detail files (one row per donation / volunteer activity).  All three
+  # share SAS-style "." missing markers (na_values).  AQ03 (org-type count) in
+  # the main has code 0="0" (a numeric string, not a sentinel phrase) alongside
+  # unlabeled values 1-15; force_numeric preserves those counts.
   "SGVP/1997" = .make_entry("SGVP", "1997",
-    layout_mask = "_SGVP_",
-    file_mask   = "NSGVP1997_SGVP_PUMF\\.txt",
-    data_fixups = list(force_numeric = "AQ03", na_values = ".")),
+    modules = list(
+      MAIN = list(
+        layout_mask = "_SGVP_",
+        file_mask   = "NSGVP1997_SGVP_PUMF\\.txt$",
+        data_fixups = list(force_numeric = "AQ03", na_values = ".")),
+      GIVE = list(
+        layout_mask = "_GIVE_",
+        file_mask   = "NSGVP1997_GIVE_PUMF\\.txt$",
+        data_fixups = list(na_values = ".")),
+      VOLNTR = list(
+        layout_mask = "_VOLNTR_",
+        file_mask   = "NSGVP1997_VOLNTR_PUMF\\.txt$",
+        data_fixups = list(na_values = "."))),
+    module_key = "IDNUM"),
 
   # ---- ITS: International Travel Survey -------------------------------------
   # Split-SPSS layout (VTS_<year>_PUMF_{i,vale,vare,valf,varf,miss}.sps) in
@@ -1179,6 +1402,10 @@
 #' @keywords internal
 pumf_resolve_version <- function(series, version) {
   if (is.null(version)) return(NULL)
+  if (series == "GSS") {
+    a <- .pumf_gss_alias(version)
+    if (!is.null(a)) return(a)
+  }
   if (series == "Census" && grepl("^\\d{4}", version)) {
     year <- substr(version, 1L, 4L)
 
@@ -1200,6 +1427,33 @@ pumf_resolve_version <- function(series, version) {
     return(paste0(year, " (", type, ")"))
   }
   version
+}
+
+# GSS theme/cycle aliases.  GSS surveys are commonly referenced by cycle number
+# ("Cycle 16") or by theme name with year ("Aging and Social Support (2002)"),
+# but the registry keys a few cycles by plain year (the caregiving series:
+# 1996/2002/2007/2012/2018).  This maps those alternative references to the
+# canonical registry version.  Keys are matched case-insensitively after
+# stripping punctuation and collapsing whitespace, so "Cycle 16", "cycle16",
+# "16", and "Aging and Social Support 2002" all resolve to "2002".
+.pumf_gss_aliases <- list(
+  "2002" = c("cycle 16", "16",
+             "aging and social support 2002",
+             "aging and social support",
+             "aging and social support (2002)")
+)
+
+.pumf_gss_alias <- function(version) {
+  norm <- function(x) {
+    x <- tolower(gsub("[[:punct:]]", " ", x))
+    x <- gsub("([a-z])([0-9])", "\\1 \\2", x)  # "cycle16" -> "cycle 16"
+    trimws(gsub("\\s+", " ", x))
+  }
+  v <- norm(version)
+  for (canon in names(.pumf_gss_aliases)) {
+    if (v %in% norm(.pumf_gss_aliases[[canon]])) return(canon)
+  }
+  NULL
 }
 
 # Shared LFS build configuration.  LFS is not keyed per version in
@@ -1259,6 +1513,24 @@ pumf_registry_lookup <- function(series, version) {
   base
 }
 
+# Fill in variable labels that the source metadata leaves blank, using a
+# registry `labels_supplement` fixup.  Only NA labels are filled, so a genuine
+# source label always wins.  `variables$name` must already be uppercased.
+# Shared by the Stage 3 build (pumf_build_duckdb) and label_pumf_columns() so a
+# supplemented label is applied consistently wherever variables are read.
+.pumf_apply_labels_supplement <- function(variables, reg) {
+  sup_list <- if (is.null(reg)) NULL else reg$data_fixups$labels_supplement
+  if (length(sup_list) == 0L) return(variables)
+  for (vname in names(sup_list)) {
+    sup <- sup_list[[vname]]
+    i   <- which(variables$name == toupper(vname))
+    if (length(i) != 1L) next
+    for (lc in intersect(c("label_en", "label_fr"), names(sup)))
+      if (is.na(variables[[lc]][i])) variables[[lc]][i] <- sup[[lc]]
+  }
+  variables
+}
+
 #' List all registered survey keys
 #'
 #' @return character vector of `"series/version"` keys
@@ -1310,7 +1582,7 @@ pumf_registry_keys <- function() {
 .pumf_fixup_fields <- c(
   "str_pad", "rename", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
-  "codes_supplement", "missing_supplement")
+  "codes_supplement", "missing_supplement", "labels_supplement")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.
@@ -1383,7 +1655,8 @@ pumf_registry_keys <- function() {
 #'   `"CP1252"` in the pipeline).
 #' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
 #'   `rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
-#'   `force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`.
+#'   `force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`,
+#'   `labels_supplement`.
 #'   The `force_character`/`force_integer`/`force_bigint` fields take character
 #'   vectors of variable names and override the DuckDB storage type (VARCHAR /
 #'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are

@@ -8,7 +8,8 @@ pumf_parse_metadata(
   version_dir,
   layout_mask = NULL,
   metadata_encoding = NULL,
-  refresh = FALSE
+  refresh = FALSE,
+  meta_subdir = NULL
 )
 }
 \arguments{

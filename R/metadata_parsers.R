@@ -176,10 +176,14 @@ read_metadata <- function(metadata_dir) {
 #' Check whether canonical metadata exists for a version directory
 #'
 #' @param version_dir Path to the version directory.
+#' @param bare When `TRUE`, treat `version_dir` as the metadata directory itself
+#'   (used for per-module subdirectories), checking it directly for
+#'   `variables.csv` instead of a `metadata/` child.
 #' @return Logical.
 #' @keywords internal
-metadata_exists <- function(version_dir) {
-  file.exists(file.path(version_dir, "metadata", "variables.csv"))
+metadata_exists <- function(version_dir, bare = FALSE) {
+  d <- if (bare) version_dir else file.path(version_dir, "metadata")
+  file.exists(file.path(d, "variables.csv"))
 }
 
 
@@ -679,6 +683,14 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     code_lines <- code_lines[!grepl("^/", code_lines)]
     code_lines <- code_lines[nchar(code_lines) > 0L]
     code_lines <- c(inline_code, code_lines)
+
+    # String-valued codes may be single-quoted with a double-quoted label, e.g.
+    # GSS cycle 16:  '1' "Male"  /  '08' "..." .  Convert only the LEADING
+    # single-quoted value token to double quotes so it is captured verbatim
+    # (preserving zero-padding like "08") by the quoted (is_q) branch below;
+    # the double-quoted label -- which may legitimately contain an apostrophe --
+    # is left untouched.
+    code_lines <- sub("^(\\s*)'([^']*)'", '\\1"\\2"', code_lines)
 
     if (length(code_lines) == 0L)
       return(tibble::tibble(name = character(), val = character(), label = character()))
@@ -1621,7 +1633,11 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   all_files <- all_files[!grepl("/metadata/", all_files, fixed = TRUE)]
   # For bundled-archive versions with multiple per-type command files in the
   # same directory, sps_mask filters which SPSS/XMF files are visible so the
-  # right type's command file is selected.
+  # right type's command file is selected.  Only .sps/.xmf are filtered, not
+  # .sas: the .sas scan (result$sas_labels) is a low-priority label supplement,
+  # and constraining it to the masked module would merge that module's PROC
+  # FORMAT codes over the authoritative SPSS codes, producing spurious
+  # unmatched-value warnings (e.g. GSS Safety 1999 main file).
   if (!is.null(sps_mask)) {
     is_spss  <- grepl("\\.(sps|xmf)$", all_files, ignore.case = TRUE)
     all_files <- all_files[!is_spss | grepl(sps_mask, all_files, ignore.case = TRUE)]
@@ -1781,13 +1797,66 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   #    comes from the SAS/SPSS command file.  Fires when a *Dictionary.pdf is
   #    found anywhere under version_dir and pdftools is available.
   eng_dict_pdf <- all_files[grepl("Dictionary\\.pdf$", all_files, ignore.case = TRUE)]
-  if (length(eng_dict_pdf) > 0L &&
-      requireNamespace("pdftools", quietly = TRUE)) {
-    fra_dict_pdf <- all_files[grepl("Dictionnaire\\.pdf$", all_files, ignore.case = TRUE)]
-    result$pdf_dict <- list(
-      eng = eng_dict_pdf[[1L]],
-      fra = if (length(fra_dict_pdf) > 0L) fra_dict_pdf[[1L]] else NULL
-    )
+  if (length(eng_dict_pdf) > 0L) {
+    if (requireNamespace("pdftools", quietly = TRUE)) {
+      fra_dict_pdf <- all_files[grepl("Dictionnaire\\.pdf$", all_files, ignore.case = TRUE)]
+      result$pdf_dict <- list(
+        eng = eng_dict_pdf[[1L]],
+        fra = if (length(fra_dict_pdf) > 0L) fra_dict_pdf[[1L]] else NULL
+      )
+    } else {
+      # A PDF data dictionary is available but cannot be parsed without
+      # pdftools.  Record it so pumf_parse_metadata() can warn if the resulting
+      # metadata turns out to have no labels (PDF was the sole label source).
+      # Name must NOT start with "pdf_dict": `$` partial matching would otherwise
+      # make `formats$pdf_dict` resolve to this entry and trigger PDF parsing.
+      result$unparsed_pdf_dict <- eng_dict_pdf[[1L]]
+    }
+  }
+
+  # 9. StatCan bilingual PDF *frequency codebook* (e.g. CPSS 1).  A second PDF
+  #    layout, distinct from the *Dictionary.pdf above: a "Variable Name:/
+  #    Concept:" block followed by an "Answer Categories" frequency table.  Only
+  #    consulted as a label source of last resort -- when no machine-readable
+  #    command file or codebook CSV was found -- to avoid scanning PDFs for the
+  #    common surveys that already have labels.  Candidates are PDFs under a
+  #    Codebook/LivreDesCodes path; the "zerofreq" variants are skipped.
+  if (is.null(result$lfs_csv) && is.null(result$cpss_csv) &&
+      is.null(result$sas_cards) && is.null(result$spss_split) &&
+      is.null(result$spss_mono) && is.null(result$spss_sav) &&
+      is.null(result$pdf_dict) && is.null(result$unparsed_pdf_dict)) {
+    cb_pdfs <- all_files[grepl("\\.pdf$", all_files, ignore.case = TRUE) &
+                         grepl("codebook|livredescodes", all_files, ignore.case = TRUE) &
+                         !grepl("zerofreq", all_files, ignore.case = TRUE)]
+    if (length(cb_pdfs) > 0L) {
+      .is_fra_pdf <- function(paths) {
+        grepl("/(fran|french)", paths, ignore.case = TRUE) |
+          grepl("(?i)_(f|fr|fra|french)[.]pdf$", basename(paths), perl = TRUE)
+      }
+      fra_cb <- cb_pdfs[.is_fra_pdf(cb_pdfs)]
+      eng_cb <- cb_pdfs[!.is_fra_pdf(cb_pdfs)]
+      if (length(eng_cb) > 0L) {
+        if (requireNamespace("pdftools", quietly = TRUE)) {
+          # Content-verify before committing: the signature is a "Variable
+          # Name:" block plus an "Answer Categories" table.
+          sig <- tryCatch({
+            txt <- paste(pdftools::pdf_text(eng_cb[[1L]]), collapse = "\n")
+            grepl("(?i)(Variable Name|Nom de la variable)\\s*:", txt) &&
+              grepl(.pdf_cb_answer_hdr_rx, txt, perl = TRUE)
+          }, error = function(e) FALSE)
+          if (isTRUE(sig)) {
+            result$pdf_codebook <- list(
+              eng = eng_cb[[1L]],
+              fra = if (length(fra_cb) > 0L) fra_cb[[1L]] else NULL
+            )
+          }
+        } else {
+          # pdftools missing: record so pumf_parse_metadata() warns loudly if
+          # the resulting metadata has no labels (same path as the Dictionary).
+          result$unparsed_pdf_dict <- eng_cb[[1L]]
+        }
+      }
+    }
   }
 
   # 7. SAS DATA step LABEL statements (e.g. 2011 Census individuals, GSS 2007).
@@ -1837,7 +1906,8 @@ merge_metadata <- function(parsed_list) {
   if (length(parsed_list) == 1L) return(parsed_list[[1L]])
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
-                      "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict")
+                      "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict",
+                      "pdf_codebook")
   ordered  <- c(intersect(priority_order, names(parsed_list)),
                 setdiff(names(parsed_list), priority_order))
   parsed_list <- parsed_list[ordered]
@@ -1903,8 +1973,17 @@ merge_metadata <- function(parsed_list) {
         fr <- grp$label_fr[!is.na(grp$label_fr)]
         if (length(fr) > 0L) row$label_fr <- fr[[1L]]
       }
-      en <- unique(grp$label_en[!is.na(grp$label_en)])
-      if (length(en) > 1L)
+      # Warn only when *authoritative* sources disagree.  sas_labels and the PDF
+      # parsers are the lowest-priority, label-only supplements; their PROC
+      # FORMAT / PDF labels are routinely truncated or reformatted (e.g. a SAS
+      # format renders "September 1998" as "Septembe   1998"), so a divergence
+      # introduced solely by one of them is expected and the higher-priority
+      # label is kept silently.
+      lossy_sources <- c("sas_labels", "pdf_dict", "pdf_codebook")
+      is_lossy <- names(parsed_list)[grp$.src] %in% lossy_sources
+      en      <- unique(grp$label_en[!is.na(grp$label_en)])
+      en_auth <- unique(grp$label_en[!is.na(grp$label_en) & !is_lossy])
+      if (length(en_auth) > 1L)
         warning("Conflicting English labels for ", row$name, " val=", row$val,
                 ": using '", en[[1L]], "'", call. = FALSE)
       row
@@ -1956,10 +2035,15 @@ merge_metadata <- function(parsed_list) {
 pumf_parse_metadata <- function(version_dir,
                                 layout_mask       = NULL,
                                 metadata_encoding = NULL,
-                                refresh           = FALSE) {
-  metadata_dir <- file.path(version_dir, "metadata")
+                                refresh           = FALSE,
+                                meta_subdir       = NULL) {
+  # meta_subdir routes multi-module surveys: each module's canonical CSVs are
+  # written under metadata/<meta_subdir>/ (the primary module uses metadata/
+  # with meta_subdir = NULL).
+  metadata_dir <- if (is.null(meta_subdir)) file.path(version_dir, "metadata")
+                  else file.path(version_dir, "metadata", meta_subdir)
 
-  if (!refresh && metadata_exists(version_dir)) {
+  if (!refresh && metadata_exists(metadata_dir, bare = TRUE)) {
     return(invisible(metadata_dir))
   }
 
@@ -1990,10 +2074,12 @@ pumf_parse_metadata <- function(version_dir,
   # For standalone deposits with layout_mask: apply it as sps_mask so that
   # surveys with multiple SPSS file sets (e.g. SGVP MAIN vs GIVING subset)
   # pick the right one.  sps_mask only filters SPSS files, not data files.
+  # An explicit layout_mask argument (e.g. a secondary module's mask) overrides
+  # the registry's; otherwise fall back to the registry config.
   effective_sps_mask <- if (!identical(source_dir, version_dir))
     reg$bundle_sps_mask
   else
-    reg$layout_mask
+    layout_mask %||% reg$layout_mask
   formats <- detect_formats(source_dir, sps_mask = effective_sps_mask)
   if (length(formats) == 0L) {
     stop("No parseable metadata files found in: ", source_dir)
@@ -2049,7 +2135,26 @@ pumf_parse_metadata <- function(version_dir,
     parsed$pdf_dict <- parse_pdf_dictionary(formats$pdf_dict$eng,
                                              fra_pdf = formats$pdf_dict$fra)
 
+  if (!is.null(formats$pdf_codebook))
+    parsed$pdf_codebook <- parse_pdf_codebook(formats$pdf_codebook$eng,
+                                               fra_pdf = formats$pdf_codebook$fra)
+
   metadata <- merge_metadata(parsed)
+
+  # A PDF data dictionary was present but pdftools is not installed.  If no other
+  # source supplied any variable labels, the metadata is degraded (layout/types
+  # only) -- warn loudly rather than silently writing label-less metadata.
+  if (!is.null(formats$unparsed_pdf_dict) &&
+      sum(!is.na(metadata$variables$label_en)) == 0L) {
+    warning(
+      "Variable and value labels for this survey are only available from the ",
+      "PDF data dictionary ('", basename(formats$unparsed_pdf_dict), "'), but ",
+      "the 'pdftools' package is not installed. The parsed metadata has no ",
+      "labels and numeric/categorical typing may be incomplete. Install ",
+      "'pdftools' and re-run with refresh = TRUE for fully labelled metadata.",
+      call. = FALSE
+    )
+  }
 
   dir.create(metadata_dir, showWarnings = FALSE, recursive = TRUE)
   write_metadata(metadata, metadata_dir)
@@ -2347,6 +2452,228 @@ parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
       merged_codes$label_fr     <- merged_codes$label_fr.fra
       merged_codes$label_fr.fra <- NULL
       eng$codes <- tibble::as_tibble(merged_codes)
+    }
+  }
+
+  eng
+}
+
+
+# ============================================================
+# StatCan PDF "frequency codebook" parser
+# ============================================================
+#
+# A second PDF metadata layout, distinct from the Data Dictionary handled by
+# parse_pdf_dictionary().  Used by surveys that ship a bilingual *codebook* PDF
+# (e.g. CPSS 1, whose only machine-readable companion is the data CSV -- it has
+# no variables.csv like CPSS 2-6).  The layout is a per-variable block followed
+# by a frequency table:
+#
+#   Variable Name:   BH_05        Length: 2.0     Position: 18
+#   Concept:         Main source of information to find out about COVID-19
+#   ...
+#   Answer Categories                       Code   Frequency  Weighted Freq   %
+#   News outlets including local, national and  01      2,320    15,902,112  51.3
+#   internat sources
+#   ...
+#   Not stated                                  99          4        22,491   0.1
+#                                    Total            4,627    31,027,253  100.0
+#
+# French mirrors English: "Nom de la variable :", "Concept :", "Catégories de
+# réponse", "Code", with space-separated thousands ("4 627") and decimal commas
+# ("100,0").  Positions in the codebook do not necessarily match the flat file,
+# so -- like parse_pdf_dictionary() -- this parser produces variables and codes
+# only (no layout), serving as a label source merged at lowest priority.
+
+# Detect the answer-table header row ("Answer Categories ... Code ...").
+.pdf_cb_answer_hdr_rx <- "(?i)(Answer Categories|Cat.gories de r.ponse)"
+
+.parse_pdf_codebook_single <- function(pdf_path, lang) {
+  pages <- pdftools::pdf_text(pdf_path)
+  lines <- unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+
+  # Strip page headers and footers so tables that span a page boundary read as
+  # one continuous stream.  Each pattern is anchored to a whole (trimmed) line
+  # so it cannot swallow a content line that merely contains the header text --
+  # e.g. the concept "Public use microdata file identifier" must survive even
+  # though "Public Use Microdata File" is also the centred page header.
+  skip_rx <- paste0(
+    "(?i)(",
+    "^\\s*Page\\s+\\d+\\s*-\\s*\\d+\\s*$",
+    "|^\\s*Totals may not add up",
+    "|^\\s*Les totaux pourraient",
+    "|^\\s*Public Use Microdata File\\s*$",
+    "|^\\s*fichier de microdonn.es . grande diffusion\\s*$",
+    "|^\\s*\\S.*-\\s*Data Dictionary\\s*$",
+    "|^\\s*\\S.*Dictionnaire de donn.es\\s*$",
+    ")"
+  )
+  lines <- lines[!grepl(skip_rx, lines, perl = TRUE)]
+
+  # Variable block header (both languages); the name is all we need -- codebook
+  # positions are not guaranteed to match the flat file, so no layout.
+  var_rx <- paste0(
+    "^\\s*(?:Variable Name|Nom de la variable)\\s*:\\s*",
+    "([A-Z][A-Za-z0-9_]+)\\b"
+  )
+  concept_rx <- "^\\s*Concept\\s*:\\s*(.*\\S)\\s*$"
+  total_rx   <- "(?i)^\\s*Total\\b"
+  # A code row: <label>  <code>  <numeric tail to end of line>.  The trailing
+  # block is asserted all-numeric (digits, separators, spaces) so a label that
+  # merely contains interior double-spaces cannot be mis-split -- only the real
+  # right-aligned Code/Frequency/Weighted/% block satisfies it.  Handles both
+  # comma-grouped (English "2,320") and space-grouped (French "4 627") numbers.
+  # Label is non-greedy and allows a single character (e.g. HHLDSIZC categories
+  # "1".."4", where the displayed label equals the code).
+  code_rx <- paste0(
+    "^\\s*(\\S.*?)\\s{2,}([0-9A-Za-z]{1,4})\\s{2,}[\\d.,\\s]+$"
+  )
+  # Field keys that terminate a (possibly wrapped) Concept value.
+  field_key_rx <- paste0(
+    "^\\s*(?:Question Name|Nom de la question|Question Text|Texte de la question",
+    "|Universe|Univers|Note|Nota|Source|Variable Name|Nom de la variable",
+    "|Answer Categories|Cat.gories de r.ponse)\\s*:?"
+  )
+
+  vars_list  <- list()
+  codes_list <- list()
+
+  cur_name  <- NULL
+  cur_label <- NA_character_
+  in_answer <- FALSE
+  in_concept <- FALSE
+  code_rows <- list()   # for current variable: list(val=, label=)
+
+  flush_var <- function() {
+    if (is.null(cur_name)) return(invisible())
+    vars_list[[length(vars_list) + 1L]] <<- tibble::tibble(
+      name         = cur_name,
+      label_en     = if (lang == "eng") cur_label else NA_character_,
+      label_fr     = if (lang == "fra") cur_label else NA_character_,
+      type         = "character",
+      decimals     = NA_integer_,
+      missing_low  = NA_real_,
+      missing_high = NA_real_
+    )
+    if (length(code_rows) > 0L) {
+      codes_list[[length(codes_list) + 1L]] <<- tibble::tibble(
+        name     = cur_name,
+        val      = vapply(code_rows, `[[`, character(1L), "val"),
+        label_en = if (lang == "eng")
+          vapply(code_rows, `[[`, character(1L), "label")
+        else rep(NA_character_, length(code_rows)),
+        label_fr = if (lang == "fra")
+          vapply(code_rows, `[[`, character(1L), "label")
+        else rep(NA_character_, length(code_rows))
+      )
+    }
+  }
+
+  for (ln in lines) {
+    m_var <- regmatches(ln, regexec(var_rx, ln, perl = TRUE))[[1L]]
+    if (length(m_var) == 2L) {
+      flush_var()
+      cur_name   <- toupper(m_var[2L])
+      cur_label  <- NA_character_
+      in_answer  <- FALSE
+      in_concept <- FALSE
+      code_rows  <- list()
+      next
+    }
+    if (is.null(cur_name)) next
+
+    # Concept (variable label), possibly wrapped onto following indented lines.
+    m_con <- regmatches(ln, regexec(concept_rx, ln, perl = TRUE))[[1L]]
+    if (length(m_con) == 2L) {
+      cur_label  <- trimws(m_con[2L])
+      in_concept <- TRUE
+      in_answer  <- FALSE
+      next
+    }
+
+    if (grepl(.pdf_cb_answer_hdr_rx, ln, perl = TRUE)) {
+      in_answer  <- TRUE
+      in_concept <- FALSE
+      next
+    }
+
+    if (in_concept) {
+      if (grepl(field_key_rx, ln, perl = TRUE) || !nzchar(trimws(ln))) {
+        in_concept <- FALSE
+      } else {
+        cur_label <- paste(cur_label, trimws(ln))
+        next
+      }
+    }
+
+    if (in_answer) {
+      if (grepl(total_rx, ln, perl = TRUE)) { in_answer <- FALSE; next }
+      m_code <- regmatches(ln, regexec(code_rx, ln, perl = TRUE))[[1L]]
+      if (length(m_code) == 3L) {
+        code_rows[[length(code_rows) + 1L]] <-
+          list(val = m_code[3L], label = trimws(m_code[2L]))
+      } else if (nzchar(trimws(ln)) && length(code_rows) > 0L) {
+        # Continuation of the previous category's wrapped label.
+        last <- length(code_rows)
+        code_rows[[last]]$label <-
+          paste(code_rows[[last]]$label, trimws(ln))
+      }
+    }
+  }
+  flush_var()
+
+  if (length(vars_list) == 0L) return(NULL)
+  list(
+    variables = dplyr::bind_rows(vars_list),
+    codes     = if (length(codes_list) > 0L) dplyr::bind_rows(codes_list)
+                else tibble::tibble(name = character(), val = character(),
+                                    label_en = character(), label_fr = character()),
+    layout    = NULL
+  )
+}
+
+#' Parse a StatCan bilingual PDF frequency codebook
+#'
+#' Extracts variable names/labels and code-value labels from the bilingual PDF
+#' \emph{codebook} shipped with surveys such as CPSS 1, which (unlike CPSS 2-6)
+#' ships no machine-readable \code{variables.csv}.  The codebook lists each
+#' variable as a \dQuote{Variable Name:/Concept:} block followed by an
+#' \dQuote{Answer Categories} frequency table whose \code{Code} column supplies
+#' the value labels.  Positions in the codebook are not used; this parser
+#' produces only \code{variables} and \code{codes} (no \code{layout}).
+#'
+#' @param eng_pdf Path to the English codebook PDF.
+#' @param fra_pdf Optional path to the French codebook PDF.
+#' @return Named list with elements \code{variables}, \code{codes},
+#'   \code{layout} (always \code{NULL}), or \code{NULL} if no variable blocks
+#'   were found.
+#' @keywords internal
+parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
+  eng <- .parse_pdf_codebook_single(eng_pdf, "eng")
+  if (is.null(eng)) return(NULL)
+
+  if (!is.null(fra_pdf)) {
+    fra <- .parse_pdf_codebook_single(fra_pdf, "fra")
+    if (!is.null(fra)) {
+      merged_vars <- merge(
+        eng$variables,
+        fra$variables[c("name", "label_fr")],
+        by = "name", all.x = TRUE, suffixes = c("", ".fra")
+      )
+      merged_vars$label_fr     <- merged_vars$label_fr.fra
+      merged_vars$label_fr.fra <- NULL
+      eng$variables <- tibble::as_tibble(merged_vars)
+
+      if (nrow(eng$codes) > 0L && nrow(fra$codes) > 0L) {
+        merged_codes <- merge(
+          eng$codes,
+          fra$codes[c("name", "val", "label_fr")],
+          by = c("name", "val"), all.x = TRUE, suffixes = c("", ".fra")
+        )
+        merged_codes$label_fr     <- merged_codes$label_fr.fra
+        merged_codes$label_fr.fra <- NULL
+        eng$codes <- tibble::as_tibble(merged_codes)
+      }
     }
   }
 
