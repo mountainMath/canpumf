@@ -23,6 +23,7 @@
     <li><a class="dropdown-item" href="../articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="../articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="../articles/pipeline.html">canpumf Pipeline Architecture</a></li>
+    <li><a class="dropdown-item" href="../articles/submodules.html">Working with multi-module PUMF surveys</a></li>
     <li><a class="dropdown-item" href="../articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul></li>
 <li class="active nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -44,11 +45,15 @@
 <h2 class="pkg-version" data-toc-text="0.5.1" id="canpumf-051">canpumf 0.5.1<a class="anchor" aria-label="anchor" href="#canpumf-051"></a></h2>
 <div class="section level3">
 <h3 id="new-features-0-5-1">New features<a class="anchor" aria-label="anchor" href="#new-features-0-5-1"></a></h3>
-<ul><li>New <code><a href="../reference/parse_pdf_codebook.html">parse_pdf_codebook()</a></code> metadata parser for StatCan bilingual PDF <em>frequency codebooks</em>. This recovers variable and value labels for surveys whose only machine-readable companion is the data file — notably CPSS cycle 1, which (unlike CPSS 2–6) ships no <code>variables.csv</code>. CPSS 1 now imports with full bilingual labels (parity with the other cycles) when <code>pdftools</code> is installed. Like the existing PDF data-dictionary parser, it is a label fallback that only fires when no command file or codebook CSV is found, and requires <code>pdftools</code> (Suggests).</li>
+<ul><li>Multi-module survey support. Surveys that ship several linked files sharing a respondent key are now modelled as several joinable tables in one DuckDB file. <code><a href="../reference/get_pumf.html">get_pumf()</a></code> returns the survey’s primary (respondent-level) module and emits a one-time message listing the available sibling modules; <code>pumf_module(tbl, "&lt;module&gt;")</code> opens a sibling on the <strong>same</strong> connection so the two are joinable, and announces the shared join key. Each module’s join key is recorded in the registry (<code>module_key</code>) so it never has to be guessed (it varies: <code>RECID</code>, <code>PUMFID</code>, <code>MICRO_ID</code>, <code>CASEID</code>, <code>IDNUM</code>). Converted surveys include GSS cycle 16 / “Aging and Social Support” 2002 (MAIN + CG4 + CG6 + CR), GSS Time Use 1998/2010/2015/2022 (Main + Episode), the Survey of Household Spending 2017 (Interview + Diary, each with its own bootstrap weights), and the Giving/Volunteering/Participating cycles 1997–2010 (MAIN + GS/VD/GIVE/VOLNTR).</li>
+<li>
+<code><a href="../reference/close_pumf.html">close_pumf()</a></code> now also accepts a DuckDB connection returned by <code><a href="../reference/get_pumf_connection.html">get_pumf_connection()</a></code>, closing it directly, in addition to a lazy <code><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">dplyr::tbl()</a></code> returned by <code><a href="../reference/get_pumf.html">get_pumf()</a></code>.</li>
+<li>New <code><a href="../reference/parse_pdf_codebook.html">parse_pdf_codebook()</a></code> metadata parser for StatCan bilingual PDF <em>frequency codebooks</em>. This recovers variable and value labels for surveys whose only machine-readable companion is the data file — notably CPSS cycle 1, which (unlike CPSS 2–6) ships no <code>variables.csv</code>. CPSS 1 now imports with full bilingual labels (parity with the other cycles) when <code>pdftools</code> is installed. Like the existing PDF data-dictionary parser, it is a label fallback that only fires when no command file or codebook CSV is found, and requires <code>pdftools</code> (Suggests).</li>
 </ul></div>
 <div class="section level3">
 <h3 id="documentation-0-5-1">Documentation<a class="anchor" aria-label="anchor" href="#documentation-0-5-1"></a></h3>
-<ul><li>New “Bootstrap weights” vignette documenting the resampling method, how the weights are stored, stratification, estimating uncertainty, and the incremental re-run behaviour (reuse, adding replicates, and regeneration when rows are added).</li>
+<ul><li>New “Working with multi-module PUMF surveys” vignette showing how to load the primary module, open sibling modules with <code><a href="../reference/pumf_module.html">pumf_module()</a></code>, join them inside DuckDB, and use <code><a href="../reference/get_pumf_connection.html">get_pumf_connection()</a></code> / <code><a href="../reference/close_pumf.html">close_pumf()</a></code> directly.</li>
+<li>New “Bootstrap weights” vignette documenting the resampling method, how the weights are stored, stratification, estimating uncertainty, and the incremental re-run behaviour (reuse, adding replicates, and regeneration when rows are added).</li>
 </ul></div>
 <div class="section level3">
 <h3 id="bug-fixes-0-5-1">Bug fixes<a class="anchor" aria-label="anchor" href="#bug-fixes-0-5-1"></a></h3>

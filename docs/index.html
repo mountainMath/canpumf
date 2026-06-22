@@ -46,6 +46,7 @@
     <li><a class="dropdown-item" href="articles/LFS.html">LFS</a></li>
     <li><a class="dropdown-item" href="articles/onboarding.html">Onboarding a new PUMF</a></li>
     <li><a class="dropdown-item" href="articles/pipeline.html">canpumf Pipeline Architecture</a></li>
+    <li><a class="dropdown-item" href="articles/submodules.html">Working with multi-module PUMF surveys</a></li>
     <li><a class="dropdown-item" href="articles/working_with_canpumf.html">Working with canpumf</a></li>
   </ul>
 </li>
@@ -226,6 +227,12 @@
 <td align="center">✓</td>
 </tr>
 <tr>
+<td>General Social Survey — Aging and Social Support (cycle 16)</td>
+<td>GSS</td>
+<td>2002 (a.k.a. “Cycle 16”; MAIN + CG4 + CG6 + CR modules joinable on RECID)</td>
+<td align="center">✓</td>
+</tr>
+<tr>
 <td>General Social Survey — Safety</td>
 <td>GSS</td>
 <td>Safety 1993, Safety 1999, Safety 2014, Safety 2019</td>
@@ -246,19 +253,19 @@
 <tr>
 <td>General Social Survey — Education</td>
 <td>GSS</td>
-<td>Education 1994, Education 2002, Education 2007</td>
+<td>Education 1994, Education 2007</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>General Social Survey — Time Use</td>
 <td>GSS</td>
-<td>Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022</td>
+<td>Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 (each Main + Episode modules joinable on PUMFID/RECID)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>GSS Giving, Volunteering and Participating</td>
 <td>SGVP</td>
-<td>1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023</td>
+<td>1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 (1997–2010 add GS/VD/GIVE/VOLNTR detail modules joinable on PUMFID/MICRO_ID/IDNUM)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
@@ -300,7 +307,7 @@
 <tr>
 <td>Survey of Household Spending</td>
 <td>SHS</td>
-<td>2017, 2019, 2021, 2023</td>
+<td>2017 (Interview + Diary modules joinable on CASEID), 2019, 2021, 2023</td>
 <td align="center">✓</td>
 </tr>
 </tbody>

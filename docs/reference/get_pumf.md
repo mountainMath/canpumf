@@ -17,6 +17,7 @@ get_pumf(
   redownload = FALSE,
   read_only = TRUE,
   registry = NULL,
+  module = NULL,
   register_connection = getOption("canpumf.register_connection", TRUE),
   ...
 )
@@ -79,6 +80,17 @@ get_pumf(
   \[list_canpumf_collection()\], deposit the raw files under
   \`\<cache_path\>/\<series\>/\<version\>/\` first (there is no download
   URL).
+
+- module:
+
+  For multi-module surveys (several linked files in one DuckDB, e.g. GSS
+  cycle 16 / "Aging and Social Support" 2002, whose \`MAIN\`, \`CG4\`,
+  \`CG6\` and \`CR\` files join on \`RECID\`), selects which module
+  table to return. \`NULL\` (default) returns the survey's primary
+  module; for a multi-module survey a one-time message then lists the
+  sibling modules and shows how to open one. Use \[pumf_module()\] to
+  open a sibling module on the \*same\* connection so the two tbls are
+  joinable. Not supported for LFS.
 
 - register_connection:
 

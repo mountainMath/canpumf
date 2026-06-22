@@ -4,6 +4,29 @@
 
 ### New features
 
+- Multi-module survey support. Surveys that ship several linked files
+  sharing a respondent key are now modelled as several joinable tables
+  in one DuckDB file.
+  [`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
+  returns the survey’s primary (respondent-level) module and emits a
+  one-time message listing the available sibling modules;
+  `pumf_module(tbl, "<module>")` opens a sibling on the **same**
+  connection so the two are joinable, and announces the shared join key.
+  Each module’s join key is recorded in the registry (`module_key`) so
+  it never has to be guessed (it varies: `RECID`, `PUMFID`, `MICRO_ID`,
+  `CASEID`, `IDNUM`). Converted surveys include GSS cycle 16 / “Aging
+  and Social Support” 2002 (MAIN + CG4 + CG6 + CR), GSS Time Use
+  1998/2010/2015/2022 (Main + Episode), the Survey of Household Spending
+  2017 (Interview + Diary, each with its own bootstrap weights), and the
+  Giving/Volunteering/Participating cycles 1997–2010 (MAIN +
+  GS/VD/GIVE/VOLNTR).
+- [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
+  now also accepts a DuckDB connection returned by
+  [`get_pumf_connection()`](https://mountainmath.github.io/canpumf/reference/get_pumf_connection.md),
+  closing it directly, in addition to a lazy
+  [`dplyr::tbl()`](https://dplyr.tidyverse.org/reference/tbl.html)
+  returned by
+  [`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md).
 - New
   [`parse_pdf_codebook()`](https://mountainmath.github.io/canpumf/reference/parse_pdf_codebook.md)
   metadata parser for StatCan bilingual PDF *frequency codebooks*. This
@@ -17,6 +40,14 @@
 
 ### Documentation
 
+- New “Working with multi-module PUMF surveys” vignette showing how to
+  load the primary module, open sibling modules with
+  [`pumf_module()`](https://mountainmath.github.io/canpumf/reference/pumf_module.md),
+  join them inside DuckDB, and use
+  [`get_pumf_connection()`](https://mountainmath.github.io/canpumf/reference/get_pumf_connection.md)
+  /
+  [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
+  directly.
 - New “Bootstrap weights” vignette documenting the resampling method,
   how the weights are stored, stratification, estimating uncertainty,
   and the incremental re-run behaviour (reuse, adding replicates, and
