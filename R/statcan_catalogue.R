@@ -46,50 +46,98 @@
 
 # L1: parse the "Public use microdata" accordion into one row per survey.
 # Returns tibble(catalogue_id, Title, catalogue_url).
+#
+# Most items link to a /n1/en/catalogue/<ID> page, but a few link straight to a
+# /n1/pub/<code>/index-eng.htm product page (e.g. specific Aboriginal Peoples
+# Survey / GSS cycles surfaced separately).  We recover an id from whichever
+# form is present so none get a NA id, then drop the direct-product rows that
+# duplicate a real catalogue entry — the catalogue row drives full edition
+# discovery, so it is the one to keep.
 .statcan_parse_microdata_list <- function(page) {
   det   <- rvest::html_element(page, "details#publicusemicrodata")
   items <- rvest::html_elements(det, "li.ndm-item")
   a     <- rvest::html_element(items, "a")
   href  <- rvest::html_attr(a, "href")
   title <- trimws(rvest::html_text(a))
-  cat_id <- stringr::str_match(href, "catalogue/([0-9A-Za-z-]+)")[, 2]
-  tibble::tibble(
-    catalogue_id  = cat_id,
+
+  cat_id   <- stringr::str_match(href, "catalogue/([0-9A-Za-z-]+)")[, 2]
+  is_cat   <- !is.na(cat_id)
+  pub_code <- ifelse(grepl("/n1/pub/", href),
+                     sub(".*/n1/pub/([^/]+)/.*", "\\1", href), NA_character_)
+
+  out <- tibble::tibble(
+    catalogue_id  = ifelse(is_cat, cat_id, pub_code),
     Title         = title,
     catalogue_url = ifelse(grepl("^http", href), href,
-                           paste0(.statcan_base, href))
+                           paste0(.statcan_base, href)),
+    .key          = .statcan_norm_id(ifelse(is_cat, cat_id, pub_code)),
+    .is_cat       = is_cat
   )
+  out <- out[order(!out$.is_cat), , drop = FALSE]                 # catalogue first
+  out <- out[!is.na(out$.key) & !duplicated(out$.key), , drop = FALSE]
+  out$.key <- out$.is_cat <- NULL
+  out
 }
+
+# Normalise a catalogue id or product code to alphanumeric-lowercase so the two
+# can be compared regardless of StatCan's inconsistent hyphenation across
+# vintages (82M0013X -> "82m0013x", 14250001 -> "14-25-0001" -> "14250001").
+.statcan_norm_id <- function(x) gsub("[^a-z0-9]", "", tolower(x))
 
 # L2: from a survey catalogue page, find the product page(s) that carry the
 # actual downloads.  StatCan links the newest issue as a /n1/pub/.../-eng.htm
 # product page (which itself usually lists every edition's zip), plus a set of
 # per-issue "More information" catalogue ids.  We return the product-page URLs,
 # preferring the directly-linked -eng.htm products.
-.statcan_product_urls <- function(catalogue_url) {
+#
+# A catalogue page also cross-links *related but distinct* products (e.g. the
+# CCHS page links the "Health Reports" article 82-003-s), which must not be
+# mistaken for editions of this survey.  When `catalogue_id` is supplied we keep
+# only product pages whose /n1/pub/<code>/ directory belongs to this survey,
+# i.e. its normalised code starts with the normalised catalogue id.
+.statcan_product_urls <- function(catalogue_url, catalogue_id = NULL) {
   pg   <- tryCatch(rvest::read_html(catalogue_url), error = function(e) NULL)
   if (is.null(pg)) return(character(0))
   href <- rvest::html_attr(rvest::html_elements(pg, "a"), "href")
   prod <- href[grepl("/n1/pub/.+-eng\\.htm$", href)]
   prod <- unique(prod[!is.na(prod)])
+  if (!is.null(catalogue_id) && !is.na(catalogue_id) && length(prod)) {
+    cid  <- .statcan_norm_id(catalogue_id)
+    code <- .statcan_norm_id(sub(".*/n1/pub/([^/]+)/.*", "\\1", prod))
+    prod <- prod[startsWith(code, cid)]
+  }
   ifelse(grepl("^http", prod), prod, paste0(.statcan_base, prod))
 }
 
-# Classify a download filename into a format token (NA if none recognised).
-.statcan_detect_format <- function(file) {
-  up <- toupper(file)
-  hit <- vapply(.statcan_format_tokens,
-                function(tok) grepl(tok, up, fixed = TRUE),
-                logical(1))
-  if (any(hit)) names(.statcan_format_tokens)[which(hit)[1]] else NA_character_
+# Classify a download into a format token (NA if none recognised).  The
+# filename usually carries the token (`2022_CSV.zip`), but on some product pages
+# the filename is opaque while the *anchor text* is exactly the format label
+# (`<a>CSV</a>`), so we fall back to that.  Legacy bundled downloads (e.g. old
+# GSS cycle zips) carry no format signal anywhere and stay NA.
+.statcan_detect_format <- function(file, text = NULL) {
+  for (src in list(file, text)) {
+    if (is.null(src) || is.na(src)) next
+    up  <- toupper(src)
+    hit <- vapply(.statcan_format_tokens,
+                  function(tok) grepl(tok, up, fixed = TRUE),
+                  logical(1))
+    if (any(hit)) return(names(.statcan_format_tokens)[which(hit)[1]])
+  }
+  NA_character_
 }
 
-# Guess the edition/reference year for a download from its anchor text or
-# filename (e.g. "Reference period 2022" -> "2022", "2023-CSV.zip" -> "2023").
+# Guess the edition/reference period for a download from its anchor text or
+# filename: a year ("2023-CSV.zip" -> "2023"), a year-month for monthly series
+# ("2026-05-CSV.zip" -> "2026-05"), or a year range ("1997-1998"). We take the
+# most specific match found in either string so monthly editions are not
+# collapsed to their year (which would let the per-edition format de-dup drop
+# eleven months).
 .statcan_detect_edition <- function(text, file) {
-  yr <- stringr::str_extract(text, "\\d{4}(?:-\\d{4})?")
-  if (is.na(yr)) yr <- stringr::str_extract(file, "\\d{4}(?:-\\d{4})?")
-  yr
+  pat  <- "\\d{4}(?:-\\d{2,4})?"
+  cand <- c(stringr::str_extract(file, pat), stringr::str_extract(text, pat))
+  cand <- cand[!is.na(cand)]
+  if (!length(cand)) return(NA_character_)
+  cand[which.max(nchar(cand))]
 }
 
 # L3: parse a product page into one row per downloadable zip.
@@ -109,7 +157,7 @@
     file <- basename(sub("\\?.*$", "", h))
     tibble::tibble(
       edition = .statcan_detect_edition(text[i], file),
-      format  = .statcan_detect_format(file),
+      format  = .statcan_detect_format(file, text[i]),
       file    = file,
       url     = url
     )
@@ -174,7 +222,7 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
       message(sprintf("[%d/%d] %s (%s)", i, nrow(listing),
                       row$Title, row$catalogue_id %||% "?"))
 
-    prods <- tryCatch(.statcan_product_urls(row$catalogue_url),
+    prods <- tryCatch(.statcan_product_urls(row$catalogue_url, row$catalogue_id),
                       error = function(e) character(0))
     dl <- purrr::map_dfr(prods, .statcan_parse_product_page)
 

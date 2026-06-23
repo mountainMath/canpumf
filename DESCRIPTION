@@ -21,6 +21,7 @@ Imports:
     utils,
     tibble,
     rvest,
+    httr,
     purrr,
     DBI,
     duckdb  (>= 1.5.2),
