@@ -259,6 +259,17 @@ installed; supplements label-only surveys where the SPSS file has
 <code>VALUE LABELS</code>
 </td>
 </tr>
+<tr class="even">
+<td>8</td>
+<td><strong>PDF frequency codebook</strong></td>
+<td>a bilingual StatCan frequency codebook PDF (per-variable
+<code>Variable Name:</code> / <code>Answer Categories</code> blocks)
+under a <code>Codebook</code>/<code>LivreDesCodes</code> path,
+content-verified; <code>pdftools</code> installed. A
+<strong>last-resort</strong> fallback consulted only when no command
+file or codebook CSV was found — recovers labels for surveys whose only
+machine-readable companion is the data file (e.g. CPSS cycle 1)</td>
+</tr>
 </tbody>
 </table>
 <p>Detection for case 5 also searches for a parallel French file — any
@@ -378,6 +389,28 @@ ranges.</p>
 <code>*Dictionary.pdf</code> is found. It is used as a label-only
 supplement for surveys like SFS 1999 where the SPSS file is
 <code>DATA LIST</code>-only.</p>
+</div>
+<div class="section level4">
+<h4 id="pdf-frequency-codebook-parse_pdf_codebook">PDF frequency codebook (<code>parse_pdf_codebook</code>)<a class="anchor" aria-label="anchor" href="#pdf-frequency-codebook-parse_pdf_codebook"></a>
+</h4>
+<p>A second, distinct StatCan PDF layout, used when a survey ships
+<em>no</em> machine-readable command file or codebook CSV — only a
+bilingual frequency codebook PDF. Variable blocks start with
+<code>Variable Name:</code> / <code>Nom de la variable :</code> and
+carry the label on the <code>Concept:</code> line; an
+<code>Answer Categories</code> / <code>Catégories de réponse</code>
+frequency table supplies the value labels (parsed from a right-anchored
+code-row regex that tolerates comma- and space-grouped counts and
+rejoins wrapped answer text). Produces only <code>variables</code> and
+<code>codes</code>. Like the dictionary parser it requires
+<code>pdftools</code>, but detection is a <strong>fallback of last
+resort</strong> — only consulted when no command file or codebook CSV
+was found, and only for PDFs under a
+<code>Codebook</code>/<code>LivreDesCodes</code> path that
+content-verify for the <code>Variable Name:</code> +
+<code>Answer Categories</code> signature. This is what gives CPSS cycle
+1 (the only cycle without a <code>variables.csv</code>) full bilingual
+labels.</p>
 </div>
 </div>
 <div class="section level3">
@@ -595,6 +628,15 @@ string sentinels that become <code>NA</code>. In numeric columns they
 are exact-matched and NA’d during numeric conversion; in labeled
 (factor) columns they are silently blanked. Used for undeclared Census
 income sentinels and SAS-style <code>"."</code> missing markers.</li>
+<li>
+<strong><code>labels_supplement</code></strong> — named list
+<code>c(VAR = c(label_en =, label_fr =))</code> supplying
+<em>variable</em> labels the source metadata leaves blank (e.g. CPSS 1
+ships only a PDF codebook whose weight variable <code>COVID_WT</code>
+has an empty <code>Concept:</code> line in both languages). Applied in
+both Stage 3 and <code><a href="../reference/label_pumf_columns.html">label_pumf_columns()</a></code> /
+<code><a href="../reference/pumf_var_labels.html">pumf_var_labels()</a></code>, and fills only <code>NA</code> labels,
+so genuine source labels always win.</li>
 </ul>
 </div>
 <div class="section level3">
@@ -696,6 +738,41 @@ preventing in-process lock conflicts when building both language tables
 in the same session.</p>
 <hr>
 </div>
+</div>
+<div class="section level2">
+<h2 id="multi-module-surveys">Multi-module surveys<a class="anchor" aria-label="anchor" href="#multi-module-surveys"></a>
+</h2>
+<p>Some surveys ship several linked files that share a respondent key
+and are meant to be joined for analysis (GSS cycle 16 / Aging and Social
+Support 2002, the GSS Time Use cycles, the Survey of Household Spending
+2017, the Giving/Volunteering/ Participating cycles).
+<code>canpumf</code> models these as <strong>several tables inside one
+DuckDB file</strong> — not separate databases, which could not be joined
+on a single connection.</p>
+<p>A registry entry declares
+<code>modules = list(MAIN = ..., CG4 = ...)</code>; each module carries
+its own <code>layout_mask</code>, <code>file_mask</code>,
+<code>data_fixups</code>, and bootstrap-weight config. One module is the
+<strong>primary</strong> (the respondent-level file that carries the
+survey weight); its config is auto-derived to the entry’s top level so
+all the single-table code paths above keep working unchanged. The entry
+also records <code>module_key</code> — the shared key the modules join
+on (it varies: <code>RECID</code>, <code>PUMFID</code>,
+<code>MICRO_ID</code>, <code>CASEID</code>, <code>IDNUM</code>).</p>
+<p><code><a href="../reference/pumf_run_pipeline.html">pumf_run_pipeline()</a></code> loops the modules, running Stage 2
+and Stage 3 once per module so every table lands in the
+<strong>one</strong> DuckDB file. Each module parses its metadata into
+<code>metadata/&lt;module&gt;/</code> (the primary uses
+<code>metadata/</code>) and joins its <strong>own</strong> bootstrap
+weights, so e.g. the SHS Interview replicate weights are not mis-joined
+onto the Diary table. The primary module’s tbl is returned.</p>
+<p>User-facing, <code><a href="../reference/get_pumf.html">get_pumf()</a></code> returns the primary module and
+emits a one-time message listing the sibling modules;
+<code>pumf_module(tbl, "&lt;module&gt;")</code> opens a sibling on the
+<strong>same</strong> connection so the two are joinable. The dedicated
+<a href="submodules.html"><em>Working with multi-module PUMF
+surveys</em></a> vignette covers the user-facing workflow in full.</p>
+<hr>
 </div>
 <div class="section level2">
 <h2 id="lfs-pipeline">LFS pipeline<a class="anchor" aria-label="anchor" href="#lfs-pipeline"></a>
@@ -831,7 +908,7 @@ without an entry use auto-detection with defaults (see
 <code>cols_swap</code>, <code>force_numeric</code>,
 <code>force_character</code>, <code>force_integer</code>,
 <code>force_bigint</code>, <code>codes_supplement</code>,
-<code>na_values</code> transforms</td>
+<code>na_values</code>, <code>labels_supplement</code> transforms</td>
 <td><code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code></td>
 </tr>
 <tr class="even">
@@ -846,6 +923,16 @@ overrides for sentinels no generic pattern can classify
 <td>regex applied to PDF filenames to filter a shared documentation
 directory to the relevant file type
 (e.g. <code>"Family\|Familles"</code> for 1986 Census families)</td>
+<td><code>NULL</code></td>
+</tr>
+<tr class="even">
+<td>
+<code>modules</code> / <code>module_key</code>
+</td>
+<td>for multi-module surveys: per-module config
+(<code>layout_mask</code>, <code>file_mask</code>,
+<code>data_fixups</code>, BSW) and the shared respondent key the modules
+join on (see <em>Multi-module surveys</em> above)</td>
 <td><code>NULL</code></td>
 </tr>
 </tbody>
@@ -868,10 +955,7 @@ is discoverable; a genuinely changed release (new file layout, codes, or
 BSW join) still needs its own explicit entry. Inheritance is
 <strong>skipped</strong> for multi-part versions (e.g. Census
 <code>2021 (individuals)</code>) and for LFS, which has its own shared
-registry entry. | <code>doc_mask</code> | regex applied to PDF filenames
-to filter a shared documentation directory to the relevant file type
-(e.g. <code>"Family\|Familles"</code> for 1986 Census families) |
-<code>NULL</code> |</p>
+registry entry.</p>
 </div>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
