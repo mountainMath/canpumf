@@ -25,6 +25,11 @@
 # Format tokens that may appear in a download filename, in canpumf's order of
 # preference: a plain-text/CSV flat file is easiest to ingest, Beyond 20/20
 # (.ivt) the least.  Used both to detect a file's format and to rank choices.
+# Session-level cache for list_statcan_pumf_catalogue() results, keyed by the
+# arguments that affect output. Persists for the running R session; cleared by
+# refresh = TRUE (per key) or by restarting R.
+.statcan_catalogue_cache <- new.env(parent = emptyenv())
+
 .statcan_format_tokens <- c(
   CSV   = "CSV",
   TXT   = "TXT",         # StatCan's flat ASCII export; CSV-equivalent for us
@@ -126,6 +131,28 @@
   NA_character_
 }
 
+# Census PUMF filenames encode the reference year as a `cenNN` / `nhsNN` prefix
+# (the 2011 cycle shipped as the National Household Survey) and the file type as
+# `ind` / `fam` / `hous` / `hier`, e.g. `cen21_ind_98m0001x_part_rec21.zip` ->
+# "2021 (individuals)".  The generic period detector can't see this — the only
+# four-digit run in the name is the StatCan product code (`98m0001x` -> "0001")
+# — so census downloads get a dedicated decoder, matching the canonical Version
+# strings list_canpumf_collection() uses.  Forward-compatible: when the 2026
+# census PUMF lands as `cen26_...` it resolves to "2026 (...)" with no change
+# here.  Two-digit years map at a 2030 cut-off (00-30 -> 2000s, else 1900s).
+# Returns NA for non-census filenames so the generic path handles everything else.
+.statcan_census_edition <- function(file) {
+  if (is.null(file) || is.na(file)) return(NA_character_)
+  m <- stringr::str_match(tolower(basename(file)),
+                          "^(?:cen|nhs)(\\d{2})_(ind|fam|hous|hier)_")
+  if (is.na(m[1L])) return(NA_character_)
+  yy   <- as.integer(m[2L])
+  year <- if (yy <= 30L) 2000L + yy else 1900L + yy
+  type <- c(ind = "individuals", fam = "families",
+            hous = "households",  hier = "hierarchical")[[m[3L]]]
+  sprintf("%d (%s)", year, type)
+}
+
 # Guess the edition/reference period for a download from its anchor text or
 # filename: a year ("2023-CSV.zip" -> "2023"), a year-month for monthly series
 # ("2026-05-CSV.zip" -> "2026-05"), or a year range ("1997-1998"). We take the
@@ -136,6 +163,8 @@
 # before the filename in the download path: a reference year/range ("/2019/",
 # "/2019-2020/") or a StatCan issue ("/2020001/" -> the leading year).
 .statcan_detect_edition <- function(text, file, url = NULL) {
+  census <- .statcan_census_edition(file)
+  if (!is.na(census)) return(census)
   pat  <- "\\d{4}(?:-\\d{2,4})?"
   cand <- c(stringr::str_extract(file, pat), stringr::str_extract(text, pat))
   cand <- cand[!is.na(cand)]
@@ -183,6 +212,21 @@
   df[order(rank), , drop = FALSE][1L, , drop = FALSE]
 }
 
+# Identity of a download *modulo its format*: the basename with extension and any
+# format token (and adjacent separators) stripped.  StatCan offers the same file
+# as `..._CSV.zip`/`..._SAS.zip` (or bare `CSV.zip`/`SAS.zip`), which collapse to
+# the same stem and are genuine format-variants; files with no format token keep
+# their whole name, so distinct surveys or file-types sharing one edition string
+# (GSS giving-survey vs cycle in 2007; census ind/fam/hous) stay distinct.
+.statcan_file_stem <- function(file, format = NULL) {
+  stem <- sub("\\.[^.]+$", "", basename(file %||% ""))
+  if (!is.null(format) && !is.na(format)) {
+    tok  <- .statcan_format_tokens[[format]] %||% format
+    stem <- gsub(paste0("[ _.-]*", tok, "[ _.-]*"), "", stem, ignore.case = TRUE)
+  }
+  tolower(gsub("[^A-Za-z0-9]", "", stem))
+}
+
 #' Crawl the full Statistics Canada PUMF catalogue (experimental)
 #'
 #' Scrapes the live StatCan "Public use microdata" listing and follows each
@@ -202,6 +246,11 @@
 #'   for a quick look — a full crawl issues a few hundred requests).
 #' @param surveys Optional character vector of catalogue ids to restrict to.
 #' @param verbose If `TRUE`, print progress as each survey is crawled.
+#' @param refresh If `FALSE` (the default), the crawl result is cached for the
+#'   duration of the R session and reused on subsequent calls with the same
+#'   `prefer`/`max_surveys`/`surveys` arguments — a full crawl is expensive
+#'   (hundreds of requests). Set `TRUE` to re-scrape the live catalogue and
+#'   replace the cached result, e.g. to pick up a newly released survey.
 #'
 #' @return A tibble with one row per discovered edition: `catalogue_id`,
 #'   `Title`, `edition`, `format`, `url`, and `product_url`.  Surveys with no
@@ -218,7 +267,15 @@
 list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_tokens),
                                         max_surveys = NULL,
                                         surveys     = NULL,
-                                        verbose     = TRUE) {
+                                        verbose     = TRUE,
+                                        refresh     = FALSE) {
+  key <- paste0(
+    "prefer=",  paste(prefer, collapse = ","), ";",
+    "max=",     if (is.null(max_surveys)) "all" else max_surveys, ";",
+    "surveys=", if (is.null(surveys)) "all" else paste(sort(surveys), collapse = ","))
+  if (!refresh && !is.null(.statcan_catalogue_cache[[key]]))
+    return(.statcan_catalogue_cache[[key]])
+
   page    <- .statcan_microdata_page()
   listing <- .statcan_parse_microdata_list(page)
 
@@ -246,10 +303,15 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
     # one product page; remember which it came from for traceability
     dl$product_url <- if (length(prods) == 1L) prods else NA_character_
 
-    # collapse multiple formats per edition to the preferred one; keep NA as its
-    # own group (exclude = NULL) so an edition we could not date still yields a
-    # row instead of being silently dropped by split().
-    parts <- split(dl, factor(dl$edition, exclude = NULL))
+    # Collapse only rows that are the *same file* in different formats: group by
+    # (edition, file-stem-modulo-format), not edition alone.  Grouping on edition
+    # alone silently drops genuinely distinct surveys/file-types that share a year
+    # (GSS giving-survey vs cycle in 2007) or a mis-parsed edition string (census
+    # cen21/cen16 both -> "0001").  A sentinel replaces NA edition so an undated
+    # download still yields its own row instead of being dropped by split().
+    stem <- mapply(.statcan_file_stem, dl$file, dl$format, USE.NAMES = FALSE)
+    ed   <- ifelse(is.na(dl$edition), "NA", dl$edition)
+    parts <- split(dl, paste(ed, stem, sep = "\r"))
     dl <- purrr::map_dfr(parts, .statcan_pick_format, prefer = prefer)
 
     tibble::tibble(catalogue_id = row$catalogue_id, Title = row$Title,
@@ -257,5 +319,6 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
                    url = dl$url, product_url = dl$product_url)
   })
 
+  .statcan_catalogue_cache[[key]] <- out
   out
 }

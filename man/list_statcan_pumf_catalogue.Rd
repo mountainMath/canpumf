@@ -8,7 +8,8 @@ list_statcan_pumf_catalogue(
   prefer = names(.statcan_format_tokens),
   max_surveys = NULL,
   surveys = NULL,
-  verbose = TRUE
+  verbose = TRUE,
+  refresh = FALSE
 )
 }
 \arguments{
@@ -21,6 +22,12 @@ for a quick look — a full crawl issues a few hundred requests).}
 \item{surveys}{Optional character vector of catalogue ids to restrict to.}
 
 \item{verbose}{If `TRUE`, print progress as each survey is crawled.}
+
+\item{refresh}{If `FALSE` (the default), the crawl result is cached for the
+duration of the R session and reused on subsequent calls with the same
+`prefer`/`max_surveys`/`surveys` arguments — a full crawl is expensive
+(hundreds of requests). Set `TRUE` to re-scrape the live catalogue and
+replace the cached result, e.g. to pick up a newly released survey.}
 }
 \value{
 A tibble with one row per discovered edition: `catalogue_id`,

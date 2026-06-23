@@ -1,3 +1,10 @@
+# canpumf 0.5.2
+
+## New features
+* Experimental `list_statcan_pumf_catalogue()` crawls the live Statistics Canada "Public use microdata" listing and returns one row per discovered survey edition (`catalogue_id`, `Title`, `edition`, `format`, `url`, `product_url`) — a discovery counterpart to the curated `list_canpumf_collection()` that picks up newly released PUMFs automatically. Editions offered in several formats collapse to a single preferred row (CSV / flat text first), but genuinely distinct surveys or file-types that share a reference year are kept as separate rows (e.g. the GSS cycle and the Giving/Volunteering survey both released in 2007, or the census individual/family/household/hierarchical files for one year). Surveys distributed only by Electronic File Transfer report `url = "(EFT)"`.
+* The full crawl is expensive (hundreds of requests), so `list_statcan_pumf_catalogue()` caches its result for the duration of the R session and reuses it on subsequent calls with the same arguments. Pass `refresh = TRUE` to re-scrape the live catalogue and replace the cached result, e.g. to pick up a newly released survey mid-session.
+* Census PUMF editions are decoded from their `cenNN` / `nhsNN` filename prefix (the 2011 cycle shipped as the National Household Survey) and `ind` / `fam` / `hous` / `hier` file type into canonical `"YYYY (individuals)"`-style strings matching `list_canpumf_collection()`. This is forward-compatible: the 2026 census PUMF will resolve automatically once released.
+
 # canpumf 0.5.1
 
 ## New features
