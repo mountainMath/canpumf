@@ -131,13 +131,22 @@
 # ("2026-05-CSV.zip" -> "2026-05"), or a year range ("1997-1998"). We take the
 # most specific match found in either string so monthly editions are not
 # collapsed to their year (which would let the per-edition format de-dup drop
-# eleven months).
-.statcan_detect_edition <- function(text, file) {
+# eleven months).  When neither carries a period (e.g. CPSS / ITS, whose files
+# are named CSV.zip / SAS.zip), fall back to the directory segment immediately
+# before the filename in the download path: a reference year/range ("/2019/",
+# "/2019-2020/") or a StatCan issue ("/2020001/" -> the leading year).
+.statcan_detect_edition <- function(text, file, url = NULL) {
   pat  <- "\\d{4}(?:-\\d{2,4})?"
   cand <- c(stringr::str_extract(file, pat), stringr::str_extract(text, pat))
   cand <- cand[!is.na(cand)]
-  if (!length(cand)) return(NA_character_)
-  cand[which.max(nchar(cand))]
+  if (length(cand)) return(cand[which.max(nchar(cand))])
+  if (!is.null(url)) {
+    seg <- sub(".*/", "", sub("/[^/]+$", "", url))          # dir before the file
+    if (grepl("^\\d{4}(?:-\\d{2,4})?$", seg)) return(seg)    # /2019/ or /2019-2020/
+    iss <- stringr::str_match(seg, "^(\\d{4})\\d{3}$")[, 2]  # /2020001/ issue
+    if (!is.na(iss)) return(iss)
+  }
+  NA_character_
 }
 
 # L3: parse a product page into one row per downloadable zip.
@@ -153,10 +162,12 @@
   base <- sub("[^/]*$", "", product_url)            # product page directory
   purrr::map_dfr(keep, function(i) {
     h    <- href[i]
-    url  <- if (grepl("^http", h)) h else paste0(base, h)
+    url  <- if (grepl("^http", h)) h
+            else if (startsWith(h, "/")) paste0(.statcan_base, h)  # site-absolute
+            else paste0(base, h)                                   # page-relative
     file <- basename(sub("\\?.*$", "", h))
     tibble::tibble(
-      edition = .statcan_detect_edition(text[i], file),
+      edition = .statcan_detect_edition(text[i], file, url),
       format  = .statcan_detect_format(file, text[i]),
       file    = file,
       url     = url
@@ -235,9 +246,10 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
     # one product page; remember which it came from for traceability
     dl$product_url <- if (length(prods) == 1L) prods else NA_character_
 
-    # collapse multiple formats per edition to the preferred one
-    dl <- dl[!is.na(dl$edition) | is.na(dl$edition), , drop = FALSE]
-    parts <- split(dl, dl$edition)
+    # collapse multiple formats per edition to the preferred one; keep NA as its
+    # own group (exclude = NULL) so an edition we could not date still yields a
+    # row instead of being silently dropped by split().
+    parts <- split(dl, factor(dl$edition, exclude = NULL))
     dl <- purrr::map_dfr(parts, .statcan_pick_format, prefer = prefer)
 
     tibble::tibble(catalogue_id = row$catalogue_id, Title = row$Title,
