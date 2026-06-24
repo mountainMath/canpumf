@@ -9,7 +9,8 @@ list_statcan_pumf_catalogue(
   max_surveys = NULL,
   surveys = NULL,
   verbose = TRUE,
-  refresh = FALSE
+  refresh = FALSE,
+  cache_path = getOption("canpumf.cache_path")
 )
 }
 \arguments{
@@ -23,15 +24,39 @@ for a quick look — a full crawl issues a few hundred requests).}
 
 \item{verbose}{If `TRUE`, print progress as each survey is crawled.}
 
-\item{refresh}{If `FALSE` (the default), the crawl result is cached for the
-duration of the R session and reused on subsequent calls with the same
-`prefer`/`max_surveys`/`surveys` arguments — a full crawl is expensive
-(hundreds of requests). Set `TRUE` to re-scrape the live catalogue and
-replace the cached result, e.g. to pick up a newly released survey.}
+\item{refresh}{If `FALSE` (the default), the crawl result is cached and
+reused — a full crawl is expensive (hundreds of requests). Within a session
+it is held in memory; a *full* crawl (no `max_surveys`/`surveys`) is also
+persisted to disk under `cache_path` so it survives across sessions. Set
+`TRUE` to re-scrape the live catalogue and replace both caches, e.g. to
+pick up a newly released survey.}
+
+\item{cache_path}{Directory for the cross-session catalogue cache
+(`pumf_catalogue.rds`). Defaults to `getOption("canpumf.cache_path")`; when
+unset there is no durable cache and only the in-session cache is used. A
+persisted catalogue older than
+`getOption("canpumf.catalogue_max_age_days", 30)` triggers a staleness
+warning suggesting `refresh = TRUE`. If a live crawl fails (StatCan
+unreachable) the last persisted copy is returned with a warning.}
 }
 \value{
 A tibble with one row per discovered edition: `catalogue_id`,
-  `Title`, `edition`, `format`, `url`, and `product_url`.  Surveys with no
+  `Acronym`, `SeriesTitle`, `Title`, `survey_url`, `edition`, `format`,
+  `url`, and `product_url`. `SeriesTitle` is the plain-language series name
+  matching the acronym (the catalogue title with the edition-specific tail and
+  "Public Use Microdata File" boilerplate stripped). `Title` is
+  edition-specific: StatCan's own per-edition catalogue title where it carries
+  one, otherwise — for *umbrella* products whose catalogue title is only the
+  series name (e.g. the consolidated General Social Survey, or a census year's
+  individuals/hierarchical pair) — a synthesised `"<series> — <edition>"`,
+  where the structural edition descriptor disambiguates colliding years (GSS
+  `"Cycle 16 (2002)"`, census `"2021 (individuals)"`). `edition` remains the
+  reference period/variant. `survey_url` is the survey's catalogue overview
+  page (the L2 page the crawler followed); `url`/`product_url` point at the
+  individual edition's download and product page. `Acronym` and `SeriesTitle`
+  are derived from the title since StatCan exposes no such field; they match
+  the curated [list_canpumf_collection()] values for most surveys but are
+  best-effort (Census `Acronym` is hard-coded to `"Census"`). Surveys with no
   downloadable file get a single row with `url = "(EFT)"`.
 }
 \description{

@@ -44,8 +44,8 @@ weight), and tells you which sibling modules are available.
 emits a one-time message listing the other modules and how to open one:
 
 ```{r}
-main <- get_pumf("GSS", "2002")   # primary module (MAIN), carries WGHT_PER
-#> GSS/2002 is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
+main <- get_pumf("GSS", "Cycle 16 (2002)")  # primary module (MAIN), carries WGHT_PER
+#> GSS/Cycle 16 (2002) is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
 #> Open one on the same connection with pumf_module(), e.g.:
 #>   cg4 <- pumf_module(main, "CG4")
 

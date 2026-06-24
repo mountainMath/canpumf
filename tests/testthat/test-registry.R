@@ -186,6 +186,28 @@ test_that("pumf_resolve_version: non-Census series unchanged", {
   expect_equal(canpumf:::pumf_resolve_version("CPSS", "2020"), "2020")
 })
 
+test_that("pumf_resolve_version: CPSS/CCAHS cycle aliases", {
+  rv <- canpumf:::pumf_resolve_version
+  # bare cycle number is already canonical
+  expect_equal(rv("CPSS", "1"), "1")
+  expect_equal(rv("CPSS", "6"), "6")
+  # StatCan styles CPSS cycles "Series N"; also accept "Cycle N"/"CPSS N"
+  expect_equal(rv("CPSS", "Series 3"), "3")
+  expect_equal(rv("CPSS", "Cycle 4"), "4")
+  expect_equal(rv("CPSS", "cpss6"),   "6")
+  # a bare year is ambiguous for CPSS (several cycles share a year) -> unchanged
+  expect_equal(rv("CPSS", "2020"), "2020")
+
+  # CCAHS cycle 1 + its unique reference-year alias
+  expect_equal(rv("CCAHS", "1"), "1")
+  expect_equal(rv("CCAHS", "Cycle 1"), "1")
+  expect_equal(rv("CCAHS", "2022"), "1")
+
+  # other series are not touched by the cycle aliaser
+  expect_equal(rv("SFS", "1999"), "1999")
+  expect_equal(rv("CIS", "2020"), "2020")
+})
+
 test_that("pumf_resolve_version: NULL version returns NULL", {
   expect_null(canpumf:::pumf_resolve_version("Census", NULL))
   expect_null(canpumf:::pumf_resolve_version("SFS",    NULL))

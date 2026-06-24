@@ -10,56 +10,55 @@
 # All end-to-end verified versions (Caregiving series, registered as plain years).
 # 2002 is GSS cycle 16 ("Aging and Social Support"), a multi-module survey
 # (MAIN + CG4 + CG6 + CR linked on RECID); the primary module is MAIN.
-.gss_verified <- c("2018", "2012", "2007", "2002", "1996")
+.gss_verified <- c("Cycle 32 (2018)", "Cycle 26 (2012)", "Cycle 21 (2007)", "Cycle 16 (2002)", "Cycle 11 (1996)")
 
 # Non-caregiving GSS themes with their version strings
 .gss_theme_verified <- c(
-  "Safety 2019", "Social Identity 2020", "Time Use 2022",
-  "Family 2017", "Safety 2014", "Social Identity 2013", "Time Use 2015",
-  "Family 2011", "Education 2007", "Social Identity 2003",
-  "Time Use 2010", "Education 1994", "Safety 1993", "Safety 1999",
-  "Family 1995", "Family 2001", "Time Use 1998"
+  "Cycle 34 (2019)", "Cycle 35 (2020)", "Cycle 36 (2022)",
+  "Cycle 31 (2017)", "Cycle 28 (2014)", "Cycle 27 (2013)", "Cycle 29 (2015)",
+  "Cycle 25 (2011)", "Cycle 17 (2003)",
+  "Cycle 24 (2010)", "Cycle 9 (1994)", "Cycle 8 (1993)", "Cycle 13 (1999)",
+  "Cycle 10 (1995)", "Cycle 15 (2001)", "Cycle 12 (1998)"
 )
 
 # Versions whose StatCan distribution contains only English command files;
 # no French variable labels are available in the metadata.
-.gss_no_french_vars <- c("Education 1994")
+.gss_no_french_vars <- c("Cycle 9 (1994)")
 
 # Versions where StatCan's SPSS/SAS command files carry no French code labels;
 # bilingual parity tests are skipped for these.
 # Education 1994: English-only command files.
 # 2002 (cycle 16): variables.csv has French variable names, but codes.csv has
 #   none — the SPSS value-label blocks are English-only.
-.gss_no_french_codes <- c("Education 1994", "2002")
+.gss_no_french_codes <- c("Cycle 9 (1994)", "Cycle 16 (2002)")
 
 # GSS versions with known expected warnings (pattern matched against each warning).
 # Any warning NOT matching this pattern is unexpected and fails the test.
 .gss_supplement_warnings <- list(
   # 2018: force_numeric injects boundary-label variables
-  "2018" = "absent from command files",
+  "Cycle 32 (2018)" = "absent from command files",
   # 2012: force_numeric injects boundary-label variables; WTBS bootstrap weights
   #        are in the layout but lack individual variable labels in the SPSS file
-  "2012" = "absent from command files|Variables in layout but not in variable labels",
+  "Cycle 26 (2012)" = "absent from command files|Variables in layout but not in variable labels",
   # 2007: WTBS_002–WTBS_500 unlabeled in VARIABLE LABELS (StatCan only labels #1);
   #        the French SPSS file for Cycle 21 covers only ~26 of 951 variables
-  "2007" = "Variables in layout but not in variable labels|no French translation",
+  "Cycle 21 (2007)" = "Variables in layout but not in variable labels|no French translation",
   # 2002 (cycle 16, MAIN module): force_numeric injects boundary-label variables
-  "2002" = "absent from command files",
+  "Cycle 16 (2002)" = "absent from command files",
   # Non-caregiving themes with force_numeric (boundary labels → continuous data)
-  "Safety 2019"         = "absent from command files",
-  "Safety 2014"         = "absent from command files",
-  "Safety 1999"         = "absent from command files|Variables in layout but not in variable labels|no French translation",
-  "Safety 1993"         = "absent from command files",
-  "Family 2017"         = "absent from command files",
-  "Family 2011"         = "absent from command files|Variables in layout but not in variable labels",
-  "Family 2001"         = "absent from command files",
-  "Family 1995"         = "absent from command files",
-  "Social Identity 2013"= "absent from command files",
-  "Social Identity 2003"= "absent from command files|Variables in layout but not in variable labels",
-  "Education 2007"      = "absent from command files|Variables in layout but not in variable labels",
-  "Education 1994"      = "absent from command files",
-  "Time Use 2015"       = "absent from command files",
-  "Time Use 2010"       = "Variables in layout but not in variable labels"
+  "Cycle 34 (2019)"         = "absent from command files",
+  "Cycle 28 (2014)"         = "absent from command files",
+  "Cycle 13 (1999)"         = "absent from command files|Variables in layout but not in variable labels|no French translation",
+  "Cycle 8 (1993)"         = "absent from command files",
+  "Cycle 31 (2017)"         = "absent from command files",
+  "Cycle 25 (2011)"         = "absent from command files|Variables in layout but not in variable labels",
+  "Cycle 15 (2001)"         = "absent from command files",
+  "Cycle 10 (1995)"         = "absent from command files",
+  "Cycle 27 (2013)"= "absent from command files",
+  "Cycle 17 (2003)"= "absent from command files|Variables in layout but not in variable labels",
+  "Cycle 9 (1994)"      = "absent from command files",
+  "Cycle 29 (2015)"       = "absent from command files",
+  "Cycle 24 (2010)"       = "Variables in layout but not in variable labels"
   # Time Use 1998: force_numeric for its continuous clock-time/duration/year
   # variables + lossy-source conflict suppression in merge_metadata() now leave
   # zero warnings under both C and UTF-8 list.files() ordering, so no allowance.
@@ -268,21 +267,26 @@ for (.v in .gss_theme_verified) {
 
 # ---- GSS cycle 16 (2002) multi-module support -------------------------------
 
-test_that("GSS cycle/theme aliases resolve to canonical 2002", {
-  expect_identical(canpumf:::pumf_resolve_version("GSS", "Cycle 16"), "2002")
-  expect_identical(canpumf:::pumf_resolve_version("GSS", "cycle16"), "2002")
-  expect_identical(canpumf:::pumf_resolve_version("GSS", "16"), "2002")
-  expect_identical(
-    canpumf:::pumf_resolve_version("GSS", "Aging and Social Support (2002)"),
-    "2002")
-  # plain year and unrelated themes pass through unchanged
-  expect_identical(canpumf:::pumf_resolve_version("GSS", "2002"), "2002")
-  expect_identical(canpumf:::pumf_resolve_version("GSS", "Safety 1999"),
-                   "Safety 1999")
+test_that("GSS cycle/theme/year aliases resolve to canonical Cycle N (YYYY)", {
+  rv <- function(v) canpumf:::pumf_resolve_version("GSS", v)
+  # cycle number, bare year, and theme name all reach the canonical key
+  expect_identical(rv("Cycle 16"), "Cycle 16 (2002)")
+  expect_identical(rv("cycle16"),  "Cycle 16 (2002)")
+  expect_identical(rv("16"),       "Cycle 16 (2002)")
+  expect_identical(rv("2002"),     "Cycle 16 (2002)")
+  expect_identical(rv("Aging and Social Support (2002)"), "Cycle 16 (2002)")
+  # theme-named historical keys still resolve
+  expect_identical(rv("Safety 1999"),  "Cycle 13 (1999)")
+  expect_identical(rv("Family 2017"),  "Cycle 31 (2017)")
+  expect_identical(rv("Education 2007"), "Cycle 21 (2007)")
+  expect_identical(rv("Time Use 2022"), "Cycle 36 (2022)")
+  # the canonical key is idempotent; unrelated versions pass through unchanged
+  expect_identical(rv("Cycle 16 (2002)"), "Cycle 16 (2002)")
+  expect_identical(rv("Health 1991"), "Health 1991")
 })
 
 test_that("GSS 2002 registry exposes four linked modules with MAIN primary", {
-  reg  <- canpumf:::pumf_registry_lookup("GSS", "2002")
+  reg  <- canpumf:::pumf_registry_lookup("GSS", "Cycle 16 (2002)")
   mods <- canpumf:::.pumf_entry_modules(reg)
   expect_identical(sort(names(mods)), c("CG4", "CG6", "CR", "MAIN"))
   expect_true(mods$MAIN$is_primary)
@@ -294,7 +298,7 @@ test_that("GSS 2002 registry exposes four linked modules with MAIN primary", {
 })
 
 test_that("GSS 2002 builds joinable modules sharing one connection", {
-  skip_if_not(canpumf:::.version_is_extracted(.gss_vdir("2002")),
+  skip_if_not(canpumf:::.version_is_extracted(.gss_vdir("Cycle 16 (2002)")),
               "GSS 2002 not extracted in cache")
 
   main <- get_pumf("GSS", "Cycle 16")
@@ -317,7 +321,7 @@ test_that("GSS 2002 builds joinable modules sharing one connection", {
 
 test_that("get_pumf rejects module for non-modular surveys", {
   expect_error(
-    canpumf:::.pumf_table_name("GSS", "2018", "eng", module = "MAIN"),
+    canpumf:::.pumf_table_name("GSS", "Cycle 32 (2018)", "eng", module = "MAIN"),
     "no modules")
 })
 
@@ -326,10 +330,10 @@ test_that("get_pumf rejects module for non-modular surveys", {
 # tables. Each cycle keys on its own respondent id (PUMFID for 2015/2022, RECID
 # for 1998/2010).
 .gss_timeuse_modules <- list(
-  "Time Use 2022" = "PUMFID",
-  "Time Use 2015" = "PUMFID",
-  "Time Use 2010" = "RECID",
-  "Time Use 1998" = "RECID"
+  "Cycle 36 (2022)" = "PUMFID",
+  "Cycle 29 (2015)" = "PUMFID",
+  "Cycle 24 (2010)" = "RECID",
+  "Cycle 12 (1998)" = "RECID"
 )
 
 for (.v in names(.gss_timeuse_modules)) {

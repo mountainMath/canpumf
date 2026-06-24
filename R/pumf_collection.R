@@ -34,7 +34,8 @@ list_census_collection <- function() {
                        rep("General Social Survey - Giving",     8L)),
     Acronym        = c(rep("GSS",  5L), rep("SGVP", 8L)),
     `Survey Number` = c(rep("4502", 5L), rep("4430", 8L)),
-    Version        = c("1996", "2002", "2007", "2012", "2018",
+    Version        = c("Cycle 11 (1996)", "Cycle 16 (2002)", "Cycle 21 (2007)",
+                       "Cycle 26 (2012)", "Cycle 32 (2018)",
                        "1997", "2000", "2004", "2007", "2010", "2013", "2018", "2023"),
     url            = c(
       "https://www150.statcan.gc.ca/n1/pub/45-25-0001/cat3/c11_1996.zip",
@@ -104,11 +105,11 @@ list_pumf_collection <- function(){
 # Scrape all GSS PUMF downloads from the shared catalogue index.
 # Returns a tibble with Title, Acronym, Survey Number, Version, url.
 #
-# Version conventions (to match existing registry keys):
-#   cat3 (Caregiving)        → Acronym="GSS",  Version=plain year e.g. "2018"
+# Version conventions (to match registry keys):
+#   GSS cycles               → Acronym="GSS",  Version="Cycle N (YYYY)" derived
+#     from the cNN_ cycle prefix in the zip filename (e.g. c34_2019.zip ->
+#     "Cycle 34 (2019)"); TU_ET_2022.zip is the cycle-36 exception.
 #   cat5 (Giving/SGVP)       → Acronym="SGVP", Version=plain year e.g. "2023"
-#   all other themes         → Acronym="GSS",  Version="<Theme> <year>"
-#     e.g. "Safety 2019", "Family 2017", "Time Use 2022"
 list_gss_collection <- function() {
   base_url <- "https://www150.statcan.gc.ca/n1/pub/45-25-0001/"
   page     <- rvest::read_html(paste0(base_url, "index-eng.htm"))
@@ -140,18 +141,17 @@ list_gss_collection <- function() {
     ) |>
     dplyr::left_join(cat_meta, by = "cat") |>
     dplyr::mutate(
+      # GSS rows take the canonical "Cycle N (YYYY)" key derived from the zip
+      # filename (this also resolves StatCan's mis-filing of the cycle-16
+      # "Aging and Social Support" PUMF under the Education category -- its
+      # c16_2002.zip filename yields "Cycle 16 (2002)" regardless).  The legacy
+      # Giving/Volunteering surveys keep their plain-year SGVP keys.
       Version = dplyr::if_else(
-        is.na(.data$theme_prefix),
+        .data$Acronym == "SGVP",
         .data$year,
-        paste(.data$theme_prefix, .data$year)
-      ),
-      # StatCan files the GSS cycle 16 PUMF ("Aging and Social Support", 2002,
-      # zip cat9/c16_2002.zip) under the Education category, mislabeling it
-      # "Education 2002".  It is registered under the canonical year "2002"
-      # (a multi-module survey), so surface it as such -- this keeps it
-      # auto-downloadable via get_pumf("GSS", "2002") / "Cycle 16".
-      Version = dplyr::if_else(grepl("c16_2002\\.zip$", .data$href),
-                               "2002", .data$Version)
+        vapply(.data$href, .statcan_gss_version, character(1L),
+               edition = NA_character_, USE.NAMES = FALSE)
+      )
     ) |>
     dplyr::rename(`Survey Number` = "Survey.Number") |>
     dplyr::select("Title", "Acronym", "Survey Number", "Version", "url")

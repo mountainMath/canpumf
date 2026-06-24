@@ -272,10 +272,9 @@ pumf_locate_or_download <- function(series,
   is_extracted <- .version_is_extracted(version_dir)
 
   if (is.null(zip_path) && !is_extracted) {
-    collection <- list_canpumf_collection()
-    row <- filter(collection,
-                         .data$Acronym == series,
-                         .data$Version == version)
+    # Resolve the download URL: scraped catalogue first for series the crawler
+    # covers, otherwise the curated collection (see .pumf_resolve_collection_row).
+    row <- .pumf_resolve_collection_row(series, version)
     if (nrow(row) == 0L) {
       stop(series, " version '", version, "' was not found in the canpumf ",
            "collection. Check available versions with list_canpumf_collection().")

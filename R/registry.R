@@ -338,12 +338,15 @@
     file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
 
   # ---- GSS: General Social Survey -------------------------------------------
-  # 1996 (cycle 11): monolithic SPSS; data in C11MDFAscRecLay-Eng/.
+  # Canonical version keys are "Cycle N (YYYY)" (a bare year is not unique across
+  # the GSS).  Cycle number, bare year, and historical theme names all resolve as
+  # aliases via pumf_resolve_version() / .pumf_gss_alias().
+  # Cycle 11 (1996): monolithic SPSS; data in C11MDFAscRecLay-Eng/.
   # The French SPSS file (C11MICF.SPS) uses CP850 (DOS-era encoding); CP1252
   # has undefined code points for bytes like 0x90 (\u00c9 in CP850), causing a
   # segfault in readr.  All 40 numeric variables use "DO NOT KNOW" / "DO NOT
   # KNOW (PROXY ONLY)" rather than the contraction -- handled by .sentinel_pat.
-  "GSS/1996" = .make_entry("GSS", "1996",
+  "GSS/Cycle 11 (1996)" = .make_entry("GSS", "Cycle 11 (1996)",
     file_mask         = "c11mice\\.dat",
     metadata_encoding = "CP850"),
 
@@ -356,7 +359,7 @@
   # more" alongside decimal ages 016.0-079.0) -- force_numeric prevents valid
   # data from becoming NA; their Not asked/Not stated/Don't know sentinels
   # (997-999, 999.7-999.9, 99997-99999) become per-variable missing ranges.
-  "GSS/2007" = .make_entry("GSS", "2007",
+  "GSS/Cycle 21 (2007)" = .make_entry("GSS", "Cycle 21 (2007)",
     file_mask   = "C21PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
       "NO_GRNDCHDC", "MAR_Q101C",  "AGE_LSTPDWKC", "MAR_Q174C",
@@ -413,7 +416,7 @@
   # 27 count/age variables have boundary labels (e.g. "100 hours or more",
   # "85 years or older") alongside unlabeled numeric values -- force_numeric
   # prevents valid data from being silently NAs.
-  "GSS/2012" = .make_entry("GSS", "2012",
+  "GSS/Cycle 26 (2012)" = .make_entry("GSS", "Cycle 26 (2012)",
     file_mask   = "GSS26PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
       "AGEHSDYC", "NLC_Q100C", "HAR_Q10C",  "NPA_Q10C",
@@ -434,7 +437,7 @@
   # AGEHSDYC ("age of youngest household member") has one top-coded boundary
   # label (85 = "85 years and over") alongside unlabeled ages 0-84; force_numeric
   # prevents those 85 valid age values from being NAs.
-  "GSS/2018" = .make_entry("GSS", "2018",
+  "GSS/Cycle 32 (2018)" = .make_entry("GSS", "Cycle 32 (2018)",
     file_mask    = "C32PUMFM\\.txt",
     data_fixups  = list(
       # Top-coded / boundary-labeled variables: only one labeled value exists
@@ -450,7 +453,8 @@
     )),
 
   # ---- GSS: Non-caregiving themes (Safety, Family, Social Identity, etc.) ---
-  # Collection version strings include the theme name (e.g. "Safety 2019").
+  # Keyed by canonical "Cycle N (YYYY)"; the theme name + year (e.g. "Safety
+  # 2019") resolves as an alias.
   # Modern format (2014+): split-SPSS in Layouts_MisEnPages/SPSS/ or
   #   Syntax_Syntaxe/SPSS/; data in Data_DonnÇes/; M=main, I=incident/episode.
   # Mid-era (2001-2013): monolithic SPSS + SAS PROC FORMAT.
@@ -462,7 +466,7 @@
   # Safety 2019 (cycle 34): split-SPSS; M (main) + I (incident) datasets.
   # NUMEVACT ("Evening activities count") has codes 0="Never" and 96-99 sentinels
   # alongside unlabeled counts 1-95 — force_numeric prevents valid data → NA.
-  "GSS/Safety 2019" = .make_entry("GSS", "Safety 2019",
+  "GSS/Cycle 34 (2019)" = .make_entry("GSS", "Cycle 34 (2019)",
     layout_mask = "GSS34PUMFM",
     file_mask   = "GSS34PUMFM\\.txt",
     data_fixups = list(force_numeric = "NUMEVACT")),
@@ -470,7 +474,7 @@
   # Safety 2014 (cycle 28): split-SPSS in Syntax_Syntaxe/Main/ and Incident/.
   # 113 count/cost/incident variables have boundary labels alongside unlabeled
   # continuous data; force_numeric prevents valid data → NA.
-  "GSS/Safety 2014" = .make_entry("GSS", "Safety 2014",
+  "GSS/Cycle 28 (2014)" = .make_entry("GSS", "Cycle 28 (2014)",
     layout_mask = "GSS28PUMFM",
     file_mask   = "GSS28PUMFM\\.txt",
     data_fixups = list(force_numeric = c(
@@ -504,7 +508,7 @@
   # incident SPS; they remain in force_numeric as they have boundary labels in
   # the main SPS too.  96 additional main-questionnaire variables also need
   # force_numeric (age, date, repeat-victimisation count, hours variables).
-  "GSS/Safety 1999" = .make_entry("GSS", "Safety 1999",
+  "GSS/Cycle 13 (1999)" = .make_entry("GSS", "Cycle 13 (1999)",
     layout_mask = "c13micm",
     file_mask   = "C13MICM\\.DAT",
     data_fixups = list(force_numeric = c(
@@ -565,7 +569,7 @@
   # Safety 1993 (cycle 8): monolithic SPSS + SAS; three data files
   # (C8MICRO.DAT = FWF, C8MICROE.TXT, C8MICROF.txt); use the DAT.
   # French SPS uses CP850 (DOS-era); byte 0x90 (É) is undefined in CP1252.
-  "GSS/Safety 1993" = .make_entry("GSS", "Safety 1993",
+  "GSS/Cycle 8 (1993)" = .make_entry("GSS", "Cycle 8 (1993)",
     file_mask         = "C8MICRO\\.DAT",
     metadata_encoding = "CP850",
     data_fixups = list(force_numeric = c(
@@ -581,7 +585,7 @@
   # copies; pipeline picks the shallower path automatically.
   # 88 age/family-history variables have boundary labels alongside continuous
   # decimal ages/years — force_numeric prevents valid data → NA.
-  "GSS/Family 2017" = .make_entry("GSS", "Family 2017",
+  "GSS/Cycle 31 (2017)" = .make_entry("GSS", "Cycle 31 (2017)",
     file_mask   = "GSS31PUMF\\.txt",
     data_fixups = list(force_numeric = c(
       "AGEC",     "AGEDC",    "APARSEPC", "APARDIVC", "AMDIEDC",  "AMOTHC",
@@ -603,7 +607,7 @@
 
   # Family 2011 (cycle 25): monolithic SPSS + SAS; single data file.
   # 111 age/family-history variables (same pattern as 2007/2017 Family cycles).
-  "GSS/Family 2011" = .make_entry("GSS", "Family 2011",
+  "GSS/Cycle 25 (2011)" = .make_entry("GSS", "Cycle 25 (2011)",
     file_mask   = "C25PUMF\\.DAT",
     data_fixups = list(force_numeric = c(
       "AGEC",           "AGEDC",          "AGE_RETHOMLC",   "AGE_RETHOMFC",
@@ -640,7 +644,7 @@
 
   # Family 2001 (cycle 15): monolithic SPSS + SAS; M + C + U files; use Main.
   # 80 child/arrangement variables have boundary labels alongside continuous data.
-  "GSS/Family 2001" = .make_entry("GSS", "Family 2001",
+  "GSS/Cycle 15 (2001)" = .make_entry("GSS", "Cycle 15 (2001)",
     file_mask   = "C15PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
       "CHD_IMPUTED",       "AGECHDC",           "SEXCHD",
@@ -674,7 +678,7 @@
 
   # Family 1995 (cycle 10): monolithic SPSS + SAS; three files (Main/Child/Union).
   # French SPS files use CP850 (DOS-era); byte 0x90 (É) is undefined in CP1252.
-  "GSS/Family 1995" = .make_entry("GSS", "Family 1995",
+  "GSS/Cycle 10 (1995)" = .make_entry("GSS", "Cycle 10 (1995)",
     file_mask         = "C10micme\\.dat",
     metadata_encoding = "CP850",
     data_fixups = list(force_numeric = c(
@@ -694,14 +698,14 @@
   # ---- Social Identity -------------------------------------------------------
   # Social Identity 2020 (cycle 35): split-SPSS; single main dataset.
   # No force_numeric needed — all categorical variables are properly coded.
-  "GSS/Social Identity 2020" = .make_entry("GSS", "Social Identity 2020",
+  "GSS/Cycle 35 (2020)" = .make_entry("GSS", "Cycle 35 (2020)",
     layout_mask = "GSS35PUMFM",
     file_mask   = "GSS35PUMFM\\.txt"),
 
   # Social Identity 2013 (cycle 27): monolithic SPSS; single file.
   # 25 count/age/household-size variables have boundary labels alongside
   # unlabeled continuous values.
-  "GSS/Social Identity 2013" = .make_entry("GSS", "Social Identity 2013",
+  "GSS/Cycle 27 (2013)" = .make_entry("GSS", "Cycle 27 (2013)",
     data_fixups = list(force_numeric = c(
       "RECID",    "HSDSIZEC", "AGEHSDYC", "CHINHSDC", "CHH0014C", "RFE_10C",
       "RFE_20C",  "SCF_100C", "SCF_102C", "SCF_110C", "CWF_20C",  "SCP_110",
@@ -712,7 +716,7 @@
 
   # Social Identity 2003 (cycle 17): monolithic SPSS + SAS; single main file.
   # 242 variables have boundary labels alongside unlabeled continuous values.
-  "GSS/Social Identity 2003" = .make_entry("GSS", "Social Identity 2003",
+  "GSS/Cycle 17 (2003)" = .make_entry("GSS", "Cycle 17 (2003)",
     file_mask   = "C17PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
       "AGEGR5",    "AGEGR10",   "SEX",       "MARSTAT",   "AGEPRGRDIF",
@@ -766,57 +770,21 @@
       "IN_Q0032",  "IN_Q0050",  "INCM",      "INCMHSD"
     ))),
 
-  # ---- Education (GSS) -------------------------------------------------------
-  # Education 2007 (cycle 21 = same data as registered GSS/2007 Caregiving).
-  # Listed separately in the cat9 catalog directory with the same zip file.
-  # force_numeric list mirrors GSS/2007 (the same cycle 21 survey data).
-  "GSS/Education 2007" = .make_entry("GSS", "Education 2007",
-    file_mask   = "C21PUMFM\\.DAT",
-    data_fixups = list(force_numeric = c(
-      "NO_GRNDCHDC",  "MAR_Q101C",    "AGE_LSTPDWKC", "MAR_Q174C",
-      "WKWEHOHR_C",   "AGE_STARTWK_L12MTHC", "MAR_Q370", "MAR_Q470",
-      "CCW_Q165C",    "RPR_Q100",     "SIP_Q120",     "CTC_Q165C",
-      "CAR_Q140C",    "CAR_Q320C",    "AGE_CRP_BEGC", "ICG_Q140C",
-      "ICG_Q150C",    "AGE_CGP_Q110C","AGE_CGP_Q115C","AGE_CGP_BEGC",
-      "AGE_CGI_01_BEGC","AGE_CGI_01_ENDC","AGE_CGI_02_BEGC","AGE_CGI_02_ENDC",
-      "AGE_CGI_03_BEGC","AGE_CGI_03_ENDC","AGE_CGI_04_BEGC","AGE_CGI_04_ENDC",
-      "AGE_CGI_05_BEGC","AGE_CGI_05_ENDC","AGE_HLE_BEG_C","AGE_HLE_END_C",
-      "AGE_HLE_DISC_C","AGE_EAH_BEG_C","AGE_EAH_END_C","AGE_EAH_DISC_C",
-      "AGE_SMK_DAILY_BEGC","AGE_SMK_OCCA_BEGC","YEARSMKDAILY","YEARSMKOCCASION",
-      "MPT_Q090C",    "TLE_Q120C",    "TLE_Q130C",    "TLE_Q230C",
-      "MAR_Q383C",    "MAR_Q482C",    "MAR_Q483C",    "AGE_CGP_ENDC",
-      "AGE_MA2C",     "AGE_MA3C",     "AGE_SEP_MA1C", "AGE_SEP_MA2C",
-      "AGE_DIV_MA2C", "AGE_CU1C",     "AGE_CU2C",     "AGE_CU3C",
-      "AGE_CU4C",     "AGE_CU5C",     "AGE_SEP_CU1C", "AGE_SEP_CU2C",
-      "AGE_SEP_CU3C", "AGE_SEP_CU4C", "AGE_DTH_CU2C", "AGECHDC_1",
-      "AGECHDC_2",    "AGECHDC_3",    "AGECHDC_4",    "AGECHDC_5",
-      "AGECHDC_6",    "AGECHDC_7",    "AGECHDC_8",    "AGECHDIED_1",
-      "AGECHDIED_2",  "AGECHDIED_3",  "AGECHDIED_4",  "AGECHDIED_5",
-      "AGECHDIED_6",  "AGECHDIED_7",  "AGECHDIED_8",  "AGECHDJOIN_HOMC_1",
-      "AGECHDJOIN_HOMC_2","AGECHDJOIN_HOMC_3","AGECHDJOIN_HOMC_4",
-      "AGECHDJOIN_HOMC_5","AGECHDJOIN_HOMC_6","AGECHDJOIN_HOMC_7",
-      "AGECHDJOIN_HOMC_8","AGECHDLEFT_HOM_1","AGECHDLEFT_HOM_2",
-      "AGECHDLEFT_HOM_3","AGECHDLEFT_HOM_4","AGECHDLEFT_HOM_5",
-      "AGECHDLEFT_HOM_6","AGECHDLEFT_HOMC_7","AGECHDLEFT_HOM_8",
-      "WKWEHR_C",     "MAP_Q135C"
-    ))),
-
-  # 2002 (cycle 16, "Aging and Social Support"): part of the Caregiving series
-  # (survey 4502), registered as a plain year like 1996/2007/2012/2018.  Unlike
-  # other GSS cycles this ships FOUR linked fixed-width files that share the
-  # respondent key RECID and must be joined for analysis -- the survey weight
-  # WGHT_PER lives only in the MAIN file:
+  # Cycle 16 (2002), "Aging and Social Support": part of the Caregiving series
+  # (survey 4502).  Unlike other GSS cycles this ships FOUR linked fixed-width
+  # files that share the respondent key RECID and must be joined for analysis --
+  # the survey weight WGHT_PER lives only in the MAIN file:
   #   MAIN  one row per respondent (weight, demographics)
   #   CG4   one row per care receiver  (caregiving to others)
   #   CG6   one row per care provider  (care received)
   #   CR    one row per care-relationship
   # Each module is built as its own table in the shared DuckDB file; MAIN is the
   # primary (default) table.  Use module="CG4" / pumf_module() to reach the rest
-  # and join on RECID.  Aliases "Cycle 16"/"16" and "Aging and Social Support
-  # 2002" resolve to "2002" (see pumf_resolve_version()).
+  # and join on RECID.  Aliases "Cycle 16"/"16"/"2002"/"Aging and Social
+  # Support" resolve to "Cycle 16 (2002)" (see pumf_resolve_version()).
   # force_numeric per module covers count/age/date variables that carry
   # boundary/sentinel labels alongside otherwise-continuous values.
-  "GSS/2002" = .make_entry("GSS", "2002",
+  "GSS/Cycle 16 (2002)" = .make_entry("GSS", "Cycle 16 (2002)",
     modules = list(
       MAIN = list(
         layout_mask = "C16PUMF_MAIN",
@@ -837,7 +805,7 @@
     module_key = "RECID"),
 
   # Education 1994 (cycle 9): monolithic SPSS + SAS; single data file.
-  "GSS/Education 1994" = .make_entry("GSS", "Education 1994",
+  "GSS/Cycle 9 (1994)" = .make_entry("GSS", "Cycle 9 (1994)",
     file_mask   = "C9micro\\.dat",
     data_fixups = list(force_numeric = c("DVD7", "DVEXREAG", "L11"))),
 
@@ -855,7 +823,7 @@
   # the full detailed numeric codes; force_numeric keeps the raw code and turns
   # the sentinels into NA.  The 500 WEPI_* episode bootstrap weights are
   # unlabeled (expected).
-  "GSS/Time Use 2022" = .make_entry("GSS", "Time Use 2022",
+  "GSS/Cycle 36 (2022)" = .make_entry("GSS", "Cycle 36 (2022)",
     modules = list(
       Main = list(
         layout_mask = "_Main_",
@@ -872,7 +840,7 @@
   # c29pumf_*.sps (Main) and c29pumfe_*.sps (Episode).  Main keeps its existing
   # verified force_numeric set; the Episode value labels are complete, so the
   # Episode module needs no force_numeric.
-  "GSS/Time Use 2015" = .make_entry("GSS", "Time Use 2015",
+  "GSS/Cycle 29 (2015)" = .make_entry("GSS", "Cycle 29 (2015)",
     modules = list(
       Main = list(
         layout_mask = "c29pumf_",
@@ -897,7 +865,7 @@
   # Main + Episode join on RECID (Main weight WGHT_PER, Episode WGHT_EPI).  The
   # Episode module uses the "withno_bootstrap"/"sans_bootstrap" command + data
   # files (the variants WITHOUT the embedded bootstrap-weight columns).
-  "GSS/Time Use 2010" = .make_entry("GSS", "Time Use 2010",
+  "GSS/Cycle 24 (2010)" = .make_entry("GSS", "Cycle 24 (2010)",
     modules = list(
       Main = list(
         layout_mask = "SPSS_PUMF",
@@ -924,7 +892,7 @@
   # (C12MICE*) files join on RECID (Main weight WGHTFIN, Episode WGHTEPI).  Main
   # keeps its existing verified force_numeric set; the Episode module adds
   # force_numeric for the per-episode place/companion variables.
-  "GSS/Time Use 1998" = .make_entry("GSS", "Time Use 1998",
+  "GSS/Cycle 12 (1998)" = .make_entry("GSS", "Cycle 12 (1998)",
     modules = list(
       Main = list(
         layout_mask = "C12micm",
@@ -1406,6 +1374,10 @@ pumf_resolve_version <- function(series, version) {
     a <- .pumf_gss_alias(version)
     if (!is.null(a)) return(a)
   }
+  if (series %in% c("CPSS", "CCAHS")) {
+    a <- .pumf_cycle_alias(series, version)
+    if (!is.null(a)) return(a)
+  }
   if (series == "Census" && grepl("^\\d{4}", version)) {
     year <- substr(version, 1L, 4L)
 
@@ -1429,19 +1401,41 @@ pumf_resolve_version <- function(series, version) {
   version
 }
 
-# GSS theme/cycle aliases.  GSS surveys are commonly referenced by cycle number
-# ("Cycle 16") or by theme name with year ("Aging and Social Support (2002)"),
-# but the registry keys a few cycles by plain year (the caregiving series:
-# 1996/2002/2007/2012/2018).  This maps those alternative references to the
-# canonical registry version.  Keys are matched case-insensitively after
-# stripping punctuation and collapsing whitespace, so "Cycle 16", "cycle16",
-# "16", and "Aging and Social Support 2002" all resolve to "2002".
-.pumf_gss_aliases <- list(
-  "2002" = c("cycle 16", "16",
-             "aging and social support 2002",
-             "aging and social support",
-             "aging and social support (2002)")
+# GSS theme/cycle aliases.  Canonical registry keys are "Cycle N (YYYY)".  Each
+# cycle additionally accepts -- generated from the canonical key -- "Cycle N",
+# the bare cycle number "N", the bare year "YYYY", and "Cycle N YYYY".  The
+# theme-name aliases below (including the historical registry keys, e.g.
+# "Family 2017", "Education 2007") are layered on top.  Matching is
+# case-insensitive after stripping punctuation, inserting a space between
+# trailing letters and digits, and collapsing whitespace, so "Cycle 16",
+# "cycle16", "16", "2002", and "Aging and Social Support 2002" all resolve to
+# "Cycle 16 (2002)".
+.pumf_gss_theme_aliases <- list(
+  "Cycle 21 (2007)" = c("education 2007", "family 2007"),
+  "Cycle 26 (2012)" = "caregiving 2012",
+  "Cycle 32 (2018)" = "caregiving 2018",
+  "Cycle 34 (2019)" = c("safety 2019", "victimization 2019"),
+  "Cycle 28 (2014)" = c("safety 2014", "victimization 2014"),
+  "Cycle 13 (1999)" = c("safety 1999", "victimization 1999"),
+  "Cycle 8 (1993)"  = c("safety 1993", "personal risk 1993", "victimization 1993"),
+  "Cycle 31 (2017)" = "family 2017",
+  "Cycle 25 (2011)" = "family 2011",
+  "Cycle 15 (2001)" = "family 2001",
+  "Cycle 10 (1995)" = "family 1995",
+  "Cycle 35 (2020)" = "social identity 2020",
+  "Cycle 27 (2013)" = "social identity 2013",
+  "Cycle 17 (2003)" = c("social identity 2003", "social engagement 2003"),
+  "Cycle 16 (2002)" = c("aging and social support 2002", "aging and social support"),
+  "Cycle 9 (1994)"  = "education 1994",
+  "Cycle 36 (2022)" = "time use 2022",
+  "Cycle 29 (2015)" = "time use 2015",
+  "Cycle 24 (2010)" = "time use 2010",
+  "Cycle 12 (1998)" = "time use 1998"
 )
+
+# Canonical "Cycle N (YYYY)" keys registered for GSS.
+.pumf_gss_canon_keys <- function()
+  sub("^GSS/", "", grep("^GSS/Cycle ", names(.pumf_registry), value = TRUE))
 
 .pumf_gss_alias <- function(version) {
   norm <- function(x) {
@@ -1450,9 +1444,31 @@ pumf_resolve_version <- function(series, version) {
     trimws(gsub("\\s+", " ", x))
   }
   v <- norm(version)
-  for (canon in names(.pumf_gss_aliases)) {
-    if (v %in% norm(.pumf_gss_aliases[[canon]])) return(canon)
+  for (canon in .pumf_gss_canon_keys()) {
+    m <- regmatches(canon, regexec("^Cycle (\\d+) \\((\\d{4})\\)$", canon))[[1L]]
+    if (length(m) != 3L) next
+    cyc <- m[2L]; yr <- m[3L]
+    auto <- c(paste("cycle", cyc), cyc, yr, paste("cycle", cyc, yr))
+    if (v %in% norm(c(auto, .pumf_gss_theme_aliases[[canon]]))) return(canon)
   }
+  NULL
+}
+
+# CPSS and CCAHS are keyed by bare cycle number ("1".."6" / "1") -- only CPSS/1
+# and CCAHS/1 carry registry overrides; the other cycles fall back to
+# auto-detection.  StatCan styles the cycles "Series N" (CPSS) and "Cycle N"
+# (CCAHS), so accept "Cycle N", "Series N", "CPSS N"/"CCAHS N" as aliases for the
+# bare number "N" (a bare number is already canonical and passes through); CCAHS
+# additionally accepts its unique reference year "2022" -> "1".  A bare year is
+# never a CPSS alias because several cycles share a year (1-4 in 2020, 5-6 in
+# 2021), so a year cannot identify a single cycle.
+.pumf_ccahs_year_aliases <- c("2022" = "1")
+.pumf_cycle_alias <- function(series, version) {
+  v <- trimws(gsub("\\s+", " ", gsub("[[:punct:]]", " ", tolower(version))))
+  if (series == "CCAHS" && v %in% names(.pumf_ccahs_year_aliases))
+    return(unname(.pumf_ccahs_year_aliases[v]))
+  if (grepl("^(cycle|series|cpss|ccahs) ?[0-9]+$", v))
+    return(sub("^(cycle|series|cpss|ccahs) ?", "", v))
   NULL
 }
 
