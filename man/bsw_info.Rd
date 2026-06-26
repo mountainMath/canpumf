@@ -30,11 +30,13 @@ summary tibble.  Returns an empty tibble (invisibly) when no BSW tables are
 found.
 }
 \examples{
-\dontrun{
+\donttest{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
-bsw_info(sfs_bsw)
-close_pumf(sfs_bsw)
+if (!is.null(sfs)) {
+  sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+  bsw_info(sfs_bsw)
+  close_pumf(sfs_bsw)
+}
 }
 }
 \seealso{

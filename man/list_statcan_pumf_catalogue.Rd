@@ -73,7 +73,7 @@ and some products may not be parsed.  When an edition is offered in several
 formats the one highest in `prefer` is kept (CSV/flat-text first).
 }
 \examples{
-\dontrun{
+\donttest{
 # Quick look at the first 5 surveys
 head(list_statcan_pumf_catalogue(max_surveys = 5))
 }

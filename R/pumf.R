@@ -72,16 +72,20 @@ read_pumf_data <- function(pumf_base_path,
 #'
 #' @return A [DBI::DBIConnection-class] in read-write mode.  Disconnect with
 #'   `DBI::dbDisconnect(con, shutdown = TRUE)` when done.  For a safer
-#'   read-only lazy table use [get_pumf()] instead.
+#'   read-only lazy table use [get_pumf()] instead.  Returns `invisible(NULL)`
+#'   with an informative message if the data must be downloaded but Statistics
+#'   Canada is unreachable.
 #'
 #' @seealso [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
-#' con <- get_pumf_connection("SFS", "2019")
-#' DBI::dbListTables(con)
-#' DBI::dbGetQuery(con, 'SELECT COUNT(*) FROM "eng_SFS_2019"')
-#' DBI::dbDisconnect(con, shutdown = TRUE)
+#' \donttest{
+#' con <- get_pumf_connection("SFS", "2019")  # NULL if StatCan is unreachable
+#' if (!is.null(con)) {
+#'   tables <- DBI::dbListTables(con)
+#'   DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "%s"', tables[1]))
+#'   DBI::dbDisconnect(con, shutdown = TRUE)
+#' }
 #' }
 #' @export
 get_pumf_connection <- function(series     = NULL,
@@ -124,12 +128,19 @@ get_pumf_connection <- function(series     = NULL,
     version <- rows$Version[[1L]]
   }
 
-  tbl <- pumf_run_pipeline(series, version,
-                           lang       = lang,
-                           cache_path = cache_path,
-                           refresh    = refresh,
-                           redownload = redownload,
-                           read_only  = FALSE)
+  # Degrade gracefully when Statistics Canada is unreachable: an informative
+  # message + NULL rather than a hard error (so get_pumf() examples and callers
+  # survive an outage; CRAN policy for packages using Internet resources).
+  tbl <- tryCatch(
+    pumf_run_pipeline(series, version,
+                      lang       = lang,
+                      cache_path = cache_path,
+                      refresh    = refresh,
+                      redownload = redownload,
+                      read_only  = FALSE),
+    canpumf_network_error = function(e) {
+      message(conditionMessage(e)); NULL
+    })
   if (is.null(tbl)) return(invisible(NULL))
   con    <- tbl$src$con
   tables <- sort(DBI::dbListTables(con))

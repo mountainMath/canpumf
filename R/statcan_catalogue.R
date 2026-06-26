@@ -267,7 +267,7 @@
     title, "\\(([A-Z][A-Za-z0-9/&-]*[A-Z][A-Za-z0-9/&-]*)\\)")[, 2]
   if (!is.na(paren) && !grepl("^PUMFs?$", paren, ignore.case = TRUE))
     return(paren)
-  name <- sub("\\s*[:–—-]\\s+.*$", "", title)  # drop boilerplate tail
+  name <- sub("\\s*[:\u2013\u2014-]\\s+.*$", "", title)  # drop boilerplate tail
   name <- gsub("[^A-Za-z0-9 ]", " ", name)               # punctuation -> space
   toks <- strsplit(trimws(name), "\\s+")[[1]]
   toks <- toks[!tolower(toks) %in% .statcan_acronym_skip]
@@ -289,7 +289,7 @@
 # Best-effort, like .statcan_acronym(): a few surveys yield an imperfect strip.
 .statcan_series_title <- function(title) {
   if (is.null(title) || is.na(title)) return(NA_character_)
-  s <- sub("\\s*[:–—-]\\s+.*$", "", title)              # edition/boilerplate tail
+  s <- sub("\\s*[:\u2013\u2014-]\\s+.*$", "", title)              # edition/boilerplate tail
   s <- sub("\\s+\\(?\\d{4}\\)?\\s*$", "", s)             # trailing (YYYY) or YYYY
   s <- sub("\\s+\\d+\\s*$", "", s)                       # trailing cycle/series number
   s <- sub("[,;]?\\s+Cycle\\s*$", "", s, ignore.case = TRUE)  # trailing edition marker
@@ -611,7 +611,7 @@
   desc     <- mapply(.statcan_edition_descriptor, out$Acronym, out$url,
                      out$edition, USE.NAMES = FALSE)
   out$Title <- ifelse(umbrella & !is.na(out$SeriesTitle),
-                      paste0(out$SeriesTitle, " — ", desc),
+                      paste0(out$SeriesTitle, " \u2014 ", desc),
                       out$Title)
 
   out[, cols]
@@ -672,7 +672,7 @@
 #' @seealso [list_canpumf_collection()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' # Quick look at the first 5 surveys
 #' head(list_statcan_pumf_catalogue(max_surveys = 5))
 #' }
@@ -683,6 +683,14 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
                                         verbose     = TRUE,
                                         refresh     = FALSE,
                                         cache_path  = getOption("canpumf.cache_path")) {
+  if (is.null(cache_path))
+    .pumf_once_per_session(
+      "catalogue_cache_warned",
+      warning(.pumf_cache_path_hint(
+        paste0("canpumf.cache_path is not set; the PUMF catalogue cannot be ",
+               "cached across sessions and will be re-crawled each session")),
+        call. = FALSE))
+
   key <- paste0(
     "prefer=",  paste(prefer, collapse = ","), ";",
     "max=",     if (is.null(max_surveys)) "all" else max_surveys, ";",

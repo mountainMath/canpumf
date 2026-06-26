@@ -8,6 +8,12 @@
 * `get_pumf()` now resolves download URLs from the scraped catalogue first for the series the crawler covers (GSS, SHS, SFS, CPSS, CIS, CHS, ITS, CCAHS), so a newly released edition is downloadable without a package update. Series the crawler deliberately does not cover — LFS and Census (which keep their dedicated paths) and the Giving/Volunteering surveys (`SGVP`, which Statistics Canada ships under reused zip names the umbrella crawl cannot disambiguate) — continue to resolve through the curated `list_canpumf_collection()`. URL resolution never triggers a live crawl; it reads the cached catalogue.
 * The package now ships a frozen snapshot of the full catalogue crawl (`inst/extdata/pumf_catalogue.rds`). It is the terminal, always-available fallback for both URL resolution and `list_statcan_pumf_catalogue()`: a freshly installed package with no user cache and no network still resolves every supported survey's download URL, so a change to the Statistics Canada website cannot silently break `get_pumf()` between releases. The shipped snapshot is regenerated at each release.
 
+## Robustness
+
+* `get_pumf()`, `get_pumf_connection()` and `pumf_metadata()` now fail gracefully when Statistics Canada is unreachable: a download failure no longer raises an error but instead emits an informative message and returns `NULL`. `list_available_lfs_pumf_versions()` likewise returns an empty result with a warning rather than erroring, matching the existing behaviour of `list_canpumf_collection()` and `list_statcan_pumf_catalogue()`.
+* `close_pumf(NULL)` is now a no-op, so it can be called unconditionally on a `get_pumf()` result that may be `NULL`.
+* When `options(canpumf.cache_path = )` is not set, the package now notes this once when attached and again on the first download, explaining that data is written to a temporary directory (and discarded at the end of the session) and how to configure a persistent cache. The underlying behaviour is unchanged — without a cache path, data is stored in `tempdir()` for the session.
+
 # canpumf 0.5.1
 
 ## New features

@@ -36,10 +36,10 @@ accumulates all versions; its total size is reported in `duckdb_mb` for
 every LFS row.  Use [remove_pumf_cache()] to free disk space.
 }
 \examples{
-\dontrun{
+\donttest{
 list_pumf_cache()
 # With an explicit cache path:
-list_pumf_cache(cache_path = "~/pumf_cache")
+list_pumf_cache(cache_path = file.path(tempdir(), "pumf_cache"))
 }
 }
 \seealso{

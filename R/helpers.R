@@ -104,15 +104,32 @@ robust_unzip <- function(path, exdir) {
   invisible(NULL)
 }
 
-get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
-    tmp <- tempfile()
-    if (is.null(key)) {
-      key <- basename(url) |> gsub("\\.zip$","",x=_)
-    }
-    utils::download.file(url,tmp)
-    robust_unzip(tmp,exdir=file.path(pumf_cache_path,key))
-    unlink(tmp)
-    key
+
+# Signal a graceful, classed network error.  Callers that front a download
+# (get_pumf_connection(), lfs_get_pumf()) catch `canpumf_network_error` and
+# degrade to an informative message + NULL instead of erroring -- Statistics
+# Canada being unreachable should not produce a hard error (CRAN policy for
+# packages that use Internet resources).
+.pumf_network_error <- function(message) {
+  structure(
+    class = c("canpumf_network_error", "error", "condition"),
+    list(message = message, call = NULL))
+}
+
+# download.file() wrapper that converts any failure -- unreachable host, HTTP
+# error, or a truncated/empty result -- into a canpumf_network_error condition.
+.pumf_download <- function(url, destfile, ...) {
+  status <- tryCatch(utils::download.file(url, destfile, ...),
+                     error = function(e) 1L)
+  ok <- identical(as.integer(status), 0L) &&
+        file.exists(destfile) && file.info(destfile)$size > 0
+  if (!ok) {
+    if (file.exists(destfile)) unlink(destfile)   # drop a truncated/empty file
+    stop(.pumf_network_error(paste0(
+      "Statistics Canada is unreachable; could not download '", url, "'. ",
+      "The server may be down or the file may have moved -- try again later.")))
+  }
+  invisible(0L)
 }
 
 

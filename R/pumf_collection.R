@@ -173,7 +173,7 @@ list_gss_collection <- function() {
 #' @seealso [get_pumf()], [list_available_lfs_pumf_versions()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' collection <- list_canpumf_collection()
 #' # Show all SFS versions
 #' collection[collection$Acronym == "SFS", c("Acronym", "Version")]
@@ -337,12 +337,14 @@ list_canpumf_collection <- function(){
 #'
 #' @return A tibble with columns `Date` (human-readable label from the StatCan
 #'   page), `version` (a string of the form `"YYYY"` for annual versions or
-#'   `"YYYY-MM"` for monthly versions), and `url` (direct download link).
+#'   `"YYYY-MM"` for monthly versions), and `url` (direct download link).  If
+#'   the StatCan website is unreachable the function returns an empty tibble
+#'   (with those columns) and a warning rather than erroring.
 #'
 #' @seealso [get_pumf()], [list_canpumf_collection()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' lfs_versions <- list_available_lfs_pumf_versions()
 #' tail(lfs_versions)
 #' }
@@ -350,21 +352,33 @@ list_canpumf_collection <- function(){
 list_available_lfs_pumf_versions <- function(){
   base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
   url <- paste0(base_url,"71m0001x2021001-eng.htm")
-  ts <- rvest::read_html(url) %>%
-    rvest::html_elements("a")
+
+  empty <- tibble::tibble(Date = character(0L), version = character(0L),
+                          url = character(0L))
+
+  # Fail gracefully when StatCan is unreachable: return whatever was scraped
+  # (an empty tibble if nothing) with a warning, rather than erroring -- mirrors
+  # list_canpumf_collection() / list_statcan_pumf_catalogue().
+  ts <- tryCatch(
+    rvest::read_html(url) %>% rvest::html_elements("a"),
+    error = function(e) NULL)
+  if (is.null(ts)) {
+    warning("Statistics Canada website unreachable; no LFS PUMF versions ",
+            "could be retrieved.", call. = FALSE)
+    return(empty)
+  }
   ts <- ts[rvest::html_text(ts)=="CSV"]
+  if (length(ts) == 0L) return(empty)
 
   lct <- Sys.getlocale("LC_TIME")
   Sys.setlocale("LC_TIME", "C")
+  on.exit(Sys.setlocale("LC_TIME", lct), add = TRUE)
 
-  d <- tibble::tibble(
+  tibble::tibble(
     url  = paste0(base_url, rvest::html_attr(ts,"href")),
     Date = gsub(" \\| PUMF: CSV","", rvest::html_attr(ts,"title"))) |>
     mutate(version = case_when(
       grepl("^\\d{4}$",.data$Date) ~ .data$Date,
       TRUE ~ strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m"))) |>
     select("Date", "version", "url")
-
-  Sys.setlocale("LC_TIME", lct)
-  d
 }

@@ -36,7 +36,9 @@ re-download).}
 \value{
 A [DBI::DBIConnection-class] in read-write mode.  Disconnect with
   `DBI::dbDisconnect(con, shutdown = TRUE)` when done.  For a safer
-  read-only lazy table use [get_pumf()] instead.
+  read-only lazy table use [get_pumf()] instead.  Returns `invisible(NULL)`
+  with an informative message if the data must be downloaded but Statistics
+  Canada is unreachable.
 }
 \description{
 Runs the full pipeline and returns a raw read-write
@@ -46,11 +48,13 @@ For everyday analysis use [get_pumf()], which returns a safer read-only
 lazy `dplyr::tbl()`.
 }
 \examples{
-\dontrun{
-con <- get_pumf_connection("SFS", "2019")
-DBI::dbListTables(con)
-DBI::dbGetQuery(con, 'SELECT COUNT(*) FROM "eng_SFS_2019"')
-DBI::dbDisconnect(con, shutdown = TRUE)
+\donttest{
+con <- get_pumf_connection("SFS", "2019")  # NULL if StatCan is unreachable
+if (!is.null(con)) {
+  tables <- DBI::dbListTables(con)
+  DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "\%s"', tables[1]))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+}
 }
 }
 \seealso{

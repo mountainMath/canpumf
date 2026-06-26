@@ -31,12 +31,14 @@ write access: the read-only connection backing `tbl` is shut down, the
 tables are dropped, and a fresh read-only connection is returned.
 }
 \examples{
-\dontrun{
+\donttest{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
-# Remove only the PWEIGHT BSW table
-sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
-close_pumf(sfs_clean)
+if (!is.null(sfs)) {
+  sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+  # Remove only the PWEIGHT BSW table
+  sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
+  close_pumf(sfs_clean)
+}
 }
 }
 \seealso{

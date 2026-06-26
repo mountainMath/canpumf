@@ -41,7 +41,7 @@ version deletes only that version's rows from the shared `LFS.duckdb`; if
 it was the last loaded version the shared database file is also deleted.
 }
 \examples{
-\dontrun{
+\donttest{
 # Remove only DuckDB and metadata, keep raw files for quick rebuild:
 remove_pumf_cache("SFS", "2019")
 

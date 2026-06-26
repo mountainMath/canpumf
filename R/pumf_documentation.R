@@ -34,7 +34,7 @@
 #' @seealso [get_pumf()], [pumf_metadata()]
 #'
 #' @examples
-#' \dontrun{
+#' if (interactive()) {
 #' # Open by series and version
 #' open_pumf_documentation("SFS", "2019")
 #'
