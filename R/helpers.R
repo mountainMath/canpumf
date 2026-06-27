@@ -35,12 +35,24 @@ find_unique_layout_file <- function(layout_path, pattern, path_or_pattern = NULL
 
 # Low-level extractor: ditto on macOS with unzip fallbacks.
 .unzip_impl <- function(path, exdir) {
+  # Primary extractor on every platform: zip::unzip() (uniform treatment).
+  # utils::unzip() cannot extract StatCan zips whose entries carry accented
+  # names stored in CP437/Latin-1 without the UTF-8 flag (e.g. SHS 2017's
+  # "Data - Donnees/" folder): under a non-UTF-8 locale it errors with
+  # "invalid multibyte string" (Windows) or silently fails to translate the
+  # name to a wide string and drops the file (Linux).  zip::unzip() extracts
+  # the stored bytes verbatim and is locale-agnostic on all platforms.
+  if (requireNamespace("zip", quietly = TRUE) &&
+      tryCatch({ zip::unzip(path, exdir = exdir); TRUE },
+               error = function(e) FALSE))
+    return(invisible(NULL))
+
+  # Fallback only for ZIP compression variants zip's bundled extractor cannot
+  # handle (e.g. the newer deflate flavours StatCan has shipped since 2025).
   if (Sys.info()[['sysname']] == "Darwin") {
-    # ditto does not support all ZIP compression variants (e.g. newer deflate
-    # flavours used by StatCan since 2025).  Fall back to system unzip, then
-    # to utils::unzip, if ditto exits non-zero.
-    # system2() still runs via the shell and does not quote its args, so
-    # shQuote() the path/exdir to handle spaces and quote characters safely.
+    # system2() runs via the shell without quoting its args, so shQuote() the
+    # path/exdir to handle spaces and quote characters safely.  ditto first
+    # (handles resource forks), then system unzip, then utils::unzip.
     exit <- system2("ditto",
                     c("-x", "-k", "--sequesterRsrc", "--rsrc",
                       shQuote(path), shQuote(exdir)))
@@ -53,6 +65,7 @@ find_unique_layout_file <- function(layout_path, pattern, path_or_pattern = NULL
   } else {
     utils::unzip(path, exdir = exdir)
   }
+  invisible(NULL)
 }
 
 robust_unzip <- function(path, exdir) {

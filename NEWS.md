@@ -14,6 +14,10 @@
 * `close_pumf(NULL)` is now a no-op, so it can be called unconditionally on a `get_pumf()` result that may be `NULL`.
 * When `options(canpumf.cache_path = )` is not set, the package now notes this once when attached and again on the first download, explaining that data is written to a temporary directory (and discarded at the end of the session) and how to configure a persistent cache. The underlying behaviour is unchanged — without a cache path, data is stored in `tempdir()` for the session.
 
+## Bug fixes
+
+* Surveys whose StatCan ZIP archives carry accented path names stored in CP437/Latin-1 without the UTF-8 flag (e.g. the Survey of Household Spending 2017, whose data live under a `Data - Données/` folder) now extract correctly on Linux and Windows. Previously `utils::unzip()` either errored with "invalid multibyte string" (Windows) or silently dropped the affected files under a non-UTF-8 locale (Linux), so the survey failed to import with "No parseable metadata files found". Extraction now uses `zip::unzip()` as the primary, locale-agnostic extractor on every platform (with the macOS `ditto`/system-`unzip` chain retained as a fallback for newer ZIP compression variants), giving uniform cross-platform behaviour. `zip` is a new dependency.
+
 # canpumf 0.5.1
 
 ## New features

@@ -31,7 +31,8 @@ Imports:
     duckdb  (>= 1.5.2),
     duckplyr  (>= 1.2.1),
     dbplyr,
-    haven (>= 2.5.0)
+    haven (>= 2.5.0),
+    zip
 Suggests:
     rmarkdown,
     knitr,
