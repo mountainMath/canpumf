@@ -83,6 +83,8 @@ A lazy `dplyr::tbl()` backed by a DuckDB connection.  Data values
   are pre-labeled as factors.  Call `dplyr::collect()` to materialise a
   local tibble, [label_pumf_columns()] to rename columns to their
   human-readable labels, or [close_pumf()] to release the connection.
+  Returns `invisible(NULL)` with an informative message if the data must be
+  downloaded but Statistics Canada is unreachable.
 }
 \description{
 Main entry point for the canpumf package.  Downloads (if needed), parses
@@ -97,24 +99,25 @@ database.  Pass `version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).
 the database; this is only valid for LFS.
 }
 \examples{
-\dontrun{
-# Download and open the SFS 2019 as a lazy DuckDB table
+\donttest{
+# Download and open the SFS 2019 as a lazy DuckDB table.
+# get_pumf() returns NULL if Statistics Canada is unreachable.
 sfs <- get_pumf("SFS", "2019")
-dplyr::glimpse(sfs)
+if (!is.null(sfs)) {
+  dplyr::glimpse(sfs)
 
-# Collect a local tibble after filtering
-high_wealth <- sfs |>
-  dplyr::filter(PEFAMID == 1) |>
-  dplyr::collect()
+  # Collect a local tibble (here, the first 100 records)
+  sfs_local <- sfs |>
+    head(100) |>
+    dplyr::collect()
 
-# French labels
+  # Release the connection when done
+  close_pumf(sfs)
+}
+
+# French labels (opened and released on its own connection)
 sfs_fr <- get_pumf("SFS", "2019", lang = "fra")
-
-# LFS: annual version
-lfs <- get_pumf("LFS", "2022")
-
-# Release the connection when done
-close_pumf(sfs)
+if (!is.null(sfs_fr)) close_pumf(sfs_fr)
 }
 }
 \seealso{

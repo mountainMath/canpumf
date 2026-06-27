@@ -18,7 +18,7 @@ download wrappers.  Scrapes the StatCan website to discover Census versions;
 other series are hard-coded.  Requires an internet connection.
 }
 \examples{
-\dontrun{
+\donttest{
 collection <- list_canpumf_collection()
 # Show all SFS versions
 collection[collection$Acronym == "SFS", c("Acronym", "Version")]

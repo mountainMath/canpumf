@@ -157,29 +157,32 @@
 #'   are pre-labeled as factors.  Call `dplyr::collect()` to materialise a
 #'   local tibble, [label_pumf_columns()] to rename columns to their
 #'   human-readable labels, or [close_pumf()] to release the connection.
+#'   Returns `invisible(NULL)` with an informative message if the data must be
+#'   downloaded but Statistics Canada is unreachable.
 #'
 #' @seealso [label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
 #'   [close_pumf()], [list_canpumf_collection()]
 #'
 #' @examples
-#' \dontrun{
-#' # Download and open the SFS 2019 as a lazy DuckDB table
+#' \donttest{
+#' # Download and open the SFS 2019 as a lazy DuckDB table.
+#' # get_pumf() returns NULL if Statistics Canada is unreachable.
 #' sfs <- get_pumf("SFS", "2019")
-#' dplyr::glimpse(sfs)
+#' if (!is.null(sfs)) {
+#'   dplyr::glimpse(sfs)
 #'
-#' # Collect a local tibble after filtering
-#' high_wealth <- sfs |>
-#'   dplyr::filter(PEFAMID == 1) |>
-#'   dplyr::collect()
+#'   # Collect a local tibble (here, the first 100 records)
+#'   sfs_local <- sfs |>
+#'     head(100) |>
+#'     dplyr::collect()
 #'
-#' # French labels
+#'   # Release the connection when done
+#'   close_pumf(sfs)
+#' }
+#'
+#' # French labels (opened and released on its own connection)
 #' sfs_fr <- get_pumf("SFS", "2019", lang = "fra")
-#'
-#' # LFS: annual version
-#' lfs <- get_pumf("LFS", "2022")
-#'
-#' # Release the connection when done
-#' close_pumf(sfs)
+#' if (!is.null(sfs_fr)) close_pumf(sfs_fr)
 #' }
 #' @export
 get_pumf <- function(series     = NULL,
@@ -280,14 +283,20 @@ get_pumf <- function(series     = NULL,
   # fails when a read-only connection from a previous get_pumf("LFS", ...) call
   # is still open.
   if (series == "LFS") {
-    tbl <- suppressMessages(
-      lfs_get_pumf(version    = version,
-                   lang       = lang,
-                   cache_path = cache_path,
-                   refresh    = refresh,
-                   redownload = redownload,
-                   read_only  = read_only)
-    )
+    # Degrade gracefully when Statistics Canada is unreachable (see the non-LFS
+    # branch / get_pumf_connection): informative message + NULL, not an error.
+    tbl <- tryCatch(
+      suppressMessages(
+        lfs_get_pumf(version    = version,
+                     lang       = lang,
+                     cache_path = cache_path,
+                     refresh    = refresh,
+                     redownload = redownload,
+                     read_only  = read_only)
+      ),
+      canpumf_network_error = function(e) {
+        message(conditionMessage(e)); NULL
+      })
     if (is.null(tbl)) return(invisible(NULL))
     # ensure nicer column order
     cn <- colnames(tbl)
@@ -388,10 +397,13 @@ get_pumf <- function(series     = NULL,
 #' @return A lazy `dplyr::tbl()` for the requested module, backed by the same
 #'   connection as `tbl`.
 #' @examples
-#' \dontrun{
-#' main <- get_pumf("GSS", "2002")          # primary module (MAIN), has WGHT_PER
-#' cg4  <- pumf_module(main, "CG4")         # caregiving module, same connection
-#' dplyr::left_join(main, cg4, by = "RECID")
+#' \donttest{
+#' main <- get_pumf("GSS", "Cycle 16 (2002)") # primary module (MAIN), has WGHT_PER
+#' if (!is.null(main)) {
+#'   cg4 <- pumf_module(main, "CG4")          # caregiving module, same connection
+#'   dplyr::left_join(main, cg4, by = "RECID")
+#'   close_pumf(main)
+#' }
 #' }
 #' @export
 pumf_module <- function(tbl, module) {
@@ -555,11 +567,13 @@ pumf_module <- function(tbl, module) {
 #' @seealso [pumf_var_labels()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_labeled <- label_pumf_columns(sfs)
-#' colnames(sfs_labeled)
-#' close_pumf(sfs_labeled)
+#' if (!is.null(sfs)) {
+#'   sfs_labeled <- label_pumf_columns(sfs)
+#'   colnames(sfs_labeled)
+#'   close_pumf(sfs_labeled)
+#' }
 #' }
 #' @export
 label_pumf_columns <- function(tbl) {
@@ -622,10 +636,12 @@ label_pumf_columns <- function(tbl) {
 #' @seealso [label_pumf_columns()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
-#' pumf_var_labels(sfs)
-#' close_pumf(sfs)
+#' if (!is.null(sfs)) {
+#'   pumf_var_labels(sfs)
+#'   close_pumf(sfs)
+#' }
 #' }
 #' @export
 pumf_var_labels <- function(tbl) {
@@ -653,25 +669,34 @@ pumf_var_labels <- function(tbl) {
 #' (the default) do not block other readers.
 #'
 #' @param x A lazy `dplyr::tbl()` returned by [get_pumf()], or a DuckDB
-#'   connection returned by [get_pumf_connection()].
+#'   connection returned by [get_pumf_connection()].  `NULL` is accepted and is
+#'   a no-op, so `close_pumf()` can be called unconditionally on a [get_pumf()]
+#'   result that may be `NULL` (e.g. when Statistics Canada was unreachable).
 #'
 #' @return Invisibly `NULL`.
 #'
 #' @seealso [get_pumf()], [get_pumf_connection()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
-#' # ... analysis ...
-#' close_pumf(sfs)
+#' if (!is.null(sfs)) {
+#'   # ... analysis ...
+#'   close_pumf(sfs)
+#' }
 #'
 #' # Also accepts a raw connection from get_pumf_connection()
 #' con <- get_pumf_connection("SHS", "2017")
-#' DBI::dbListTables(con)
-#' close_pumf(con)
+#' if (!is.null(con)) {
+#'   DBI::dbListTables(con)
+#'   close_pumf(con)
+#' }
 #' }
 #' @export
 close_pumf <- function(x) {
+  # NULL is a no-op so close_pumf() can always be called -- e.g. on the result
+  # of a get_pumf() that returned NULL because Statistics Canada was unreachable.
+  if (is.null(x)) return(invisible(NULL))
   # Accept either a lazy tbl (connection lives in x$src$con) or a DuckDB/DBI
   # connection object handed in directly (e.g. from get_pumf_connection()).
   con <- if (inherits(x, "DBIConnection")) x else x$src$con
@@ -784,12 +809,14 @@ close_pumf <- function(x) {
 #' @seealso [bsw_info()], [remove_bootstrap_weights()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
-#'                                  n_replicates = 200L, seed = 42L)
-#' bsw_info(sfs_bsw)
-#' close_pumf(sfs_bsw)
+#' if (!is.null(sfs)) {
+#'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
+#'                                    n_replicates = 200L, seed = 42L)
+#'   bsw_info(sfs_bsw)
+#'   close_pumf(sfs_bsw)
+#' }
 #' }
 #' @export
 add_bootstrap_weights <- function(tbl,
@@ -1387,11 +1414,13 @@ add_bootstrap_weights <- function(tbl,
 #' @seealso [add_bootstrap_weights()], [remove_bootstrap_weights()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
-#' bsw_info(sfs_bsw)
-#' close_pumf(sfs_bsw)
+#' if (!is.null(sfs)) {
+#'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+#'   bsw_info(sfs_bsw)
+#'   close_pumf(sfs_bsw)
+#' }
 #' }
 #' @export
 bsw_info <- function(tbl) {
@@ -1503,12 +1532,14 @@ bsw_info <- function(tbl) {
 #' @seealso [add_bootstrap_weights()], [bsw_info()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
-#' sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
-#' # Remove only the PWEIGHT BSW table
-#' sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
-#' close_pumf(sfs_clean)
+#' if (!is.null(sfs)) {
+#'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+#'   # Remove only the PWEIGHT BSW table
+#'   sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
+#'   close_pumf(sfs_clean)
+#' }
 #' }
 #' @export
 remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
@@ -1625,14 +1656,18 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
 #'     \item{`layout`}{Tibble with columns `name`, `start`, `end` for
 #'       fixed-width data files; `NULL` for CSV-format surveys.}
 #'   }
+#'   Returns `invisible(NULL)` with an informative message if the data must be
+#'   downloaded but Statistics Canada is unreachable.
 #'
 #' @seealso [get_pumf()], [pumf_var_labels()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' meta <- pumf_metadata("SFS", "2019")
-#' meta$variables
-#' meta$codes[meta$codes$name == "PEFAMID", ]
+#' if (!is.null(meta)) {
+#'   meta$variables
+#'   meta$codes[meta$codes$name == "PEFAMID", ]
+#' }
 #' }
 #' @export
 pumf_metadata <- function(series,
@@ -1654,10 +1689,17 @@ pumf_metadata <- function(series,
   }
   reg         <- pumf_registry_lookup(series, version)
   eff_refresh <- refresh || redownload
-  version_dir <- pumf_locate_or_download(series, version,
-                                          cache_path = cache_path,
-                                          refresh    = eff_refresh,
-                                          redownload = redownload)
+  # Degrade gracefully when Statistics Canada is unreachable: message + NULL
+  # rather than a hard error (consistent with get_pumf()).
+  version_dir <- tryCatch(
+    pumf_locate_or_download(series, version,
+                            cache_path = cache_path,
+                            refresh    = eff_refresh,
+                            redownload = redownload),
+    canpumf_network_error = function(e) {
+      message(conditionMessage(e)); NULL
+    })
+  if (is.null(version_dir)) return(invisible(NULL))
   # Parsing is idempotent: with metadata already present and no refresh, a
   # supplied registry has no effect.  This message lives only here (get_pumf()
   # parses via pumf_parse_metadata() directly, not pumf_metadata()), so it is

@@ -8,7 +8,9 @@ close_pumf(x)
 }
 \arguments{
 \item{x}{A lazy `dplyr::tbl()` returned by [get_pumf()], or a DuckDB
-connection returned by [get_pumf_connection()].}
+connection returned by [get_pumf_connection()].  `NULL` is accepted and is
+a no-op, so `close_pumf()` can be called unconditionally on a [get_pumf()]
+result that may be `NULL` (e.g. when Statistics Canada was unreachable).}
 }
 \value{
 Invisibly `NULL`.
@@ -30,15 +32,19 @@ or before writing to the DuckDB from another process.  Read-only connections
 (the default) do not block other readers.
 }
 \examples{
-\dontrun{
+\donttest{
 sfs <- get_pumf("SFS", "2019")
-# ... analysis ...
-close_pumf(sfs)
+if (!is.null(sfs)) {
+  # ... analysis ...
+  close_pumf(sfs)
+}
 
 # Also accepts a raw connection from get_pumf_connection()
 con <- get_pumf_connection("SHS", "2017")
-DBI::dbListTables(con)
-close_pumf(con)
+if (!is.null(con)) {
+  DBI::dbListTables(con)
+  close_pumf(con)
+}
 }
 }
 \seealso{

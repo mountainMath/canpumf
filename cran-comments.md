@@ -1,44 +1,54 @@
-# canpumf 0.5.1
+# canpumf 0.5.2
 
-## New features
-* Multi-module survey support. Surveys that ship several linked files sharing a respondent key are now modelled as several joinable tables in one DuckDB file. `get_pumf()` returns the survey's primary (respondent-level) module and emits a one-time message listing the available sibling modules; `pumf_module(tbl, "<module>")` opens a sibling on the **same** connection so the two are joinable, and announces the shared join key. Each module's join key is recorded in the registry (`module_key`) so it never has to be guessed (it varies: `RECID`, `PUMFID`, `MICRO_ID`, `CASEID`, `IDNUM`). Converted surveys include GSS cycle 16 / "Aging and Social Support" 2002 (MAIN + CG4 + CG6 + CR), GSS Time Use 1998/2010/2015/2022 (Main + Episode), the Survey of Household Spending 2017 (Interview + Diary, each with its own bootstrap weights), and the Giving/Volunteering/Participating cycles 1997–2010 (MAIN + GS/VD/GIVE/VOLNTR).
-* `close_pumf()` now also accepts a DuckDB connection returned by `get_pumf_connection()`, closing it directly, in addition to a lazy `dplyr::tbl()` returned by `get_pumf()`.
-* New `parse_pdf_codebook()` metadata parser for StatCan bilingual PDF *frequency codebooks*. This recovers variable and value labels for surveys whose only machine-readable companion is the data file — notably CPSS cycle 1, which (unlike CPSS 2–6) ships no `variables.csv`. CPSS 1 now imports with full bilingual labels (parity with the other cycles) when `pdftools` is installed. Like the existing PDF data-dictionary parser, it is a label fallback that only fires when no command file or codebook CSV is found, and requires `pdftools` (Suggests).
+## Resubmission
 
-## Documentation
-* New "Working with multi-module PUMF surveys" vignette showing how to load the primary module, open sibling modules with `pumf_module()`, join them inside DuckDB, and use `get_pumf_connection()` / `close_pumf()` directly.
-* New "Bootstrap weights" vignette documenting the resampling method, how the weights are stored, stratification, estimating uncertainty, and the incremental re-run behaviour (reuse, adding replicates, and regeneration when rows are added).
+This is a resubmission. In response to the reviewer's comments on the previous
+submission I have made the following changes.
 
-## Bug fixes
-* `get_pumf("LFS")` (and other calls) no longer trigger spurious RStudio "Error in dbSendQuery(...)" Connections-pane popups. Transient internal DuckDB connections (status checks, write phases, BSW edits) are no longer registered in the RStudio Connections pane; only the final connection returned to the user is registered.
-* `add_bootstrap_weights()` on an in-memory `data.frame`/`tibble` that already has replicate columns now extends the existing set (generating only the additional replicates) instead of regenerating a full set and producing duplicate column names. This matches the DuckDB-backed behaviour.
-* `add_bootstrap_weights()` now handles rows added to a survey table that already has bootstrap weights correctly. Previously it generated replicates for the new rows in isolation (resampling only among the new rows), which is statistically wrong. It now deletes and regenerates the affected weights: every row when unstratified, or only the strata that gained rows when `strata_cols` are in effect (complete strata keep their existing weights).
-* GSS Time Use 1998 now imports cleanly regardless of locale. Under a C locale (as in `R CMD check`) `list.files()` selected the Main module's SAS `PROC FORMAT`, which injected categorical codes onto continuous clock-time, duration, decimal-hour and birth-year variables; these are now declared `force_numeric` so their values are preserved. In addition, `merge_metadata()` no longer warns about label conflicts that arise solely from lossy supplement parsers (SAS labels, PDF dictionary/codebook) — authoritative-source conflicts still warn.
+* **References in DESCRIPTION.**
+  The package does not implement a published method, so there is no
+  `doi:`/`ISBN:` reference to cite. I have added the relevant Statistics Canada
+  resources as auto-linked URLs in the Description field: the Public Use
+  Microdata Files landing page
+  (<https://www.statcan.gc.ca/en/microdata/pumf>) and the Statistics Canada
+  Open Licence (<https://www.statcan.gc.ca/en/terms-conditions/open-licence>)
+  under which the data is distributed.
 
-# canpumf 0.5.0
+* **`\dontrun{}` vs `\donttest{}`.**
+  All examples that a user can run (they download data from Statistics Canada,
+  so they take well over 5 seconds but do execute) have been changed from
+  `\dontrun{}` to `\donttest{}`. `\dontrun{}` is now used in only one place,
+  for an example that genuinely cannot be executed because it refers to a
+  placeholder survey that does not exist in the catalogue
+  (`pumf_registry_entry()`). The example that opens documentation in a browser
+  is now guarded with `if (interactive())` instead, so it does nothing during a
+  non-interactive check.
 
-* This is a new release.
+* **No writing to the user's home filespace.**
+  No function writes to the home filespace, the package directory, or
+  `getwd()` by default. All file output is written under a cache directory that
+  defaults to `getOption("canpumf.cache_path", tempdir())`, i.e. to `tempdir()`
+  unless the user has explicitly opted in to a persistent location via
+  `options(canpumf.cache_path = )`. The package now also states this explicitly
+  (a startup message and a first-download warning) when no cache path is set.
+  I removed an unused internal helper whose argument had no `tempdir()` default,
+  and changed an example that referenced `"~/pumf_cache"` to use `tempdir()`.
+  Examples and tests write only to `tempdir()`.
 
-## Major changes
-* Data is now imported into DuckDB (breaking change, but only requiring slight modification of code)
-* Adaptable metadata parsing registry
-* Multiple more robust strategies to parse metadata
-* Better data download and import mechanics
-* Extensive test suite to prevent regressions and catch if StatCan re-releases data with changed metadata
+In addition, the network-facing entry points (`get_pumf()`,
+`get_pumf_connection()`, `pumf_metadata()`, `list_available_lfs_pumf_versions()`)
+now fail gracefully with an informative message when Statistics Canada is
+unreachable, rather than erroring, so the `\donttest{}` examples cannot fail a
+check during an outage.
 
 ## R CMD check results
 
-0 errors | 0 warnings | 0 note
-
-Checked using
-
-```
-R version 4.6.0 (2026-04-24)
-Platform: aarch64-apple-darwin20
-Running under: macOS Tahoe 26.5
-```
-
+0 errors | 0 warnings | 0 notes
 
 ## Test results
 
-[ FAIL 0 | WARN 0 | SKIP 27 | PASS 14534 ]
+[ FAIL 0 | WARN 0 | SKIP 17 | PASS 15569 ]
+
+## Test environments
+
+* local macOS (aarch64-apple-darwin), R 4.6.0

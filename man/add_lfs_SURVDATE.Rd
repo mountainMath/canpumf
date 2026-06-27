@@ -22,18 +22,20 @@ labelled tables produced by [label_pumf_columns()] (columns `"Survey year"`
 / `"Survey month"`, date column named `"Survey date"`).
 }
 \examples{
-\dontrun{
-# Unlabelled
-lfs <- get_pumf("LFS", "2023")
-lfs |> add_lfs_SURVDATE() |> dplyr::select(SURVYEAR, SURVMNTH, SURVDATE) |>
-  dplyr::distinct() |> dplyr::collect()
+\donttest{
+lfs <- get_pumf("LFS", "2023")   # NULL if StatCan is unreachable
+if (!is.null(lfs)) {
+  # Unlabelled
+  lfs |> add_lfs_SURVDATE() |> dplyr::select(SURVYEAR, SURVMNTH, SURVDATE) |>
+    dplyr::distinct() |> dplyr::collect()
 
-# Labelled
-lfs |> label_pumf_columns() |> add_lfs_SURVDATE() |>
-  dplyr::select(`Survey year`, `Survey month`, `Survey date`) |>
-  dplyr::distinct() |> dplyr::collect()
+  # Labelled
+  lfs |> label_pumf_columns() |> add_lfs_SURVDATE() |>
+    dplyr::select(`Survey year`, `Survey month`, `Survey date`) |>
+    dplyr::distinct() |> dplyr::collect()
 
-close_pumf(lfs)
+  close_pumf(lfs)
+}
 }
 }
 \seealso{

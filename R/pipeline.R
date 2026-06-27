@@ -223,11 +223,12 @@ pumf_locate_or_download <- function(series,
         }
         dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
         bzip <- file.path(source_dir, .zip_filename_from_url(src_url))
+        .pumf_warn_cache_path_on_download()
         message("Downloading shared bundle for ", series, " ", bundle_year, " ...")
         old_timeout <- getOption("timeout")
         options(timeout = max(600L, old_timeout))
         on.exit(options(timeout = old_timeout), add = TRUE)
-        utils::download.file(src_url, bzip, mode = "wb", quiet = FALSE)
+        .pumf_download(src_url, bzip, mode = "wb", quiet = FALSE)
       }
       message("Extracting ", basename(bzip), " ...")
       robust_unzip(bzip, exdir = source_dir)
@@ -272,10 +273,9 @@ pumf_locate_or_download <- function(series,
   is_extracted <- .version_is_extracted(version_dir)
 
   if (is.null(zip_path) && !is_extracted) {
-    collection <- list_canpumf_collection()
-    row <- filter(collection,
-                         .data$Acronym == series,
-                         .data$Version == version)
+    # Resolve the download URL: scraped catalogue first for series the crawler
+    # covers, otherwise the curated collection (see .pumf_resolve_collection_row).
+    row <- .pumf_resolve_collection_row(series, version)
     if (nrow(row) == 0L) {
       stop(series, " version '", version, "' was not found in the canpumf ",
            "collection. Check available versions with list_canpumf_collection().")
@@ -290,11 +290,12 @@ pumf_locate_or_download <- function(series,
     dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
     zip_name <- .zip_filename_from_url(url)
     zip_path  <- file.path(version_dir, zip_name)
+    .pumf_warn_cache_path_on_download()
     message("Downloading ", series, " ", version, " ...")
     old_timeout <- getOption("timeout")
     options(timeout = max(600L, old_timeout))
     on.exit(options(timeout = old_timeout), add = TRUE)
-    utils::download.file(url, zip_path, mode = "wb", quiet = FALSE)
+    .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
     is_extracted <- FALSE  # need extraction after download
   }
 

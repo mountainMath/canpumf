@@ -42,6 +42,8 @@ A named list with three elements:
     \item{`layout`}{Tibble with columns `name`, `start`, `end` for
       fixed-width data files; `NULL` for CSV-format surveys.}
   }
+  Returns `invisible(NULL)` with an informative message if the data must be
+  downloaded but Statistics Canada is unreachable.
 }
 \description{
 Runs Stage 1 (locate or download) and Stage 2 (parse metadata) and returns
@@ -51,10 +53,12 @@ inspecting variable definitions and code labels before loading data with
 [get_pumf()].
 }
 \examples{
-\dontrun{
+\donttest{
 meta <- pumf_metadata("SFS", "2019")
-meta$variables
-meta$codes[meta$codes$name == "PEFAMID", ]
+if (!is.null(meta)) {
+  meta$variables
+  meta$codes[meta$codes$name == "PEFAMID", ]
+}
 }
 }
 \seealso{

@@ -26,9 +26,12 @@ connection**, so the two tbls are joinable on the shared key without opening
 a second connection.
 }
 \examples{
-\dontrun{
-main <- get_pumf("GSS", "2002")          # primary module (MAIN), has WGHT_PER
-cg4  <- pumf_module(main, "CG4")         # caregiving module, same connection
-dplyr::left_join(main, cg4, by = "RECID")
+\donttest{
+main <- get_pumf("GSS", "Cycle 16 (2002)") # primary module (MAIN), has WGHT_PER
+if (!is.null(main)) {
+  cg4 <- pumf_module(main, "CG4")          # caregiving module, same connection
+  dplyr::left_join(main, cg4, by = "RECID")
+  close_pumf(main)
+}
 }
 }

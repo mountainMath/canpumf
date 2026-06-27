@@ -38,19 +38,20 @@ The output column is inserted after `GENDER` / `"Gender of respondent"`
 when present, or after `SEX` / `"Sex of respondent"` otherwise.
 }
 \examples{
-\dontrun{
-lfs <- get_pumf("LFS")
+\donttest{
+lfs <- get_pumf("LFS")   # NULL if StatCan is unreachable
+if (!is.null(lfs)) {
+  # Unlabelled
+  lfs |> add_lfs_GENDER_SEX() |>
+    dplyr::count(SEX, GENDER, GENDER_SEX) |> dplyr::collect()
 
-# Unlabelled
-lfs |> add_lfs_GENDER_SEX() |>
-  dplyr::count(SEX, GENDER, GENDER_SEX) |> dplyr::collect()
+  # Labelled
+  lfs |> label_pumf_columns() |> add_lfs_GENDER_SEX() |>
+    dplyr::count(`Sex of respondent`, `Gender of respondent`,
+                 `Gender/sex of respondent`) |> dplyr::collect()
 
-# Labelled
-lfs |> label_pumf_columns() |> add_lfs_GENDER_SEX() |>
-  dplyr::count(`Sex of respondent`, `Gender of respondent`,
-               `Gender/sex of respondent`) |> dplyr::collect()
-
-close_pumf(lfs)
+  close_pumf(lfs)
+}
 }
 }
 \seealso{

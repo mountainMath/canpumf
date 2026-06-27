@@ -138,10 +138,10 @@
 #' @seealso [remove_pumf_cache()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' list_pumf_cache()
 #' # With an explicit cache path:
-#' list_pumf_cache(cache_path = "~/pumf_cache")
+#' list_pumf_cache(cache_path = file.path(tempdir(), "pumf_cache"))
 #' }
 #' @export
 list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
@@ -203,7 +203,7 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #' @seealso [list_pumf_cache()], [get_pumf()]
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' # Remove only DuckDB and metadata, keep raw files for quick rebuild:
 #' remove_pumf_cache("SFS", "2019")
 #'

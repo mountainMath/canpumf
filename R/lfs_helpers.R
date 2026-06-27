@@ -15,18 +15,20 @@
 #' @seealso [get_pumf()], [label_pumf_columns()], [add_lfs_GENDER_SEX()]
 #'
 #' @examples
-#' \dontrun{
-#' # Unlabelled
-#' lfs <- get_pumf("LFS", "2023")
-#' lfs |> add_lfs_SURVDATE() |> dplyr::select(SURVYEAR, SURVMNTH, SURVDATE) |>
-#'   dplyr::distinct() |> dplyr::collect()
+#' \donttest{
+#' lfs <- get_pumf("LFS", "2023")   # NULL if StatCan is unreachable
+#' if (!is.null(lfs)) {
+#'   # Unlabelled
+#'   lfs |> add_lfs_SURVDATE() |> dplyr::select(SURVYEAR, SURVMNTH, SURVDATE) |>
+#'     dplyr::distinct() |> dplyr::collect()
 #'
-#' # Labelled
-#' lfs |> label_pumf_columns() |> add_lfs_SURVDATE() |>
-#'   dplyr::select(`Survey year`, `Survey month`, `Survey date`) |>
-#'   dplyr::distinct() |> dplyr::collect()
+#'   # Labelled
+#'   lfs |> label_pumf_columns() |> add_lfs_SURVDATE() |>
+#'     dplyr::select(`Survey year`, `Survey month`, `Survey date`) |>
+#'     dplyr::distinct() |> dplyr::collect()
 #'
-#' close_pumf(lfs)
+#'   close_pumf(lfs)
+#' }
 #' }
 #' @export
 add_lfs_SURVDATE <- function(tbl) {
@@ -82,19 +84,20 @@ add_lfs_SURVDATE <- function(tbl) {
 #' @seealso [get_pumf()], [label_pumf_columns()], [add_lfs_SURVDATE()]
 #'
 #' @examples
-#' \dontrun{
-#' lfs <- get_pumf("LFS")
+#' \donttest{
+#' lfs <- get_pumf("LFS")   # NULL if StatCan is unreachable
+#' if (!is.null(lfs)) {
+#'   # Unlabelled
+#'   lfs |> add_lfs_GENDER_SEX() |>
+#'     dplyr::count(SEX, GENDER, GENDER_SEX) |> dplyr::collect()
 #'
-#' # Unlabelled
-#' lfs |> add_lfs_GENDER_SEX() |>
-#'   dplyr::count(SEX, GENDER, GENDER_SEX) |> dplyr::collect()
+#'   # Labelled
+#'   lfs |> label_pumf_columns() |> add_lfs_GENDER_SEX() |>
+#'     dplyr::count(`Sex of respondent`, `Gender of respondent`,
+#'                  `Gender/sex of respondent`) |> dplyr::collect()
 #'
-#' # Labelled
-#' lfs |> label_pumf_columns() |> add_lfs_GENDER_SEX() |>
-#'   dplyr::count(`Sex of respondent`, `Gender of respondent`,
-#'                `Gender/sex of respondent`) |> dplyr::collect()
-#'
-#' close_pumf(lfs)
+#'   close_pumf(lfs)
+#' }
 #' }
 #' @export
 add_lfs_GENDER_SEX <- function(tbl) {

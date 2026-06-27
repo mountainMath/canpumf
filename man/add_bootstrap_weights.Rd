@@ -118,12 +118,14 @@ main table to the BSW table.  If `id_col` is `NULL` (the default):
     fills the values is O(n).
 }
 \examples{
-\dontrun{
+\donttest{
 sfs <- get_pumf("SFS", "2019")
-sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
-                                 n_replicates = 200L, seed = 42L)
-bsw_info(sfs_bsw)
-close_pumf(sfs_bsw)
+if (!is.null(sfs)) {
+  sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
+                                   n_replicates = 200L, seed = 42L)
+  bsw_info(sfs_bsw)
+  close_pumf(sfs_bsw)
+}
 }
 }
 \seealso{

@@ -9,7 +9,9 @@ list_available_lfs_pumf_versions()
 \value{
 A tibble with columns `Date` (human-readable label from the StatCan
   page), `version` (a string of the form `"YYYY"` for annual versions or
-  `"YYYY-MM"` for monthly versions), and `url` (direct download link).
+  `"YYYY-MM"` for monthly versions), and `url` (direct download link).  If
+  the StatCan website is unreachable the function returns an empty tibble
+  (with those columns) and a warning rather than erroring.
 }
 \description{
 Scrapes the Statistics Canada LFS PUMF publication page and returns a
@@ -18,7 +20,7 @@ URLs.  Requires an internet connection.  For the broader collection of all
 supported surveys see [list_canpumf_collection()].
 }
 \examples{
-\dontrun{
+\donttest{
 lfs_versions <- list_available_lfs_pumf_versions()
 tail(lfs_versions)
 }

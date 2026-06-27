@@ -56,7 +56,7 @@ overrides (sentinel values, forced-numeric columns, column swaps, etc.)
 that were applied at import so values can be interpreted correctly.
 }
 \examples{
-\dontrun{
+if (interactive()) {
 # Open by series and version
 open_pumf_documentation("SFS", "2019")
 

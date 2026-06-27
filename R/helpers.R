@@ -35,12 +35,24 @@ find_unique_layout_file <- function(layout_path, pattern, path_or_pattern = NULL
 
 # Low-level extractor: ditto on macOS with unzip fallbacks.
 .unzip_impl <- function(path, exdir) {
+  # Primary extractor on every platform: zip::unzip() (uniform treatment).
+  # utils::unzip() cannot extract StatCan zips whose entries carry accented
+  # names stored in CP437/Latin-1 without the UTF-8 flag (e.g. SHS 2017's
+  # "Data - Donnees/" folder): under a non-UTF-8 locale it errors with
+  # "invalid multibyte string" (Windows) or silently fails to translate the
+  # name to a wide string and drops the file (Linux).  zip::unzip() extracts
+  # the stored bytes verbatim and is locale-agnostic on all platforms.
+  if (requireNamespace("zip", quietly = TRUE) &&
+      tryCatch({ zip::unzip(path, exdir = exdir); TRUE },
+               error = function(e) FALSE))
+    return(invisible(NULL))
+
+  # Fallback only for ZIP compression variants zip's bundled extractor cannot
+  # handle (e.g. the newer deflate flavours StatCan has shipped since 2025).
   if (Sys.info()[['sysname']] == "Darwin") {
-    # ditto does not support all ZIP compression variants (e.g. newer deflate
-    # flavours used by StatCan since 2025).  Fall back to system unzip, then
-    # to utils::unzip, if ditto exits non-zero.
-    # system2() still runs via the shell and does not quote its args, so
-    # shQuote() the path/exdir to handle spaces and quote characters safely.
+    # system2() runs via the shell without quoting its args, so shQuote() the
+    # path/exdir to handle spaces and quote characters safely.  ditto first
+    # (handles resource forks), then system unzip, then utils::unzip.
     exit <- system2("ditto",
                     c("-x", "-k", "--sequesterRsrc", "--rsrc",
                       shQuote(path), shQuote(exdir)))
@@ -53,6 +65,7 @@ find_unique_layout_file <- function(layout_path, pattern, path_or_pattern = NULL
   } else {
     utils::unzip(path, exdir = exdir)
   }
+  invisible(NULL)
 }
 
 robust_unzip <- function(path, exdir) {
@@ -104,15 +117,32 @@ robust_unzip <- function(path, exdir) {
   invisible(NULL)
 }
 
-get_pumf_from_url <- function(url,pumf_cache_path,key=NULL) {
-    tmp <- tempfile()
-    if (is.null(key)) {
-      key <- basename(url) |> gsub("\\.zip$","",x=_)
-    }
-    utils::download.file(url,tmp)
-    robust_unzip(tmp,exdir=file.path(pumf_cache_path,key))
-    unlink(tmp)
-    key
+
+# Signal a graceful, classed network error.  Callers that front a download
+# (get_pumf_connection(), lfs_get_pumf()) catch `canpumf_network_error` and
+# degrade to an informative message + NULL instead of erroring -- Statistics
+# Canada being unreachable should not produce a hard error (CRAN policy for
+# packages that use Internet resources).
+.pumf_network_error <- function(message) {
+  structure(
+    class = c("canpumf_network_error", "error", "condition"),
+    list(message = message, call = NULL))
+}
+
+# download.file() wrapper that converts any failure -- unreachable host, HTTP
+# error, or a truncated/empty result -- into a canpumf_network_error condition.
+.pumf_download <- function(url, destfile, ...) {
+  status <- tryCatch(utils::download.file(url, destfile, ...),
+                     error = function(e) 1L)
+  ok <- identical(as.integer(status), 0L) &&
+        file.exists(destfile) && file.info(destfile)$size > 0
+  if (!ok) {
+    if (file.exists(destfile)) unlink(destfile)   # drop a truncated/empty file
+    stop(.pumf_network_error(paste0(
+      "Statistics Canada is unreachable; could not download '", url, "'. ",
+      "The server may be down or the file may have moved -- try again later.")))
+  }
+  invisible(0L)
 }
 
 
