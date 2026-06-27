@@ -14,6 +14,11 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(canpumf)
+#> canpumf.cache_path is not set.
+#> Downloaded data is stored in tempdir() and discarded when this R session ends, so it will be re-downloaded next time.
+#> To persist data across sessions, set a cache directory:
+#>   options(canpumf.cache_path = "~/canpumf_cache")
+#> Add that line to your .Rprofile to make it permanent.
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 

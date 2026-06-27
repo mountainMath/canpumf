@@ -12,6 +12,11 @@ library(dplyr)
 #> 
 #>     intersect, setdiff, setequal, union
 library(canpumf)
+#> canpumf.cache_path is not set.
+#> Downloaded data is stored in tempdir() and discarded when this R session ends, so it will be re-downloaded next time.
+#> To persist data across sessions, set a cache directory:
+#>   options(canpumf.cache_path = "~/canpumf_cache")
+#> Add that line to your .Rprofile to make it permanent.
 options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
@@ -42,17 +47,17 @@ a one-time message listing the other modules and how to open one:
 
 ``` r
 
-main <- get_pumf("GSS", "2002")   # primary module (MAIN), carries WGHT_PER
-#> GSS/2002 is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
+main <- get_pumf("GSS", "Cycle 16 (2002)")  # primary module (MAIN), carries WGHT_PER
+#> GSS/Cycle 16 (2002) is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
 #> Open one on the same connection with pumf_module(), e.g.:
 #>   cg4 <- pumf_module(main, "CG4")
-#> GSS/2002 is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
+#> GSS/Cycle 16 (2002) is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
 #> Open one on the same connection with pumf_module(), e.g.:
 #>   cg4 <- pumf_module(main, "CG4")
 
 main |> select(1:5) |> head()
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/GSS/2002/GSS_2002.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]
 #>   RECID WGHT_PER AGE_2001_GR5      AGE_2001_GR10     SEX   
 #>   <dbl>    <dbl> <fct>             <fct>             <fct> 
 #> 1     1     367. 45 to 49          45 to 54          Female
@@ -83,12 +88,12 @@ reminds you of the key the modules join on:
 ``` r
 
 cg4 <- pumf_module(main, "CG4")   # the caregiving module
-#> GSS/2002 modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
+#> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
 #> GSS/2002 modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
 
 cg4 |> select(1:5) |> head()
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/GSS/2002/GSS_2002.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]
 #>   RECID PERSONID CG4_FR_Q100_C                           CG4_FR_Q104 CG4_FR_Q105
 #>   <dbl>    <dbl> <fct>                                   <fct>       <fct>      
 #> 1     6        1 Neighbour of respondent                 Not asked   Not asked  

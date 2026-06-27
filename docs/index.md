@@ -152,13 +152,13 @@ portal.
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
-| General Social Survey — Caregiving | GSS | 1996, 2007, 2012, 2018 | ✓ |
-| General Social Survey — Aging and Social Support (cycle 16) | GSS | 2002 (a.k.a. “Cycle 16”; MAIN + CG4 + CG6 + CR modules joinable on RECID) | ✓ |
-| General Social Survey — Safety | GSS | Safety 1993, Safety 1999, Safety 2014, Safety 2019 | ✓ |
-| General Social Survey — Family | GSS | Family 1995, Family 2001, Family 2011, Family 2017 | ✓ |
-| General Social Survey — Social Identity | GSS | Social Identity 2003, Social Identity 2013, Social Identity 2020 | ✓ |
-| General Social Survey — Education | GSS | Education 1994, Education 2007 | ✓ |
-| General Social Survey — Time Use | GSS | Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 (each Main + Episode modules joinable on PUMFID/RECID) | ✓ |
+| General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
+| General Social Survey — Aging and Social Support | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
+| General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |
+| General Social Survey — Family | GSS | Cycle 10 (1995), Cycle 15 (2001), Cycle 25 (2011), Cycle 31 (2017) | ✓ |
+| General Social Survey — Social Identity | GSS | Cycle 17 (2003), Cycle 27 (2013), Cycle 35 (2020) | ✓ |
+| General Social Survey — Education | GSS | Cycle 9 (1994) | ✓ |
+| General Social Survey — Time Use | GSS | Cycle 12 (1998), Cycle 24 (2010), Cycle 29 (2015), Cycle 36 (2022) — each Main + Episode modules joinable on PUMFID/RECID | ✓ |
 | GSS Giving, Volunteering and Participating | SGVP | 1997, 2000, 2004, 2007, 2010, 2013, 2018, 2023 (1997–2010 add GS/VD/GIVE/VOLNTR detail modules joinable on PUMFID/MICRO_ID/IDNUM) | ✓ |
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
@@ -167,6 +167,21 @@ portal.
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |
 | Survey of Household Spending | SHS | 2017 (Interview + Diary modules joinable on CASEID), 2019, 2021, 2023 | ✓ |
+
+GSS surveys are keyed by their canonical `Cycle N (YYYY)` version (e.g.
+`get_pumf("GSS", "Cycle 16 (2002)")`), since a bare year is not unique
+across the GSS — several years carry both a regular cycle and a
+Giving/Volunteering survey. For convenience the cycle number alone
+(`"Cycle 16"`, `"16"`), the bare year (`"2002"`), and the historical
+theme name (`"Aging and Social Support"`, `"Family 2017"`,
+`"Time Use 2022"`) all resolve to the canonical key.
+
+CPSS and CCAHS are keyed by their bare cycle number
+(`get_pumf("CPSS", "1")`, `get_pumf("CCAHS", "1")`). StatCan styles
+these cycles “Series N” (CPSS) and “Cycle N” (CCAHS), so `"Series 3"`,
+`"Cycle 4"`, and `"CPSS 6"` resolve to the number; CCAHS additionally
+accepts its reference year `"2022"`. A bare year is *not* a CPSS alias,
+since several CPSS cycles share a calendar year.
 
 ## Related packages
 
@@ -189,7 +204,7 @@ on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 If you wish to cite the `canpumf` package in your work:
 
 von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R.
-v0.5.1.
+v0.5.2.
 
 A BibTeX entry for LaTeX users is
 
@@ -197,7 +212,7 @@ A BibTeX entry for LaTeX users is
         author = {Jens {von Bergmann}},
         title = {canpumf: Import StatCan PUMF data into R},
         year = {2026},
-        note = {R package version 0.5.1},
+        note = {R package version 0.5.2},
         url = {https://mountainmath.github.io/canpumf/},
       }
 

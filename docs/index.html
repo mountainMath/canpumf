@@ -16,8 +16,8 @@
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Parse StatCan PUMF Files">
-<meta name="description" content="Facilitate working with Statistics Canada (StatCan) Public Use Microdata Files (PUMF). Enables downloading of available PUMF data, parsing of metadata from command files or other sources to infer the layout structure, variable labels and value labels as well as missing data values, and returns a connection to a DuckDB database with the labelled data.">
-<meta property="og:description" content="Facilitate working with Statistics Canada (StatCan) Public Use Microdata Files (PUMF). Enables downloading of available PUMF data, parsing of metadata from command files or other sources to infer the layout structure, variable labels and value labels as well as missing data values, and returns a connection to a DuckDB database with the labelled data.">
+<meta name="description" content="Facilitate working with Statistics Canada (StatCan) Public Use Microdata Files (PUMF). Enables downloading of available PUMF data, parsing of metadata from command files or other sources to infer the layout structure, variable labels and value labels as well as missing data values, and returns a connection to a DuckDB database with the labelled data. Data and documentation come from Statistics Canada's Public Use Microdata Files &lt;https://www.statcan.gc.ca/en/microdata/pumf&gt;, distributed under the Statistics Canada Open Licence &lt;https://www.statcan.gc.ca/en/terms-conditions/open-licence&gt;.">
+<meta property="og:description" content="Facilitate working with Statistics Canada (StatCan) Public Use Microdata Files (PUMF). Enables downloading of available PUMF data, parsing of metadata from command files or other sources to infer the layout structure, variable labels and value labels as well as missing data values, and returns a connection to a DuckDB database with the labelled data. Data and documentation come from Statistics Canada's Public Use Microdata Files &lt;https://www.statcan.gc.ca/en/microdata/pumf&gt;, distributed under the Statistics Canada Open Licence &lt;https://www.statcan.gc.ca/en/terms-conditions/open-licence&gt;.">
 <meta property="og:image" content="https://mountainmath.github.io/canpumf/logo.png">
 </head>
 <body>
@@ -28,7 +28,7 @@
 
     <a class="navbar-brand me-2" href="index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -223,43 +223,43 @@
 <tr>
 <td>General Social Survey — Caregiving</td>
 <td>GSS</td>
-<td>1996, 2007, 2012, 2018</td>
+<td>Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
-<td>General Social Survey — Aging and Social Support (cycle 16)</td>
+<td>General Social Survey — Aging and Social Support</td>
 <td>GSS</td>
-<td>2002 (a.k.a. “Cycle 16”; MAIN + CG4 + CG6 + CR modules joinable on RECID)</td>
+<td>Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>General Social Survey — Safety</td>
 <td>GSS</td>
-<td>Safety 1993, Safety 1999, Safety 2014, Safety 2019</td>
+<td>Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>General Social Survey — Family</td>
 <td>GSS</td>
-<td>Family 1995, Family 2001, Family 2011, Family 2017</td>
+<td>Cycle 10 (1995), Cycle 15 (2001), Cycle 25 (2011), Cycle 31 (2017)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>General Social Survey — Social Identity</td>
 <td>GSS</td>
-<td>Social Identity 2003, Social Identity 2013, Social Identity 2020</td>
+<td>Cycle 17 (2003), Cycle 27 (2013), Cycle 35 (2020)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>General Social Survey — Education</td>
 <td>GSS</td>
-<td>Education 1994, Education 2007</td>
+<td>Cycle 9 (1994)</td>
 <td align="center">✓</td>
 </tr>
 <tr>
 <td>General Social Survey — Time Use</td>
 <td>GSS</td>
-<td>Time Use 1998, Time Use 2010, Time Use 2015, Time Use 2022 (each Main + Episode modules joinable on PUMFID/RECID)</td>
+<td>Cycle 12 (1998), Cycle 24 (2010), Cycle 29 (2015), Cycle 36 (2022) — each Main + Episode modules joinable on PUMFID/RECID</td>
 <td align="center">✓</td>
 </tr>
 <tr>
@@ -312,6 +312,8 @@
 </tr>
 </tbody>
 </table>
+<p>GSS surveys are keyed by their canonical <code>Cycle N (YYYY)</code> version (e.g. <code>get_pumf("GSS", "Cycle 16 (2002)")</code>), since a bare year is not unique across the GSS — several years carry both a regular cycle and a Giving/Volunteering survey. For convenience the cycle number alone (<code>"Cycle 16"</code>, <code>"16"</code>), the bare year (<code>"2002"</code>), and the historical theme name (<code>"Aging and Social Support"</code>, <code>"Family 2017"</code>, <code>"Time Use 2022"</code>) all resolve to the canonical key.</p>
+<p>CPSS and CCAHS are keyed by their bare cycle number (<code>get_pumf("CPSS", "1")</code>, <code>get_pumf("CCAHS", "1")</code>). StatCan styles these cycles “Series N” (CPSS) and “Cycle N” (CCAHS), so <code>"Series 3"</code>, <code>"Cycle 4"</code>, and <code>"CPSS 6"</code> resolve to the number; CCAHS additionally accepts its reference year <code>"2022"</code>. A bare year is <em>not</em> a CPSS alias, since several CPSS cycles share a calendar year.</p>
 </div>
 <div class="section level2">
 <h2 id="related-packages">Related packages<a class="anchor" aria-label="anchor" href="#related-packages"></a>
@@ -324,13 +326,13 @@
 <a class="anchor" aria-label="anchor" href="#cite-canpumf"></a>
 </h2>
 <p>If you wish to cite the <code>canpumf</code> package in your work:</p>
-<p>von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.1.</p>
+<p>von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.2.</p>
 <p>A BibTeX entry for LaTeX users is</p>
 <pre><code>  @Manual{,
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
-    note = {R package version 0.5.1},
+    note = {R package version 0.5.2},
     url = {https://mountainmath.github.io/canpumf/},
   }</code></pre>
 <div class="section level3">

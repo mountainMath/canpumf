@@ -12,6 +12,11 @@ library(dplyr)
 #> 
 #>     intersect, setdiff, setequal, union
 library(canpumf)
+#> canpumf.cache_path is not set.
+#> Downloaded data is stored in tempdir() and discarded when this R session ends, so it will be re-downloaded next time.
+#> To persist data across sessions, set a cache directory:
+#>   options(canpumf.cache_path = "~/canpumf_cache")
+#> Add that line to your .Rprofile to make it permanent.
 ```
 
 PUMF data are a synthetic sample, altered from the original survey
@@ -66,6 +71,11 @@ works on two kinds of input and behaves differently for each:
 ``` r
 
 cis <- get_pumf("CIS", "2019")
+#> Warning: canpumf.cache_path is not set; downloading to a temporary directory.
+#> Downloaded data is stored in tempdir() and discarded when this R session ends, so it will be re-downloaded next time.
+#> To persist data across sessions, set a cache directory:
+#>   options(canpumf.cache_path = "~/canpumf_cache")
+#> Add that line to your .Rprofile to make it permanent.
 
 cis_bsw <- cis |>
   add_bootstrap_weights(weight_col = "FWEIGHT", n_replicates = 200, seed = 42)

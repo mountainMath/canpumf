@@ -15,7 +15,7 @@ available), that column is also dropped."><meta property="og:image" content="htt
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -96,13 +96,17 @@ tables are dropped, and a fresh read-only connection is returned.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># \donttest{</span></span></span>
 <span class="r-in"><span><span class="va">sfs</span> <span class="op">&lt;-</span> <span class="fu"><a href="get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"SFS"</span>, <span class="st">"2019"</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">sfs_bsw</span> <span class="op">&lt;-</span> <span class="fu"><a href="add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span><span class="va">sfs</span>, weight_col <span class="op">=</span> <span class="st">"PWEIGHT"</span>, seed <span class="op">=</span> <span class="fl">1L</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="co"># Remove only the PWEIGHT BSW table</span></span></span>
-<span class="r-in"><span><span class="va">sfs_clean</span> <span class="op">&lt;-</span> <span class="fu">remove_bootstrap_weights</span><span class="op">(</span><span class="va">sfs_bsw</span>, weight_col <span class="op">=</span> <span class="st">"PWEIGHT"</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">sfs_clean</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NULL.html" class="external-link">is.null</a></span><span class="op">(</span><span class="va">sfs</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span>  <span class="va">sfs_bsw</span> <span class="op">&lt;-</span> <span class="fu"><a href="add_bootstrap_weights.html">add_bootstrap_weights</a></span><span class="op">(</span><span class="va">sfs</span>, weight_col <span class="op">=</span> <span class="st">"PWEIGHT"</span>, seed <span class="op">=</span> <span class="fl">1L</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="co"># Remove only the PWEIGHT BSW table</span></span></span>
+<span class="r-in"><span>  <span class="va">sfs_clean</span> <span class="op">&lt;-</span> <span class="fu">remove_bootstrap_weights</span><span class="op">(</span><span class="va">sfs_bsw</span>, weight_col <span class="op">=</span> <span class="st">"PWEIGHT"</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="fu"><a href="close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">sfs_clean</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Dropping view 'eng_EFAM_PUMF_bsw_pweight'...</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Dropping bootstrap weight table 'pumf_bsw_pweight'...</span>
+<span class="r-in"><span><span class="co"># }</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

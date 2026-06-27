@@ -17,7 +17,10 @@ close_pumf(x)
 - x:
 
   A lazy \`dplyr::tbl()\` returned by \[get_pumf()\], or a DuckDB
-  connection returned by \[get_pumf_connection()\].
+  connection returned by \[get_pumf_connection()\]. \`NULL\` is accepted
+  and is a no-op, so \`close_pumf()\` can be called unconditionally on a
+  \[get_pumf()\] result that may be \`NULL\` (e.g. when Statistics
+  Canada was unreachable).
 
 ## Value
 
@@ -41,14 +44,20 @@ connections (the default) do not block other readers.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 sfs <- get_pumf("SFS", "2019")
-# ... analysis ...
-close_pumf(sfs)
+if (!is.null(sfs)) {
+  # ... analysis ...
+  close_pumf(sfs)
+}
 
 # Also accepts a raw connection from get_pumf_connection()
 con <- get_pumf_connection("SHS", "2017")
-DBI::dbListTables(con)
-close_pumf(con)
-} # }
+#> Connected to DuckDB (read-write). Available tables: eng_Diary, eng_Interview.
+#> Disconnect with DBI::dbDisconnect(con, shutdown = TRUE) when done.
+if (!is.null(con)) {
+  DBI::dbListTables(con)
+  close_pumf(con)
+}
+# }
 ```

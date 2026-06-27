@@ -29,9 +29,11 @@ survey-metadata order.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 sfs <- get_pumf("SFS", "2019")
-pumf_var_labels(sfs)
-close_pumf(sfs)
-} # }
+if (!is.null(sfs)) {
+  pumf_var_labels(sfs)
+  close_pumf(sfs)
+}
+# }
 ```

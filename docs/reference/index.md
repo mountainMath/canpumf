@@ -26,6 +26,8 @@
   : List the contents of the local canpumf cache
 - [`list_pumf_registry()`](https://mountainmath.github.io/canpumf/reference/list_pumf_registry.md)
   : Overview of all built-in registry entries
+- [`list_statcan_pumf_catalogue()`](https://mountainmath.github.io/canpumf/reference/list_statcan_pumf_catalogue.md)
+  : Crawl the full Statistics Canada PUMF catalogue (experimental)
 - [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
   : Open PUMF documentation in the browser
 - [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)

@@ -58,11 +58,13 @@ deleted.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 # Remove only DuckDB and metadata, keep raw files for quick rebuild:
 remove_pumf_cache("SFS", "2019")
+#> Removed DuckDB and metadata for SFS 2019. Raw files kept; use get_pumf() to rebuild.
 
 # Remove everything including raw files:
 remove_pumf_cache("SFS", "2019", keep_raw = FALSE)
-} # }
+#> Removed all cached data for SFS 2019.
+# }
 ```

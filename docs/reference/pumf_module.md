@@ -33,9 +33,16 @@ connection as \`tbl\`.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
-main <- get_pumf("GSS", "2002")          # primary module (MAIN), has WGHT_PER
-cg4  <- pumf_module(main, "CG4")         # caregiving module, same connection
-dplyr::left_join(main, cg4, by = "RECID")
-} # }
+# \donttest{
+main <- get_pumf("GSS", "Cycle 16 (2002)") # primary module (MAIN), has WGHT_PER
+#> GSS/Cycle 16 (2002) is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
+#> Open one on the same connection with pumf_module(), e.g.:
+#>   cg4 <- pumf_module(main, "CG4")
+if (!is.null(main)) {
+  cg4 <- pumf_module(main, "CG4")          # caregiving module, same connection
+  dplyr::left_join(main, cg4, by = "RECID")
+  close_pumf(main)
+}
+#> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
+# }
 ```

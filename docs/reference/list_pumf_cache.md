@@ -66,9 +66,26 @@ for every LFS row. Use \[remove_pumf_cache()\] to free disk space.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 list_pumf_cache()
+#> # A tibble: 255 × 7
+#>    series        version       has_raw has_metadata has_duckdb  raw_mb duckdb_mb
+#>    <chr>         <chr>         <lgl>   <lgl>        <lgl>        <dbl>     <dbl>
+#>  1 1971PUMF_FMGD 1971_familie… TRUE    FALSE        FALSE       1.83          NA
+#>  2 1971PUMF_FMGD 1971_familie… TRUE    FALSE        FALSE       7.09          NA
+#>  3 1971PUMF_FMGD 1971_househo… TRUE    FALSE        FALSE       1.48          NA
+#>  4 1971PUMF_FMGD 1971_individ… TRUE    FALSE        FALSE       5.43          NA
+#>  5 1971PUMF_FMGD 1971_individ… TRUE    FALSE        FALSE      21.6           NA
+#>  6 1976PUMF_FMGD 1976_househo… TRUE    FALSE        FALSE       2.35          NA
+#>  7 1976PUMF_FMGD 1976_individ… TRUE    FALSE        FALSE      10.5           NA
+#>  8 1981PUMF_FMGD 1981_familie… TRUE    FALSE        FALSE       0             NA
+#>  9 1981PUMF_FMGD 1981_househo… TRUE    FALSE        FALSE       0.0119        NA
+#> 10 1981PUMF_FMGD 1981_individ… TRUE    FALSE        FALSE       0.0123        NA
+#> # ℹ 245 more rows
 # With an explicit cache path:
-list_pumf_cache(cache_path = "~/pumf_cache")
-} # }
+list_pumf_cache(cache_path = file.path(tempdir(), "pumf_cache"))
+#> # A tibble: 0 × 7
+#> # ℹ 7 variables: series <chr>, version <chr>, has_raw <lgl>,
+#> #   has_metadata <lgl>, has_duckdb <lgl>, raw_mb <dbl>, duckdb_mb <dbl>
+# }
 ```

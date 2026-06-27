@@ -56,7 +56,9 @@ get_pumf_connection(
 
 A \[DBI::DBIConnection-class\] in read-write mode. Disconnect with
 \`DBI::dbDisconnect(con, shutdown = TRUE)\` when done. For a safer
-read-only lazy table use \[get_pumf()\] instead.
+read-only lazy table use \[get_pumf()\] instead. Returns
+\`invisible(NULL)\` with an informative message if the data must be
+downloaded but Statistics Canada is unreachable.
 
 ## See also
 
@@ -65,10 +67,14 @@ read-only lazy table use \[get_pumf()\] instead.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
-con <- get_pumf_connection("SFS", "2019")
-DBI::dbListTables(con)
-DBI::dbGetQuery(con, 'SELECT COUNT(*) FROM "eng_SFS_2019"')
-DBI::dbDisconnect(con, shutdown = TRUE)
-} # }
+# \donttest{
+con <- get_pumf_connection("SFS", "2019")  # NULL if StatCan is unreachable
+#> Connected to DuckDB (read-write). Available tables: eng_EFAM_PUMF, eng_EFAM_PUMF_bsw_pweight, fra_EFAM_PUMF, pumf_bsw_pweight.
+#> Disconnect with DBI::dbDisconnect(con, shutdown = TRUE) when done.
+if (!is.null(con)) {
+  tables <- DBI::dbListTables(con)
+  DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "%s"', tables[1]))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+}
+# }
 ```

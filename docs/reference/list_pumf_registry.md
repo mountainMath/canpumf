@@ -23,7 +23,7 @@ present).
 
 ``` r
 list_pumf_registry()
-#> # A tibble: 84 × 6
+#> # A tibble: 83 × 6
 #>    series version file_mask         layout_mask    bsw_join_key data_fixups  
 #>    <chr>  <chr>   <chr>             <chr>          <chr>        <chr>        
 #>  1 SFS    2023    "EFAM_PUMF\\.txt" EFAM_PUMF_[^R] PEFAMID      NA           
@@ -36,5 +36,5 @@ list_pumf_registry()
 #>  8 CIS    2021    "PUMF\\.txt"      NA             NA           NA           
 #>  9 CIS    2020    "PUMF\\.txt"      NA             NA           NA           
 #> 10 CIS    2019    "PUMF\\.txt"      NA             NA           NA           
-#> # ℹ 74 more rows
+#> # ℹ 73 more rows
 ```

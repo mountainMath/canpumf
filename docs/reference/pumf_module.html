@@ -19,7 +19,7 @@ a second connection."><meta property="og:image" content="https://mountainmath.gi
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -90,11 +90,18 @@ registry entry for available module ids.</p></dd>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span><span class="va">main</span> <span class="op">&lt;-</span> <span class="fu"><a href="get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"GSS"</span>, <span class="st">"2002"</span><span class="op">)</span>          <span class="co"># primary module (MAIN), has WGHT_PER</span></span></span>
-<span class="r-in"><span><span class="va">cg4</span>  <span class="op">&lt;-</span> <span class="fu">pumf_module</span><span class="op">(</span><span class="va">main</span>, <span class="st">"CG4"</span><span class="op">)</span>         <span class="co"># caregiving module, same connection</span></span></span>
-<span class="r-in"><span><span class="fu">dplyr</span><span class="fu">::</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate-joins.html" class="external-link">left_join</a></span><span class="op">(</span><span class="va">main</span>, <span class="va">cg4</span>, by <span class="op">=</span> <span class="st">"RECID"</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+<span class="r-in"><span><span class="va">main</span> <span class="op">&lt;-</span> <span class="fu"><a href="get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"GSS"</span>, <span class="st">"Cycle 16 (2002)"</span><span class="op">)</span> <span class="co"># primary module (MAIN), has WGHT_PER</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> GSS/Cycle 16 (2002) is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Open one on the same connection with pumf_module(), e.g.:</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span>   cg4 &lt;- pumf_module(main, "CG4")</span>
+<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NULL.html" class="external-link">is.null</a></span><span class="op">(</span><span class="va">main</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span>  <span class="va">cg4</span> <span class="op">&lt;-</span> <span class="fu">pumf_module</span><span class="op">(</span><span class="va">main</span>, <span class="st">"CG4"</span><span class="op">)</span>          <span class="co"># caregiving module, same connection</span></span></span>
+<span class="r-in"><span>  <span class="fu">dplyr</span><span class="fu">::</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate-joins.html" class="external-link">left_join</a></span><span class="op">(</span><span class="va">main</span>, <span class="va">cg4</span>, by <span class="op">=</span> <span class="st">"RECID"</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="fu"><a href="close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">main</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).</span>
+<span class="r-in"><span><span class="co"># }</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

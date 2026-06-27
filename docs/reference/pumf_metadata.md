@@ -70,6 +70,9 @@ A named list with three elements:
   Tibble with columns \`name\`, \`start\`, \`end\` for fixed-width data
   files; \`NULL\` for CSV-format surveys.
 
+Returns \`invisible(NULL)\` with an informative message if the data must
+be downloaded but Statistics Canada is unreachable.
+
 ## See also
 
 \[get_pumf()\], \[pumf_var_labels()\]
@@ -77,9 +80,13 @@ A named list with three elements:
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 meta <- pumf_metadata("SFS", "2019")
-meta$variables
-meta$codes[meta$codes$name == "PEFAMID", ]
-} # }
+if (!is.null(meta)) {
+  meta$variables
+  meta$codes[meta$codes$name == "PEFAMID", ]
+}
+#> # A tibble: 0 × 4
+#> # ℹ 4 variables: name <chr>, val <chr>, label_en <chr>, label_fr <chr>
+# }
 ```

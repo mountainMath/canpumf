@@ -36,10 +36,12 @@ name-to-label mapping without renaming.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 sfs <- get_pumf("SFS", "2019")
-sfs_labeled <- label_pumf_columns(sfs)
-colnames(sfs_labeled)
-close_pumf(sfs_labeled)
-} # }
+if (!is.null(sfs)) {
+  sfs_labeled <- label_pumf_columns(sfs)
+  colnames(sfs_labeled)
+  close_pumf(sfs_labeled)
+}
+# }
 ```

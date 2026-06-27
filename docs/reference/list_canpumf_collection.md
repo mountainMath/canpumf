@@ -25,9 +25,18 @@ dataset.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 collection <- list_canpumf_collection()
 # Show all SFS versions
 collection[collection$Acronym == "SFS", c("Acronym", "Version")]
-} # }
+#> # A tibble: 6 × 2
+#>   Acronym Version
+#>   <chr>   <chr>  
+#> 1 SFS     1999   
+#> 2 SFS     2005   
+#> 3 SFS     2012   
+#> 4 SFS     2016   
+#> 5 SFS     2019   
+#> 6 SFS     2023   
+# }
 ```

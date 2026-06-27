@@ -80,7 +80,7 @@ that were applied at import so values can be interpreted correctly.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+if (interactive()) {
 # Open by series and version
 open_pumf_documentation("SFS", "2019")
 
@@ -91,5 +91,27 @@ close_pumf(sfs)
 
 # French documentation
 open_pumf_documentation("SFS", "2019", lang = "fra")
-} # }
+}
+#> Documentation for SFS 2019: 
+#> 
+#> 1: PUMF User Guide_2019_English.pdf
+#> 2: SFS2019_PUMF_E.pdf
+#> 3: How to cite SFS2019_Comment citer ESF2019.pdf
+#> 4: Open all
+#> 
+#> Enter an item from the menu, or 0 to exit
+#> Documentation for SFS 2019: 
+#> 
+#> 1: PUMF User Guide_2019_English.pdf
+#> 2: SFS2019_PUMF_E.pdf
+#> 3: How to cite SFS2019_Comment citer ESF2019.pdf
+#> 4: Open all
+#> 
+#> Documentation for SFS 2019: 
+#> 
+#> 1: How to cite SFS2019_Comment citer ESF2019.pdf
+#> 2: PUMF User Guide_2019_English.pdf
+#> 3: SFS2019_PUMF_E.pdf
+#> 4: Open all
+#> 
 ```

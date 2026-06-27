@@ -16,7 +16,8 @@ list_available_lfs_pumf_versions()
 A tibble with columns \`Date\` (human-readable label from the StatCan
 page), \`version\` (a string of the form \`"YYYY"\` for annual versions
 or \`"YYYY-MM"\` for monthly versions), and \`url\` (direct download
-link).
+link). If the StatCan website is unreachable the function returns an
+empty tibble (with those columns) and a warning rather than erroring.
 
 ## See also
 
@@ -25,8 +26,17 @@ link).
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
+# \donttest{
 lfs_versions <- list_available_lfs_pumf_versions()
 tail(lfs_versions)
-} # }
+#> # A tibble: 6 × 3
+#>   Date  version url                                                             
+#>   <chr> <chr>   <chr>                                                           
+#> 1 2011  2011    https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2011-…
+#> 2 2010  2010    https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2010-…
+#> 3 2009  2009    https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2009-…
+#> 4 2008  2008    https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2008-…
+#> 5 2007  2007    https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2007-…
+#> 6 2006  2006    https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2006-…
+# }
 ```
