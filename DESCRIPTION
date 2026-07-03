@@ -35,7 +35,6 @@ Imports:
 Suggests:
     rmarkdown,
     knitr,
-    duckplyr  (>= 1.2.1),
     scales,
     ggplot2,
     testthat (>= 3.0.0),

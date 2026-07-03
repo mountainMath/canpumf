@@ -178,7 +178,6 @@ robust_unzip <- function(path, exdir) {
 #' @import readr
 #' @importFrom rlang .data
 #' @importFrom rlang :=
-#' @import duckplyr
 #' @importFrom dbplyr sql_render
 NULL
 
