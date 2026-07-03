@@ -1,7 +1,7 @@
 Package: canpumf
 Type: Package
 Title: Parse StatCan PUMF Files
-Version: 0.5.2
+Version: 0.5.3
 Authors@R: c(
     person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("aut", "cre"))
     )
@@ -29,13 +29,13 @@ Imports:
     purrr,
     DBI,
     duckdb  (>= 1.5.2),
-    duckplyr  (>= 1.2.1),
     dbplyr,
     haven (>= 2.5.0),
     zip
 Suggests:
     rmarkdown,
     knitr,
+    duckplyr  (>= 1.2.1),
     scales,
     ggplot2,
     testthat (>= 3.0.0),
