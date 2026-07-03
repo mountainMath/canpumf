@@ -1,7 +1,7 @@
 # canpumf <a href="https://mountainmath.github.io/canpumf/"><img src="man/figures/logo.png" align="right" height="120" alt="canpumf website" /></a>
 
 <!-- badges: start -->
-<!-- [![CRAN status](https://www.r-pkg.org/badges/version/canpumf)](https://CRAN.R-project.org/package=canpumf) -->
+[![CRAN status](https://www.r-pkg.org/badges/version/canpumf)](https://CRAN.R-project.org/package=canpumf)
 [![R-CMD-check](https://github.com/mountainMath/canpumf/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mountainMath/canpumf/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 

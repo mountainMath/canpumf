@@ -42,7 +42,7 @@
     </div>
 
     <div class="section level2">
-<h2 class="pkg-version" data-toc-text="0.5.2" id="canpumf-052">canpumf 0.5.2<a class="anchor" aria-label="anchor" href="#canpumf-052"></a></h2>
+<h2 class="pkg-version" data-toc-text="0.5.2" id="canpumf-052">canpumf 0.5.2<a class="anchor" aria-label="anchor" href="#canpumf-052"></a></h2><p class="text-muted">CRAN release: 2026-07-03</p>
 <div class="section level3">
 <h3 id="new-features-0-5-2">New features<a class="anchor" aria-label="anchor" href="#new-features-0-5-2"></a></h3>
 <ul><li>Experimental <code><a href="../reference/list_statcan_pumf_catalogue.html">list_statcan_pumf_catalogue()</a></code> crawls the live Statistics Canada “Public use microdata” listing and returns one row per discovered survey edition (<code>catalogue_id</code>, <code>Title</code>, <code>edition</code>, <code>format</code>, <code>url</code>, <code>product_url</code>) — a discovery counterpart to the curated <code><a href="../reference/list_canpumf_collection.html">list_canpumf_collection()</a></code> that picks up newly released PUMFs automatically. Editions offered in several formats collapse to a single preferred row (CSV / flat text first), but genuinely distinct surveys or file-types that share a reference year are kept as separate rows (e.g. the GSS cycle and the Giving/Volunteering survey both released in 2007, or the census individual/family/household/hierarchical files for one year). Surveys distributed only by Electronic File Transfer report <code>url = "(EFT)"</code>.</li>

@@ -2,6 +2,8 @@
 
 ## canpumf 0.5.2
 
+CRAN release: 2026-07-03
+
 ### New features
 
 - Experimental
