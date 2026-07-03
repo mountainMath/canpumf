@@ -101,11 +101,6 @@ offered in several formats the one highest in \`prefer\` is kept
 # \donttest{
 # Quick look at the first 5 surveys
 head(list_statcan_pumf_catalogue(max_surveys = 5))
-#> [1/5] Survey of Household Spending: Public Use Microdata File (62M0004X)
-#> [2/5] Canadian Survey on Working Conditions: Public Use Microdata File (14250001)
-#> [3/5] Labour Force Survey: Public Use Microdata File (71M0001X)
-#> [4/5] General Social Survey – Public Use Microdata Files (45250001)
-#> [5/5] Survey on Early Learning and Child Care Arrangements: Public Use Microdata File (42250001)
 #> # A tibble: 6 × 9
 #>   catalogue_id Acronym SeriesTitle         Title survey_url edition format url  
 #>   <chr>        <chr>   <chr>               <chr> <chr>      <chr>   <chr>  <chr>

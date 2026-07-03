@@ -76,8 +76,11 @@
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
-<p>You can install the current development version of canpumf from <a href="https://github.com/mountainMath/canpumf" class="external-link">GitHub</a> with:</p>
+<p>The <strong>canpumf</strong> package is available on CRAN and can be installed directly.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="va">canpumf</span><span class="op">)</span></span></code></pre></div>
+<p>Alternatively the current development version of canpumf from <a href="https://github.com/mountainMath/canpumf" class="external-link">GitHub</a> with:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"mountainmath/canpumf"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
@@ -103,7 +106,7 @@
 <p>Some PUMF data is available from StatCan via direct download and can be accessed directly via <code><a href="reference/get_pumf.html">get_pumf()</a></code>. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so <code><a href="reference/get_pumf.html">get_pumf()</a></code> can find it.</p>
 <p><code><a href="reference/get_pumf.html">get_pumf()</a></code> downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy <code><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">dplyr::tbl()</a></code> backed by a local DuckDB database. Call <code><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">dplyr::collect()</a></code> to load into memory.</p>
 <p>Column values are labeled automatically (e.g. province codes become factor levels like <code>"British Columbia"</code>). Column <em>names</em> remain as short coded names by default (e.g. <code>PROV</code>, <code>LFSSTAT</code>). To rename columns to human-readable variable labels, pipe through <code><a href="reference/label_pumf_columns.html">label_pumf_columns()</a></code>:</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, <span class="st">"2022"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="reference/label_pumf_columns.html">label_pumf_columns</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <p>When done querying, release the DuckDB connection with <code>close_pumf(tbl)</code>.</p>
@@ -112,20 +115,20 @@
 <h2 id="lfs-data">LFS data<a class="anchor" aria-label="anchor" href="#lfs-data"></a>
 </h2>
 <p>LFS data is organized by year, except for the current year where it is organized by month. To access data for a specific year:</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_2022</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, <span class="st">"2022"</span><span class="op">)</span></span></code></pre></div>
 <p>This downloads the 2022 LFS PUMF data if needed, parses it, loads labeled data into a shared DuckDB database, and returns a lazy tbl filtered to 2022. To access all LFS data currently in the local database:</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_all_local</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span><span class="op">)</span></span></code></pre></div>
 <p>To ensure the local database contains all available LFS versions, use <code>refresh = "auto"</code>. This checks StatCan for versions not yet in the database and imports them:</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_all</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, refresh <span class="op">=</span> <span class="st">"auto"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="census-data">Census data<a class="anchor" aria-label="anchor" href="#census-data"></a>
 </h2>
 <p>The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download; years 1986 and earlier must be ordered through Statistics Canada’s EFT portal and placed in the cache directory.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pumf_2021</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>, <span class="st">"2021"</span><span class="op">)</span></span></code></pre></div>
 <p>By default the package loads the <em>individuals</em> file. Available variants by year:</p>
 <table class="table">
@@ -180,7 +183,7 @@
 </tr>
 </tbody>
 </table>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pumf_h_2016</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>, <span class="st">"2016 (hierarchical)"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
@@ -325,12 +328,13 @@
 <a class="anchor" aria-label="anchor" href="#cite-canpumf"></a>
 </h2>
 <p>If you wish to cite the <code>canpumf</code> package in your work:</p>
-<p>von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.2.</p>
+<p>von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.2. DOI 10.32614/CRAN.package.canpumf</p>
 <p>A BibTeX entry for LaTeX users is</p>
-<pre><code>  @Manual{,
+<pre><code>  @Manual{canpumf,
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
+    doi = {10.32614/CRAN.package.canpumf},
     note = {R package version 0.5.2},
     url = {https://mountainmath.github.io/canpumf/},
   }</code></pre>

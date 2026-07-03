@@ -9,7 +9,13 @@ The goal of **canpumf** is to facilitate ingesting, organizing, and working with
 
 ## Installation
 
-You can install the current development version of canpumf from [GitHub](https://github.com/mountainMath/canpumf) with:
+The **canpumf** package is available on CRAN and can be installed directly.
+
+``` r
+install.packages(canpumf)
+```
+
+Alternatively the current development version of canpumf from [GitHub](https://github.com/mountainMath/canpumf) with:
 
 ``` r
 remotes::install_github("mountainmath/canpumf")
@@ -144,14 +150,15 @@ The [**cancensus** package](https://mountainmath.github.io/cancensus/index.html)
 
 If you wish to cite the `canpumf` package in your work:
 
-  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.2.
+  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.5.2. DOI 	10.32614/CRAN.package.canpumf
 
 A BibTeX entry for LaTeX users is
 ```
-  @Manual{,
+  @Manual{canpumf,
     author = {Jens {von Bergmann}},
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
+    doi = {10.32614/CRAN.package.canpumf},
     note = {R package version 0.5.2},
     url = {https://mountainmath.github.io/canpumf/},
   }
