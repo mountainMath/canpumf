@@ -190,6 +190,25 @@ list_canpumf_collection <- function(){
                   `Survey Number`="5339",
                   url="https://www150.statcan.gc.ca/n1/en/pub/13-25-0007/2022001/CCAHS_ECSAC.zip?st=BPMowORM")
 
+  chss <- tibble(Title = "Canadian Health Survey on Seniors",
+                 Acronym = "CHSS",
+                 Version = c("2019-2020"),
+                 `Survey Number` = "5267",
+                 # TXT, not CSV: the CSV bundle ships the data alone, while the
+                 # TXT bundle also carries the SPSS layout cards (see the
+                 # CHSS/2019-2020 registry entry's download_format).
+                 url = "https://www150.statcan.gc.ca/n1/pub/13-25-0010/2024001/2019-2020_TXT.zip")
+
+  # Both PALS editions hang off the single 2009001 publication page of catalogue
+  # 82M0023X (the 2004001 edition page is gone), so the pair is curated here
+  # rather than left to the crawl, which has no edition token to tell them apart.
+  pals <- tibble(Title = "Participation and Activity Limitation Survey",
+                 Acronym = "PALS",
+                 Version = c("2001", "2006"),
+                 `Survey Number` = "3251",
+                 url = paste0("https://www150.statcan.gc.ca/n1/pub/82m0023x/",
+                              "2009001/PALS_EPLA_", c("2001", "2006"), ".zip"))
+
   cpss <- tibble(Title="Canadian Perspectives Survey Series",
                  Acronym="CPSS",
                  Version=c("1","2","3","4","5","6"),
@@ -302,9 +321,9 @@ list_canpumf_collection <- function(){
     result <- pumf_surveys %>%
       left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_all),
                 by="Acronym") %>%
-      bind_rows(chs,cpss,shs)
+      bind_rows(chs,cpss,shs,chss,pals)
   } else {
-    result <- bind_rows(chs,cpss,shs,ccahs) |>
+    result <- bind_rows(chs,cpss,shs,ccahs,chss,pals) |>
       bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
                 its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),

@@ -100,6 +100,39 @@ test_that(".apply_data_fixups: rename skips absent column", {
   expect_equal(names(result), "OTHER")
 })
 
+test_that(".apply_data_fixups: rename_regex rewrites onto declared names", {
+  data  <- data.frame(AB1 = 1L, AC28AA = 2L, AGEGRP5 = 3L)
+  fixup <- list(rename_regex = c("^A" = ""))
+  result <- canpumf:::.apply_data_fixups(
+    data, fixup, known_vars = c("B1", "C28AA", "AGEGRP5"))
+  # AGEGRP5 is itself a declared name, so the pattern must leave it alone.
+  expect_equal(names(result), c("B1", "C28AA", "AGEGRP5"))
+})
+
+test_that(".apply_data_fixups: rename_regex never collides with an existing column", {
+  # Both the decorated and the bare name are present: rewriting AB1 onto B1
+  # would produce two B1 columns, so the rewrite must be skipped.
+  data  <- data.frame(AB1 = 1L, B1 = 2L)
+  fixup <- list(rename_regex = c("^A" = ""))
+  result <- canpumf:::.apply_data_fixups(data, fixup, known_vars = c("B1"))
+  expect_equal(names(result), c("AB1", "B1"))
+})
+
+test_that(".apply_data_fixups: rename_regex is a no-op without known_vars", {
+  data  <- data.frame(AB1 = 1L)
+  fixup <- list(rename_regex = c("^A" = ""))
+  expect_equal(names(canpumf:::.apply_data_fixups(data, fixup)), "AB1")
+})
+
+test_that(".apply_data_fixups: rename_regex is not applied as a literal rename", {
+  # `$rename` partial-matches `rename_regex`; an entry declaring only the regex
+  # form must not have its pattern treated as a column name.
+  data  <- data.frame(`^A` = 1L, check.names = FALSE)
+  fixup <- list(rename_regex = c("^A" = ""))
+  result <- canpumf:::.apply_data_fixups(data, fixup, known_vars = "B1")
+  expect_equal(names(result), "^A")
+})
+
 # ---- .apply_numeric_conversion ----------------------------------------------
 
 test_that(".apply_numeric_conversion: converts character to double", {
@@ -140,6 +173,65 @@ test_that(".apply_numeric_conversion: missing range becomes NA", {
   data <- data.frame(X = c("1", "98", "99", "2"), stringsAsFactors = FALSE)
   result <- canpumf:::.apply_numeric_conversion(data, vars)
   expect_equal(result$X, c(1, NA_real_, NA_real_, 2))
+})
+
+test_that(".apply_numeric_conversion: missing_codes NA discrete values only", {
+  # Sentinels on both sides of the valid data (PALS 2006 AUDE_Q02): a single
+  # missing_low/missing_high pair cannot express this, so the codes are listed.
+  vars <- tibble::tibble(name="X", type="numeric",
+                          missing_low=NA_real_, missing_high=NA_real_,
+                          decimals=0L)
+  data <- data.frame(X = c("-7", "1", "66", "998", "999"),
+                     stringsAsFactors = FALSE)
+  result <- canpumf:::.apply_numeric_conversion(
+    data, vars, missing_codes = list(X = c(-5, -6, -7, 998, 999)))
+  expect_equal(result$X, c(NA, 1, 66, NA, NA))
+})
+
+test_that(".apply_numeric_conversion: missing_codes apply per column", {
+  vars <- tibble::tibble(name=c("X","Y"), type="numeric",
+                          missing_low=NA_real_, missing_high=NA_real_,
+                          decimals=0L)
+  data <- data.frame(X = c("9", "1"), Y = c("9", "1"), stringsAsFactors = FALSE)
+  result <- canpumf:::.apply_numeric_conversion(data, vars,
+                                                 missing_codes = list(X = 9))
+  expect_equal(result$X, c(NA, 1))
+  expect_equal(result$Y, c(9, 1))
+})
+
+test_that(".apply_numeric_conversion: implied decimals are opt-in", {
+  vars <- tibble::tibble(name="X", type="numeric",
+                          missing_low=NA_real_, missing_high=NA_real_,
+                          decimals=2L)
+  data <- data.frame(X = c("8269", "201"), stringsAsFactors = FALSE)
+  expect_equal(canpumf:::.apply_numeric_conversion(data, vars)$X,
+               c(8269, 201))
+  expect_equal(
+    canpumf:::.apply_numeric_conversion(data, vars, implied_decimals = TRUE)$X,
+    c(82.69, 2.01))
+})
+
+test_that(".apply_numeric_conversion: an explicit point overrides implied decimals", {
+  # SAS/SPSS w.d informat rule: a value that already carries a "." is read at
+  # face value, so mixed columns survive the correction unscathed.
+  vars <- tibble::tibble(name="X", type="numeric",
+                          missing_low=NA_real_, missing_high=NA_real_,
+                          decimals=2L)
+  data <- data.frame(X = c("82.69", "8269", NA), stringsAsFactors = FALSE)
+  expect_equal(
+    canpumf:::.apply_numeric_conversion(data, vars, implied_decimals = TRUE)$X,
+    c(82.69, 82.69, NA_real_))
+})
+
+test_that(".apply_numeric_conversion: missing range applies after implied decimals", {
+  # Reserved codes are documented in display units (99999.99), not raw digits.
+  vars <- tibble::tibble(name="X", type="numeric",
+                          missing_low=99999.96, missing_high=99999.99,
+                          decimals=2L)
+  data <- data.frame(X = c("0008269", "9999999"), stringsAsFactors = FALSE)
+  expect_equal(
+    canpumf:::.apply_numeric_conversion(data, vars, implied_decimals = TRUE)$X,
+    c(82.69, NA_real_))
 })
 
 test_that(".apply_numeric_conversion: skips absent and non-character columns", {

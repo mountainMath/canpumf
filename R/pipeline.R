@@ -359,6 +359,8 @@ pumf_locate_or_download <- function(series,
     "\\.csv$"
   else if (!is.null(file_mask) && grepl("\\.(txt|dat)$", file_mask, ignore.case = TRUE))
     "\\.(txt|dat)$"
+  else if (!is.null(file_mask) && grepl("\\.sas7bdat$", file_mask, ignore.case = TRUE))
+    "\\.sas7bdat$"
   else if (!is.null(file_mask))
     NULL  # unusual extension — search all files, let file_mask select
   else if (prefer_fwf)
@@ -412,6 +414,42 @@ pumf_locate_or_download <- function(series,
   }
 
   candidates[[1L]]
+}
+
+
+# Read a SAS dataset (.sas7bdat) as the survey's data file.
+#
+# StatCan PUMF archives normally ship a flat file plus command files; a few
+# older releases ship the SAS dataset instead (PALS 2001).  Those datasets
+# carry no embedded labels -- SAS keeps value labels in a separate format
+# catalogue that is not distributed -- so all labelling still comes from the
+# command file, exactly as for the flat-file path.
+#
+# SAS character columns already hold the raw codes verbatim (zero-padding
+# intact), and numeric columns arrive native -- .apply_numeric_conversion()
+# skips non-character columns, so they pass through unharmed.  Coded numeric
+# columns are rendered back to code strings later, once any column renames have
+# run (see .coerce_coded_to_character).
+.read_sas_data <- function(data_path) {
+  data <- haven::read_sas(data_path)
+  names(data) <- toupper(names(data))
+  # haven returns labelled/ISO-date classes for some columns; drop the
+  # attributes so downstream type checks see a plain vector.
+  for (col in names(data)) {
+    v <- data[[col]]
+    data[[col]] <- if (is.character(v)) as.character(v) else haven::zap_labels(v)
+  }
+  data
+}
+
+
+# Render numeric columns that carry value labels back to their code strings so
+# .apply_code_labels() (which only touches character columns) can match them.
+# A no-op on the FWF and CSV paths, where every column is already character.
+.coerce_coded_to_character <- function(data, codes) {
+  for (col in intersect(names(data), unique(codes$name)))
+    if (!is.character(data[[col]])) data[[col]] <- .code_chr(data[[col]])
+  data
 }
 
 
@@ -501,6 +539,34 @@ pumf_locate_or_download <- function(series,
       }
     }
   }
+  # Second fallback: the BSW card lives outside the SPSS cards directory and is
+  # not named "layout*" -- e.g. CHSS ships Layout_Cards/bsw_i.sas next to the
+  # per-survey SPSS/ and SAS/ subdirectories.  Search the whole version directory
+  # for a command file whose basename matches bsw_mask.  SAS INPUT cards come
+  # first: their @pos specs are unambiguous, whereas the companion .sps sometimes
+  # states only the first field's columns and leaves the rest implicit.
+  if ((is.null(bsw_parsed) || is.null(bsw_parsed$layout)) &&
+      !is.null(reg$bsw_mask)) {
+    cards <- all_files[grepl(reg$bsw_mask, basename(all_files), ignore.case = TRUE) &
+                         grepl("\\.(sas|sps)$", all_files, ignore.case = TRUE)]
+    cards <- cards[order(!grepl("\\.sas$", cards, ignore.case = TRUE))]
+    for (cf in cards) {
+      lr <- tryCatch(.spss_split_parse_layout(cf, data_encoding),
+                     error = function(e) NULL)
+      if (!is.null(lr) && !is.null(lr$layout) && nrow(lr$layout) > 0L) {
+        lr$layout$name <- toupper(lr$layout$name)
+        vars_df <- lr$formats
+        vars_df$name         <- toupper(vars_df$name)
+        vars_df$type         <- ifelse(vars_df$fmt_type == "A", "character", "numeric")
+        vars_df$missing_low  <- NA_real_
+        vars_df$missing_high <- NA_real_
+        bsw_parsed <- list(layout    = lr$layout,
+                           variables = vars_df[, c("name", "type", "decimals",
+                                                    "missing_low", "missing_high")])
+        break
+      }
+    }
+  }
   if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
     warning("Could not determine BSW column layout for mask '", reg$bsw_mask,
             "'; bootstrap weights will not be joined.")
@@ -521,7 +587,10 @@ pumf_locate_or_download <- function(series,
                else character(0L)
   bsw_vars  <- bsw_parsed$variables[
     !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
-  bsw <- .apply_numeric_conversion(bsw, bsw_vars)
+  # Fixed-width BSW files store weights with the decimal point *implied* by the
+  # card's w.d informat, so the scale correction has to happen inside the numeric
+  # conversion (before the missing-value range, which is stated in display units).
+  bsw <- .apply_numeric_conversion(bsw, bsw_vars, implied_decimals = TRUE)
   for (col in setdiff(names(bsw)[vapply(bsw, is.character, logical(1L))], join_cols))
     bsw[[col]] <- suppressWarnings(as.numeric(bsw[[col]]))
   bsw
@@ -534,7 +603,7 @@ pumf_locate_or_download <- function(series,
 #   force_numeric — character vector of column names to treat as numeric
 #                   even if they have non-sentinel VALUE LABELS (top-coded
 #                   boundary labels like "85 years and over")
-.apply_data_fixups <- function(data, fixups) {
+.apply_data_fixups <- function(data, fixups, known_vars = character(0L)) {
   for (spec in fixups$str_pad) {
     for (col in spec$cols) {
       if (col %in% names(data))
@@ -542,12 +611,36 @@ pumf_locate_or_download <- function(series,
                                          side = spec$side, pad = spec$pad)
     }
   }
-  if (length(fixups$rename) > 0L) {
-    old <- names(fixups$rename)
-    new <- unname(fixups$rename)
+  # [["rename"]], not $rename: `$` partial-matches, so an entry that declares
+  # only rename_regex would otherwise have its patterns applied here as literal
+  # column names.
+  if (length(fixups[["rename"]]) > 0L) {
+    old <- names(fixups[["rename"]])
+    new <- unname(fixups[["rename"]])
     for (i in seq_along(old))
       if (old[[i]] %in% names(data))
         names(data)[names(data) == old[[i]]] <- new[[i]]
+  }
+  # rename_regex: c(pattern = replacement) rewriting *many* column names at
+  # once, for releases whose data file decorates the documented variable names
+  # (e.g. the PALS 2001 SAS dataset prefixes 632 of its 758 columns with "A",
+  # while the command file and the User Guide both use the bare names).  Listing
+  # those one by one in `rename` would be unreadable and unreviewable.
+  #
+  # A rewrite is only applied when it lands on a name the metadata actually
+  # declares and the column's current name is not itself declared -- so a
+  # pattern can never rename a legitimately-named column onto another one, and
+  # a stale pattern silently does nothing rather than corrupting the table.
+  if (length(fixups$rename_regex) > 0L && length(known_vars) > 0L) {
+    for (pat in names(fixups$rename_regex)) {
+      repl      <- fixups$rename_regex[[pat]]
+      candidate <- sub(pat, repl, names(data))
+      apply_it  <- candidate != names(data) &
+                   candidate %in% known_vars &
+                   !(names(data) %in% known_vars) &
+                   !(candidate %in% names(data))
+      names(data)[apply_it] <- candidate[apply_it]
+    }
   }
   if (length(fixups$cols_swap) > 0L) {
     for (v1 in names(fixups$cols_swap)) {
@@ -574,7 +667,11 @@ pumf_locate_or_download <- function(series,
 # NA).  Callers that genuinely need an integer column (e.g. LFS
 # SURVYEAR/SURVMNTH for make_date) cast explicitly.
 # na_values: character vector of raw values that become NA (e.g. c("99999999", "88888888")).
-.apply_numeric_conversion <- function(data, variables, na_values = character(0L)) {
+# missing_codes: named list VAR -> numeric codes that become NA in that column
+#   only, for variables whose sentinels do not form one contiguous range.
+.apply_numeric_conversion <- function(data, variables, na_values = character(0L),
+                                      implied_decimals = FALSE,
+                                      missing_codes = list()) {
   num_vars <- variables[variables$type == "numeric", ]
   for (i in seq_len(nrow(num_vars))) {
     v   <- num_vars[i, ]
@@ -583,11 +680,23 @@ pumf_locate_or_download <- function(series,
 
     raw  <- data[[col]]
     vals <- suppressWarnings(as.numeric(raw))
+    # A SAS `w.d` informat (SPSS `(Fw.d)`) means the field is d digits narrower
+    # than it looks: "   8269" read with 7.2 is 82.69.  Values that already carry
+    # an explicit "." are taken at face value, per the informat's own rule.  Only
+    # fixed-width bootstrap-weight files need this; the main PUMF flat files
+    # StatCan ships write the point explicitly, so callers leave it off.
+    if (implied_decimals && !is.na(v$decimals) && v$decimals > 0L) {
+      plain <- !is.na(vals) & !grepl(".", raw, fixed = TRUE)
+      vals[plain] <- vals[plain] / 10^v$decimals
+    }
     if (!is.na(v$missing_low) && !is.na(v$missing_high))
       vals[!is.na(vals) & vals >= v$missing_low & vals <= v$missing_high] <-
         NA_real_
     if (length(na_values) > 0L)
       vals[trimws(raw) %in% na_values] <- NA_real_
+    mc <- missing_codes[[col]]
+    if (length(mc) > 0L)
+      vals[!is.na(vals) & vals %in% as.numeric(mc)] <- NA_real_
 
     data[[col]] <- vals
   }
@@ -842,14 +951,22 @@ pumf_build_duckdb <- function(version_dir,
     version_dir
 
   data_path <- .find_pumf_data_file(source_dir, eff_mask, prefer_fwf = !is.null(layout))
+  # A few releases ship no flat file at all, only the SAS dataset the flat file
+  # was built from (e.g. PALS 2001, whose SAS command file even names a
+  # pals2001dat.txt that is not in the archive).  Read those with haven; the
+  # layout is irrelevant since the columns are already delimited.
+  is_sas    <- grepl("\\.sas7bdat$", data_path, ignore.case = TRUE)
   # FWF only when layout exists AND the actual data file is not CSV.
   # Some surveys (e.g. CHS) ship both a CSV and a TXT file; the SPSS DATA LIST
   # section creates a layout.csv, but data must be read from the CSV.
-  is_fwf    <- !is.null(layout) && !grepl("\\.csv$", data_path, ignore.case = TRUE)
-  message("Reading ", if (is_fwf) "fixed-width" else "CSV",
+  is_fwf    <- !is_sas && !is.null(layout) &&
+               !grepl("\\.csv$", data_path, ignore.case = TRUE)
+  message("Reading ", if (is_sas) "SAS" else if (is_fwf) "fixed-width" else "CSV",
           " data from ", basename(data_path), " ...")
 
-  if (is_fwf) {
+  if (is_sas) {
+    data <- .read_sas_data(data_path)
+  } else if (is_fwf) {
     data <- readr::read_fwf(
       data_path,
       col_positions  = readr::fwf_positions(layout$start, layout$end,
@@ -881,7 +998,12 @@ pumf_build_duckdb <- function(version_dir,
 
   # Apply pre-label data fixups (str_pad, column renames) from registry
   if (!is.null(reg) && length(reg$data_fixups) > 0L)
-    data <- .apply_data_fixups(data, reg$data_fixups)
+    data <- .apply_data_fixups(data, reg$data_fixups,
+                               known_vars = variables$name)
+
+  # Runs after the fixups so a renamed column is matched under the name the
+  # metadata declares, not the one the source file happened to use.
+  if (is_sas) data <- .coerce_coded_to_character(data, codes)
 
   # Step 6: BSW join
   if (!is.null(reg) && !is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key)) {
@@ -970,6 +1092,20 @@ pumf_build_duckdb <- function(version_dir,
     }
   }
 
+  # missing_codes: discrete per-variable missing codes, for variables whose
+  # sentinels sit on both sides of the valid data (PALS 2006 AUDE_Q02 declares
+  # -5/-6/-7 and 998/999 around hours worked 1-97, so the [-7, 999] range a
+  # single min/max pair yields would NA the whole column).  The discrete set
+  # replaces any range derived or parsed for the variable.
+  miss_codes <- if (is.null(reg)) list() else reg$data_fixups$missing_codes %||% list()
+  for (v in names(miss_codes)) {
+    i <- which(variables$name == v)
+    if (length(i) == 1L) {
+      variables$missing_low[i]  <- NA_real_
+      variables$missing_high[i] <- NA_real_
+    }
+  }
+
   # Promote numeric → character for variables that have non-sentinel codes
   # (e.g. binary indicators 0=Yes/1=No from a PDF dictionary where the data
   # format file did not use an (A) annotation). Mirrors the inverse of
@@ -987,7 +1123,8 @@ pumf_build_duckdb <- function(version_dir,
       variables$type[variables$name %in% promote_to_char] <- "character"
   }
 
-  data <- .apply_numeric_conversion(data, variables, na_values = na_vals)
+  data <- .apply_numeric_conversion(data, variables, na_values = na_vals,
+                                    missing_codes = miss_codes)
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
 
   # Step 9: write to DuckDB

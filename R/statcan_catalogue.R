@@ -355,7 +355,38 @@
 # Giving/Volunteering surveys now live under the GSS (GSSP) umbrella, so no
 # separate SGVP entry is needed.
 .statcan_supported_series <- c("GSS", "SHS", "SFS", "CPSS", "CIS", "CHS",
-                               "ITS", "CCAHS")
+                               "ITS", "CCAHS", "CHSS")
+
+# Drop crawl rows whose format contradicts the registry's `download_format` for
+# that (Acronym, Version).  Rows for surveys/versions with no such override, and
+# rows whose format could not be detected (format = NA, e.g. legacy bundled zips
+# that carry no format token anywhere), are always kept.  Applied per
+# series+version so a survey that changes bundling between editions still works.
+#
+# Reads the registered entry (and any active override) *directly* rather than
+# through pumf_registry_lookup(): this runs over every catalogue row, and the
+# lookup's unregistered-year sibling inheritance would both emit its
+# once-per-session message for versions nobody asked for and mark them announced,
+# swallowing the message when the user later does ask.
+.statcan_registry_download_format <- function(series, version) {
+  v   <- tryCatch(pumf_resolve_version(series, version),
+                  error = function(e) version)
+  key <- paste0(series, "/", v)
+  ovr <- tryCatch(.pumf_registry_override_get(series, v), error = function(e) NULL)
+  fmt <- ovr$download_format %||% .pumf_registry[[key]]$download_format
+  fmt %||% NA_character_
+}
+
+.statcan_apply_format_override <- function(cat) {
+  id   <- paste(cat$Acronym, cat$Version, sep = "\r")
+  keys <- unique(id)
+  want <- vapply(keys, function(k) {
+    kv <- strsplit(k, "\r", fixed = TRUE)[[1L]]
+    .statcan_registry_download_format(kv[[1L]], kv[[2L]])
+  }, character(1L), USE.NAMES = FALSE)[match(id, keys)]
+  cat[is.na(want) | is.na(cat$format) |
+        toupper(cat$format) == toupper(want), , drop = FALSE]
+}
 
 # Adapter: turn the raw crawl frame from list_statcan_pumf_catalogue() into the
 # curated-collection contract get_pumf()/pipeline.R consume -- columns
@@ -397,6 +428,15 @@
   # Drop rows with no usable version (e.g. the no-download archived GSS cycle
   # catalogue entries whose editions the umbrella already supplies).
   cat <- cat[!is.na(cat$Version), , drop = FALSE]
+  if (nrow(cat) == 0L) return(empty)
+
+  # Per-survey format override.  The global `prefer` order puts CSV first, but a
+  # few surveys ship their command files in only one of the format bundles -- the
+  # CHSS CSV zip carries the data alone, while the TXT zip additionally carries
+  # the SPSS layout cards the metadata parsers need.  A registry entry can pin
+  # the format via `download_format`; rows in other formats are dropped so the
+  # de-dup below cannot pick the metadata-less bundle.
+  cat <- .statcan_apply_format_override(cat)
   if (nrow(cat) == 0L) return(empty)
 
   # One URL per (Acronym, Version): the crawl already collapsed format variants

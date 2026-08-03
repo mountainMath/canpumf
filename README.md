@@ -121,6 +121,8 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
+| Canadian Health Survey on Seniors | CHSS | 2019-2020 | ✓ |
+| Participation and Activity Limitation Survey | PALS | 2001, 2006 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |

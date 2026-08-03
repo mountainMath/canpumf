@@ -16,13 +16,15 @@ utils::globalVariables(c("name", "val"))
 # "Non demandé"): "(ne )?s'applique pas" covers both the full form and the
 # older abbreviated form "S'APPLIQUE PAS" (pre-2004 SGVP and other older
 # surveys); "ne sait pas" = "don't know"; "refus$" = "refusal" (older files
-# use bare "REFUS"); "encha\u00een" = "encha\u00eenement valide" (valid skip).
+# use bare "REFUS"); "encha\u00eenement( valide)?" = valid skip -- the whole
+# pattern is anchored, so the bare stem would only have matched a label that is
+# literally "encha\u00een".
 .missing_label_alts <- paste0(
   "not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
   "sans objet|non (disponible|d\u00e9clar\u00e9|applicable)|",
-  "(ne )?s.?applique pas|ne sait pas|refus$|encha\u00een|",
+  "(ne )?s.?applique pas|ne sait pas|refus$|encha\u00eenement( valide)?|",
   "inconnu|manquant|non demand\u00e9|hors .chantillon"
 )
 
@@ -30,14 +32,39 @@ utils::globalVariables(c("name", "val"))
 # this quantity" ("ZERO HOURS", "None", "No donations", "Aucun don", …).
 # These indicate a continuous variable for classification purposes but are
 # valid zeros, NOT missing data.
-.zero_label_alts <- "zero(\\s+\\w+)*|none|no\\s+\\w+(\\s+\\w+)*|aucun(e)?(\\s+\\w+)*"
+# The word class admits apostrophes (straight and typographic) and hyphens, not
+# just \w: French labels elide the article ("Aucune séparation avant le
+# divorce ou l'annulation"), and a bare \w+ stops at the apostrophe.
+.zero_word <- "[\\w'’-]+"
+# NB "zero" is deliberately left ASCII-only.  Matching "z[eé]ro" would pick up
+# Census 1986 WKSWK's French "Zéro semaines travaillées" while its English
+# "Worked zero weeks" still would not match (the word does not lead the label),
+# introducing the very split this pattern is meant to avoid.
+.zero_label_alts <- paste0(
+  "zero(\\s+", .zero_word, ")*|none|no\\s+", .zero_word, "(\\s+", .zero_word,
+  ")*|aucun(e)?(\\s+", .zero_word, ")*")
 
 # Anchored patterns:
 # .missing_pat  — true-missing labels only (used to derive NA ranges)
 # .sentinel_pat — missing OR zero labels (used by all parsers to distinguish
 #                 sentinel-only variables from truly categorical ones)
-.missing_pat  <- paste0("(?i)^(", .missing_label_alts, ")$")
-.sentinel_pat <- paste0("(?i)^(", .missing_label_alts, "|", .zero_label_alts, ")$")
+#
+# (*UCP) makes PCRE's \w (and \s, and the (?i) folding) Unicode-aware.  Without
+# it \w is ASCII-only even on UTF-8 input, so an accented French word ends the
+# match: "Aucune séparation avant le divorce ou l'annulation" failed where its
+# English counterpart "No separation prior to divorce or annulment" matched,
+# classifying the variable numeric in 'eng' but categorical in 'fra' (GSS Cycle
+# 21 AGE_SEP_MA3/MA4).  It also lets (?i) fold accented capitals, so the
+# upper-case label forms older files use ("NON DÉCLARÉ") match too.  The verb must
+# lead the pattern, before (?i).
+#
+# A trailing sentence period is likewise tolerated: GSS Cycle 24 writes the same
+# zero label with a period in English and without one in French ("No time spent
+# doing these activities." / "Aucun temps alloué à cette activité"), which would
+# otherwise reintroduce the very eng/fra split the UCP verb fixes.
+.missing_pat  <- paste0("(*UCP)(?i)^(", .missing_label_alts, ")[.]?$")
+.sentinel_pat <- paste0("(*UCP)(?i)^(", .missing_label_alts, "|",
+                        .zero_label_alts, ")[.]?$")
 
 # Render code values as plain decimal strings.  as.character() switches to
 # scientific notation for large doubles (as.character(200000) == "2e+05"),
@@ -1041,29 +1068,14 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 
   # SAS @pos format: if any line starts with @, route to dedicated parser
   if (any(grepl("^@", lines))) {
-    layout <- .sas_parse_at_layout(lines)
-    # Derive fmt_type and decimals from the format spec after the variable name
-    if (!is.null(layout)) {
-      at_lines <- lines[grepl("^@\\s*\\d+", lines)]
-      fmt_df <- tibble::tibble(value = at_lines) |>
-        mutate(
-          name     = stringr::str_match(.data$value,
-                       "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-          fmt_type = if_else(grepl("\\$", .data$value), "A", "F"),
-          # Decimal count from "n.d" numeric format (e.g. "10.4" -> 4); NA for character
-          decimals = if_else(
-            grepl("\\$", .data$value),
-            NA_integer_,
-            as.integer(stringr::str_match(.data$value, "\\s+\\d+\\.(\\d+)\\s*$")[, 2L])
-          )
-        ) |>
-        filter(!is.na(.data$name)) |>
-        select("name", "fmt_type", "decimals")
-    } else {
-      fmt_df <- tibble::tibble(name = character(), fmt_type = character(),
-                               decimals = integer())
-    }
-    return(list(layout = layout, formats = fmt_df))
+    fields <- .sas_at_fields(lines)
+    if (is.null(fields) || nrow(fields) == 0L)
+      return(list(layout  = NULL,
+                  formats = tibble::tibble(name = character(),
+                                           fmt_type = character(),
+                                           decimals = integer())))
+    return(list(layout  = fields[, c("name", "start", "end")],
+                formats = fields[, c("name", "fmt_type", "decimals")]))
   }
 
   # Find DATA LIST keyword and section content
@@ -1119,27 +1131,81 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 }
 
 
-# Parse SAS @pos format layout lines.
-# Input:  character vector of lines like "@1 CASEID $CHAR6." or "@6 WEIGHT 10.4"
-# Output: tibble(name, start, end)
-.sas_parse_at_layout <- function(lines) {
+# Parse SAS @pos INPUT lines into one row per variable.
+# Output: tibble(name, start, end, fmt_type, decimals); fmt_type "A" for
+# character ($) columns, "F" for numeric; decimals from the w.d informat.
+#
+# Two line shapes occur in StatCan cards:
+#   scalar  "@1  CASEID $CHAR6."  /  "@6 WEIGHT 10.4"        -> one variable
+#   array   "@28 (BSW1-BSW1000) (1000* 7.2);"                -> BSW1..BSW1000
+# The array shape declares a variable *range* laid out consecutively from the @
+# position, each field as wide as the repeated informat; StatCan uses it for the
+# bootstrap-weight cards (e.g. CHSS bsw_i.sas).  Expanding it here is what lets
+# the generic FWF reader see all 1000 weight columns.
+.sas_at_fields <- function(lines) {
+  lines    <- trimws(lines)
   at_lines <- lines[grepl("^@\\s*\\d+", lines)]
   if (length(at_lines) == 0L) return(NULL)
+  out <- purrr::map_dfr(at_lines, .sas_at_field_row)
+  if (nrow(out) == 0L) return(NULL)
+  out
+}
 
-  tibble::tibble(value = at_lines) |>
-    mutate(
-      start   = as.integer(stringr::str_match(.data$value, "^@\\s*(\\d+)")[, 2L]),
-      name    = stringr::str_match(.data$value,
-                                   "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-      # Size: from $CHARn. (character) or n.d (numeric)
-      size    = as.integer(stringr::str_match(
-        .data$value, "\\$?(?:CHAR)?(\\d+)\\.")[, 2L]),
-      fmt_raw = stringr::str_match(.data$value,
-                                   "\\s+(\\$[^.]+\\.|[0-9]+\\.[0-9]*)\\s*$")[, 2L],
-      end     = .data$start + .data$size - 1L
-    ) |>
-    filter(!is.na(.data$name), !is.na(.data$start)) |>
-    select("name", "start", "end")
+.sas_at_empty_fields <- tibble::tibble(
+  name = character(), start = integer(), end = integer(),
+  fmt_type = character(), decimals = integer())
+
+.sas_at_field_row <- function(line) {
+  start <- suppressWarnings(
+    as.integer(stringr::str_match(line, "^@\\s*(\\d+)")[, 2L]))
+  if (is.na(start)) return(.sas_at_empty_fields)
+
+  arr <- stringr::str_match(
+    line,
+    paste0("^@\\s*\\d+\\s*\\(\\s*([A-Za-z][A-Za-z0-9_]*?)(\\d+)\\s*-\\s*",
+           "([A-Za-z][A-Za-z0-9_]*?)(\\d+)\\s*\\)\\s*\\(([^)]*)\\)"))
+  if (!is.na(arr[1L])) return(.sas_at_array_fields(start, arr))
+
+  name <- stringr::str_match(line,
+            "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L]
+  size <- suppressWarnings(as.integer(
+    stringr::str_match(line, "\\$?(?:CHAR)?(\\d+)\\.")[, 2L]))
+  if (is.na(name) || is.na(size)) return(.sas_at_empty_fields)
+  is_chr <- grepl("$", line, fixed = TRUE)
+  tibble::tibble(
+    name     = name,
+    start    = start,
+    end      = start + size - 1L,
+    fmt_type = if (is_chr) "A" else "F",
+    decimals = if (is_chr) NA_integer_
+               else suppressWarnings(as.integer(stringr::str_match(
+                 line, "\\s+\\d+\\.(\\d+)\\s*[;,]?\\s*$")[, 2L])))
+}
+
+# Expand one "(STEM<lo>-STEM<hi>) (<n>* <w>.<d>)" array line.  `arr` is the
+# str_match row: stem/index of the first and last name, then the informat group.
+.sas_at_array_fields <- function(start, arr) {
+  stem <- arr[, 2L]
+  lo   <- suppressWarnings(as.integer(arr[, 3L]))
+  hi   <- suppressWarnings(as.integer(arr[, 5L]))
+  # Both endpoints must share a stem, or this is not a simple indexed range.
+  if (!identical(stem, arr[, 4L]) || is.na(lo) || is.na(hi) || hi < lo)
+    return(.sas_at_empty_fields)
+
+  fmt    <- stringr::str_match(arr[, 6L], "(\\$?)(?:CHAR)?(\\d+)\\.(\\d*)")
+  width  <- suppressWarnings(as.integer(fmt[, 3L]))
+  if (is.na(width) || width <= 0L) return(.sas_at_empty_fields)
+  is_chr <- nzchar(fmt[, 2L])
+  dec    <- suppressWarnings(as.integer(fmt[, 4L]))
+
+  idx  <- seq.int(lo, hi)
+  from <- start + (seq_along(idx) - 1L) * width
+  tibble::tibble(
+    name     = paste0(stem, idx),
+    start    = from,
+    end      = from + width - 1L,
+    fmt_type = if (is_chr) "A" else "F",
+    decimals = if (is_chr) NA_integer_ else dec)
 }
 
 
@@ -1175,16 +1241,21 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
   #                   100 = "100 and more hours"
   #                   999.7 = "Not asked"
   #                   other = [Z5.1];
+  # The French half of a bilingual release states the same association in
+  # French -- "/* $DISAB s'applique à: DISAB */" -- so both phrasings are
+  # recognised.  Without this the French command file yields no codes and the
+  # value labels stay English-only (e.g. PALS 2001).
   # Files without "applies to" comments (e.g. Census 2011) yield no codes.
+  .applies_pat <- "(?i)(format applies to|s'applique)"
   parse_value_codes <- function(lines) {
     empty <- tibble::tibble(name = character(), val = character(),
                             label = character())
-    idx <- grep("format applies to", lines)
+    idx <- grep(.applies_pat, lines, perl = TRUE)
     if (length(idx) == 0L) return(empty)
     fmt_vars <- list()
     for (i in idx) {
-      fmt <- stringr::str_match(lines[i],
-                                "/\\*\\s*(\\S+)\\s+format applies to")[, 2L]
+      fmt <- stringr::str_match(
+        lines[i], paste0("/\\*\\s*(\\S+)\\s+", .applies_pat))[, 2L]
       if (is.na(fmt)) next
       j <- i
       block <- lines[i]
@@ -1192,7 +1263,7 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
         j <- j + 1L
         block <- paste(block, lines[j])
       }
-      vars <- sub(".*applies to:", "", block)
+      vars <- sub(paste0(".*", .applies_pat, "[^:]*:"), "", block, perl = TRUE)
       vars <- sub("\\*/.*", "", vars)
       vars <- toupper(strsplit(trimws(vars), "\\s+")[[1L]])
       fmt_vars[[toupper(fmt)]] <- vars[nchar(vars) > 0L]
@@ -1214,6 +1285,17 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
               rows[[length(rows) + 1L]] <-
                 tibble::tibble(name = v, val = .code_chr(val),
                                label = m[1L, 3L])
+        } else {
+          # Character formats (SAS `VALUE $FMT`) quote the code as well:
+          #   "01" = "25 to 29"   /   "R" = "Refusal"
+          # The code is taken verbatim -- coercing it through as.numeric()
+          # would strip the leading zeros the data file actually carries, and
+          # non-numeric codes like "R"/"X" have no numeric form at all.
+          mq <- stringr::str_match(lines[j], '^\\s*"([^"]*)"\\s*=\\s*"([^"]*)"')
+          if (!is.na(mq[1L, 2L]))
+            for (v in vars)
+              rows[[length(rows) + 1L]] <-
+                tibble::tibble(name = v, val = mq[1L, 2L], label = mq[1L, 3L])
         }
         if (grepl(";\\s*$", lines[j])) break
         j <- j + 1L
@@ -1864,11 +1946,16 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   #    files containing "LABEL varname =" lines.
   if (is.null(result$sas_cards)) {
     sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
-    # Same French-indicator logic as for SPSS but for .sas extension.
+    # Same French-indicator logic as for SPSS but for .sas extension.  The
+    # directory pattern is shared with .is_fra: a bare /FR/ path segment marks
+    # the French half of releases that separate the two languages by folder
+    # rather than by filename suffix (e.g. PALS ships PUMF/ENG/ and PUMF/FR/).
     .is_fra_sas <- function(paths) {
-      grepl("/(fran|french)",           paths, ignore.case = TRUE) |
+      grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
       grepl("(?i)_[Ff](re?f?)?[.]sas$", basename(paths), perl = TRUE) |
-      grepl("(?i)fre[.]sas$",           basename(paths), perl = TRUE)
+      grepl("(?i)fre[.]sas$",           basename(paths), perl = TRUE) |
+      grepl("(?i)(spss|sas)[_ ]?[Cc]ards?\\([Ff]\\)[.]sas$",
+            basename(paths), perl = TRUE)
     }
     fra_sas   <- sas_files[.is_fra_sas(sas_files)]
     eng_sas   <- sas_files[!.is_fra_sas(sas_files)]

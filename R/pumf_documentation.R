@@ -334,9 +334,18 @@ open_pumf_documentation <- function(series          = NULL,
     ))
   }
 
-  if (length(fx$rename) > 0L) {
-    pairs <- paste0(names(fx$rename), "\u2192", fx$rename)
+  # [["rename"]]: `$` would partial-match rename_regex on entries that declare
+  # only the regex form.
+  if (length(fx[["rename"]]) > 0L) {
+    pairs <- paste0(names(fx[["rename"]]), "\u2192", fx[["rename"]])
     lines <- c(lines, paste0("  Renamed columns: ", paste(pairs, collapse = ", "), "."))
+  }
+
+  if (length(fx$rename_regex) > 0L) {
+    pairs <- paste0(names(fx$rename_regex), "\u2192", fx$rename_regex)
+    lines <- c(lines, paste0(
+      "  Column names rewritten by pattern: ", paste(pairs, collapse = ", "),
+      " (applied only where the result is a documented variable name)."))
   }
 
   if (length(fx$codes_supplement) > 0L)
