@@ -347,23 +347,39 @@ test_that(".pumf_truncation_width finds a ceiling only where one was imposed", {
   expect_true(is.na(canpumf:::.pumf_truncation_width(c("a", "bb", "ccc"))))
 })
 
-test_that(".pumf_left_truncated separates a dropped prefix from an added one", {
-  # What survives a dropped prefix starts mid-sentence.
+test_that(".pumf_left_truncated recognises what a dropped prefix leaves behind", {
   expect_true(canpumf:::.pumf_left_truncated(
     "relative in a family farm or business?",
     "Working without pay for your (his/her) spouse or another relative in a family farm or business?"))
   expect_true(canpumf:::.pumf_left_truncated(
     "les réserves indiennes)", "Régions rurales (incluant les réserves indiennes)"))
-  # The mirror case: the guide prefixes an editorial note onto a label the
-  # command file already has in full.  Also a strict suffix -- but one that
-  # starts like a label, so it must not be repaired away.
-  expect_false(canpumf:::.pumf_left_truncated(
-    "Age group", "Grouped variable: Age group"))
-  expect_false(canpumf:::.pumf_left_truncated(
-    "Groupe d'âge", "Variable groupée : Groupe d'âge"))
+  # A truncation landing mid-list leaves a capitalised word first, exactly as an
+  # intact label would -- so what survived cannot be used to judge it.
+  expect_true(canpumf:::.pumf_left_truncated(
+    "Co-worker of respondent and Other relatives)",
+    "Other (Do not include organizations here) (Includes Ex-spouse/Ex-partner/Same sex partner/ Co-worker of respondent and Other relatives)"))
   # Not a suffix at all, and too short to judge.
   expect_false(canpumf:::.pumf_left_truncated("foot or bus", "by foot or bus)"))
   expect_false(canpumf:::.pumf_left_truncated("or bus)", "by foot or bus)"))
+})
+
+test_that(".pumf_annotation_prefix rejects text the guide prepends", {
+  # An editorial note on a label the command file has in full.
+  expect_true(canpumf:::.pumf_annotation_prefix(
+    "Age group", "Grouped variable: Age group"))
+  expect_true(canpumf:::.pumf_annotation_prefix(
+    "Groupe d'âge", "Variable groupée : Groupe d'âge"))
+  # Scraped field furniture bleeding into the label text.
+  expect_true(canpumf:::.pumf_annotation_prefix(
+    "Age du répondant la dernière fois qu'il a pris sa retraite.",
+    "Longueur : 2 Age du répondant la dernière fois qu'il a pris sa retraite."))
+  # Running prose lost to a truncation carries no "Key:" marker.
+  expect_false(canpumf:::.pumf_annotation_prefix(
+    "Co-worker of respondent and Other relatives)",
+    "Other (Do not include organizations here) (Includes Ex-spouse/Ex-partner/Same sex partner/ Co-worker of respondent and Other relatives)"))
+  # Extension on the right is a plain truncation, not an annotation.
+  expect_false(canpumf:::.pumf_annotation_prefix(
+    "Household size", "Household size: persons"))
 })
 
 test_that("repairs require the truncation fingerprint, not just a longer PDF text", {
@@ -383,6 +399,28 @@ test_that("repairs require the truncation fingerprint, not just a longer PDF tex
   # A blank label is still filled: there is nothing there to protect.
   expect_equal(res$metadata$variables$label_en[res$metadata$variables$name == "RECID"],
                "Record identifier")
+})
+
+test_that("the annotation veto outranks the width fingerprint", {
+  # The command file's label is at the ceiling, so the width fingerprint fires;
+  # but the guide's extra text arrived on the *left* and is its own field
+  # header, which the width test cannot see.  Repairing here would append the
+  # guide's furniture to a label that is already complete.
+  meta <- .pdf_fixture_metadata()
+  cmd  <- meta$variables$label_en[meta$variables$name == "AGE"]
+  pdf  <- .pdf_fixture_parse()
+  pdf$variables$label_en[pdf$variables$name == "AGE"] <- paste0("Length: 2 ", cmd)
+
+  v   <- canpumf:::.pumf_validate_pdf_freqs(pdf, .pdf_fixture_layout(),
+                                            .pdf_fixture_data())
+  res <- canpumf:::.pumf_apply_pdf_repairs(meta, pdf, v)
+
+  expect_equal(res$metadata$variables$label_en[res$metadata$variables$name == "AGE"],
+               cmd)
+  age <- res$repairs[res$repairs$name == "AGE" & res$repairs$lang == "en" &
+                       res$repairs$kind == "variable", ]
+  expect_equal(age$action, "flagged")
+  expect_match(age$reason, "not truncated")
 })
 
 test_that("a dropped prefix is repaired even where no width ceiling exists", {

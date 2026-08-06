@@ -370,6 +370,25 @@ test_that("GSS 2002: truncated labels are repaired from the guide", {
   lab <- pumf_var_labels(main)
   expect_equal(lab$label_en[lab$name == "CG4_FR_Q100_C"],
                "Relationship of the Long Term Care Receiver to respondent - collapsed.")
+
+  # CG4_FR_Q100_C code 85 is the case that motivated the whole cross-check: the
+  # command file kept only the tail, and what survived ("Co-worker of respondent
+  # and Other relatives)") reads like a category about co-workers rather than
+  # the "Other" bucket it actually is.  It is a mid-list truncation, so the
+  # survivor starts with a capital exactly as an intact label would -- only the
+  # dropped text tells the two apart.
+  # `which()` because `val` is empty on variable-kind rows: a bare `==` filter
+  # evaluates to NA there and pulls all-NA rows into the subset.
+  c85 <- r[which(r$name == "CG4_FR_Q100_C" & r$val == "85" & r$lang == "en"), ]
+  expect_equal(unique(c85$action), "repaired")
+  expect_match(c85$label_pdf[1L], "^Other \\(Do not include organizations here\\)")
+
+  # The mirror shape: the guide's own field header scraped into a label the
+  # command file has in full.  Repairing it would deliver "Longueur : 2 Age du
+  # ...", so it must stay flagged even though the label sits at the ceiling.
+  furn <- r[r$name == "AGE_LAST_RETIRED_C" & r$lang == "fr", ]
+  expect_equal(furn$action, "flagged")
+  expect_false(grepl("Longueur", lab$label_fr[lab$name == "AGE_LAST_RETIRED_C"]))
 })
 
 test_that("GSS 2002: substantive divergences are flagged, not silently applied", {

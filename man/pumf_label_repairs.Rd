@@ -38,9 +38,10 @@ acted on.
     text extends it *and* the command-file label carries a damage signature:
     either it sits at the width the command file's labels were hard-cut to, or
     it is what a dropped prefix leaves behind (a strict suffix of the guide's
-    text beginning mid-sentence).  A guide that merely words a label
-    differently, or prefixes an editorial note onto one the command file has
-    in full, is `flagged` instead.}
+    text).  A guide that merely words a label differently is `flagged`
+    instead, as is one whose extra text is an annotation prepended to a label
+    the command file has in full -- recognised by the `Key: value` shape of
+    the dropped text, which running prose lost to truncation does not have.}
   \item{`filled`}{The command file had no label at all; the guide supplied one.}
   \item{`flagged`}{Recorded but not acted on -- the two simply differ, or the
     variable's frequencies contradicted the data file, or the guide documents

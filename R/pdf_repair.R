@@ -169,26 +169,44 @@
   !is.na(width) && nchar(cmd) >= width - 1L
 }
 
+# Does the guide's text differ from the command file's only by an annotation
+# prepended to it?  Two things produce that shape, and neither is damage:
+#
+#   editorial note   SGVP 2007  "Grouped variable: Age group"  against
+#                               "Age group"; "Variable groupée : Groupe d'âge"
+#   scraped furniture GSS 16    "Longueur : 2 Age du répondant la dernière fois
+#                               qu'il a pris sa retraite."  -- the guide's field
+#                               header bleeding into the label text
+#
+# Both leave the command-file label a strict suffix of the guide's, so the
+# suffix shape alone cannot reject them, and the furniture case slips past the
+# width fingerprint too (the label underneath it sits at the ceiling).  What
+# separates them from a genuine truncation is the dropped text: StatCan's guides
+# write these as "Key: value", while text lost to truncation is running prose.
+.pumf_annotation_prefix <- function(cmd, pdf) {
+  nchar(pdf) > nchar(cmd) && endsWith(pdf, cmd) &&
+    grepl(":", substr(pdf, 1L, nchar(pdf) - nchar(cmd)), fixed = TRUE)
+}
+
 # The width fingerprint only sees labels cut at a fixed ceiling.  The other
 # damage pattern -- dropped *leading* text -- leaves a short label instead, well
 # below any ceiling, so it needs its own signature: what survives is a strict
-# suffix of the guide's text and begins where a label would not.
+# suffix of the guide's text.
 #
 #   PALS 2006  "relative in a family farm or business?"  (of "Working without
 #              pay for your (his/her) spouse or another relative in a ...")
 #   GSS 16     "foot or bus)"  (of "... as you? (30 minutes or less by foot or
 #              bus)")
+#   GSS 16     "Co-worker of respondent and Other relatives)"  (of "Other (Do
+#              not include organizations here) (Includes Ex-spouse/Ex-partner/
+#              Same sex partner/ Co-worker of respondent and Other relatives)")
 #
-# The mirror case is a guide that *prefixes* an editorial note onto a label the
-# command file has in full -- SGVP 2007's "Grouped variable: Age group" against
-# "Age group", "Variable groupée : Groupe d'âge" against "Groupe d'âge".  That
-# also leaves the command-file text a strict suffix, but a suffix which starts
-# like a label does; requiring the survivor to start lowercase (or on
-# punctuation) keeps those flagged, where replacing them would inject the
-# guide's editorial prefix into a perfectly good label.
+# The last of those is why the survivor's own text cannot be used to judge it: a
+# truncation that lands mid-list leaves a capitalised word first, exactly as an
+# intact label would.  `.pumf_annotation_prefix()` carries the rejection instead,
+# on the dropped text rather than on what survived.
 .pumf_left_truncated <- function(cmd, pdf) {
-  nchar(cmd) >= 8L && nchar(pdf) > nchar(cmd) && endsWith(pdf, cmd) &&
-    !grepl("^\\p{Lu}", cmd, perl = TRUE)
+  nchar(cmd) >= 8L && nchar(pdf) > nchar(cmd) && endsWith(pdf, cmd)
 }
 
 
@@ -541,8 +559,13 @@
   no_trunc <- "PDF label is longer but the command-file label is not truncated"
   # A repair needs one of the two damage signatures: the label sits at the
   # command file's truncation ceiling, or it is what survives a dropped prefix.
+  # A guide that only prepends an annotation is neither, and the veto has to
+  # outrank both -- the width fingerprint cannot see that the extra text arrived
+  # on the left, so without it the guide's furniture is appended to a label that
+  # merely happens to sit at the ceiling.
   damaged <- function(cmd, new, width)
-    .pumf_at_truncation(cmd, width) || .pumf_left_truncated(cmd, new)
+    !.pumf_annotation_prefix(cmd, new) &&
+      (.pumf_at_truncation(cmd, width) || .pumf_left_truncated(cmd, new))
 
   # ---- variable labels ----
   pv <- pdf$variables[!duplicated(pdf$variables$name), , drop = FALSE]
@@ -798,9 +821,10 @@
 #'     text extends it *and* the command-file label carries a damage signature:
 #'     either it sits at the width the command file's labels were hard-cut to, or
 #'     it is what a dropped prefix leaves behind (a strict suffix of the guide's
-#'     text beginning mid-sentence).  A guide that merely words a label
-#'     differently, or prefixes an editorial note onto one the command file has
-#'     in full, is `flagged` instead.}
+#'     text).  A guide that merely words a label differently is `flagged`
+#'     instead, as is one whose extra text is an annotation prepended to a label
+#'     the command file has in full -- recognised by the `Key: value` shape of
+#'     the dropped text, which running prose lost to truncation does not have.}
 #'   \item{`filled`}{The command file had no label at all; the guide supplied one.}
 #'   \item{`flagged`}{Recorded but not acted on -- the two simply differ, or the
 #'     variable's frequencies contradicted the data file, or the guide documents
