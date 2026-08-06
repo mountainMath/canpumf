@@ -239,3 +239,47 @@ test_that("PALS: both editions resolve to their catalogue download", {
 # The shared per-edition databases live in tempdir() for the duration of the
 # file's tests; drop them once it is done.
 withr::defer(unlink(unlist(as.list(.pals_cache))), testthat::teardown_env())
+
+
+# ---- PDF cross-check where the guide's frequencies are on another base ------
+
+# PALS 2006 ships two English user guides: the original and the December 2011
+# revision.  Only the revision describes the released file (the original's
+# fields all sit eight columns to the left), and even the revision's frequency
+# tables are tabulated over the disability sub-population, so not one count
+# reproduces.  The field positions are what establish that the guide is the
+# right document; the counts are then treated as absent, not as contradiction.
+test_that("PALS 2006: the revised guide is chosen and corroborated by position", {
+  vdir <- .pals_vdir("2006")
+  skip_if_not(canpumf:::.version_is_extracted(vdir),
+              "PALS 2006 not extracted in cache")
+  vfile <- file.path(vdir, "metadata", "pdf_validation.csv")
+  skip_if_not(file.exists(vfile), "PALS 2006 PDF cross-check has not been run")
+
+  meta <- canpumf:::read_metadata(file.path(vdir, "metadata"))
+  fmt  <- canpumf:::detect_formats(vdir)
+  skip_if(is.null(fmt$pdf_freq), "no PDF data dictionary detected")
+
+  chosen <- canpumf:::.pumf_pdf_choose_candidates(fmt$pdf_freq, meta$layout)
+  expect_match(basename(chosen$eng), "final", ignore.case = TRUE)
+  expect_match(basename(chosen$fra), "final", ignore.case = TRUE)
+
+  # Counts on a different base are recorded as unreachable, never as mismatch --
+  # a mismatch would bar every repair in the file.
+  v <- readr::read_csv(vfile, show_col_types = FALSE)
+  expect_equal(sum(v$status == "mismatch"), 0L)
+
+  # The 60-character value labels are genuinely truncated and are repaired.  The
+  # variable labels are hand-written questions and are not -- with one exception,
+  # AALR2_ACTIVITIES_1, where the command file kept only the tail of the question
+  # ("visit family or friends?").  That is a dropped prefix rather than a
+  # differently-worded label, so it is the one variable repaired here.
+  r <- readr::read_csv(file.path(vdir, "metadata", "label_repairs.csv"),
+                       col_types = readr::cols(.default = "c"))
+  repaired <- r[r$action %in% c("repaired", "filled"), ]
+  expect_gt(nrow(repaired), 0L)
+  expect_setequal(unique(repaired$name[repaired$kind == "variable"]),
+                  "AALR2_ACTIVITIES_1")
+  expect_match(repaired$label_pdf[repaired$kind == "variable"],
+               "^How often do you")
+})

@@ -319,6 +319,136 @@ test_that("GSS 2002 builds joinable modules sharing one connection", {
   expect_error(pumf_module(main, "NOPE"), "Unknown module")
 })
 
+# ---- user-guide PDF cross-check (cycle 16) ----------------------------------
+# Cycle 16's SAS/SPSS cards carry the upstream truncation (hard cuts at 60
+# characters, dropped leading text); the user guide's Appendix G dictionary
+# carries the full text plus per-code frequencies, so the repair can be
+# reconciled against the data file before it is believed.
+
+.gss16_crosscheck_ready <- function() {
+  vdir <- .gss_vdir("Cycle 16 (2002)")
+  canpumf:::.version_is_extracted(vdir) &&
+    file.exists(file.path(vdir, "metadata", "label_repairs.csv"))
+}
+
+test_that("GSS 2002: the guide's frequencies reconcile against the data file", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss16_crosscheck_ready(), "GSS 2002 PDF cross-check not in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  v <- pumf_freq_validation(main)
+  expect_gt(nrow(v), 100L)
+  expect_named(v, c("block", "name", "status", "n_codes", "n_matched", "note"))
+  # Every documented variable resolves to exactly one guide block.
+  expect_false(any(duplicated(v$name)))
+  # Hundreds of variables reconcile exactly, and nothing contradicts the data.
+  expect_gt(sum(v$status %in% c("validated", "continuous")), 500L)
+  expect_equal(sum(v$status == "mismatch"), 0L)
+})
+
+test_that("GSS 2002: truncated labels are repaired from the guide", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss16_crosscheck_ready(), "GSS 2002 PDF cross-check not in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  r <- pumf_label_repairs(main)
+  expect_gt(nrow(r), 100L)
+  expect_named(r, c("kind", "name", "val", "lang", "label_command_file",
+                    "label_pdf", "action", "reason", "validation"))
+  # Nothing is repaired from a block the frequency check contradicted.
+  expect_false(any(r$action %in% c("repaired", "filled") &
+                     r$validation == "mismatch"))
+  # A repair only ever lengthens a label.
+  rep <- r[r$action == "repaired", ]
+  expect_true(all(nchar(rep$label_pdf) > nchar(rep$label_command_file)))
+
+  # The delivered variable label is the guide's, not the 60-char command-file cut.
+  lab <- pumf_var_labels(main)
+  expect_equal(lab$label_en[lab$name == "CG4_FR_Q100_C"],
+               "Relationship of the Long Term Care Receiver to respondent - collapsed.")
+})
+
+test_that("GSS 2002: substantive divergences are flagged, not silently applied", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss16_crosscheck_ready(), "GSS 2002 PDF cross-check not in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  flagged <- pumf_label_repairs(main, action = "flagged")
+  expect_gt(nrow(flagged), 0L)
+
+  # The guide says "long term provider", the command file "long term receiver".
+  # Same length, so the guide does not extend it: record, do not act.  This is
+  # about the variable label; the same variable's value labels are separately
+  # left-truncated and are repaired, so the kind has to be pinned.
+  q220 <- flagged[flagged$name == "CG4_FR_Q220" & flagged$lang == "en" &
+                    flagged$kind == "variable", ]
+  expect_equal(nrow(q220), 1L)
+  expect_match(q220$label_command_file, "receiver")
+  expect_match(q220$label_pdf, "provider")
+
+  lab <- pumf_var_labels(main)
+  expect_match(lab$label_en[lab$name == "CG4_FR_Q220"], "receiver")
+})
+
+# ---- user-guide PDF cross-check (cycle 26) ----------------------------------
+# Cycle 26 ships two candidate dictionaries, and its guide exercises three
+# layout quirks the anchor-based table reader has to survive: a frequency value
+# wider than the "FREQ" header word (`9,520`), a zero frequency printed further
+# right than its neighbours (`97 Not Asked  0`), and a 0-10 scale that labels
+# only its endpoints and leaves codes 01-09 bare.
+
+.gss26_crosscheck_ready <- function() {
+  vdir <- .gss_vdir("Cycle 26 (2012)")
+  canpumf:::.version_is_extracted(vdir) &&
+    file.exists(file.path(vdir, "metadata", "pdf_validation.csv"))
+}
+
+test_that("GSS 2012: the user guide is chosen over the analytical-file dictionary", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss26_crosscheck_ready(), "GSS 2012 PDF cross-check not in cache")
+
+  vdir <- .gss_vdir("Cycle 26 (2012)")
+  meta <- canpumf:::read_metadata(file.path(vdir, "metadata"))
+  reg  <- canpumf:::pumf_registry_lookup("GSS", "Cycle 26 (2012)")
+  fmt  <- canpumf:::detect_formats(vdir, sps_mask = reg$layout_mask)
+  skip_if(is.null(fmt$pdf_freq), "no frequency dictionary detected")
+
+  chosen <- canpumf:::.pumf_pdf_choose_candidates(fmt$pdf_freq, meta$layout)
+  expect_match(basename(chosen$eng), "Users_Guide")
+})
+
+test_that("GSS 2012: every documented variable reconciles with the data", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss26_crosscheck_ready(), "GSS 2012 PDF cross-check not in cache")
+
+  tbl <- get_pumf("GSS", "Cycle 26 (2012)")
+  on.exit(close_pumf(tbl), add = TRUE)
+
+  v <- pumf_freq_validation(tbl)
+  expect_gt(nrow(v), 500L)
+  expect_equal(sum(v$status == "mismatch"), 0L)
+  expect_equal(sum(v$status == "unchecked"), 0L)
+
+  # WLY_Q150's code 1 prints "9,520", wider than the "FREQ" header it is
+  # right-aligned to; MAR_Q110's code 97 prints a bare "0" three columns
+  # further right than the counts above it.  Both are read off the number
+  # column nearest the anchor rather than by walking out from it.
+  expect_equal(v$status[v$name == "WLY_Q150"], "validated")
+  expect_equal(v$status[v$name == "MAR_Q110"], "validated")
+
+  # LSR_Q110 is a 0-10 satisfaction scale: the guide labels only 00 and 10, so
+  # codes 01-09 are code rows with no label at all.  Dropping them would leave
+  # nine of the column's values undocumented.
+  expect_equal(v$status[v$name == "LSR_Q110"], "validated")
+  expect_gte(v$n_codes[v$name == "LSR_Q110"], 14L)
+})
+
 test_that("get_pumf rejects module for non-modular surveys", {
   expect_error(
     canpumf:::.pumf_table_name("GSS", "Cycle 32 (2018)", "eng", module = "MAIN"),

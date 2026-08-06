@@ -1274,7 +1274,8 @@ pumf_run_pipeline <- function(series,
     pumf_parse_metadata(version_dir,
                          layout_mask       = reg$layout_mask,
                          metadata_encoding = reg$metadata_encoding,
-                         refresh           = eff_refresh)
+                         refresh           = eff_refresh,
+                         file_mask         = reg$file_mask)
     result <- pumf_build_duckdb(version_dir, series, version,
                                  lang        = lang,
                                  layout_mask = reg$layout_mask,
@@ -1286,7 +1287,8 @@ pumf_run_pipeline <- function(series,
                            layout_mask       = m$layout_mask,
                            metadata_encoding = reg$metadata_encoding,
                            refresh           = eff_refresh,
-                           meta_subdir       = m$meta_subdir)
+                           meta_subdir       = m$meta_subdir,
+                           file_mask         = m$file_mask)
       r <- pumf_build_duckdb(version_dir, series, version,
                               lang         = lang,
                               layout_mask  = m$layout_mask,
