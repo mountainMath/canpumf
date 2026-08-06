@@ -32,7 +32,8 @@ test_that("SHS: pumf_parse_metadata produces canonical CSVs", {
   skip_if(is.null(v), "No SHS version in cache")
 
   reg <- canpumf:::pumf_registry_lookup("SHS", v)
-  canpumf:::pumf_parse_metadata(.shs_vdir(v), layout_mask = reg$layout_mask)
+  canpumf:::pumf_parse_metadata(.shs_vdir(v), layout_mask = reg$layout_mask,
+                                metadata_encoding = reg$metadata_encoding)
 
   meta_dir <- file.path(.shs_vdir(v), "metadata")
   expect_true(file.exists(file.path(meta_dir, "variables.csv")))
@@ -56,6 +57,26 @@ test_that("SHS: HHTYPE6 codes present in metadata", {
   hhtype_codes <- meta$codes[meta$codes$name == "HHTYPE6", ]
   expect_gt(nrow(hhtype_codes), 0L,
             label = "HHTYPE6 must have value labels in codes.csv")
+})
+
+# The 2017 and 2019 reading cards are UTF-8 where 2021 and 2023 are not, so the
+# CP1252 default read every accented French label as mojibake -- 671 labels
+# across the four files.  The registry pins the encoding per version; this
+# checks both the pin and its effect on the parsed labels.
+test_that("SHS: 2017/2019 French labels are not mojibake", {
+  for (v in c("2017", "2019")) {
+    expect_equal(canpumf:::pumf_registry_lookup("SHS", v)$metadata_encoding,
+                 "UTF-8", label = paste0("SHS ", v, " metadata_encoding"))
+
+    if (!.shs_metadata_exists(v)) next
+    meta <- canpumf:::read_metadata(file.path(.shs_vdir(v), "metadata"))
+    fr   <- c(meta$variables$label_fr, meta$codes$label_fr)
+    fr   <- fr[!is.na(fr)]
+    skip_if(length(fr) == 0L, paste0("SHS ", v, " has no French labels"))
+    # CP1252-reading a UTF-8 byte pair leaves these two lead bytes verbatim.
+    expect_false(any(grepl("Ã|â€", fr)),
+                 label = paste0("SHS ", v, " French labels free of mojibake"))
+  }
 })
 
 

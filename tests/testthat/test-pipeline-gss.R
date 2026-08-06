@@ -468,6 +468,84 @@ test_that("GSS 2012: every documented variable reconciles with the data", {
   expect_gte(v$n_codes[v$name == "LSR_Q110"], 14L)
 })
 
+test_that("GSS 2010: a block with no frequency table stops at its own rule", {
+  skip_if_not_installed("pdftools")
+  vdir <- .gss_vdir("Cycle 24 (2010)")
+  skip_if_not(canpumf:::.version_is_extracted(vdir), "GSS 2010 not in cache")
+
+  pdfs <- list.files(vdir, pattern = "[.]pdf$", recursive = TRUE, full.names = TRUE)
+  cand <- canpumf:::.pumf_detect_freq_pdfs(pdfs, NULL)
+  skip_if(is.null(cand$eng), "no English frequency dictionary detected")
+
+  v <- canpumf:::.parse_pdf_freq_single(cand$eng, "eng")$variables
+
+  # The label is the free text between the block header and the FREQ table, so
+  # the guide's *last* block -- WTSBS_001, a bootstrap weight printed with no
+  # table -- used to run to the end of the document and take the appendix and
+  # table of contents with it (78,014 characters, which the repair pass then
+  # wrote over a sound command-file label).
+  w <- v$label_en[v$name == "WTSBS_001"]
+  expect_equal(w, "Bootstrap weight # 1 for sport participation sample weight.")
+
+  # No other block should be anywhere near that size either: the longest
+  # legitimate label in this guide is a wrapped survey question.
+  expect_lt(max(nchar(v$label_en), na.rm = TRUE), 500L)
+})
+
+test_that("GSS 2010 Episode: a label reaching into the number column", {
+  skip_if_not_installed("pdftools")
+  vdir <- .gss_vdir("Cycle 24 (2010)")
+  skip_if_not(canpumf:::.version_is_extracted(vdir), "GSS 2010 not in cache")
+  mdir <- file.path(vdir, "metadata", "Episode")
+  skip_if_not(file.exists(file.path(mdir, "layout.csv")), "Episode metadata not built")
+
+  reg  <- canpumf:::pumf_registry_lookup("GSS", "Cycle 24 (2010)")
+  m    <- Filter(function(z) z$id == "Episode", canpumf:::.pumf_entry_modules(reg))[[1L]]
+  lay  <- canpumf:::read_metadata(mdir)$layout
+  fmt  <- canpumf:::detect_formats(vdir, sps_mask = m$layout_mask)
+  cand <- canpumf:::.pumf_pdf_choose_candidates(fmt$pdf_freq, lay)
+  skip_if(is.null(cand$eng), "no English Episode frequency dictionary detected")
+
+  p  <- canpumf:::.parse_pdf_freq_single(cand$eng, "eng")
+  b  <- p$variables$block[p$variables$name == "SACT1"][[1L]]
+  cd <- p$codes[p$codes$block == b, ]
+  fq <- p$freqs[p$freqs$block == b, ]
+  lab <- function(v) cd$label_en[cd$val == v]
+  frq <- function(v) fq$freq[fq$val == v]
+
+  # Code 15's label reaches into the number column, which pushes the frequency
+  # past the FREQ anchor and sends the weighted count to the following line:
+  #   15  Domestic work (meal prep and cleanup, cleaning, laundry)     4,255
+  #                            6,759,111
+  # The stranded number is unambiguous -- one candidate, past the anchor, with
+  # whitespace before it -- so it is read, and the orphaned weighted count is
+  # not appended to the label.
+  expect_equal(lab("15"), "Domestic work (meal prep and cleanup, cleaning, laundry)")
+  expect_equal(frq("15"), 4255)
+
+  # Code 18 prints its label flush against both counts
+  # ("...cassette tapes or records3,4417,790,477"), so the two cannot be told
+  # apart and the frequency stays unknown -- but the digits are certainly the
+  # number column, so they are cut off the label rather than left in it.
+  expect_equal(lab("18"), "Listening to MP3 players, CD's, cassette tapes or records")
+  expect_true(is.na(frq("18")))
+
+  # An ordinary row in the same table, for contrast.
+  expect_equal(lab("20"), "Computer use (excluding email, chat groups, social networking)")
+  expect_equal(frq("20"), 1680)
+
+  # An unreadable count is missing evidence, not contrary evidence: it must not
+  # abort the run (it used to make all() return NA and error the `if` after it,
+  # taking the whole Stage 2 parse of this module down).
+  dp <- canpumf:::.find_pumf_data_file(vdir, m$file_mask)
+  skip_if(is.null(dp) || !file.exists(dp), "Episode data file not in cache")
+  val <- canpumf:::.pumf_validate_pdf_freqs(p, lay, dp)
+  expect_equal(val$status[val$block == b], "unchecked")
+  expect_match(val$note[val$block == b], "unreadable")
+  # ... and the rest of the guide still validates against the data.
+  expect_true(sum(val$status %in% c("validated", "continuous")) > 20L)
+})
+
 test_that("get_pumf rejects module for non-modular surveys", {
   expect_error(
     canpumf:::.pumf_table_name("GSS", "Cycle 32 (2018)", "eng", module = "MAIN"),

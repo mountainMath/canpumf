@@ -586,16 +586,42 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   lines <- gsub("\\t", " ", raw)
   lines <- gsub("\\s+$", "", lines)
 
-  # Join string continuations: 'text' + 'more' -> 'textmore'
-  cont <- which(grepl("'\\s*\\+\\s*$", lines))
-  if (length(cont) > 0) {
-    for (i in rev(cont)) {
-      if (i + 1L <= length(lines)) {
-        lines[i] <- paste0(sub("'\\s*\\+\\s*$", "", lines[i]),
-                           sub("^\\s*'", "", lines[i + 1L]))
-        lines <- lines[-(i + 1L)]
-      }
+  # Join SPSS string concatenations: 'text' + 'more' -> 'textmore'.  StatCan
+  # uses this to keep long labels inside the file's line width, and it appears
+  # in all three combinations of quote style and line break -- Census 2021 alone
+  # ships single-quoted-continued (individuals EN), double-quoted-continued
+  # (individuals FR, 70 labels) and inline double-quoted (hierarchical FR).
+  # Dropping the tail leaves a label cut mid-word, e.g. SSGRAD as "Scolarite :
+  # Diplome d'etudes secondaires ou attestation d'eq", indistinguishable from
+  # the upstream truncation the PDF cross-check exists to repair.
+  #
+  # A trailing "+" pulls the next line up first; the pairs are then collapsed in
+  # place, so a chain of several fragments folds one join at a time.  Walking
+  # backwards keeps the indices of the not-yet-visited lines valid.
+  cont <- which(grepl("['\"]\\s*\\+\\s*$", lines))
+  for (i in rev(cont)) {
+    if (i + 1L <= length(lines) && grepl("^\\s*['\"]", lines[i + 1L])) {
+      lines[i] <- paste0(lines[i], " ", trimws(lines[i + 1L]))
+      lines    <- lines[-(i + 1L)]
     }
+  }
+  # The two fragments need not use the same quote character -- Census 2021's
+  # French individuals file writes '"...d'eq" + \'uivalence\'' -- so the four
+  # combinations are collapsed separately.  Each content class has to match the
+  # literal's *own* delimiter, because a double-quoted label routinely contains
+  # apostrophes (and would be cut at the first one by a shared class).  The
+  # opening quote must follow whitespace or start the line so a stray apostrophe
+  # inside a label cannot be read as an opening delimiter.
+  repeat {
+    joined <- lines
+    for (pat in list(
+      c('(^|\\s)"([^"]*)"\\s*\\+\\s*"([^"]*)"', '\\1"\\2\\3"'),
+      c('(^|\\s)"([^"]*)"\\s*\\+\\s*\'([^\']*)\'', '\\1"\\2\\3"'),
+      c("(^|\\s)'([^']*)'\\s*\\+\\s*'([^']*)'", "\\1'\\2\\3'"),
+      c("(^|\\s)'([^']*)'\\s*\\+\\s*\"([^\"]*)\"", "\\1'\\2\\3'")))
+      joined <- sub(pat[[1L]], pat[[2L]], joined)
+    if (identical(joined, lines)) break
+    lines <- joined
   }
 
   # Normalize single-quoted label strings -> double quotes.
@@ -3000,9 +3026,18 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
     fmt    <- if (length(fmt_ln)) trimws(sub("^\\s*Format\\s*:", "", fmt_ln[[1L]])) else NA_character_
 
     hdr <- grep(.pdf_freq_hdr_rx, blk, perl = TRUE)
-    # The variable label is the free text between the block header and the
-    # frequency table (or the end of the block when the variable has no table).
-    lab_end   <- if (length(hdr)) hdr[[1L]] - 1L else length(blk)
+    # The variable label is the free text between the block header and whatever
+    # closes it: the frequency table's FREQ header, or -- for a variable printed
+    # without a table -- the block's own trailing rule or Coverage:/Source:/
+    # Format: lines.  The second bound is what stops the *last* block in a guide
+    # running to the end of the document: GSS Cycle 24's WTSBS_001 documents
+    # bootstrap weight #1 and prints no table, so without it the "label"
+    # swallowed the rest of the appendix and the table of contents -- 78,014
+    # characters, which the repair pass then wrote over a sound command-file
+    # label.
+    stops     <- c(hdr, grep(.pdf_freq_end_rx, blk, perl = TRUE))
+    stops     <- stops[stops > 1L]
+    lab_end   <- if (length(stops)) min(stops) - 1L else length(blk)
     lab_lines <- if (lab_end >= 2L) trimws(blk[2:lab_end]) else character()
     lab_lines <- lab_lines[nzchar(lab_lines) &
                              !grepl(.pdf_freq_skip_rx, lab_lines, perl = TRUE)]
@@ -3064,7 +3099,31 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
       if (pos[[1L]] != -1L) {
         ends <- pos + attr(pos, "match.length") - 1L
         i    <- which.min(abs(ends - fend))
-        if (abs(ends[[i]] - fend) <= .pdf_freq_slack) {
+        if (abs(ends[[i]] - fend) > .pdf_freq_slack) {
+          # No number near the anchor.  A label long enough to reach into the
+          # number column pushes the frequency past it and sends the weighted
+          # count to the next line, leaving one number stranded to the right
+          # (GSS Cycle 24's Episode guide, SACT1 code 15: "Domestic work (meal
+          # prep and cleanup, cleaning, laundry)         4,255", with
+          # "6,759,111" alone on the following line).  Take that number when it
+          # is unambiguous: exactly one candidate, starting at or after the
+          # anchor and preceded by whitespace.  The whitespace requirement is
+          # what excludes a label printed flush against its counts
+          # ("...cassette tapes or records3,4417,790,477"), where the two counts
+          # cannot be told apart from each other or from the label's own text.
+          # Even then the digits are cut off the label, since they are certainly
+          # the number column and not the label's text.
+          in_cols <- which(pos >= fend - .pdf_freq_slack)
+          before  <- substring(ln, pmax(pos - 1L, 1L), pmax(pos - 1L, 1L))
+          cand    <- in_cols[pos[in_cols] == 1L |
+                               grepl("\\s", before[in_cols])]
+          if (length(cand) == 1L) i <- cand
+          else {
+            i <- NA_integer_
+            if (length(in_cols)) left <- substr(ln, 1L, min(pos[in_cols]) - 1L)
+          }
+        }
+        if (!is.na(i)) {
           left <- substr(ln, 1L, pos[[i]] - 1L)
           freq <- suppressWarnings(as.numeric(gsub(
             ",", "", substr(ln, pos[[i]], ends[[i]]))))
@@ -3100,8 +3159,12 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
         rows[[length(rows) + 1L]] <-
           list(val = mcd[[2L]],
                label = if (nzchar(lab)) lab else NA_character_, freq = freq)
-      } else if (length(rows) > 0L && !grepl("^\\S", ln)) {
-        # Indented text with no code: continuation of the previous label.
+      } else if (length(rows) > 0L && !grepl("^\\S", ln) &&
+                 !grepl("^[0-9][0-9,. ]*$", trimws(left))) {
+        # Indented text with no code: continuation of the previous label.  A
+        # continuation that is nothing but a number is the weighted count of a
+        # row whose label pushed it off the line, not label text -- appending it
+        # would end the label in "... laundry) 6,759,111".
         last <- length(rows)
         prev <- rows[[last]]$label
         rows[[last]]$label <- trimws(paste(if (is.na(prev)) "" else prev, trimws(left)))

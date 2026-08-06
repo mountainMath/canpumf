@@ -333,15 +333,20 @@
         file_mask     = "diary_flatfile\\.txt",
         bsw_file_mask = "diary_bsw_flatfile\\.txt",
         bsw_join_key  = "CASEID")),
+    metadata_encoding = "UTF-8",   # as 2019; see there
     module_key = "CASEID"),
 
   # 2019: fixed-width flatfile; BSW layout is a SAS @pos .txt co-located with data.
+  # Reading cards are UTF-8 (2021 and 2023 are not), so the CP1252 default turns
+  # every accented French label into mojibake ("Poids d'enquete" arriving as
+  # "Poids dâ€™enquÃªte").
   "SHS/2019" = .make_entry("SHS", "2019",
-    layout_mask   = "shs2019_flatfile",
-    bsw_mask      = "_bsw_flatfile",
-    bsw_file_mask = "bsw_flatfile\\.txt",
-    bsw_join_key  = "CASEID",
-    file_mask     = "shs2019_flatfile\\.txt"),
+    layout_mask       = "shs2019_flatfile",
+    bsw_mask          = "_bsw_flatfile",
+    bsw_file_mask     = "bsw_flatfile\\.txt",
+    bsw_join_key      = "CASEID",
+    metadata_encoding = "UTF-8",
+    file_mask         = "shs2019_flatfile\\.txt"),
 
   # 2021: SPSS split-file format; BSW layout is a SAS @pos .txt file co-located
   # with the BSW data (not in the SPSS cards dir); fallback in .read_bsw_data

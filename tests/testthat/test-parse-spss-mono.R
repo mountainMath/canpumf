@@ -133,6 +133,28 @@ test_that("parse_spss_mono: code absent in French codes gets NA label_fr", {
   expect_equal(wage_fr, "Revenu d emploi total")
 })
 
+# ---- String continuations --------------------------------------------------
+
+# A dropped continuation tail leaves a label cut mid-word, which is exactly the
+# shape of the upstream truncation the PDF cross-check exists to repair -- so a
+# label the command file states in full would be "repaired" from a guide.
+test_that("parse_spss_mono: string continuations joined in every quote/break form", {
+  m   <- canpumf:::parse_spss_mono(fx("continuations.sps"))
+  lab <- function(v) m$variables$label_en[m$variables$name == v]
+
+  expect_equal(lab("V1"), "Single quoted, broken across lines")
+  expect_equal(lab("V2"), "Double quoted, broken across lines")
+  expect_equal(lab("V3"), "Double quoted, joined inline")
+  # Mixed delimiters: the double-quoted fragment carries an apostrophe, so a
+  # shared character class would cut it at the interior quote.
+  expect_equal(lab("V4"), "Mixed delimiters, ending in d'equivalence")
+  # A chain folds one join at a time.
+  expect_equal(lab("V5"), "Three fragments chained")
+
+  v1 <- m$codes[m$codes$name == "V1", ]
+  expect_equal(v1$label_en[v1$val == "1"], "Code label, continued")
+})
+
 # ---- Synthetic 2016-style fixture (double quotes, / on own line) -----------
 
 test_that("parse_spss_mono: 2016-style VALUE LABELS (/ on own line) parsed correctly", {

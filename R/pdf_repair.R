@@ -461,9 +461,21 @@
                   integer(1L))
 
     pf  <- pdf$freqs[pdf$freqs$block == b, , drop = FALSE]
+    # A count the guide printed in a shape the parser could not read is missing
+    # evidence, not contrary evidence.  Comparing against it would make `all()`
+    # return NA and abort the whole Stage 2 run on the `if` that follows, so the
+    # block is reported unchecked instead -- which withholds nothing, since
+    # repairs are barred only by an outright mismatch.
+    n_unread <- sum(is.na(pf$freq))
+    pf  <- pf[!is.na(pf$freq), , drop = FALSE]
     exp <- stats::setNames(pf$freq, .pumf_norm_code(pf$val))
     exp <- exp[!duplicated(names(exp))]
     rr  <- rng[rng$block == b, , drop = FALSE]
+    rr  <- rr[!is.na(rr$freq), , drop = FALSE]
+
+    if (n_unread > 0L)
+      return(row("unchecked", length(exp) + n_unread, 0L,
+                 paste0(n_unread, " code frequencies unreadable")))
 
     # Range-only variable (no discrete codes): the range row must account for
     # every non-blank value in the column.
