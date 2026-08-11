@@ -13,8 +13,11 @@ accumulating pipeline, described separately at the end.
 
 ![canpumf pipeline: get_pumf dispatches LFS vs. the three-stage pipeline
 (locate/download, parse metadata, build DuckDB), then registers
-provenance and returns a lazy
-tbl.](pipeline_files/figure-html/pipeline-diagram-1.svg)
+provenance and returns a lazy tbl. In stage 2, nine parsers feed
+merge_metadata(), except the user-guide frequency dictionary, which
+instead goes through a cross-check that repairs truncated labels before
+the canonical CSVs are
+written.](pipeline_files/figure-html/pipeline-diagram-1.svg)
 
 ------------------------------------------------------------------------
 
@@ -112,6 +115,7 @@ parser(s) apply. **Multiple parsers can fire for the same survey**
 | 6 | **SPSS `.sav`** | a `.sav` binary file readable by haven |
 | 7 | **PDF Data Dictionary** | `*Dictionary.pdf` present and `pdftools` installed; supplements label-only surveys where the SPSS file has `DATA LIST` but no `VARIABLE LABELS` or `VALUE LABELS` |
 | 8 | **PDF frequency codebook** | a bilingual StatCan frequency codebook PDF (per-variable `Variable Name:` / `Answer Categories` blocks) under a `Codebook`/`LivreDesCodes` path, content-verified; `pdftools` installed. A **last-resort** fallback consulted only when no command file or codebook CSV was found — recovers labels for surveys whose only machine-readable companion is the data file (e.g. CPSS cycle 1) |
+| 9 | **PDF user-guide frequency dictionary** | the data-dictionary appendix of a PUMF user guide (`Variable Name: X Position: N Length: L` blocks with a `FREQ`/`WTD` frequency table); `pdftools` installed and `getOption("canpumf.pdf_crosscheck", TRUE)`. Shortlisted by path pattern, capped at 8 files \> 50 KB, and content-verified for ≥10 block headers **and** a FREQ column. **Not a metadata source** — it feeds the label repair pass below, not [`merge_metadata()`](https://mountainmath.github.io/canpumf/reference/merge_metadata.md) |
 
 Detection for case 5 also searches for a parallel French file — any
 candidate in the same set whose path includes `/fran` or `/french`
@@ -231,16 +235,39 @@ the `Variable Name:` + `Answer Categories` signature. This is what gives
 CPSS cycle 1 (the only cycle without a `variables.csv`) full bilingual
 labels.
 
+#### PDF user-guide frequency dictionary (`parse_pdf_freq_codebook`)
+
+A *third* StatCan PDF layout: the data-dictionary appendix of a PUMF
+user guide (GSS cycles, SGVP, PALS, SFS, Time Use). Blocks open with
+`Variable Name: X Position: N Length: L` — the required `Position` is
+what separates this layout from the codebook above — followed by a
+free-text label and a right-aligned `FREQ`/`WTD` (French `FREQ`/`POND`)
+frequency table. Continuous variables print a single `lo : hi` range row
+instead of per-value rows.
+
+Beyond the usual `variables`/`codes` this parser also returns `freqs`
+and `ranges`, and every table carries a `block` id — one user guide
+documents each linked module in turn, so a shared key such as `RECID`
+gets one block per module and the blocks are told apart by matching
+their printed positions against `layout.csv`.
+
+Unlike parsers 1–8 this one is **deliberately excluded from
+[`merge_metadata()`](https://mountainmath.github.io/canpumf/reference/merge_metadata.md)**,
+so the command file stays authoritative. It becomes a primary source
+only if no other parser fired at all. Its real job is the cross-check
+below.
+
 ### Metadata encoding
 
 The registry `metadata_encoding` field sets the encoding for all
 text-format parsers. Default is `"CP1252"` (a superset of Latin-1 that
 correctly decodes Windows-era en-dashes and curly quotes). Exceptions:
 
-| Surveys                        | Encoding  | Reason                         |
-|--------------------------------|-----------|--------------------------------|
+| Surveys | Encoding | Reason |
+|----|----|----|
 | Census 2021, 2021 hierarchical | `"UTF-8"` | Command files shipped as UTF-8 |
-| Census 1991 (individuals)      | `"CP850"` | DOS-era IBM Code Page 850      |
+| Census 1991 (individuals) | `"CP850"` | DOS-era IBM Code Page 850 |
+| SHS 2017, 2019 | `"UTF-8"` | Their reading cards are UTF-8 where SHS 2021/2023 are not, so the default turned every accented French label into mojibake |
 
 ### Merge
 
@@ -259,6 +286,89 @@ The final result is written to:
   label_fr)
 - `metadata/layout.csv` — one row per fixed-width column (name, start,
   end); absent for CSV-format surveys
+
+### PDF cross-check and label repair
+
+StatCan’s command files routinely ship **truncated** value and variable
+labels — hard cuts at a fixed width, dropped leading text, dropped
+interior text. The damage is upstream of the flavour-specific renderers
+(SAS, SPSS and Stata carry byte-identical text), so it cannot be dodged
+by parsing a different flavour. The same survey’s user guide carries the
+full text, typeset from the metadata before the command files were
+generated.
+
+Trusting a PDF scrape over a machine-readable command file would
+normally be a bad trade. What makes it a good one here is that this PDF
+layout prints the **frequency of every code**, so the parse can be
+reconciled against the actual data file before any of it is believed.
+`.pumf_pdf_crosscheck()` runs at the end of
+[`pumf_parse_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_parse_metadata.md),
+*after*
+[`merge_metadata()`](https://mountainmath.github.io/canpumf/reference/merge_metadata.md):
+
+1.  **Choose the guide.** A release that ships both an original and a
+    revised user guide has two candidates with near-identical block
+    counts describing *different* field positions; each candidate’s
+    `Position:`/`Length:` headers are scored against `layout.csv` and
+    the best-scoring one wins per language. PALS 2006’s pre-revision
+    guide scores 3/746, the Dec 2011 revision 746/746.
+2.  **Validate against the data.** Every documented variable is
+    tabulated in the microdata and the counts compared, giving each
+    block a status: `validated`, `continuous`, `mismatch`, or
+    `unchecked` (no data file, variable not in this module, file \> 500
+    MB, or a printed count the parser could not read). Written to
+    `metadata/pdf_validation.csv`.
+3.  **Decide whether the guide describes this file at all.** That is a
+    question about the *document*, not about any one variable, and there
+    are two independent channels: do the printed counts reproduce a
+    tabulation of the data, and do the printed positions reproduce the
+    command file’s layout. Both failing means the wrong document — the
+    repair ledger is written empty and nothing downstream reads
+    divergences off a rejected guide. Frequencies failing while
+    positions pass means the right document with a different tabulation
+    base: PALS 2006’s frequencies are computed over the disability
+    sub-population, so no count matches even though all 746 positions
+    do.
+4.  **Compare every label** and record `fill`, `repair`, `flag` or `ok`
+    in `metadata/label_repairs.csv`, each row carrying the variable’s
+    validation status so uncorroborated repairs stay visible. A repair
+    is withheld only on an outright `mismatch` — a variable the
+    frequency check could not *reach* is not evidence against the parse.
+
+A label is replaced only when the guide’s text demonstrably extends the
+command file’s **and** the command file shows the fingerprint of damage.
+That second test matters because a guide’s text being longer has two
+causes and only one of them is damage: some guides print the full
+*question wording* where the command file gives a hand-written short
+label, and the abbreviation is often a subsequence of the question, so
+the shape test alone would “repair” a perfectly good label into a
+question.
+
+Three signals separate them:
+
+- **A derived truncation ceiling.** A hard cut leaves a spike of labels
+  at a fixed width; a hand-abbreviated set thins out towards its longest
+  entry. The ceiling is computed per survey and per label field from the
+  command file itself — there is no constant 60 anywhere in the
+  implementation — and returns `NA` where there is no ceiling.
+- **A strict-suffix test** for the other damage pattern, dropped leading
+  text, which leaves a short label well below any ceiling.
+- **An annotation veto** that outranks both, and looks at the *dropped*
+  text rather than at what survived. StatCan’s guides write editorial
+  notes and scraped field furniture as `Key: value`, while text lost to
+  truncation is running prose — so a colon in the dropped text means
+  this is not damage.
+
+Codes the guide documents but the command file never declared are
+**reported, not injected**: that is a registry `codes_supplement`
+decision.
+
+The whole step is skipped when `pdftools` is not installed, and can be
+turned off with `options(canpumf.pdf_crosscheck = FALSE)`. Both side-car
+CSVs are exposed to users by
+[`pumf_label_repairs()`](https://mountainmath.github.io/canpumf/reference/pumf_label_repairs.md)
+and
+[`pumf_freq_validation()`](https://mountainmath.github.io/canpumf/reference/pumf_freq_validation.md).
 
 ------------------------------------------------------------------------
 

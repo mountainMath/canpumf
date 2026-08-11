@@ -106,6 +106,7 @@ open_pumf_documentation("SFS", "2019", lang = "fra")
 #> 3: How to cite SFS2019_Comment citer ESF2019.pdf
 #> 4: Open all
 #> 
+#> Enter an item from the menu, or 0 to exit
 #> Documentation for SFS 2019: 
 #> 
 #> 1: How to cite SFS2019_Comment citer ESF2019.pdf

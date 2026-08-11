@@ -25,7 +25,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -168,7 +168,7 @@ modules and how to open one:</p>
 <span></span>
 <span><span class="va">main</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A query:  ?? x 5</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]</span></span></span>
 <span><span class="co">#&gt;   RECID WGHT_PER AGE_2001_GR5      AGE_2001_GR10     SEX   </span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span> </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span>     1     367. 45 to 49          45 to 54          Female</span></span>
@@ -198,15 +198,15 @@ connection. The first time you open a module for a survey,
 <span></span>
 <span><span class="va">cg4</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A query:  ?? x 5</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]</span></span></span>
 <span><span class="co">#&gt;   RECID PERSONID CG4_FR_Q100_C                           CG4_FR_Q104 CG4_FR_Q105</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>                                   <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>      </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span>     6        1 Neighbour of respondent                 Not asked   Not asked  </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span>     7        1 Father of respondent                    No          Not asked  </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span>    10        1 Aunt of respondent                      Not asked   Not asked  </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span>    14        1 Close friend of respondent              Not asked   Not asked  </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span>    14        2 Co-worker of respondent and Other rela… Not asked   Not asked  </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span>    14        3 Co-worker of respondent and Other rela… Not asked   Not asked</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span>    14        2 Other (Do not include organizations he… Not asked   Not asked  </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span>    14        3 Other (Do not include organizations he… Not asked   Not asked</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="joining-modules-for-analysis">Joining modules for analysis<a class="anchor" aria-label="anchor" href="#joining-modules-for-analysis"></a>

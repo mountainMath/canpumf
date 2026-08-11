@@ -28,7 +28,7 @@
 
     <a class="navbar-brand me-2" href="index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -112,23 +112,39 @@
 <p>When done querying, release the DuckDB connection with <code>close_pumf(tbl)</code>.</p>
 </div>
 <div class="section level2">
+<h2 id="label-repair">Label repair<a class="anchor" aria-label="anchor" href="#label-repair"></a>
+</h2>
+<p>Statistics Canada’s shipped command files routinely carry truncated value and variable labels — hard cuts at 60 characters, dropped leading or interior text. The damage is upstream (SAS, SPSS and Stata versions of the same file agree byte for byte), and it is quiet: the codes and frequencies are correct, only the human-readable label is wrong.</p>
+<p>For surveys whose user guide includes a data-dictionary appendix, <code>canpumf</code> parses that appendix and uses it to repair the labels. Because the appendix prints the frequency of every code, the scrape is first reconciled against the actual microdata: a guide whose counts do not reproduce a tabulation of the data <em>and</em> whose printed field positions do not reproduce the command file’s layout is discarded as the wrong document. A label is then only ever replaced when two things hold — the guide’s text demonstrably extends the command file’s, <strong>and</strong> the command file’s labels show the fingerprint of hard truncation (a spike of labels at a fixed ceiling). Without that second test a guide that prints full question wording where the command file carries a hand-written short label would “repair” perfectly good labels into questions. Two functions expose what happened:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">gss</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"GSS"</span>, <span class="st">"Cycle 16 (2002)"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># per-variable: did the guide's frequencies reconcile with the data?</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="fu"><a href="reference/pumf_freq_validation.html">pumf_freq_validation</a></span><span class="op">(</span><span class="va">gss</span><span class="op">)</span><span class="op">$</span><span class="va">status</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># every divergence found, repaired or not</span></span>
+<span><span class="fu"><a href="reference/pumf_label_repairs.html">pumf_label_repairs</a></span><span class="op">(</span><span class="va">gss</span>, action <span class="op">=</span> <span class="st">"repaired"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="reference/pumf_label_repairs.html">pumf_label_repairs</a></span><span class="op">(</span><span class="va">gss</span>, action <span class="op">=</span> <span class="st">"flagged"</span><span class="op">)</span></span></code></pre></div>
+<p><code>flagged</code> rows are divergences that were recorded but <em>not</em> acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. Nothing is repaired silently. Set <code>options(canpumf.pdf_crosscheck = FALSE)</code> to turn the whole step off.</p>
+</div>
+<div class="section level2">
 <h2 id="lfs-data">LFS data<a class="anchor" aria-label="anchor" href="#lfs-data"></a>
 </h2>
 <p>LFS data is organized by year, except for the current year where it is organized by month. To access data for a specific year:</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_2022</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, <span class="st">"2022"</span><span class="op">)</span></span></code></pre></div>
 <p>This downloads the 2022 LFS PUMF data if needed, parses it, loads labeled data into a shared DuckDB database, and returns a lazy tbl filtered to 2022. To access all LFS data currently in the local database:</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_all_local</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span><span class="op">)</span></span></code></pre></div>
 <p>To ensure the local database contains all available LFS versions, use <code>refresh = "auto"</code>. This checks StatCan for versions not yet in the database and imports them:</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_all</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, refresh <span class="op">=</span> <span class="st">"auto"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="census-data">Census data<a class="anchor" aria-label="anchor" href="#census-data"></a>
 </h2>
 <p>The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download; years 1986 and earlier must be ordered through Statistics Canada’s EFT portal and placed in the cache directory.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pumf_2021</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>, <span class="st">"2021"</span><span class="op">)</span></span></code></pre></div>
 <p>By default the package loads the <em>individuals</em> file. Available variants by year:</p>
 <table class="table">
@@ -183,7 +199,7 @@
 </tr>
 </tbody>
 </table>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pumf_h_2016</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>, <span class="st">"2016 (hierarchical)"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
@@ -286,6 +302,18 @@
 <td>Canadian Housing Survey</td>
 <td>CHS</td>
 <td>2018, 2021, 2022</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Canadian Health Survey on Seniors</td>
+<td>CHSS</td>
+<td>2019-2020</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Participation and Activity Limitation Survey</td>
+<td>PALS</td>
+<td>2001, 2006</td>
 <td align="center">✓</td>
 </tr>
 <tr>

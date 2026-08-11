@@ -13,7 +13,8 @@ pumf_parse_metadata(
   layout_mask = NULL,
   metadata_encoding = NULL,
   refresh = FALSE,
-  meta_subdir = NULL
+  meta_subdir = NULL,
+  file_mask = NULL
 )
 ```
 

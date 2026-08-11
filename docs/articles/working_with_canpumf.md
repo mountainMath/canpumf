@@ -37,7 +37,7 @@ chs_pumf |>
   select(1:5) |>
   head(10)
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
 #>    PUMFID PHHSIZE PAGEGR1 PAGEGR2 PAGEGR3
 #>    <chr>  <fct>   <fct>   <fct>   <fct>  
 #>  1 00001  1       No      No      No     
@@ -66,7 +66,7 @@ chs_pumf |>
   select(1:5) |>
   head(10)
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
 #>    `Unique household identifier` `Household size` Demographic information - ag…¹
 #>    <chr>                         <fct>            <fct>                         
 #>  1 00001                         1                No                            
@@ -86,6 +86,57 @@ chs_pumf |>
 
 Applying column labels can make selecting columns more tedious, but can
 also avoid downstream errors in the analysis.
+
+## Label repair
+
+The labels that come out of StatCan’s command files are frequently
+**truncated** — cut at a fixed width, or missing their leading text.
+Where the survey’s user guide ships a data-dictionary appendix,
+`canpumf` parses it and repairs the labels automatically, so most of the
+time there is nothing to do. Because that appendix prints the frequency
+of every code, the scrape is first reconciled against the actual
+microdata, and a label is only ever replaced when the guide’s text
+demonstrably extends the command file’s *and* the command file shows the
+fingerprint of truncation. Nothing is repaired silently:
+
+``` r
+
+# what the cross-check concluded about this survey's data
+table(pumf_freq_validation(chs_pumf)$status)
+#> < table of extent 0 >
+
+# every divergence found, repaired or not
+pumf_label_repairs(chs_pumf) |> head()
+#> # A tibble: 0 × 9
+#> # ℹ 9 variables: kind <chr>, name <chr>, val <chr>, lang <chr>,
+#> #   label_command_file <chr>, label_pdf <chr>, action <chr>, reason <chr>,
+#> #   validation <chr>
+```
+
+Both return zero rows here — the CHS ships no user-guide appendix, so
+there is nothing to cross-check against. Surveys that do carry one, such
+as GSS Cycle 16, look very different:
+
+``` r
+
+gss <- get_pumf("GSS", "Cycle 16 (2002)")
+
+pumf_label_repairs(gss, action = "repaired") |>
+  select(name, label_command_file, label_pdf)
+#> # A tibble: 1,679 x 3
+#>   name      label_command_file                                            label_pdf
+#>   ACMPRYR_C "During the past 12 months, was your spouse's/partner's main"  "During the past 12 months, was your spouse's/partner's main activity working at a paid job or business, looking for paid work, going to school, caring for children, household work, retired or something else?"
+#>   ...
+```
+
+The command file cut that one at 60 characters, mid-phrase — which is
+the shape the ceiling test looks for.
+
+`action = "flagged"` gives the divergences that were recorded but
+deliberately *not* acted on — most usefully, places where the guide and
+the command file genuinely disagree rather than one being a truncation
+of the other. The whole step needs the `pdftools` package and can be
+turned off with `options(canpumf.pdf_crosscheck = FALSE)`.
 
 ## Forced moves
 
