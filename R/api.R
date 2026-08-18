@@ -309,29 +309,40 @@ get_pumf <- function(series     = NULL,
     return(tbl)
   }
 
-  # Ensure the DB is built and get a temporary read-write connection.
-  con <- suppressMessages(
-    get_pumf_connection(series     = series,
-                        version    = version,
+  # Ensure the DB is built and open it in the requested mode directly.  A write
+  # connection exists only inside pumf_build_duckdb() while a build/refresh
+  # actually writes, and is closed there; on a cache hit every connection is
+  # read-only end to end.  Routing through get_pumf_connection() instead would
+  # request read_only = FALSE even for pure reads, taking a write lock that
+  # conflicts with concurrent read-only sessions (e.g. rendering a notebook
+  # while the interactive session still holds tbls open) — the same reason the
+  # LFS branch above calls lfs_get_pumf() directly.
+  pipe_tbl <- tryCatch(
+    suppressMessages(
+      pumf_run_pipeline(series, version,
                         lang       = lang,
                         cache_path = cache_path,
                         refresh    = refresh,
-                        redownload = redownload)
-  )
-  if (is.null(con)) return(invisible(NULL))
+                        redownload = redownload,
+                        read_only  = read_only)
+    ),
+    canpumf_network_error = function(e) {
+      message(conditionMessage(e)); NULL
+    })
+  if (is.null(pipe_tbl)) return(invisible(NULL))
 
-  # Select the language table from the connection.  For multi-module surveys
-  # (e.g. GSS cycle 16) `module` selects which linked table to return; all
-  # modules share one DuckDB file and are joinable on RECID.  `.pumf_table_name`
-  # validates the module name against the registry.
+  # Select the language table.  For multi-module surveys (e.g. GSS cycle 16)
+  # `module` selects which linked table to return; all modules share one DuckDB
+  # file and are joinable on the module key.  The pipeline returns the primary
+  # module's tbl; a sibling module is opened on the same connection.
+  # `.pumf_table_name` validates the module name against the registry.
   table_name <- .pumf_table_name(series, version, lang, module)
   db_path    <- .pumf_db_path(series, version, cache_path)
 
-  if (read_only) {
-    # Re-open as read-only so callers cannot accidentally mutate the DB.
-    DBI::dbDisconnect(con, shutdown = TRUE)
-    tbl <- pumf_open_duckdb(db_path, table_name, read_only = TRUE)
+  if (is.null(module)) {
+    tbl <- pipe_tbl
   } else {
+    con <- pipe_tbl$src$con
     if (!DBI::dbExistsTable(con, table_name)) {
       DBI::dbDisconnect(con, shutdown = TRUE)
       stop("Table '", table_name, "' not found in ", db_path, ".")
@@ -1193,6 +1204,10 @@ add_bootstrap_weights <- function(tbl,
     DBI::dbDisconnect(con, shutdown = TRUE)
 
   # --- Write BSW table and VIEW to DuckDB ------------------------------------
+  # Diagnose lock conflicts up front (another process, or another tbl still
+  # open on this file) with an actionable message instead of duckdb's raw
+  # lock/read-only error surfacing from the first write below.
+  .assert_duckdb_writable(db_path)
   rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
   on.exit(
     if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
@@ -1587,6 +1602,8 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
      envir = .pumf_con_registry, inherits = FALSE)
   if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
 
+  # Same up-front lock diagnosis as add_bootstrap_weights().
+  .assert_duckdb_writable(db_path)
   rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
   on.exit(
     if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),

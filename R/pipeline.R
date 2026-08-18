@@ -863,14 +863,12 @@ pumf_build_duckdb <- function(version_dir,
   result     <- list(db_path = db_path, table_name = table_name)
 
   # Step 3: skip if the table is already built.
-  # Open a temporary connection just for the existence check, then close it so
-  # no lock is held when we return.
-  if (!refresh && file.exists(db_path)) {
-    con_chk <- .duckdb_connect_quiet(db_path, read_only = TRUE)
-    exists  <- DBI::dbExistsTable(con_chk, table_name)
-    DBI::dbDisconnect(con_chk, shutdown = TRUE)
-    if (exists) return(invisible(result))
-  }
+  # .duckdb_table_exists probes with a read-only connection and
+  # shutdown = FALSE, so a tbl the user already holds on this file (e.g. the
+  # eng table while the fra build is requested) shares the in-process instance
+  # undisturbed, and a pure cache hit never touches a write lock.
+  if (!refresh && .duckdb_table_exists(db_path, table_name))
+    return(invisible(result))
 
   # Step 4: read canonical metadata (a per-module subdir for secondary modules)
   meta_dir <- if (is.null(meta_subdir)) file.path(version_dir, "metadata")
