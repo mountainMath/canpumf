@@ -53,6 +53,25 @@ tbl <- get_pumf("LFS", "2022") |>
 
 When done querying, release the DuckDB connection with `close_pumf(tbl)`.
 
+## Label repair
+
+Statistics Canada's shipped command files routinely carry truncated value and variable labels — hard cuts at 60 characters, dropped leading or interior text. The damage is upstream (SAS, SPSS and Stata versions of the same file agree byte for byte), and it is quiet: the codes and frequencies are correct, only the human-readable label is wrong.
+
+For surveys whose user guide includes a data-dictionary appendix, `canpumf` parses that appendix and uses it to repair the labels. Because the appendix prints the frequency of every code, the scrape is first reconciled against the actual microdata: a guide whose counts do not reproduce a tabulation of the data *and* whose printed field positions do not reproduce the command file's layout is discarded as the wrong document. A label is then only ever replaced when two things hold — the guide's text demonstrably extends the command file's, **and** the command file's labels show the fingerprint of hard truncation (a spike of labels at a fixed ceiling). Without that second test a guide that prints full question wording where the command file carries a hand-written short label would "repair" perfectly good labels into questions. Two functions expose what happened:
+
+```r
+gss <- get_pumf("GSS", "Cycle 16 (2002)")
+
+# per-variable: did the guide's frequencies reconcile with the data?
+table(pumf_freq_validation(gss)$status)
+
+# every divergence found, repaired or not
+pumf_label_repairs(gss, action = "repaired")
+pumf_label_repairs(gss, action = "flagged")
+```
+
+`flagged` rows are divergences that were recorded but *not* acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. Nothing is repaired silently. Set `options(canpumf.pdf_crosscheck = FALSE)` to turn the whole step off.
+
 ## LFS data
 
 LFS data is organized by year, except for the current year where it is organized by month. To access data for a specific year:
@@ -121,6 +140,8 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
+| Canadian Health Survey on Seniors | CHSS | 2019-2020 | ✓ |
+| Participation and Activity Limitation Survey | PALS | 2001, 2006 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |

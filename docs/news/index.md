@@ -1,5 +1,233 @@
 # Changelog
 
+## canpumf 0.5.3
+
+### New features
+
+- **Truncated labels are now repaired from the survey’s user guide.**
+  Statistics Canada’s shipped command files routinely carry damaged
+  value and variable labels — hard cuts at 60 characters, dropped
+  leading text, dropped interior text. The damage is upstream of the
+  flavour-specific renderers (the SAS, SPSS and Stata copies of a file
+  agree byte for byte), and it is quiet: codes and frequencies are
+  correct, only the human-readable label is wrong. A ninth metadata
+  parser,
+  [`parse_pdf_freq_codebook()`](https://mountainmath.github.io/canpumf/reference/parse_pdf_freq_codebook.md),
+  reads the data-dictionary appendix of a PUMF user guide (GSS cycles,
+  SGVP, PALS, SFS, Time Use), which carries the full text.
+
+- Trusting a PDF scrape over a machine-readable command file would
+  normally be a bad trade. What makes it a good one here is that this
+  appendix prints the **frequency of every code**, so the parse is
+  reconciled against the actual data file before any of it is believed,
+  and a label is replaced only where the guide’s text *demonstrably
+  extends* the command file’s — a strict superstring, or a subsequence
+  sharing a long anchor (`"Single-ded house"` →
+  `"Single-detached house"`). For GSS Cycle 16 this repairs 2,865 labels
+  across the four modules with no variable contradicting the data.
+
+- A repair additionally requires evidence that the label it replaces was
+  *damaged*. Some guides print the full question wording where the
+  command file carries a hand-written short label (“How many hours do
+  you work per week” against “How many hours do you (does ….) usually
+  work per week?”); these are different fields, not a truncation, and
+  the abbreviation is often a subsequence of the question, so the
+  text-shape test alone would rewrite good labels into questions. A hard
+  cut leaves a spike of labels at a fixed ceiling — GSS Cycle 16 has
+  1,665 of 1,860 variable labels at 59–60 characters against 42 in the
+  six lengths below — while a hand-abbreviated set thins out towards its
+  longest entry. Labels are only repaired where that ceiling exists and
+  the label sits at it; everything else is flagged.
+
+- Dropped *leading* text leaves a short label rather than one at a
+  ceiling, so it carries its own signature: what survives is a strict
+  suffix of the guide’s text (“relative in a family farm or business?”,
+  “les réserves indiennes)”). Two things that are not damage produce the
+  same shape — a guide that prefixes an editorial note onto a label the
+  command file has in full (SGVP 2007’s “Grouped variable: Age group”),
+  and a guide leaking its own field header into the text (“Longueur : 2
+  Age du répondant …”). Both are rejected by looking at the *dropped*
+  text rather than at what survived: StatCan writes these as “Key:
+  value”, while text lost to truncation is running prose. That
+  distinction is what lets the mid-list case be repaired — GSS Cycle
+  16’s value label “Co-worker of respondent and Other relatives)”, which
+  is really the tail of “Other (Do not include organizations here)
+  (Includes …)” and reads as a category about co-workers, starts with a
+  capital exactly as an intact label would. Together these take SGVP
+  from 35 repairs to 1 and PALS 2006 from 245 to 100, while GSS Cycle 16
+  keeps 2,860 of 2,865.
+
+- The guide is also checked as a *document* before any of it is used,
+  against two independent channels: whether its printed counts reproduce
+  a tabulation of the data, and whether its printed field positions
+  reproduce the command file’s layout. A guide failing both is the wrong
+  document and is discarded whole. A release shipping both its original
+  and revised user guide (PALS 2006) is disambiguated the same way — the
+  two describe different field positions, and only the layout tells them
+  apart. Where the positions agree but the counts do not, the guide’s
+  frequencies were simply tabulated on another base (PALS 2006 computes
+  its over the disability sub-population) and are treated as absent
+  rather than as contradiction.
+
+- Nothing is repaired silently. New `pumf_label_repairs(tbl)` returns
+  every divergence found — repaired, filled, or merely flagged — with
+  both texts, the reason, and the variable’s validation status; new
+  `pumf_freq_validation(tbl)` reports per variable whether the guide’s
+  frequencies reconciled. Substantive disagreements (where the guide and
+  the command file say different things rather than one being a
+  truncation of the other) are always flagged rather than applied. Set
+  `options(canpumf.pdf_crosscheck = FALSE)` to skip the step.
+
+- The guide’s frequency tables are read off the number column nearest
+  the `FREQ` header word rather than by walking right from it. The
+  columns are right-aligned but `pdftools` reconstructs them with a few
+  characters of drift, so walking out stopped at a thousands comma
+  (reading `9,520` as `9`) and never reached a value printed further
+  right than its neighbours (reading a bare `0` as absent). A code row’s
+  label is also now optional, so a 0–10 scale that labels only its
+  endpoints keeps the counts for the nine bare codes in between.
+  Together these take the GSS Cycle 26 guide from 4 contradicted
+  variables to none across all 610.
+
+- Codes the guide documents but the command file never declared are
+  reported, never injected — that stays a registry `codes_supplement`
+  decision. The report covers only variables the command file treats as
+  categorical: where it declares no codes the variable is continuous,
+  and the guide’s zero-value rows (“No hours”, “None”, “Aucun don”)
+  label a valid numeric zero rather than a code the command file forgot.
+
+- The **Canadian Health Survey on Seniors** (CHSS, 2019-2020) is now
+  supported and directly downloadable: `get_pumf("CHSS", "2019-2020")`.
+  The survey ships 1000 bootstrap replicate weights, joined onto the
+  main table like the other BSW surveys.
+
+- The **Participation and Activity Limitation Survey** (PALS, 2001
+  and 2006) is now supported and directly downloadable:
+  `get_pumf("PALS", "2001")`. Both editions ship one archive holding a
+  complete English and French copy of the release; the French command
+  file is paired automatically and supplies the French labels.
+
+- PALS 2001 ships no flat data file — only the SAS dataset the flat file
+  would have been built from — so Stage 3 now reads `.sas7bdat` data
+  with haven when that is the file the registry selects. Its coded
+  numeric columns are rendered back to their code strings so the usual
+  label mapping applies unchanged.
+
+- The SAS command-file parser now understands quoted character codes in
+  `PROC FORMAT` (`"01" = "..."`, as SAS datasets with character columns
+  require) and the French phrasing of StatCan’s variable/format
+  association comment (`/* $FMT s'applique à: VAR1 VAR2 */`).
+
+- New `data_fixups` field `rename_regex` rewrites many column names at
+  once (`c("^A" = "")`), for releases whose data file decorates the
+  documented variable names wholesale — the PALS 2001 SAS dataset ships
+  StatCan’s *collection* names, which prefix 632 of its 758 columns with
+  an “A”. A rewrite is applied only where it lands on a name the
+  metadata declares and the current name is not itself declared, so it
+  cannot collide with a correctly-named column.
+
+- New `data_fixups` field `missing_codes` blanks a discrete set of
+  per-variable missing codes, for variables whose sentinels do not form
+  one contiguous range and which a single `missing_low`/`missing_high`
+  pair therefore cannot express. PALS 2006 `AUDE_Q02` (hours usually
+  worked) declares −5/−6/−7 below and 998/999 above the valid 1–97
+  hours, so the derived range would have blanked the whole column.
+
+- New registry field `download_format` pins which format bundle to fetch
+  when Statistics Canada offers the same edition as several downloads
+  (CSV / SAS / TXT). It is needed when only one bundle carries the
+  command files the metadata parsers depend on — the CHSS CSV zip ships
+  the data alone, while the TXT zip additionally carries the SPSS layout
+  cards. The field is also accepted by
+  [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)
+  for user-supplied entries.
+
+- The SAS `@position` INPUT-card parser now understands the
+  indexed-array shorthand StatCan uses for bootstrap-weight cards
+  (`@28 (BSW1-BSW1000) (1000* 7.2)`), expanding it into one layout row
+  per weight. Bootstrap-weight command files are also now found when
+  they sit outside the survey’s SPSS card directory and are not named
+  `layout*` (CHSS ships `Layout_Cards/bsw_i.sas`); SAS cards are
+  preferred over their companion `.sps`, whose column specs are
+  sometimes left implicit.
+
+- Fixed-width bootstrap-weight files are now read with the decimal point
+  implied by the card’s `w.d` informat, matching SAS/SPSS semantics —
+  without this, CHSS replicate weights would have been 100 times too
+  large. The correction is applied before the missing-value range (which
+  documentation states in display units) and only where the raw field
+  carries no explicit `.`; main PUMF flat files, which write the point
+  explicitly, are unaffected.
+
+### Bug fixes
+
+- SPSS string continuations (`'text' + 'more'`, which StatCan uses to
+  keep a long label inside the file’s line width) are now joined in all
+  four combinations of quote character and line break. Only the
+  single-quoted, line-broken form was handled, so the tail of a
+  continued label was dropped and what survived was cut mid-word —
+  Census 2021 `SSGRAD` arrived as “Scolarité : Diplôme d’études
+  secondaires ou attestation d’éq”, indistinguishable from the upstream
+  truncation the new user-guide cross-check exists to repair. Census
+  2021 alone ships all three of the unhandled forms (70 labels in the
+  French individuals file).
+- A user-guide variable printed **without** a frequency table no longer
+  swallows the rest of the document as its label. The label is the free
+  text between the block header and the table, so where there is no
+  table the extraction ran to the end of the guide: GSS Cycle 24’s
+  `WTSBS_001` (bootstrap weight
+  [\#1](https://github.com/mountainMath/canpumf/issues/1)) came out as
+  78,014 characters of appendix and table of contents, which the repair
+  pass then wrote over a sound command-file label. The label now also
+  ends at the block’s own closing rule or its
+  `Coverage:`/`Source:`/`Format:` lines. Only tableless blocks are
+  affected — across the cached guides this changes 3 labels in GSS Cycle
+  24, 2 in SGVP 2007 (including a 19,385-character `WTPP`), 1 in PALS
+  2006 and none at all in GSS Cycle 16.
+- A guide row whose label reaches into the number column is now read. A
+  long label pushes the frequency past the `FREQ` anchor and sends the
+  weighted count to the next line, so the row got no frequency at all
+  and the orphaned weighted count was appended to the label (GSS Cycle
+  24’s Episode guide, `SACT1` code 15:
+  `"Domestic work (meal prep and cleanup, cleaning, laundry) 4,255"`
+  with `"6,759,111"` alone below it). A single whitespace-preceded
+  number starting at or after the anchor is now taken as the frequency,
+  and a continuation line that is nothing but a number is no longer
+  treated as label text. Where the label is printed flush against its
+  counts (`"…cassette tapes or records3,4417,790,477"`) the two counts
+  cannot be separated, so the frequency stays unknown — but the digits
+  are cut off the label rather than left in it.
+- An unreadable frequency no longer aborts metadata parsing. Comparing
+  counts against it made [`all()`](https://rdrr.io/r/base/all.html)
+  return `NA` and the `if` that followed errored, taking the whole Stage
+  2 run down; the block is now reported `unchecked`, which withholds
+  nothing, since repairs are barred only by an outright `mismatch`. The
+  cross-check runs only on a fresh parse, so this surfaced only when
+  re-parsing a cached survey.
+- SHS 2017 and 2019 command files are read as UTF-8 (2021 and 2023 are
+  not), so the CP1252 default turned every accented French label into
+  mojibake — 671 labels across the four files, e.g. “Poids d’enquête”
+  arriving as “Poids dâ€™enquÃªte”.
+- The French “valid skip” sentinel label (`Enchaînement valide`) is now
+  recognised. The alternative had been added as a bare stem inside an
+  anchored pattern, so it only ever matched a label that was literally
+  `Enchaîn` — a French build could therefore keep a continuous variable
+  categorical (and blank its real values) where the English build read
+  it correctly.
+- Sentinel labels containing accented characters are now matched. The
+  label patterns relied on `\w`, which PCRE restricts to ASCII even on
+  UTF-8 input, so a French label ended at its first accent:
+  `Aucune séparation avant le divorce ou l'annulation` failed where the
+  English `No separation prior to divorce or annulment` matched,
+  classifying the variable numeric in `eng` but categorical in `fra`
+  (GSS Cycle 21 `AGE_SEP_MA3`/`AGE_SEP_MA4`). An elided article
+  (`l'annulation`) and a trailing sentence period present in only one
+  language (GSS Cycle 24) split the two builds the same way. Accented
+  capitals in shouted labels (`NON DÉCLARÉ`) now fold correctly too.
+  Across every cached survey this changes the classification of 35
+  variables, all of them in GSS, and all now identical in both
+  languages.
+
 ## canpumf 0.5.2
 
 CRAN release: 2026-07-03

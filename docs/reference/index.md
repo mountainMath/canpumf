@@ -30,6 +30,11 @@
   : Crawl the full Statistics Canada PUMF catalogue (experimental)
 - [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
   : Open PUMF documentation in the browser
+- [`pumf_freq_validation()`](https://mountainmath.github.io/canpumf/reference/pumf_freq_validation.md)
+  : Inspect the PDF-versus-microdata frequency validation
+- [`pumf_label_repairs()`](https://mountainmath.github.io/canpumf/reference/pumf_label_repairs.md)
+  : Inspect label repairs and divergences found against the PDF data
+  dictionary
 - [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md)
   : Download and parse PUMF metadata without building a DuckDB table
 - [`pumf_module()`](https://mountainmath.github.io/canpumf/reference/pumf_module.md)

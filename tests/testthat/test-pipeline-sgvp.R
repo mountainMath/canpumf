@@ -205,3 +205,42 @@ test_that("SGVP 2013: top-coded counts survive force_numeric", {
   expect_true(is.numeric(d$CHH0014C))
   expect_identical(range(d$CHH0014C, na.rm = TRUE), c(0, 3))
 })
+
+
+# ---- PDF cross-check on a codebook whose labels are not truncated -----------
+
+# SGVP 2007's codebook is the counterexample to GSS Cycle 16: its frequency
+# tables reconcile perfectly, but the text it prints per variable is the
+# *question wording*, while the command file carries hand-written short labels.
+# Almost nothing there may be repaired, and the continuous variables must
+# reconcile via their labelled `lo : hi` range row.
+test_that("SGVP 2007: guide reconciles but supplies almost no repairs", {
+  vdir <- .sgvp_vdir("2007")
+  skip_if_not(canpumf:::.version_is_extracted(vdir),
+              "SGVP 2007 not extracted in cache")
+  vfile <- file.path(vdir, "metadata", "pdf_validation.csv")
+  skip_if_not(file.exists(vfile), "SGVP 2007 PDF cross-check has not been run")
+
+  v <- readr::read_csv(vfile, show_col_types = FALSE)
+  # The range rows in this vintage carry a label of their own ("01 : 20   # of
+  # orgs volunteered for   13,309"); without parsing those the continuous
+  # variables all read as mismatches.
+  expect_gt(sum(v$status == "continuous"), 100L)
+  expect_equal(sum(v$status == "mismatch"), 0L)
+
+  r <- readr::read_csv(file.path(vdir, "metadata", "label_repairs.csv"),
+                       col_types = readr::cols(.default = "c"))
+  # Hundreds of divergences, essentially all of them question-wording rather
+  # than damage.  The lone repair is a genuine dropped prefix ("3 or 4 times a
+  # year" of "At least 3 or 4 times a year").
+  expect_gt(nrow(r), 500L)
+  expect_lte(sum(r$action %in% c("repaired", "filled")), 5L)
+  expect_true(any(grepl("not truncated", r$reason)))
+
+  # The guide's "Grouped variable: " / "Variable groupée : " prefixes leave the
+  # command file's label a strict suffix of the guide's, exactly as a dropped
+  # prefix would.  These are not damage and must stay flagged.
+  dh1 <- r[r$name == "DH1GAGE" & r$kind == "variable", ]
+  expect_gt(nrow(dh1), 0L)
+  expect_true(all(dh1$action == "flagged"))
+})

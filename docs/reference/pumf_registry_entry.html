@@ -13,7 +13,7 @@ fields of one that is."><meta property="og:image" content="https://mountainmath.
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -72,6 +72,7 @@ fields of one that is.</p>
 <span>  bundle_source <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  bundle_sps_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  doc_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  download_format <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  <span class="va">...</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -102,18 +103,34 @@ CSV vs fixed-width).</p></dd>
 
 <dt id="arg-data-fixups">data_fixups<a class="anchor" aria-label="anchor" href="#arg-data-fixups"></a></dt>
 <dd><p>A named list of pre-label fixups: any of `str_pad`,
-`rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
-`force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`,
-`labels_supplement`.
+`rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
+`force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
+`missing_supplement`, `missing_codes`, `labels_supplement`.
 The `force_character`/`force_integer`/`force_bigint` fields take character
 vectors of variable names and override the DuckDB storage type (VARCHAR /
 INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
-not lost; a variable may appear in at most one `force_*` set.</p></dd>
+not lost; a variable may appear in at most one `force_*` set.
+`rename_regex` takes `c(pattern = "replacement")` and rewrites many column
+names at once ([base::sub()] semantics), for releases whose data file
+decorates the documented names wholesale; a rewrite is applied only where
+it lands on a name the metadata declares and the current name is not itself
+declared, so it can never collide with a correctly-named column.
+`missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
+values, for variables whose sentinels do not form one contiguous range (and
+which a single `missing_low`/`missing_high` pair therefore cannot express).</p></dd>
 
 
 <dt id="arg-bundled-eng-sps-bundle-source-bundle-sps-mask-doc-mask">bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask<a class="anchor" aria-label="anchor" href="#arg-bundled-eng-sps-bundle-source-bundle-sps-mask-doc-mask"></a></dt>
 <dd><p>Advanced
 bundled-archive and documentation options.</p></dd>
+
+
+<dt id="arg-download-format">download_format<a class="anchor" aria-label="anchor" href="#arg-download-format"></a></dt>
+<dd><p>Format bundle to download when Statistics Canada
+offers the same edition in several (`"CSV"`, `"SAS"`, `"TXT"`, ...). By
+default the preferred format wins; set this when only one bundle carries
+the command files the metadata parsers need (e.g. the Canadian Health
+Survey on Seniors, whose CSV zip ships the data alone).</p></dd>
 
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>

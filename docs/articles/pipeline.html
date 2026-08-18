@@ -25,7 +25,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -84,7 +84,7 @@ the end.</p>
 <div class="section level2">
 <h2 id="high-level-flow">High-level flow<a class="anchor" aria-label="anchor" href="#high-level-flow"></a>
 </h2>
-<p><img src="pipeline_files/figure-html/pipeline-diagram-1.svg" class="r-plt" alt="canpumf pipeline: get_pumf dispatches LFS vs. the three-stage pipeline (locate/download, parse metadata, build DuckDB), then registers provenance and returns a lazy tbl." width="100%"></p>
+<p><img src="pipeline_files/figure-html/pipeline-diagram-1.svg" class="r-plt" alt="canpumf pipeline: get_pumf dispatches LFS vs. the three-stage pipeline (locate/download, parse metadata, build DuckDB), then registers provenance and returns a lazy tbl. In stage 2, nine parsers feed merge_metadata(), except the user-guide frequency dictionary, which instead goes through a cross-check that repairs truncated labels before the canonical CSVs are written." width="100%"></p>
 <hr>
 </div>
 <div class="section level2">
@@ -270,6 +270,20 @@ content-verified; <code>pdftools</code> installed. A
 file or codebook CSV was found — recovers labels for surveys whose only
 machine-readable companion is the data file (e.g. CPSS cycle 1)</td>
 </tr>
+<tr class="odd">
+<td>9</td>
+<td><strong>PDF user-guide frequency dictionary</strong></td>
+<td>the data-dictionary appendix of a PUMF user guide
+(<code>Variable Name: X  Position: N  Length: L</code> blocks with a
+<code>FREQ</code>/<code>WTD</code> frequency table);
+<code>pdftools</code> installed and
+<code>getOption("canpumf.pdf_crosscheck", TRUE)</code>. Shortlisted by
+path pattern, capped at 8 files &gt; 50 KB, and content-verified for ≥10
+block headers <strong>and</strong> a FREQ column. <strong>Not a metadata
+source</strong> — it feeds the label repair pass below, not
+<code><a href="../reference/merge_metadata.html">merge_metadata()</a></code>
+</td>
+</tr>
 </tbody>
 </table>
 <p>Detection for case 5 also searches for a parallel French file — any
@@ -412,6 +426,30 @@ content-verify for the <code>Variable Name:</code> +
 1 (the only cycle without a <code>variables.csv</code>) full bilingual
 labels.</p>
 </div>
+<div class="section level4">
+<h4 id="pdf-user-guide-frequency-dictionary-parse_pdf_freq_codebook">PDF user-guide frequency dictionary
+(<code>parse_pdf_freq_codebook</code>)<a class="anchor" aria-label="anchor" href="#pdf-user-guide-frequency-dictionary-parse_pdf_freq_codebook"></a>
+</h4>
+<p>A <em>third</em> StatCan PDF layout: the data-dictionary appendix of
+a PUMF user guide (GSS cycles, SGVP, PALS, SFS, Time Use). Blocks open
+with <code>Variable Name: X  Position: N  Length: L</code> — the
+required <code>Position</code> is what separates this layout from the
+codebook above — followed by a free-text label and a right-aligned
+<code>FREQ</code>/<code>WTD</code> (French
+<code>FREQ</code>/<code>POND</code>) frequency table. Continuous
+variables print a single <code>lo : hi</code> range row instead of
+per-value rows.</p>
+<p>Beyond the usual <code>variables</code>/<code>codes</code> this
+parser also returns <code>freqs</code> and <code>ranges</code>, and
+every table carries a <code>block</code> id — one user guide documents
+each linked module in turn, so a shared key such as <code>RECID</code>
+gets one block per module and the blocks are told apart by matching
+their printed positions against <code>layout.csv</code>.</p>
+<p>Unlike parsers 1–8 this one is <strong>deliberately excluded from
+<code><a href="../reference/merge_metadata.html">merge_metadata()</a></code></strong>, so the command file stays
+authoritative. It becomes a primary source only if no other parser fired
+at all. Its real job is the cross-check below.</p>
+</div>
 </div>
 <div class="section level3">
 <h3 id="metadata-encoding">Metadata encoding<a class="anchor" aria-label="anchor" href="#metadata-encoding"></a>
@@ -442,6 +480,12 @@ curly quotes). Exceptions:</p>
 <td><code>"CP850"</code></td>
 <td>DOS-era IBM Code Page 850</td>
 </tr>
+<tr class="odd">
+<td>SHS 2017, 2019</td>
+<td><code>"UTF-8"</code></td>
+<td>Their reading cards are UTF-8 where SHS 2021/2023 are not, so the
+default turned every accented French label into mojibake</td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -466,6 +510,98 @@ label_en, label_fr)</li>
 <code>metadata/layout.csv</code> — one row per fixed-width column
 (name, start, end); absent for CSV-format surveys</li>
 </ul>
+</div>
+<div class="section level3">
+<h3 id="pdf-cross-check-and-label-repair">PDF cross-check and label repair<a class="anchor" aria-label="anchor" href="#pdf-cross-check-and-label-repair"></a>
+</h3>
+<p>StatCan’s command files routinely ship <strong>truncated</strong>
+value and variable labels — hard cuts at a fixed width, dropped leading
+text, dropped interior text. The damage is upstream of the
+flavour-specific renderers (SAS, SPSS and Stata carry byte-identical
+text), so it cannot be dodged by parsing a different flavour. The same
+survey’s user guide carries the full text, typeset from the metadata
+before the command files were generated.</p>
+<p>Trusting a PDF scrape over a machine-readable command file would
+normally be a bad trade. What makes it a good one here is that this PDF
+layout prints the <strong>frequency of every code</strong>, so the parse
+can be reconciled against the actual data file before any of it is
+believed. <code>.pumf_pdf_crosscheck()</code> runs at the end of
+<code><a href="../reference/pumf_parse_metadata.html">pumf_parse_metadata()</a></code>, <em>after</em>
+<code><a href="../reference/merge_metadata.html">merge_metadata()</a></code>:</p>
+<ol style="list-style-type: decimal">
+<li>
+<strong>Choose the guide.</strong> A release that ships both an
+original and a revised user guide has two candidates with near-identical
+block counts describing <em>different</em> field positions; each
+candidate’s <code>Position:</code>/<code>Length:</code> headers are
+scored against <code>layout.csv</code> and the best-scoring one wins per
+language. PALS 2006’s pre-revision guide scores 3/746, the Dec 2011
+revision 746/746.</li>
+<li>
+<strong>Validate against the data.</strong> Every documented
+variable is tabulated in the microdata and the counts compared, giving
+each block a status: <code>validated</code>, <code>continuous</code>,
+<code>mismatch</code>, or <code>unchecked</code> (no data file, variable
+not in this module, file &gt; 500 MB, or a printed count the parser
+could not read). Written to
+<code>metadata/pdf_validation.csv</code>.</li>
+<li>
+<strong>Decide whether the guide describes this file at
+all.</strong> That is a question about the <em>document</em>, not about
+any one variable, and there are two independent channels: do the printed
+counts reproduce a tabulation of the data, and do the printed positions
+reproduce the command file’s layout. Both failing means the wrong
+document — the repair ledger is written empty and nothing downstream
+reads divergences off a rejected guide. Frequencies failing while
+positions pass means the right document with a different tabulation
+base: PALS 2006’s frequencies are computed over the disability
+sub-population, so no count matches even though all 746 positions
+do.</li>
+<li>
+<strong>Compare every label</strong> and record <code>fill</code>,
+<code>repair</code>, <code>flag</code> or <code>ok</code> in
+<code>metadata/label_repairs.csv</code>, each row carrying the
+variable’s validation status so uncorroborated repairs stay visible. A
+repair is withheld only on an outright <code>mismatch</code> — a
+variable the frequency check could not <em>reach</em> is not evidence
+against the parse.</li>
+</ol>
+<p>A label is replaced only when the guide’s text demonstrably extends
+the command file’s <strong>and</strong> the command file shows the
+fingerprint of damage. That second test matters because a guide’s text
+being longer has two causes and only one of them is damage: some guides
+print the full <em>question wording</em> where the command file gives a
+hand-written short label, and the abbreviation is often a subsequence of
+the question, so the shape test alone would “repair” a perfectly good
+label into a question.</p>
+<p>Three signals separate them:</p>
+<ul>
+<li>
+<strong>A derived truncation ceiling.</strong> A hard cut leaves a
+spike of labels at a fixed width; a hand-abbreviated set thins out
+towards its longest entry. The ceiling is computed per survey and per
+label field from the command file itself — there is no constant 60
+anywhere in the implementation — and returns <code>NA</code> where there
+is no ceiling.</li>
+<li>
+<strong>A strict-suffix test</strong> for the other damage pattern,
+dropped leading text, which leaves a short label well below any
+ceiling.</li>
+<li>
+<strong>An annotation veto</strong> that outranks both, and looks at
+the <em>dropped</em> text rather than at what survived. StatCan’s guides
+write editorial notes and scraped field furniture as
+<code>Key: value</code>, while text lost to truncation is running prose
+— so a colon in the dropped text means this is not damage.</li>
+</ul>
+<p>Codes the guide documents but the command file never declared are
+<strong>reported, not injected</strong>: that is a registry
+<code>codes_supplement</code> decision.</p>
+<p>The whole step is skipped when <code>pdftools</code> is not
+installed, and can be turned off with
+<code>options(canpumf.pdf_crosscheck = FALSE)</code>. Both side-car CSVs
+are exposed to users by <code><a href="../reference/pumf_label_repairs.html">pumf_label_repairs()</a></code> and
+<code><a href="../reference/pumf_freq_validation.html">pumf_freq_validation()</a></code>.</p>
 <hr>
 </div>
 </div>

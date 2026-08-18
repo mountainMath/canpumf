@@ -11,6 +11,12 @@
 #   str_pad:    list of list(cols, width, side, pad) -- left/right-pad raw values
 #   rename:     named character vector c(old_name = "new_name") -- column renames
 #               (applied only when the old column exists; safe for conditional renames)
+#   rename_regex: named character vector c(pattern = "replacement") rewriting
+#               many column names at once (sub() semantics).  A rewrite is only
+#               applied when it lands on a name the metadata declares and the
+#               current name is not itself declared, so it cannot collide with a
+#               correctly-named column.  For releases that decorate the
+#               documented names wholesale (PALS 2001's "A" collection prefix).
 #   na_values:  character vector of raw values that should become NA for all
 #               numeric columns (applied in .apply_numeric_conversion)
 #   force_character/force_integer/force_bigint: character vectors of variable
@@ -19,6 +25,11 @@
 #               and force_bigint keep the raw values and set the column type to
 #               INTEGER / BIGINT after the table is written (large IDs survive).
 #               A variable may appear in at most one force_* set.
+#   missing_codes: named list VAR = c(codes) of discrete missing values, for
+#               variables whose sentinels do not form a single contiguous range
+#               (PALS 2006 AUDE_Q02: -5/-6/-7 and 998/999 straddle hours 1-97,
+#               so the derived [-7, 999] range would NA the whole column).
+#               Replaces any range derived or parsed for that variable.
 #   labels_supplement: named list c(VAR = c(label_en=, label_fr=)) supplying
 #               variable labels the source metadata leaves blank (e.g. a weight
 #               variable with an empty Concept line in the PDF codebook).  Fills
@@ -40,6 +51,7 @@
                         bundle_source     = NULL,
                         bundle_sps_mask   = NULL,
                         doc_mask          = NULL,
+                        download_format   = NULL,
                         modules           = NULL,
                         primary_module    = NULL,
                         module_key        = NULL) {
@@ -90,10 +102,22 @@
     bundle_source     = bundle_source,
     bundle_sps_mask   = bundle_sps_mask,
     doc_mask          = doc_mask,
+    download_format   = download_format,
     modules           = modules,
     primary_module    = primary_module,
     module_key        = module_key
   )
+}
+
+# Expand one (val, label_en, label_fr) triple into a codes_supplement fragment
+# covering many variables at once.  Some releases omit the *same* reserved code
+# from dozens of formats (PALS 2001 leaves 93 = "Not applicable" out of every
+# format whose universe is the disabled sub-population), and spelling each one
+# out would bury the single fact being asserted in a hundred lines of noise.
+.codes_for <- function(vars, val, label_en, label_fr) {
+  df <- data.frame(val = val, label_en = label_en, label_fr = label_fr,
+                   stringsAsFactors = FALSE)
+  stats::setNames(rep(list(df), length(vars)), vars)
 }
 
 # The shared respondent key on which a multi-module survey's tables join (e.g.
@@ -309,15 +333,20 @@
         file_mask     = "diary_flatfile\\.txt",
         bsw_file_mask = "diary_bsw_flatfile\\.txt",
         bsw_join_key  = "CASEID")),
+    metadata_encoding = "UTF-8",   # as 2019; see there
     module_key = "CASEID"),
 
   # 2019: fixed-width flatfile; BSW layout is a SAS @pos .txt co-located with data.
+  # Reading cards are UTF-8 (2021 and 2023 are not), so the CP1252 default turns
+  # every accented French label into mojibake ("Poids d'enquete" arriving as
+  # "Poids dâ€™enquÃªte").
   "SHS/2019" = .make_entry("SHS", "2019",
-    layout_mask   = "shs2019_flatfile",
-    bsw_mask      = "_bsw_flatfile",
-    bsw_file_mask = "bsw_flatfile\\.txt",
-    bsw_join_key  = "CASEID",
-    file_mask     = "shs2019_flatfile\\.txt"),
+    layout_mask       = "shs2019_flatfile",
+    bsw_mask          = "_bsw_flatfile",
+    bsw_file_mask     = "bsw_flatfile\\.txt",
+    bsw_join_key      = "CASEID",
+    metadata_encoding = "UTF-8",
+    file_mask         = "shs2019_flatfile\\.txt"),
 
   # 2021: SPSS split-file format; BSW layout is a SAS @pos .txt file co-located
   # with the BSW data (not in the SPSS cards dir); fallback in .read_bsw_data
@@ -950,6 +979,121 @@
     bsw_join_key  = "PUMFID",
     bsw_drop_cols = "WGT_PUMF",
     file_mask     = "ccahs_pumf\\.csv"),
+
+  # ---- CHSS: Canadian Health Survey on Seniors ------------------------------
+  # StatCan ships three bundles (CSV / SAS / TXT); only the TXT (and SAS) bundle
+  # carries Data_Donnees/Layout_Cards/, so download_format pins TXT -- the CSV
+  # zip has no command files at all and would yield unlabeled data.
+  # Split-SPSS layout (PUMF_MASTER_chss_{i,vare,vale,varf,valf,miss}.sps) with
+  # the fixed-width PUMF_MASTER_CHSS.txt; the co-located bsw_i.sps describes the
+  # bootstrap-weight flat file bsw.txt.  FWGT is the survey weight and appears
+  # in both files, so it is dropped from the BSW side before joining.
+  "CHSS/2019-2020" = .make_entry("CHSS", "2019-2020",
+    download_format = "TXT",
+    layout_mask     = "PUMF_MASTER_chss",
+    bsw_mask        = "bsw_i",
+    bsw_file_mask   = "^bsw\\.txt$",
+    bsw_join_key    = "ADM_RNO2",
+    bsw_drop_cols   = "FWGT",
+    file_mask       = "PUMF_MASTER_CHSS\\.txt$",
+    # ALWDVWKY is continuous (number of drinks last week, 0-995) but its only
+    # value labels are the four reserved codes plus 0 = "Has not had a drink in
+    # past week"; that zero label defeats the all-sentinel numeric test, so the
+    # variable would be read as categorical and every real count dropped.
+    data_fixups     = list(force_numeric = "ALWDVWKY")),
+
+  # ---- PALS: Participation and Activity Limitation Survey -------------------
+  # Both editions ship one archive laid out as PUMF/ENG/ and PUMF/FR/, each
+  # holding a complete copy of the release in that language.  The data files
+  # are byte-identical between the two halves (only the command files differ),
+  # so file_mask matches the shared basename and .find_pumf_data_file()'s
+  # duplicate-copy rule settles on the ENG copy; the FR command file is paired
+  # automatically by the /FR/ path marker and supplies the French labels.
+  #
+  # 2006 is a conventional fixed-width release: PUMF_PALS_final.txt with
+  # SPSS_Cards(E)/(F).sps (DATA LIST + VARIABLE/VALUE LABELS, lrecl 1740).
+  #
+  # AUDE_Q02 ("how many hours did you usually work per week", when last worked)
+  # is the one continuous variable whose SAS format labels nothing but
+  # sentinels, and they straddle the data: -5/-6/-7 below, 998/999 above, hours
+  # 1-97 in between.  The guide prints the same five codes plus a bare
+  # "Response:" row for the 635 real answers, so the codes are missing markers
+  # and the range between them is data.
+  "PALS/2006" = .make_entry("PALS", "2006",
+    file_mask   = "PUMF_PALS_final\\.txt$",
+    data_fixups = list(
+      missing_codes = list(AUDE_Q02 = c(-5, -6, -7, 998, 999)))),
+
+  # 2001 ships no flat file at all -- only the SAS dataset (the SAS command
+  # file's %LET DATAIN names a pals2001dat.txt that is not in the archive), so
+  # the data is read with haven and labelled from "SAS code.sas" / "Code SAS.sas"
+  # (PROC FORMAT + LABEL statements).  Codes are quoted character strings there
+  # ("01", "R"), matching the SAS dataset's character columns verbatim.
+  #
+  # The SAS dataset carries the *collection* names, which for 632 of the 758
+  # columns prefix the documented name with "A" (AB1, AC28AA, AD1, ...).  The
+  # User Guide prints both -- "Variable Name: C28AA / Collection Name: AC28AA"
+  # -- so the prefix is the collection artefact, not the published name, and
+  # after the rewrite the data's columns match variables.csv exactly (no extras,
+  # none missing).  rename_regex only rewrites onto a declared variable that is
+  # not already present, so the three genuinely A-initial variables (AGEGRP5,
+  # AGILIM, ATTENDRP) are left alone.
+  #
+  # The command file's PROC FORMAT blocks list only the codes that occur in the
+  # disabled sub-sample; every code below is printed in the User Guide's
+  # frequency codebook (English) and its French counterpart.  93 / 9 (1-char
+  # fields) = "Not applicable" cover the 55,550 DISAB=0 records that a
+  # disabled-only variable cannot describe; B12/B28/B54/C40 have no format at
+  # all and take their whole code table from the guide.
+  "PALS/2001" = .make_entry("PALS", "2001",
+    file_mask   = "pals_pumf_sas\\.sas7bdat$",
+    data_fixups = list(
+      rename_regex = c("^A" = ""),
+      # "Allowed values: 001 : 065" in the guide -- continuous, with only the
+      # sentinels and the 66 = "66 hours or more" top code carrying labels.
+      force_numeric = c("HOURS", "E1HRS", "E7HRS", "E50HRS",
+                        paste0("C28A", LETTERS[1:5])),
+      # E7HRS/E50HRS spell -8 "Not specified" rather than "Not stated", and
+      # HOURS adds -1 "Invalid data"; neither phrasing is a generic missing
+      # label, so the ranges are stated explicitly.
+      missing_supplement = list(HOURS  = c(-3, -1),
+                                E7HRS  = c(-8, -3),
+                                E50HRS = c(-8, -3)),
+      codes_supplement = c(
+        .codes_for(
+          c(paste0("B12", c("A", "B", "C", "D", "E", "G", "H", "I", "_OTH", "L")),
+            paste0("B28", c("A", "B", "C", "D", "E", "G", "H", "I", "_OTH")),
+            paste0("B54", c("A", "B", "C", "G", "H", "I", "J", "K", "DE")),
+            paste0("B72", c("A", "B", "C")),
+            paste0("C40", c("A", "B", "C", "D", "E", "G", "H")),
+            paste0("D8",  c("A", "B", "C", "I")),
+            "AGILIM", "DEGREE", "HEARLIM", "MOBLIM", "NAICSPALS", "NEEDAID",
+            "NEEDHELP", "NOCPALS", "OTH_LIM", "PAINLIM", "RECHELP", "SEELIM",
+            "SPCHLIM",
+            paste0("DEG_", c("AGILP", "HEARP", "MOBP", "OTHEP", "PAINP",
+                             "SEEP", "SPCHP")),
+            paste0("SRC_HELP", 1:5)),
+          "93", "Not applicable", "Ne s'applique pas"),
+        # ICD9_1..24 are 1-character fields, where the guide codes the same
+        # "Not applicable" as 9 (see LFSTAT, ATTENDRP).
+        .codes_for(paste0("ICD9_", 1:24), "9",
+                   "Not applicable", "Ne s'applique pas"),
+        # NUM_COND uses 98 for its out-of-universe records.
+        .codes_for("NUM_COND", "98", "Not stated", "Non d\u00e9clar\u00e9"),
+        # The two Census-sourced household variables code the 955 DISAB=0
+        # records with unusable Census data as 99; the guide prints only the
+        # DISAB=1 counterpart, 91 = "Invalid data".
+        .codes_for(c("NSTIENP", "ROOMSP"), "99",
+                   "Invalid data", "Donn\u00e9es non valides"),
+        stats::setNames(
+          rep(list(data.frame(
+            val      = c("0", "93", "98", "R", "X"),
+            label_en = c("Valid data", "Not applicable", "Not stated",
+                         "Refusal", "Don't know"),
+            label_fr = c("Donn\u00e9es valides", "Ne s'applique pas",
+                         "Non d\u00e9clar\u00e9", "Refus", "Ne sait pas"),
+            stringsAsFactors = FALSE)), 4L),
+          c("B12", "B28", "B54", "C40"))))),
 
   # ---- SGVP: GSS Giving, Volunteering and Participating ---------------------
   # Generic \d{4} year file_mask (matches GVP_DBP_<year>_PUMF_FMGD.txt, not the
@@ -1592,13 +1736,14 @@ pumf_registry_keys <- function() {
   "layout_mask", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
   "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
   "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
-  "doc_mask")
+  "doc_mask", "download_format")
 
 # Recognised data_fixups sub-fields (for validation warnings).
 .pumf_fixup_fields <- c(
-  "str_pad", "rename", "cols_swap", "na_values", "force_numeric",
+  "str_pad", "rename", "rename_regex", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
-  "codes_supplement", "missing_supplement", "labels_supplement")
+  "codes_supplement", "missing_supplement", "missing_codes",
+  "labels_supplement")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.
@@ -1608,7 +1753,8 @@ pumf_registry_keys <- function() {
   single_string_fields <- c("layout_mask", "bsw_mask", "bsw_file_mask",
                             "bsw_join_key", "file_mask", "data_encoding",
                             "metadata_encoding", "bundled_eng_sps",
-                            "bundle_source", "bundle_sps_mask", "doc_mask")
+                            "bundle_source", "bundle_sps_mask", "doc_mask",
+                            "download_format")
   for (f in intersect(single_string_fields, names(x))) {
     v <- x[[f]]
     if (!is.null(v) && !is_str(v))
@@ -1670,15 +1816,28 @@ pumf_registry_keys <- function() {
 #' @param data_encoding,metadata_encoding Encoding overrides (default
 #'   `"CP1252"` in the pipeline).
 #' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
-#'   `rename`, `cols_swap`, `na_values`, `force_numeric`, `force_character`,
-#'   `force_integer`, `force_bigint`, `codes_supplement`, `missing_supplement`,
-#'   `labels_supplement`.
+#'   `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
+#'   `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
+#'   `missing_supplement`, `missing_codes`, `labels_supplement`.
 #'   The `force_character`/`force_integer`/`force_bigint` fields take character
 #'   vectors of variable names and override the DuckDB storage type (VARCHAR /
 #'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
 #'   not lost; a variable may appear in at most one `force_*` set.
+#'   `rename_regex` takes `c(pattern = "replacement")` and rewrites many column
+#'   names at once ([base::sub()] semantics), for releases whose data file
+#'   decorates the documented names wholesale; a rewrite is applied only where
+#'   it lands on a name the metadata declares and the current name is not itself
+#'   declared, so it can never collide with a correctly-named column.
+#'   `missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
+#'   values, for variables whose sentinels do not form one contiguous range (and
+#'   which a single `missing_low`/`missing_high` pair therefore cannot express).
 #' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
 #'   bundled-archive and documentation options.
+#' @param download_format Format bundle to download when Statistics Canada
+#'   offers the same edition in several (`"CSV"`, `"SAS"`, `"TXT"`, ...). By
+#'   default the preferred format wins; set this when only one bundle carries
+#'   the command files the metadata parsers need (e.g. the Canadian Health
+#'   Survey on Seniors, whose CSV zip ships the data alone).
 #' @param ... Reserved; passing any unrecognised field name raises an error.
 #'
 #' @return A classed `"pumf_registry_entry"` list containing only the supplied
@@ -1709,6 +1868,7 @@ pumf_registry_entry <- function(layout_mask       = NULL,
                                 bundle_source     = NULL,
                                 bundle_sps_mask   = NULL,
                                 doc_mask          = NULL,
+                                download_format   = NULL,
                                 ...) {
   dots <- names(list(...))
   if (length(dots) > 0L)
@@ -1801,6 +1961,7 @@ print.pumf_registry_entry <- function(x, ...) {
   show("bsw_strata",        x$bsw_strata)
   show("bundle_source",     x$bundle_source)
   show("doc_mask",          x$doc_mask)
+  show("download_format",   x$download_format)
   if (length(x$data_fixups) > 0L) {
     cat("  data_fixups:\n")
     for (nm in names(x$data_fixups)) {

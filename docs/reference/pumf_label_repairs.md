@@ -1,0 +1,85 @@
+# Inspect label repairs and divergences found against the PDF data dictionary
+
+Statistics Canada's PUMF command files routinely ship truncated value
+and variable labels – hard cuts at 60 characters, dropped leading text,
+dropped interior text. The damage is upstream of the command files (SAS,
+SPSS and Stata carry byte-identical text), but the same survey's user
+guide contains a data dictionary with the full label text.
+
+## Usage
+
+``` r
+pumf_label_repairs(tbl, action = NULL)
+```
+
+## Arguments
+
+- tbl:
+
+  A lazy \`dplyr::tbl()\` returned by \[get_pumf()\].
+
+- action:
+
+  Optional filter, e.g. \`"repaired"\` or \`c("repaired", "filled")\`.
+
+## Value
+
+A tibble with columns \`kind\` (\`"variable"\`/\`"code"\`), \`name\`,
+\`val\`, \`lang\`, \`label_command_file\`, \`label_pdf\`, \`action\`,
+\`reason\` and \`validation\`. Zero rows when the survey ships no
+parseable PDF dictionary or nothing diverged.
+
+## Details
+
+For surveys that ship such a guide, \`canpumf\` parses it during
+metadata preparation, validates it against the microdata using the
+per-code frequencies the guide prints, and then repairs labels the guide
+demonstrably extends. This function returns the ledger of what it found:
+every divergence between the command file and the guide, whether or not
+it was acted on.
+
+\`action\` is one of:
+
+- \`repaired\`:
+
+  The command-file label was replaced, because the guide's text extends
+  it \*and\* the command-file label carries a damage signature: either
+  it sits at the width the command file's labels were hard-cut to, or it
+  is what a dropped prefix leaves behind (a strict suffix of the guide's
+  text). A guide that merely words a label differently is \`flagged\`
+  instead, as is one whose extra text is an annotation prepended to a
+  label the command file has in full – recognised by the \`Key: value\`
+  shape of the dropped text, which running prose lost to truncation does
+  not have.
+
+- \`filled\`:
+
+  The command file had no label at all; the guide supplied one.
+
+- \`flagged\`:
+
+  Recorded but not acted on – the two simply differ, or the variable's
+  frequencies contradicted the data file, or the guide documents a code
+  the command file never declared. Read \`reason\` for which.
+
+The \`validation\` column carries the variable's frequency-check status
+(\`validated\`, \`continuous\`, \`unchecked\`, \`mismatch\`, or \`not
+documented\`), so a repair corroborated against the microdata can be
+told apart from one the check simply could not reach. See
+\[pumf_freq_validation()\].
+
+## See also
+
+\[pumf_var_labels()\], \[pumf_freq_validation()\]
+
+## Examples
+
+``` r
+# \donttest{
+gss <- get_pumf("GSS", "Cycle 16 (2002)")
+if (!is.null(gss)) {
+  pumf_label_repairs(gss, action = "repaired")
+  close_pumf(gss)
+}
+# }
+```

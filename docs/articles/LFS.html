@@ -25,7 +25,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -104,20 +104,20 @@ available for direct download.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/list_canpumf_collection.html">list_canpumf_collection</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">Acronym</span><span class="op">==</span><span class="st">"LFS"</span><span class="op">)</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 90 × 5</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 92 × 5</span></span></span>
 <span><span class="co">#&gt;    Title               Acronym Version `Survey Number` url                      </span></span>
 <span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>           <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                    </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> Labour Force Survey LFS     2026-05 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> Labour Force Survey LFS     2026-04 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> Labour Force Survey LFS     2026-03 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> Labour Force Survey LFS     2026-02 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> Labour Force Survey LFS     2026-01 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> Labour Force Survey LFS     2025    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> Labour Force Survey LFS     2024    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> Labour Force Survey LFS     2023    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> Labour Force Survey LFS     2022    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> Labour Force Survey LFS     2021    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 80 more rows</span></span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> Labour Force Survey LFS     2026-07 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> Labour Force Survey LFS     2026-06 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> Labour Force Survey LFS     2026-05 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> Labour Force Survey LFS     2026-04 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> Labour Force Survey LFS     2026-03 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> Labour Force Survey LFS     2026-02 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> Labour Force Survey LFS     2026-01 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> Labour Force Survey LFS     2025    3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> Labour Force Survey LFS     2024    3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> Labour Force Survey LFS     2023    3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 82 more rows</span></span></span></code></pre></div>
 <p>The second one fetches and loads the LFS data. For example, to
 download the LFS pumf for 2022 we use</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
@@ -127,7 +127,7 @@ download the LFS pumf for 2022 we use</p>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A query:  ?? x 5</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]</span></span></span>
 <span><span class="co">#&gt;    REC_NUM SURVYEAR SURVMNTH LFSSTAT                    PROV            </span></span>
 <span><span class="co">#&gt;      <span style="color: #949494; font-style: italic;">&lt;int&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>                      <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>           </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span>       1     <span style="text-decoration: underline;">2</span>022        1 Not in labour force        Quebec          </span></span>

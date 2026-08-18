@@ -16,13 +16,15 @@ utils::globalVariables(c("name", "val"))
 # "Non demandé"): "(ne )?s'applique pas" covers both the full form and the
 # older abbreviated form "S'APPLIQUE PAS" (pre-2004 SGVP and other older
 # surveys); "ne sait pas" = "don't know"; "refus$" = "refusal" (older files
-# use bare "REFUS"); "encha\u00een" = "encha\u00eenement valide" (valid skip).
+# use bare "REFUS"); "encha\u00eenement( valide)?" = valid skip -- the whole
+# pattern is anchored, so the bare stem would only have matched a label that is
+# literally "encha\u00een".
 .missing_label_alts <- paste0(
   "not (applicable|stated|asked|in (the )?universe|available|in sample)( [(][^)]*[)])?|data not available|",
   "valid skip|refusal|refused|don.?t know( [(][^)]*[)])?|do not know( [(][^)]*[)])?|",
   "missing|n/a|does not apply|not in scope|",
   "sans objet|non (disponible|d\u00e9clar\u00e9|applicable)|",
-  "(ne )?s.?applique pas|ne sait pas|refus$|encha\u00een|",
+  "(ne )?s.?applique pas|ne sait pas|refus$|encha\u00eenement( valide)?|",
   "inconnu|manquant|non demand\u00e9|hors .chantillon"
 )
 
@@ -30,14 +32,39 @@ utils::globalVariables(c("name", "val"))
 # this quantity" ("ZERO HOURS", "None", "No donations", "Aucun don", …).
 # These indicate a continuous variable for classification purposes but are
 # valid zeros, NOT missing data.
-.zero_label_alts <- "zero(\\s+\\w+)*|none|no\\s+\\w+(\\s+\\w+)*|aucun(e)?(\\s+\\w+)*"
+# The word class admits apostrophes (straight and typographic) and hyphens, not
+# just \w: French labels elide the article ("Aucune séparation avant le
+# divorce ou l'annulation"), and a bare \w+ stops at the apostrophe.
+.zero_word <- "[\\w'\u2019-]+"
+# NB "zero" is deliberately left ASCII-only.  Matching "z[eé]ro" would pick up
+# Census 1986 WKSWK's French "Zéro semaines travaillées" while its English
+# "Worked zero weeks" still would not match (the word does not lead the label),
+# introducing the very split this pattern is meant to avoid.
+.zero_label_alts <- paste0(
+  "zero(\\s+", .zero_word, ")*|none|no\\s+", .zero_word, "(\\s+", .zero_word,
+  ")*|aucun(e)?(\\s+", .zero_word, ")*")
 
 # Anchored patterns:
 # .missing_pat  — true-missing labels only (used to derive NA ranges)
 # .sentinel_pat — missing OR zero labels (used by all parsers to distinguish
 #                 sentinel-only variables from truly categorical ones)
-.missing_pat  <- paste0("(?i)^(", .missing_label_alts, ")$")
-.sentinel_pat <- paste0("(?i)^(", .missing_label_alts, "|", .zero_label_alts, ")$")
+#
+# (*UCP) makes PCRE's \w (and \s, and the (?i) folding) Unicode-aware.  Without
+# it \w is ASCII-only even on UTF-8 input, so an accented French word ends the
+# match: "Aucune séparation avant le divorce ou l'annulation" failed where its
+# English counterpart "No separation prior to divorce or annulment" matched,
+# classifying the variable numeric in 'eng' but categorical in 'fra' (GSS Cycle
+# 21 AGE_SEP_MA3/MA4).  It also lets (?i) fold accented capitals, so the
+# upper-case label forms older files use ("NON DÉCLARÉ") match too.  The verb must
+# lead the pattern, before (?i).
+#
+# A trailing sentence period is likewise tolerated: GSS Cycle 24 writes the same
+# zero label with a period in English and without one in French ("No time spent
+# doing these activities." / "Aucun temps alloué à cette activité"), which would
+# otherwise reintroduce the very eng/fra split the UCP verb fixes.
+.missing_pat  <- paste0("(*UCP)(?i)^(", .missing_label_alts, ")[.]?$")
+.sentinel_pat <- paste0("(*UCP)(?i)^(", .missing_label_alts, "|",
+                        .zero_label_alts, ")[.]?$")
 
 # Render code values as plain decimal strings.  as.character() switches to
 # scientific notation for large doubles (as.character(200000) == "2e+05"),
@@ -559,16 +586,42 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   lines <- gsub("\\t", " ", raw)
   lines <- gsub("\\s+$", "", lines)
 
-  # Join string continuations: 'text' + 'more' -> 'textmore'
-  cont <- which(grepl("'\\s*\\+\\s*$", lines))
-  if (length(cont) > 0) {
-    for (i in rev(cont)) {
-      if (i + 1L <= length(lines)) {
-        lines[i] <- paste0(sub("'\\s*\\+\\s*$", "", lines[i]),
-                           sub("^\\s*'", "", lines[i + 1L]))
-        lines <- lines[-(i + 1L)]
-      }
+  # Join SPSS string concatenations: 'text' + 'more' -> 'textmore'.  StatCan
+  # uses this to keep long labels inside the file's line width, and it appears
+  # in all three combinations of quote style and line break -- Census 2021 alone
+  # ships single-quoted-continued (individuals EN), double-quoted-continued
+  # (individuals FR, 70 labels) and inline double-quoted (hierarchical FR).
+  # Dropping the tail leaves a label cut mid-word, e.g. SSGRAD as "Scolarite :
+  # Diplome d'etudes secondaires ou attestation d'eq", indistinguishable from
+  # the upstream truncation the PDF cross-check exists to repair.
+  #
+  # A trailing "+" pulls the next line up first; the pairs are then collapsed in
+  # place, so a chain of several fragments folds one join at a time.  Walking
+  # backwards keeps the indices of the not-yet-visited lines valid.
+  cont <- which(grepl("['\"]\\s*\\+\\s*$", lines))
+  for (i in rev(cont)) {
+    if (i + 1L <= length(lines) && grepl("^\\s*['\"]", lines[i + 1L])) {
+      lines[i] <- paste0(lines[i], " ", trimws(lines[i + 1L]))
+      lines    <- lines[-(i + 1L)]
     }
+  }
+  # The two fragments need not use the same quote character -- Census 2021's
+  # French individuals file writes '"...d'eq" + \'uivalence\'' -- so the four
+  # combinations are collapsed separately.  Each content class has to match the
+  # literal's *own* delimiter, because a double-quoted label routinely contains
+  # apostrophes (and would be cut at the first one by a shared class).  The
+  # opening quote must follow whitespace or start the line so a stray apostrophe
+  # inside a label cannot be read as an opening delimiter.
+  repeat {
+    joined <- lines
+    for (pat in list(
+      c('(^|\\s)"([^"]*)"\\s*\\+\\s*"([^"]*)"', '\\1"\\2\\3"'),
+      c('(^|\\s)"([^"]*)"\\s*\\+\\s*\'([^\']*)\'', '\\1"\\2\\3"'),
+      c("(^|\\s)'([^']*)'\\s*\\+\\s*'([^']*)'", "\\1'\\2\\3'"),
+      c("(^|\\s)'([^']*)'\\s*\\+\\s*\"([^\"]*)\"", "\\1'\\2\\3'")))
+      joined <- sub(pat[[1L]], pat[[2L]], joined)
+    if (identical(joined, lines)) break
+    lines <- joined
   }
 
   # Normalize single-quoted label strings -> double quotes.
@@ -1041,29 +1094,14 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 
   # SAS @pos format: if any line starts with @, route to dedicated parser
   if (any(grepl("^@", lines))) {
-    layout <- .sas_parse_at_layout(lines)
-    # Derive fmt_type and decimals from the format spec after the variable name
-    if (!is.null(layout)) {
-      at_lines <- lines[grepl("^@\\s*\\d+", lines)]
-      fmt_df <- tibble::tibble(value = at_lines) |>
-        mutate(
-          name     = stringr::str_match(.data$value,
-                       "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-          fmt_type = if_else(grepl("\\$", .data$value), "A", "F"),
-          # Decimal count from "n.d" numeric format (e.g. "10.4" -> 4); NA for character
-          decimals = if_else(
-            grepl("\\$", .data$value),
-            NA_integer_,
-            as.integer(stringr::str_match(.data$value, "\\s+\\d+\\.(\\d+)\\s*$")[, 2L])
-          )
-        ) |>
-        filter(!is.na(.data$name)) |>
-        select("name", "fmt_type", "decimals")
-    } else {
-      fmt_df <- tibble::tibble(name = character(), fmt_type = character(),
-                               decimals = integer())
-    }
-    return(list(layout = layout, formats = fmt_df))
+    fields <- .sas_at_fields(lines)
+    if (is.null(fields) || nrow(fields) == 0L)
+      return(list(layout  = NULL,
+                  formats = tibble::tibble(name = character(),
+                                           fmt_type = character(),
+                                           decimals = integer())))
+    return(list(layout  = fields[, c("name", "start", "end")],
+                formats = fields[, c("name", "fmt_type", "decimals")]))
   }
 
   # Find DATA LIST keyword and section content
@@ -1108,38 +1146,88 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     filter(!is.na(.data$name)) |>
     select("name", "fmt_type", "decimals")
 
-  # Detect sub-format: @pos (SAS input) vs NAME start-end (reading card)
-  has_at <- any(grepl("^@", section))
-  layout <- if (has_at)
-    .sas_parse_at_layout(section)
-  else
-    .spss_parse_data_list(c("DATA LIST", section), 1L)
-
-  list(layout = layout, formats = annot_df)
+  # The @pos (SAS input) sub-format returned above; what reaches here is the
+  # NAME start-end reading card.
+  list(layout  = .spss_parse_data_list(c("DATA LIST", section), 1L),
+       formats = annot_df)
 }
 
 
-# Parse SAS @pos format layout lines.
-# Input:  character vector of lines like "@1 CASEID $CHAR6." or "@6 WEIGHT 10.4"
-# Output: tibble(name, start, end)
-.sas_parse_at_layout <- function(lines) {
+# Parse SAS @pos INPUT lines into one row per variable.
+# Output: tibble(name, start, end, fmt_type, decimals); fmt_type "A" for
+# character ($) columns, "F" for numeric; decimals from the w.d informat.
+#
+# Two line shapes occur in StatCan cards:
+#   scalar  "@1  CASEID $CHAR6."  /  "@6 WEIGHT 10.4"        -> one variable
+#   array   "@28 (BSW1-BSW1000) (1000* 7.2);"                -> BSW1..BSW1000
+# The array shape declares a variable *range* laid out consecutively from the @
+# position, each field as wide as the repeated informat; StatCan uses it for the
+# bootstrap-weight cards (e.g. CHSS bsw_i.sas).  Expanding it here is what lets
+# the generic FWF reader see all 1000 weight columns.
+.sas_at_fields <- function(lines) {
+  lines    <- trimws(lines)
   at_lines <- lines[grepl("^@\\s*\\d+", lines)]
   if (length(at_lines) == 0L) return(NULL)
+  out <- purrr::map_dfr(at_lines, .sas_at_field_row)
+  if (nrow(out) == 0L) return(NULL)
+  out
+}
 
-  tibble::tibble(value = at_lines) |>
-    mutate(
-      start   = as.integer(stringr::str_match(.data$value, "^@\\s*(\\d+)")[, 2L]),
-      name    = stringr::str_match(.data$value,
-                                   "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-      # Size: from $CHARn. (character) or n.d (numeric)
-      size    = as.integer(stringr::str_match(
-        .data$value, "\\$?(?:CHAR)?(\\d+)\\.")[, 2L]),
-      fmt_raw = stringr::str_match(.data$value,
-                                   "\\s+(\\$[^.]+\\.|[0-9]+\\.[0-9]*)\\s*$")[, 2L],
-      end     = .data$start + .data$size - 1L
-    ) |>
-    filter(!is.na(.data$name), !is.na(.data$start)) |>
-    select("name", "start", "end")
+.sas_at_empty_fields <- tibble::tibble(
+  name = character(), start = integer(), end = integer(),
+  fmt_type = character(), decimals = integer())
+
+.sas_at_field_row <- function(line) {
+  start <- suppressWarnings(
+    as.integer(stringr::str_match(line, "^@\\s*(\\d+)")[, 2L]))
+  if (is.na(start)) return(.sas_at_empty_fields)
+
+  arr <- stringr::str_match(
+    line,
+    paste0("^@\\s*\\d+\\s*\\(\\s*([A-Za-z][A-Za-z0-9_]*?)(\\d+)\\s*-\\s*",
+           "([A-Za-z][A-Za-z0-9_]*?)(\\d+)\\s*\\)\\s*\\(([^)]*)\\)"))
+  if (!is.na(arr[1L])) return(.sas_at_array_fields(start, arr))
+
+  name <- stringr::str_match(line,
+            "^@\\s*\\d+\\s+([A-Za-z][A-Za-z0-9_]*)")[, 2L]
+  size <- suppressWarnings(as.integer(
+    stringr::str_match(line, "\\$?(?:CHAR)?(\\d+)\\.")[, 2L]))
+  if (is.na(name) || is.na(size)) return(.sas_at_empty_fields)
+  is_chr <- grepl("$", line, fixed = TRUE)
+  tibble::tibble(
+    name     = name,
+    start    = start,
+    end      = start + size - 1L,
+    fmt_type = if (is_chr) "A" else "F",
+    decimals = if (is_chr) NA_integer_
+               else suppressWarnings(as.integer(stringr::str_match(
+                 line, "\\s+\\d+\\.(\\d+)\\s*[;,]?\\s*$")[, 2L])))
+}
+
+# Expand one "(STEM<lo>-STEM<hi>) (<n>* <w>.<d>)" array line.  `arr` is the
+# str_match row: stem/index of the first and last name, then the informat group.
+.sas_at_array_fields <- function(start, arr) {
+  stem <- arr[, 2L]
+  lo   <- suppressWarnings(as.integer(arr[, 3L]))
+  hi   <- suppressWarnings(as.integer(arr[, 5L]))
+  # Both endpoints must share a stem, or this is not a simple indexed range.
+  if (!identical(stem, arr[, 4L]) || is.na(lo) || is.na(hi) || hi < lo)
+    return(.sas_at_empty_fields)
+
+  fmt    <- stringr::str_match(arr[, 6L], "(\\$?)(?:CHAR)?(\\d+)\\.(\\d*)")
+  width  <- suppressWarnings(as.integer(fmt[, 3L]))
+  if (is.na(width) || width <= 0L) return(.sas_at_empty_fields)
+  is_chr <- nzchar(fmt[, 2L])
+  dec    <- suppressWarnings(as.integer(fmt[, 4L]))
+
+  idx  <- seq.int(lo, hi)
+  from <- start + (seq_along(idx) - 1L) * width
+  tibble::tibble(
+    name     = paste0(stem, idx),
+    start    = from,
+    end      = from + width - 1L,
+    fmt_type = if (is_chr) "A" else "F",
+    decimals = if (is_chr) NA_integer_ else dec)
 }
 
 
@@ -1175,16 +1263,21 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
   #                   100 = "100 and more hours"
   #                   999.7 = "Not asked"
   #                   other = [Z5.1];
+  # The French half of a bilingual release states the same association in
+  # French -- "/* $DISAB s'applique à: DISAB */" -- so both phrasings are
+  # recognised.  Without this the French command file yields no codes and the
+  # value labels stay English-only (e.g. PALS 2001).
   # Files without "applies to" comments (e.g. Census 2011) yield no codes.
+  .applies_pat <- "(?i)(format applies to|s'applique)"
   parse_value_codes <- function(lines) {
     empty <- tibble::tibble(name = character(), val = character(),
                             label = character())
-    idx <- grep("format applies to", lines)
+    idx <- grep(.applies_pat, lines, perl = TRUE)
     if (length(idx) == 0L) return(empty)
     fmt_vars <- list()
     for (i in idx) {
-      fmt <- stringr::str_match(lines[i],
-                                "/\\*\\s*(\\S+)\\s+format applies to")[, 2L]
+      fmt <- stringr::str_match(
+        lines[i], paste0("/\\*\\s*(\\S+)\\s+", .applies_pat))[, 2L]
       if (is.na(fmt)) next
       j <- i
       block <- lines[i]
@@ -1192,7 +1285,7 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
         j <- j + 1L
         block <- paste(block, lines[j])
       }
-      vars <- sub(".*applies to:", "", block)
+      vars <- sub(paste0(".*", .applies_pat, "[^:]*:"), "", block, perl = TRUE)
       vars <- sub("\\*/.*", "", vars)
       vars <- toupper(strsplit(trimws(vars), "\\s+")[[1L]])
       fmt_vars[[toupper(fmt)]] <- vars[nchar(vars) > 0L]
@@ -1214,6 +1307,17 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
               rows[[length(rows) + 1L]] <-
                 tibble::tibble(name = v, val = .code_chr(val),
                                label = m[1L, 3L])
+        } else {
+          # Character formats (SAS `VALUE $FMT`) quote the code as well:
+          #   "01" = "25 to 29"   /   "R" = "Refusal"
+          # The code is taken verbatim -- coercing it through as.numeric()
+          # would strip the leading zeros the data file actually carries, and
+          # non-numeric codes like "R"/"X" have no numeric form at all.
+          mq <- stringr::str_match(lines[j], '^\\s*"([^"]*)"\\s*=\\s*"([^"]*)"')
+          if (!is.na(mq[1L, 2L]))
+            for (v in vars)
+              rows[[length(rows) + 1L]] <-
+                tibble::tibble(name = v, val = mq[1L, 2L], label = mq[1L, 3L])
         }
         if (grepl(";\\s*$", lines[j])) break
         j <- j + 1L
@@ -1864,11 +1968,16 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   #    files containing "LABEL varname =" lines.
   if (is.null(result$sas_cards)) {
     sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
-    # Same French-indicator logic as for SPSS but for .sas extension.
+    # Same French-indicator logic as for SPSS but for .sas extension.  The
+    # directory pattern is shared with .is_fra: a bare /FR/ path segment marks
+    # the French half of releases that separate the two languages by folder
+    # rather than by filename suffix (e.g. PALS ships PUMF/ENG/ and PUMF/FR/).
     .is_fra_sas <- function(paths) {
-      grepl("/(fran|french)",           paths, ignore.case = TRUE) |
+      grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
       grepl("(?i)_[Ff](re?f?)?[.]sas$", basename(paths), perl = TRUE) |
-      grepl("(?i)fre[.]sas$",           basename(paths), perl = TRUE)
+      grepl("(?i)fre[.]sas$",           basename(paths), perl = TRUE) |
+      grepl("(?i)(spss|sas)[_ ]?[Cc]ards?\\([Ff]\\)[.]sas$",
+            basename(paths), perl = TRUE)
     }
     fra_sas   <- sas_files[.is_fra_sas(sas_files)]
     eng_sas   <- sas_files[!.is_fra_sas(sas_files)]
@@ -1885,7 +1994,93 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
     }
   }
 
+  # 10. StatCan PDF *frequency data dictionary* — the appendix inside the PUMF
+  #     user guide (GSS, SGVP, PALS, SFS).  Unlike the two PDF sources above
+  #     this one is detected even when a command file is present, because its
+  #     purpose is to cross-check and repair the command file rather than to
+  #     stand in for it: the guide carries the full label text that the command
+  #     files truncate, and its per-code frequencies make the parse verifiable
+  #     against the data.  See R/pdf_repair.R.
+  result$pdf_freq <- .pumf_detect_freq_pdfs(all_files, sps_mask)
+
   result
+}
+
+
+# Locate the English (and French) PDF frequency data dictionary among a version
+# directory's PDFs.  Candidates are shortlisted by path before any is opened --
+# scanning every PDF in a cache directory would be wasteful -- then confirmed by
+# content: the layout signature is a "Variable Name: ... Position:" block header
+# plus a FREQ column, repeated for many variables.
+.pumf_detect_freq_pdfs <- function(all_files, sps_mask = NULL) {
+  if (!isTRUE(getOption("canpumf.pdf_crosscheck", TRUE))) return(NULL)
+  if (!requireNamespace("pdftools", quietly = TRUE)) return(NULL)
+
+  pdfs <- all_files[grepl("\\.pdf$", all_files, ignore.case = TRUE)]
+  if (!length(pdfs)) return(NULL)
+  # Names StatCan uses for the guide/codebook that carries the dictionary.
+  pdfs <- pdfs[grepl(
+    "(?i)(guide|codebook|livre.?des.?codes|cdbk|lvcds|dictionar|dictionnaire|utilisateur|analyt|gid|appendi|annexe)",
+    pdfs, perl = TRUE)]
+  pdfs <- pdfs[!grepl("(?i)zerofreq", pdfs, perl = TRUE)]
+  if (!length(pdfs)) return(NULL)
+
+  # For multi-module surveys the module mask (e.g. "MAIN", "GS") also separates
+  # the per-module codebooks; prefer the matching ones when any exist.
+  if (!is.null(sps_mask)) {
+    masked <- pdfs[grepl(sps_mask, pdfs, ignore.case = TRUE)]
+    if (length(masked)) pdfs <- masked
+  }
+
+  # A dictionary appendix is a large document; try the biggest candidates first
+  # and stop scanning once both languages are settled.
+  sizes <- file.size(pdfs)
+  pdfs  <- pdfs[order(sizes, decreasing = TRUE)]
+  pdfs  <- utils::head(pdfs[file.size(pdfs) > 5e4], 8L)
+
+  best <- list(eng = NULL, fra = NULL)
+  nbest <- c(eng = 0L, fra = 0L)
+  cands <- list()
+  for (p in pdfs) {
+    txt <- tryCatch(pdftools::pdf_text(p), error = function(e) NULL)
+    if (is.null(txt)) next
+    lines <- unlist(strsplit(paste(txt, collapse = "\n"), "\n"))
+    hits  <- grep(.pdf_freq_var_rx, lines, perl = TRUE, value = TRUE)
+    # Require many blocks and a frequency column: a user guide that merely
+    # shows one example table must not qualify.
+    if (length(hits) < 10L) next
+    if (!any(grepl(.pdf_freq_hdr_rx, lines, perl = TRUE))) next
+    lang <- if (sum(grepl("Nom de la variable", hits)) >
+                sum(grepl("Variable Name", hits))) "fra" else "eng"
+    if (length(hits) > nbest[[lang]]) {
+      nbest[[lang]] <- length(hits)
+      best[[lang]]  <- p
+    }
+    # The block headers alone -- no full parse -- are enough to check a
+    # candidate against the command file's layout later on.  A release that
+    # ships both its original and a revised user guide (PALS 2006) has two
+    # candidates with identical block counts describing *different* field
+    # positions, and only the layout can tell them apart; see
+    # `.pumf_pdf_choose_candidates()`.
+    cands[[length(cands) + 1L]] <- list(
+      path = p, lang = lang, n = length(hits), header = .pdf_freq_header_fields(hits))
+  }
+
+  if (is.null(best$eng)) return(NULL)
+  list(eng = best$eng, fra = best$fra, candidates = cands)
+}
+
+# Name / Position / Length off a vector of block-header lines.
+.pdf_freq_header_fields <- function(hits) {
+  mnm <- regmatches(hits, regexec(.pdf_freq_var_rx, hits, perl = TRUE))
+  mps <- regmatches(hits, regexec(.pdf_freq_pos_rx, hits, perl = TRUE))
+  pick <- function(m, i) vapply(m, function(z)
+    if (length(z) >= i) z[[i]] else NA_character_, character(1L))
+  tibble::tibble(
+    name     = toupper(pick(mnm, 2L)),
+    position = suppressWarnings(as.integer(pick(mps, 2L))),
+    length   = suppressWarnings(as.integer(pick(mps, 3L)))
+  )
 }
 
 
@@ -1907,7 +2102,7 @@ merge_metadata <- function(parsed_list) {
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
                       "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict",
-                      "pdf_codebook")
+                      "pdf_codebook", "pdf_freq")
   ordered  <- c(intersect(priority_order, names(parsed_list)),
                 setdiff(names(parsed_list), priority_order))
   parsed_list <- parsed_list[ordered]
@@ -1979,7 +2174,7 @@ merge_metadata <- function(parsed_list) {
       # format renders "September 1998" as "Septembe   1998"), so a divergence
       # introduced solely by one of them is expected and the higher-priority
       # label is kept silently.
-      lossy_sources <- c("sas_labels", "pdf_dict", "pdf_codebook")
+      lossy_sources <- c("sas_labels", "pdf_dict", "pdf_codebook", "pdf_freq")
       is_lossy <- names(parsed_list)[grp$.src] %in% lossy_sources
       en      <- unique(grp$label_en[!is.na(grp$label_en)])
       en_auth <- unique(grp$label_en[!is.na(grp$label_en) & !is_lossy])
@@ -2036,7 +2231,8 @@ pumf_parse_metadata <- function(version_dir,
                                 layout_mask       = NULL,
                                 metadata_encoding = NULL,
                                 refresh           = FALSE,
-                                meta_subdir       = NULL) {
+                                meta_subdir       = NULL,
+                                file_mask         = NULL) {
   # meta_subdir routes multi-module surveys: each module's canonical CSVs are
   # written under metadata/<meta_subdir>/ (the primary module uses metadata/
   # with meta_subdir = NULL).
@@ -2139,7 +2335,35 @@ pumf_parse_metadata <- function(version_dir,
     parsed$pdf_codebook <- parse_pdf_codebook(formats$pdf_codebook$eng,
                                                fra_pdf = formats$pdf_codebook$fra)
 
+  # The frequency dictionary is a cross-check, not a primary source: it is kept
+  # out of the merge so the command file stays authoritative, and applied
+  # afterwards via .pumf_pdf_crosscheck() where every change is validated
+  # against the data and recorded.  It only becomes a primary source when
+  # nothing else parsed at all.
+  if (!is.null(formats$pdf_freq) && length(parsed) == 0L) {
+    pf <- parse_pdf_freq_codebook(formats$pdf_freq$eng,
+                                   fra_pdf = formats$pdf_freq$fra)
+    if (!is.null(pf)) {
+      # Drop the block-tracking columns; they are cross-check bookkeeping, not
+      # canonical metadata.
+      pf$variables <- pf$variables[setdiff(names(pf$variables),
+                                           c("block", "position", "length"))]
+      pf$codes     <- pf$codes[setdiff(names(pf$codes), "block")]
+      parsed$pdf_freq <- pf[c("variables", "codes", "layout")]
+    }
+  }
+
   metadata <- merge_metadata(parsed)
+
+  if (!is.null(formats$pdf_freq) && is.null(parsed$pdf_freq)) {
+    dir.create(metadata_dir, showWarnings = FALSE, recursive = TRUE)
+    metadata <- .pumf_pdf_crosscheck(
+      metadata, formats$pdf_freq,
+      version_dir   = source_dir,
+      metadata_dir  = metadata_dir,
+      file_mask     = file_mask %||% reg$file_mask,
+      data_encoding = reg$data_encoding %||% "CP1252")
+  }
 
   # A PDF data dictionary was present but pdftools is not installed.  If no other
   # source supplied any variable labels, the metadata is degraded (layout/types
@@ -2673,6 +2897,386 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
         merged_codes$label_fr     <- merged_codes$label_fr.fra
         merged_codes$label_fr.fra <- NULL
         eng$codes <- tibble::as_tibble(merged_codes)
+      }
+    }
+  }
+
+  eng
+}
+
+
+# ============================================================
+# StatCan PDF "frequency data dictionary" parser
+# ============================================================
+#
+# A third PDF metadata layout, distinct from both parse_pdf_dictionary() (the
+# *Dictionary.pdf "Long name:/Codes:" form) and parse_pdf_codebook() (the CPSS
+# "Answer Categories" form).  This is the appendix that StatCan ships inside the
+# PUMF *user guide* for most GSS cycles, SGVP, PALS and SFS: one block per
+# variable, the variable label on its own line, then a frequency table whose
+# rows are `<code> <label> <FREQ> <WTD>`:
+#
+#   Variable Name:   HUI_MOB1_H        Position: 70      Length: 1
+#
+#   Mobility trouble.
+#
+#                                                        FREQ         WTD
+#   1              No mobility problem                 21,561  10,098,541
+#   ...
+#   9              Not stated                              79      37,473
+#                                                      ======   =========
+#                                                      24,855  11,139,983
+#
+#   Coverage: All respondents.
+#             Source: General Social Survey, 2002, derived from ...
+#             Format: I2
+#
+# French mirrors English: "Nom de la variable :", "Position :", "Longueur :",
+# and a "FREQ"/"POND" header.
+#
+# Two properties make this layout worth parsing even for surveys that already
+# have a machine-readable command file:
+#
+#   * It is typeset from the survey's own metadata *before* the command files
+#     are generated, so it carries the full label text that the SAS/SPSS/Stata
+#     cards truncate at 60 characters (see .pumf_label_repairs()).
+#   * Every code carries its frequency in the microdata, so a parse can be
+#     checked against the data file rather than trusted (see
+#     .pumf_validate_pdf_freqs()).  A block whose counts do not reconcile is
+#     never used to repair anything.
+#
+# Continuous variables print a range row (`0015 : 0064   9,492`) in place of
+# per-value rows; these are captured separately in `ranges` and are what makes
+# an otherwise "unmatched" frequency check reconcile.
+
+# Column header of the frequency table.  English guides use FREQ/WTD, French
+# FREQ/POND; some vintages spell the weighted column "WGT".
+.pdf_freq_hdr_rx <- "(?i)(^|\\s)(FREQ|FR.Q)(\\s|$)"
+
+# How far the frequency value's last character may sit from the last character
+# of the FREQ header word.  The column is right-aligned, but pdftools'
+# reconstruction drifts row to row, so the match cannot key on the header column
+# exactly.  Measured on the GSS Cycle 26 guide the frequency ends between +2 and
+# +5 of the header word, while the weighted count ends at +17 -- so the tolerance
+# only has to separate those two.
+.pdf_freq_slack <- 8L
+
+# Block header.  `Position` is required: it separates this layout from the
+# CPSS "Variable Name:/Concept:" codebook, which has no position column.
+.pdf_freq_var_rx <- paste0(
+  "^\\s*(?:Variable Name|Nom de la variable)\\s*:\\s*",
+  "([A-Za-z][A-Za-z0-9_]*)\\s+(?:Position)\\s*:"
+)
+
+# Position and length off the same header line.  Kept separate from the block
+# detector so a vintage that wraps or omits the length still yields a block.
+# One guide documents several linked modules in sequence, so a shared key
+# (RECID, PERSONID) gets one block per module -- position/length is what tells
+# those blocks apart; see `.pumf_pdf_select_blocks()`.
+.pdf_freq_pos_rx <- paste0(
+  "(?:Position)\\s*:\\s*(\\d+)",
+  "(?:\\s+(?:Length|Longueur)\\s*:\\s*(\\d+))?"
+)
+
+# Lines that end the frequency table: the ====== rule above the totals, or the
+# footnote keys that follow it.
+.pdf_freq_end_rx <- paste0(
+  "^\\s*=+\\s*$|^\\s*=+\\s+=+|",
+  "^\\s*(Coverage|Couverture|Univers|Universe|Note|Nota|Source|Format|",
+  "Weight variable|Variable de pond.ration)\\s*:"
+)
+
+# Page furniture that can fall inside a table that spans a page break.
+.pdf_freq_skip_rx <- paste0(
+  "(?i)^\\s*(",
+  "Statistics Canada\\s*[-\u2013\u2014]|Statistique Canada\\s*[-\u2013\u2014]|",
+  "Page\\s+\\d+|\\d+\\s*$|",
+  "Appendix\\b|Annexe\\b",
+  ")"
+)
+
+#' @keywords internal
+.parse_pdf_freq_single <- function(pdf_path, lang) {
+  pages <- tryCatch(pdftools::pdf_text(pdf_path), error = function(e) NULL)
+  if (is.null(pages)) return(NULL)
+  x <- unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+
+  starts <- grep(.pdf_freq_var_rx, x, perl = TRUE)
+  if (length(starts) == 0L) return(NULL)
+
+  vars_list  <- list()
+  codes_list <- list()
+  freq_list  <- list()
+  range_list <- list()
+
+  for (k in seq_along(starts)) {
+    s   <- starts[[k]]
+    e   <- if (k < length(starts)) starts[[k + 1L]] - 1L else length(x)
+    blk <- x[s:e]
+
+    mnm <- regmatches(blk[[1L]], regexec(.pdf_freq_var_rx, blk[[1L]], perl = TRUE))[[1L]]
+    if (length(mnm) != 2L) next
+    nm  <- toupper(mnm[[2L]])
+
+    mps <- regmatches(blk[[1L]], regexec(.pdf_freq_pos_rx, blk[[1L]], perl = TRUE))[[1L]]
+    pos <- if (length(mps) >= 2L) suppressWarnings(as.integer(mps[[2L]])) else NA_integer_
+    len <- if (length(mps) >= 3L) suppressWarnings(as.integer(mps[[3L]])) else NA_integer_
+
+    fmt_ln <- grep("^\\s*Format\\s*:", blk, perl = TRUE, value = TRUE)
+    fmt    <- if (length(fmt_ln)) trimws(sub("^\\s*Format\\s*:", "", fmt_ln[[1L]])) else NA_character_
+
+    hdr <- grep(.pdf_freq_hdr_rx, blk, perl = TRUE)
+    # The variable label is the free text between the block header and whatever
+    # closes it: the frequency table's FREQ header, or -- for a variable printed
+    # without a table -- the block's own trailing rule or Coverage:/Source:/
+    # Format: lines.  The second bound is what stops the *last* block in a guide
+    # running to the end of the document: GSS Cycle 24's WTSBS_001 documents
+    # bootstrap weight #1 and prints no table, so without it the "label"
+    # swallowed the rest of the appendix and the table of contents -- 78,014
+    # characters, which the repair pass then wrote over a sound command-file
+    # label.
+    stops     <- c(hdr, grep(.pdf_freq_end_rx, blk, perl = TRUE))
+    stops     <- stops[stops > 1L]
+    lab_end   <- if (length(stops)) min(stops) - 1L else length(blk)
+    lab_lines <- if (lab_end >= 2L) trimws(blk[2:lab_end]) else character()
+    lab_lines <- lab_lines[nzchar(lab_lines) &
+                             !grepl(.pdf_freq_skip_rx, lab_lines, perl = TRUE)]
+    label <- if (length(lab_lines)) paste(lab_lines, collapse = " ") else NA_character_
+
+    vars_list[[length(vars_list) + 1L]] <- tibble::tibble(
+      name         = nm,
+      label_en     = if (lang == "eng") label else NA_character_,
+      label_fr     = if (lang == "fra") label else NA_character_,
+      type         = .pdf_freq_type(fmt),
+      decimals     = .pdf_freq_decimals(fmt),
+      missing_low  = NA_real_,
+      missing_high = NA_real_,
+      block        = k,
+      position     = pos,
+      length       = len
+    )
+
+    if (!length(hdr)) next
+
+    # Numbers in these tables are RIGHT-aligned to the end of the "FREQ" header
+    # word.  Anchoring on that character column (pdf_text preserves layout) is
+    # what makes a label that overruns into the number column -- leaving a
+    # single space, e.g. "...support/wheelchair 1,980" -- still split
+    # correctly; a whitespace-run split would take the *weighted* count as the
+    # frequency and glue the real one onto the label.
+    hl   <- blk[[hdr[[1L]]]]
+    fp   <- regexpr(.pdf_freq_hdr_rx, hl, perl = TRUE)
+    fend <- fp[[1L]] + attr(fp, "match.length") - 1L
+    # The header pattern brackets the word in whitespace; the anchor is the last
+    # character of the word itself, since `.pdf_freq_slack` is measured from it.
+    while (fend > 1L && grepl("\\s", substr(hl, fend, fend))) fend <- fend - 1L
+
+    body <- blk[(hdr[[1L]] + 1L):length(blk)]
+    endi <- grep(.pdf_freq_end_rx, body, perl = TRUE)
+    if (length(endi)) body <- body[seq_len(endi[[1L]] - 1L)]
+
+    rows <- list()
+    for (ln in body) {
+      if (!nzchar(trimws(ln))) next
+      if (grepl(.pdf_freq_skip_rx, ln, perl = TRUE)) next
+
+      # Split off the right-aligned FREQ value.  Both number columns are
+      # right-aligned to their header word, but pdftools' column reconstruction
+      # drifts a few characters row to row, so neither a fixed cut nor a
+      # whitespace split works: a fixed cut clips a wide value or reaches into
+      # the weighted column depending on the row, and a whitespace split takes
+      # the *weighted* count whenever a label overruns into the number column
+      # ("...support/wheelchair 1,980").  Selecting the number whose END column
+      # is nearest the header word survives both -- the weighted value sits far
+      # to the right (+17 in the GSS Cycle 26 guide, against +2 to +5 for the
+      # frequency), and digits inside a label sit far to the left.
+      # When no number sits near the anchor the row carries no frequency, but the
+      # line is still cut at the anchor so a weighted count cannot leak into the
+      # label.
+      left <- substr(ln, 1L, min(fend + .pdf_freq_slack, nchar(ln)))
+      freq <- NA_real_
+      pos  <- gregexpr("[0-9](?:[0-9,]*[0-9])?", ln, perl = TRUE)[[1L]]
+      if (pos[[1L]] != -1L) {
+        ends <- pos + attr(pos, "match.length") - 1L
+        i    <- which.min(abs(ends - fend))
+        if (abs(ends[[i]] - fend) > .pdf_freq_slack) {
+          # No number near the anchor.  A label long enough to reach into the
+          # number column pushes the frequency past it and sends the weighted
+          # count to the next line, leaving one number stranded to the right
+          # (GSS Cycle 24's Episode guide, SACT1 code 15: "Domestic work (meal
+          # prep and cleanup, cleaning, laundry)         4,255", with
+          # "6,759,111" alone on the following line).  Take that number when it
+          # is unambiguous: exactly one candidate, starting at or after the
+          # anchor and preceded by whitespace.  The whitespace requirement is
+          # what excludes a label printed flush against its counts
+          # ("...cassette tapes or records3,4417,790,477"), where the two counts
+          # cannot be told apart from each other or from the label's own text.
+          # Even then the digits are cut off the label, since they are certainly
+          # the number column and not the label's text.
+          in_cols <- which(pos >= fend - .pdf_freq_slack)
+          before  <- substring(ln, pmax(pos - 1L, 1L), pmax(pos - 1L, 1L))
+          cand    <- in_cols[pos[in_cols] == 1L |
+                               grepl("\\s", before[in_cols])]
+          if (length(cand) == 1L) i <- cand
+          else {
+            i <- NA_integer_
+            if (length(in_cols)) left <- substr(ln, 1L, min(pos[in_cols]) - 1L)
+          }
+        }
+        if (!is.na(i)) {
+          left <- substr(ln, 1L, pos[[i]] - 1L)
+          freq <- suppressWarnings(as.numeric(gsub(
+            ",", "", substr(ln, pos[[i]], ends[[i]]))))
+        }
+      }
+
+      # A continuous variable's range row: "0015 : 0064" (or " 1 : 600").  Some
+      # vintages give the range row a label of its own, in the same column as
+      # the code labels ("01 : 20   # of orgs volunteered for   13,309"), so the
+      # trailing text is optional -- without this the row matches neither the
+      # range nor the code pattern and the variable loses the very row that
+      # accounts for its continuous values.
+      mrg <- regmatches(left, regexec(
+        "^\\s{0,4}([^\\s:]+)\\s*:\\s*([^\\s:]+)(?:\\s{2,}\\S.*)?\\s*$",
+        left, perl = TRUE))[[1L]]
+      if (length(mrg) == 3L && !is.na(freq)) {
+        range_list[[length(range_list) + 1L]] <-
+          tibble::tibble(name = nm, lo = mrg[[2L]], hi = mrg[[3L]], freq = freq,
+                         block = k)
+        next
+      }
+
+      # A code row: the code token must sit in the first few columns, which is
+      # what distinguishes it from a wrapped continuation of the previous label.
+      # The label is optional -- a scale prints its endpoints only ("00 Very
+      # dissatisfied ... 10 Very satisfied") and leaves the intermediate codes
+      # bare, and dropping those rows would lose the counts that account for
+      # most of the column (GSS Cycle 26 LSR_Q110).
+      mcd <- regmatches(left, regexec("^\\s{0,4}(\\S+)(?:\\s{2,}(\\S.*?))?\\s*$",
+                                      left, perl = TRUE))[[1L]]
+      if (length(mcd) == 3L) {
+        lab <- trimws(mcd[[3L]])
+        rows[[length(rows) + 1L]] <-
+          list(val = mcd[[2L]],
+               label = if (nzchar(lab)) lab else NA_character_, freq = freq)
+      } else if (length(rows) > 0L && !grepl("^\\S", ln) &&
+                 !grepl("^[0-9][0-9,. ]*$", trimws(left))) {
+        # Indented text with no code: continuation of the previous label.  A
+        # continuation that is nothing but a number is the weighted count of a
+        # row whose label pushed it off the line, not label text -- appending it
+        # would end the label in "... laundry) 6,759,111".
+        last <- length(rows)
+        prev <- rows[[last]]$label
+        rows[[last]]$label <- trimws(paste(if (is.na(prev)) "" else prev, trimws(left)))
+        if (is.na(rows[[last]]$freq)) rows[[last]]$freq <- freq
+      }
+    }
+
+    if (length(rows) > 0L) {
+      vals   <- vapply(rows, `[[`, character(1L), "val")
+      labels <- vapply(rows, `[[`, character(1L), "label")
+      freqs  <- vapply(rows, `[[`, numeric(1L),   "freq")
+      codes_list[[length(codes_list) + 1L]] <- tibble::tibble(
+        name     = nm,
+        val      = vals,
+        label_en = if (lang == "eng") labels else NA_character_,
+        label_fr = if (lang == "fra") labels else NA_character_,
+        block    = k
+      )
+      freq_list[[length(freq_list) + 1L]] <-
+        tibble::tibble(name = nm, val = vals, freq = freqs, block = k)
+    }
+  }
+
+  if (length(vars_list) == 0L) return(NULL)
+  list(
+    variables = dplyr::bind_rows(vars_list),
+    codes     = if (length(codes_list)) dplyr::bind_rows(codes_list) else empty_codes(),
+    layout    = NULL,
+    freqs     = if (length(freq_list)) dplyr::bind_rows(freq_list)
+                else tibble::tibble(name = character(), val = character(),
+                                    freq = double(), block = integer()),
+    ranges    = if (length(range_list)) dplyr::bind_rows(range_list)
+                else tibble::tibble(name = character(), lo = character(),
+                                    hi = character(), freq = double(),
+                                    block = integer())
+  )
+}
+
+# Map a "Format:" annotation (I2, F5.3, 4.1, A8, $CHAR2.) onto our type/decimals.
+.pdf_freq_type <- function(fmt) {
+  if (is.na(fmt)) return("character")
+  if (grepl("^\\$|^A\\d|^\\$CHAR", fmt, ignore.case = TRUE)) return("character")
+  if (grepl("^[IF]?\\d", fmt, ignore.case = TRUE)) return("numeric")
+  "character"
+}
+
+.pdf_freq_decimals <- function(fmt) {
+  if (is.na(fmt)) return(NA_integer_)
+  m <- regmatches(fmt, regexec("^[IF]?\\d+\\.(\\d+)", fmt))[[1L]]
+  if (length(m) == 2L) as.integer(m[[2L]]) else NA_integer_
+}
+
+#' Parse a StatCan PDF frequency data dictionary
+#'
+#' Extracts variable names, variable labels, value labels and \emph{per-code
+#' frequencies} from the data-dictionary appendix of a StatCan PUMF user guide
+#' (GSS cycles, SGVP, PALS, SFS).  Each variable appears as a
+#' \dQuote{Variable Name:/Position:} block followed by a frequency table whose
+#' rows are \code{<code> <label> <FREQ> <WTD>}.
+#'
+#' Unlike the other metadata parsers this one also returns the frequencies,
+#' which \code{\link{pumf_parse_metadata}} uses to validate the parse against
+#' the actual microdata before allowing any label to be repaired from it.
+#'
+#' Every returned table carries a \code{block} id -- the index of the guide
+#' block it came from.  A guide covering several linked modules documents a
+#' shared key once per module, so \code{name} alone is not unique; the block id
+#' plus the \code{position}/\code{length} columns on \code{variables} are what
+#' \code{\link{.pumf_pdf_select_blocks}} uses to pick the block belonging to the
+#' module being parsed.  Positions are used only for that disambiguation --
+#' layout always comes from the command file.
+#'
+#' @param eng_pdf Path to the English user guide / codebook PDF.
+#' @param fra_pdf Optional path to the French counterpart.
+#' @return Named list with elements \code{variables} (plus \code{block},
+#'   \code{position}, \code{length}), \code{codes}, \code{layout} (always
+#'   \code{NULL}), \code{freqs} (name/val/freq/block) and \code{ranges}
+#'   (name/lo/hi/freq/block, for continuous variables), or \code{NULL} if no
+#'   variable blocks were found.
+#' @keywords internal
+parse_pdf_freq_codebook <- function(eng_pdf, fra_pdf = NULL) {
+  eng <- .parse_pdf_freq_single(eng_pdf, "eng")
+  if (is.null(eng)) return(NULL)
+
+  if (!is.null(fra_pdf)) {
+    fra <- .parse_pdf_freq_single(fra_pdf, "fra")
+    if (!is.null(fra)) {
+      # The two guides document the same variables in the same order, so when
+      # the block sequences agree we can join on block rather than name.  That
+      # matters for guides covering several linked modules, where a shared key
+      # (RECID, PERSONID) appears once per module and a join by name would
+      # collapse all of them onto the first block's label.
+      aligned <- identical(eng$variables$name, fra$variables$name)
+      vkey <- if (aligned) "block" else "name"
+      ckey <- if (aligned) c("block", "val") else c("name", "val")
+
+      fv <- fra$variables[c(vkey, "label_fr")]
+      fv <- fv[!duplicated(fv[vkey]), , drop = FALSE]
+      mv <- merge(eng$variables, fv, by = vkey, all.x = TRUE,
+                  suffixes = c("", ".fra"))
+      mv$label_fr     <- mv$label_fr.fra
+      mv$label_fr.fra <- NULL
+      eng$variables   <- tibble::as_tibble(mv)
+
+      if (nrow(eng$codes) > 0L && nrow(fra$codes) > 0L) {
+        fc <- fra$codes[c(ckey, "label_fr")]
+        fc <- fc[!duplicated(fc[ckey]), , drop = FALSE]
+        mc <- merge(eng$codes, fc, by = ckey, all.x = TRUE,
+                    suffixes = c("", ".fra"))
+        mc$label_fr     <- mc$label_fr.fra
+        mc$label_fr.fra <- NULL
+        eng$codes       <- tibble::as_tibble(mc)
       }
     }
   }

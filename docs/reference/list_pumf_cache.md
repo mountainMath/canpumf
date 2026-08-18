@@ -68,7 +68,7 @@ for every LFS row. Use \[remove_pumf_cache()\] to free disk space.
 ``` r
 # \donttest{
 list_pumf_cache()
-#> # A tibble: 255 × 7
+#> # A tibble: 260 × 7
 #>    series        version       has_raw has_metadata has_duckdb  raw_mb duckdb_mb
 #>    <chr>         <chr>         <lgl>   <lgl>        <lgl>        <dbl>     <dbl>
 #>  1 1971PUMF_FMGD 1971_familie… TRUE    FALSE        FALSE       1.83          NA
@@ -81,7 +81,7 @@ list_pumf_cache()
 #>  8 1981PUMF_FMGD 1981_familie… TRUE    FALSE        FALSE       0             NA
 #>  9 1981PUMF_FMGD 1981_househo… TRUE    FALSE        FALSE       0.0119        NA
 #> 10 1981PUMF_FMGD 1981_individ… TRUE    FALSE        FALSE       0.0123        NA
-#> # ℹ 245 more rows
+#> # ℹ 250 more rows
 # With an explicit cache path:
 list_pumf_cache(cache_path = file.path(tempdir(), "pumf_cache"))
 #> # A tibble: 0 × 7

@@ -58,6 +58,34 @@ test_that("parse_sas_cards: layout from NAME start-end .lay", {
   expect_equal(sex$end,   19L)
 })
 
+test_that(".sas_at_fields expands an indexed variable range", {
+  # StatCan bootstrap-weight cards declare all replicates in one array line
+  # instead of one @pos line each (e.g. CHSS bsw_i.sas).
+  lines <- c("INFILE &datafid. LRECL=7027;",
+             "INPUT ",
+             "   @1   ADM_RNO2 $6.",
+             "   @21  FWGT            7.2",
+             "   @28  (BSW1-BSW1000) (1000* 7.2); ")
+  f <- canpumf:::.sas_at_fields(lines)
+
+  expect_equal(nrow(f), 1002L)
+  expect_equal(f$name[c(1L, 2L, 3L, 1002L)],
+               c("ADM_RNO2", "FWGT", "BSW1", "BSW1000"))
+  expect_equal(f$start[c(1L, 2L, 3L, 1002L)], c(1L, 21L, 28L, 7021L))
+  expect_equal(f$end[c(1L, 2L, 3L, 1002L)],   c(6L, 27L, 34L, 7027L))
+  # The last field must land exactly on the declared record length.
+  expect_equal(max(f$end), 7027L)
+  expect_equal(f$fmt_type, c("A", rep("F", 1001L)))
+  expect_equal(f$decimals, c(NA_integer_, rep(2L, 1001L)))
+})
+
+test_that(".sas_at_fields ignores a malformed array range", {
+  # Mismatched stems are not a simple indexed range; better to drop the line
+  # than to invent 1000 column positions from it.
+  expect_null(canpumf:::.sas_at_fields("@28  (BSW1-XYZ9) (9* 7.2);"))
+  expect_null(canpumf:::.sas_at_fields("@28  (BSW9-BSW1) (9* 7.2);"))
+})
+
 test_that("parse_sas_cards: type inferred from codes, missing, and (A) annotation", {
   m <- canpumf:::parse_sas_cards(fx())
 
@@ -158,6 +186,98 @@ test_that("parse_sas_cards: SFS 2005 SasCard @pos format", {
   # At minimum, layout should be extracted from the @pos .lay file
   expect_false(is.null(m$layout))
   expect_gt(nrow(m$layout), 10L)
+})
+
+# ---- parse_sas_data_labels (PROC FORMAT + LABEL statements) -----------
+#
+# The synthetic pair below is the shape a bilingual SAS release ships (PALS
+# 2001): character formats whose codes are quoted, and a French command file
+# that states the format/variable association in French.
+
+.write_sas_labels_pair <- function(dir) {
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  eng <- file.path(dir, "SAS code.sas")
+  fra <- file.path(dir, "Code SAS.sas")
+  # StatCan ships these command files CP1252-encoded, which is what the parser
+  # reads them as; write the fixture the same way so the accents round-trip.
+  write_cp1252 <- function(lines, path) {
+    con <- file(path, open = "wt", encoding = "CP1252")
+    on.exit(close(con))
+    writeLines(lines, con)
+  }
+  write_cp1252(c(
+    'PROC FORMAT;',
+    '/* $SEXF format applies to: SEX */',
+    'VALUE $SEXF',
+    '   "1" = "Male"',
+    '   "2" = "Female";',
+    '/* $AGEF format applies to:',
+    '   AGEGRP AGEGRP5  */',
+    'VALUE $AGEF',
+    '   "01" = "15 to 19"',
+    '   "R"  = "Refusal";',
+    'DATA pals;',
+    '   LABEL SEX = "Sex of respondent";',
+    '   LABEL AGEGRP = "Age group";',
+    '   LABEL AGEGRP5 = "Age group, 5-year";'
+  ), eng)
+  write_cp1252(c(
+    'PROC FORMAT;',
+    "/* $SEXF s'applique à: SEX */",
+    'VALUE $SEXF',
+    '   "1" = "Masculin"',
+    '   "2" = "Féminin";',
+    'DATA pals;',
+    '   LABEL SEX = "Sexe du répondant";'
+  ), fra)
+  list(eng = eng, fra = fra)
+}
+
+test_that("parse_sas_data_labels: quoted character codes keep their zero padding", {
+  p <- .write_sas_labels_pair(withr::local_tempdir())
+  m <- canpumf:::parse_sas_data_labels(p$eng)
+
+  age <- m$codes[m$codes$name == "AGEGRP", ]
+  # "01" must survive verbatim -- as.numeric() would make it "1" and no longer
+  # match the zero-padded codes the SAS dataset's character columns carry.
+  expect_equal(age$val, c("01", "R"))
+  expect_equal(age$label_en, c("15 to 19", "Refusal"))
+})
+
+test_that("parse_sas_data_labels: multi-variable association comments span lines", {
+  p <- .write_sas_labels_pair(withr::local_tempdir())
+  m <- canpumf:::parse_sas_data_labels(p$eng)
+  expect_setequal(unique(m$codes$name), c("SEX", "AGEGRP", "AGEGRP5"))
+})
+
+test_that("parse_sas_data_labels: French 's'applique à' associates formats too", {
+  p <- .write_sas_labels_pair(withr::local_tempdir())
+  m <- canpumf:::parse_sas_data_labels(p$eng, p$fra)
+
+  sex <- m$codes[m$codes$name == "SEX", ]
+  expect_equal(sex$label_en, c("Male", "Female"))
+  expect_equal(sex$label_fr, c("Masculin", "Féminin"))
+  expect_equal(m$variables$label_fr[m$variables$name == "SEX"],
+               "Sexe du répondant")
+  # The French file declares no $AGEF association, so those codes stay
+  # English-only rather than being dropped.
+  expect_true(all(is.na(m$codes$label_fr[m$codes$name == "AGEGRP"])))
+})
+
+test_that(".is_fra_sas: /FR/ directory marker pairs the French command file", {
+  # PALS ships one archive laid out as PUMF/ENG/ and PUMF/FR/, each holding a
+  # complete copy; the command filenames carry no language suffix, so the
+  # directory is the only marker.
+  d <- withr::local_tempdir()
+  p <- .write_sas_labels_pair(file.path(d, "PUMF", "ENG"))
+  file.remove(p$fra)
+  p <- .write_sas_labels_pair(file.path(d, "PUMF", "FR"))
+  file.remove(p$eng)
+
+  fmts <- canpumf:::detect_formats(d)
+  expect_false(is.null(fmts$sas_labels))
+  expect_match(fmts$sas_labels$eng, "/ENG/")
+  expect_match(fmts$sas_labels$fra, "/FR/")
 })
 
 # ---- Generate golden fixtures ----------------------------------------

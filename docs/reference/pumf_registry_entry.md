@@ -23,6 +23,7 @@ pumf_registry_entry(
   bundle_source = NULL,
   bundle_sps_mask = NULL,
   doc_mask = NULL,
+  download_format = NULL,
   ...
 )
 ```
@@ -50,18 +51,36 @@ pumf_registry_entry(
 - data_fixups:
 
   A named list of pre-label fixups: any of \`str_pad\`, \`rename\`,
-  \`cols_swap\`, \`na_values\`, \`force_numeric\`, \`force_character\`,
-  \`force_integer\`, \`force_bigint\`, \`codes_supplement\`,
-  \`missing_supplement\`, \`labels_supplement\`. The
+  \`rename_regex\`, \`cols_swap\`, \`na_values\`, \`force_numeric\`,
+  \`force_character\`, \`force_integer\`, \`force_bigint\`,
+  \`codes_supplement\`, \`missing_supplement\`, \`missing_codes\`,
+  \`labels_supplement\`. The
   \`force_character\`/\`force_integer\`/\`force_bigint\` fields take
   character vectors of variable names and override the DuckDB storage
   type (VARCHAR / INTEGER / BIGINT) so geographic codes keep leading
   zeros and large IDs are not lost; a variable may appear in at most one
-  \`force\_\*\` set.
+  \`force\_\*\` set. \`rename_regex\` takes \`c(pattern =
+  "replacement")\` and rewrites many column names at once
+  (\[base::sub()\] semantics), for releases whose data file decorates
+  the documented names wholesale; a rewrite is applied only where it
+  lands on a name the metadata declares and the current name is not
+  itself declared, so it can never collide with a correctly-named
+  column. \`missing_codes\` takes \`list(VAR = c(codes))\` and blanks
+  those discrete values, for variables whose sentinels do not form one
+  contiguous range (and which a single \`missing_low\`/\`missing_high\`
+  pair therefore cannot express).
 
 - bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask:
 
   Advanced bundled-archive and documentation options.
+
+- download_format:
+
+  Format bundle to download when Statistics Canada offers the same
+  edition in several (\`"CSV"\`, \`"SAS"\`, \`"TXT"\`, ...). By default
+  the preferred format wins; set this when only one bundle carries the
+  command files the metadata parsers need (e.g. the Canadian Health
+  Survey on Seniors, whose CSV zip ships the data alone).
 
 - ...:
 

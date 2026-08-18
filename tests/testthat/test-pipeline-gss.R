@@ -319,6 +319,233 @@ test_that("GSS 2002 builds joinable modules sharing one connection", {
   expect_error(pumf_module(main, "NOPE"), "Unknown module")
 })
 
+# ---- user-guide PDF cross-check (cycle 16) ----------------------------------
+# Cycle 16's SAS/SPSS cards carry the upstream truncation (hard cuts at 60
+# characters, dropped leading text); the user guide's Appendix G dictionary
+# carries the full text plus per-code frequencies, so the repair can be
+# reconciled against the data file before it is believed.
+
+.gss16_crosscheck_ready <- function() {
+  vdir <- .gss_vdir("Cycle 16 (2002)")
+  canpumf:::.version_is_extracted(vdir) &&
+    file.exists(file.path(vdir, "metadata", "label_repairs.csv"))
+}
+
+test_that("GSS 2002: the guide's frequencies reconcile against the data file", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss16_crosscheck_ready(), "GSS 2002 PDF cross-check not in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  v <- pumf_freq_validation(main)
+  expect_gt(nrow(v), 100L)
+  expect_named(v, c("block", "name", "status", "n_codes", "n_matched", "note"))
+  # Every documented variable resolves to exactly one guide block.
+  expect_false(any(duplicated(v$name)))
+  # Hundreds of variables reconcile exactly, and nothing contradicts the data.
+  expect_gt(sum(v$status %in% c("validated", "continuous")), 500L)
+  expect_equal(sum(v$status == "mismatch"), 0L)
+})
+
+test_that("GSS 2002: truncated labels are repaired from the guide", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss16_crosscheck_ready(), "GSS 2002 PDF cross-check not in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  r <- pumf_label_repairs(main)
+  expect_gt(nrow(r), 100L)
+  expect_named(r, c("kind", "name", "val", "lang", "label_command_file",
+                    "label_pdf", "action", "reason", "validation"))
+  # Nothing is repaired from a block the frequency check contradicted.
+  expect_false(any(r$action %in% c("repaired", "filled") &
+                     r$validation == "mismatch"))
+  # A repair only ever lengthens a label.
+  rep <- r[r$action == "repaired", ]
+  expect_true(all(nchar(rep$label_pdf) > nchar(rep$label_command_file)))
+
+  # The delivered variable label is the guide's, not the 60-char command-file cut.
+  lab <- pumf_var_labels(main)
+  expect_equal(lab$label_en[lab$name == "CG4_FR_Q100_C"],
+               "Relationship of the Long Term Care Receiver to respondent - collapsed.")
+
+  # CG4_FR_Q100_C code 85 is the case that motivated the whole cross-check: the
+  # command file kept only the tail, and what survived ("Co-worker of respondent
+  # and Other relatives)") reads like a category about co-workers rather than
+  # the "Other" bucket it actually is.  It is a mid-list truncation, so the
+  # survivor starts with a capital exactly as an intact label would -- only the
+  # dropped text tells the two apart.
+  # `which()` because `val` is empty on variable-kind rows: a bare `==` filter
+  # evaluates to NA there and pulls all-NA rows into the subset.
+  c85 <- r[which(r$name == "CG4_FR_Q100_C" & r$val == "85" & r$lang == "en"), ]
+  expect_equal(unique(c85$action), "repaired")
+  expect_match(c85$label_pdf[1L], "^Other \\(Do not include organizations here\\)")
+
+  # The mirror shape: the guide's own field header scraped into a label the
+  # command file has in full.  Repairing it would deliver "Longueur : 2 Age du
+  # ...", so it must stay flagged even though the label sits at the ceiling.
+  furn <- r[r$name == "AGE_LAST_RETIRED_C" & r$lang == "fr", ]
+  expect_equal(furn$action, "flagged")
+  expect_false(grepl("Longueur", lab$label_fr[lab$name == "AGE_LAST_RETIRED_C"]))
+})
+
+test_that("GSS 2002: substantive divergences are flagged, not silently applied", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss16_crosscheck_ready(), "GSS 2002 PDF cross-check not in cache")
+
+  main <- get_pumf("GSS", "Cycle 16")
+  on.exit(close_pumf(main), add = TRUE)
+
+  flagged <- pumf_label_repairs(main, action = "flagged")
+  expect_gt(nrow(flagged), 0L)
+
+  # The guide says "long term provider", the command file "long term receiver".
+  # Same length, so the guide does not extend it: record, do not act.  This is
+  # about the variable label; the same variable's value labels are separately
+  # left-truncated and are repaired, so the kind has to be pinned.
+  q220 <- flagged[flagged$name == "CG4_FR_Q220" & flagged$lang == "en" &
+                    flagged$kind == "variable", ]
+  expect_equal(nrow(q220), 1L)
+  expect_match(q220$label_command_file, "receiver")
+  expect_match(q220$label_pdf, "provider")
+
+  lab <- pumf_var_labels(main)
+  expect_match(lab$label_en[lab$name == "CG4_FR_Q220"], "receiver")
+})
+
+# ---- user-guide PDF cross-check (cycle 26) ----------------------------------
+# Cycle 26 ships two candidate dictionaries, and its guide exercises three
+# layout quirks the anchor-based table reader has to survive: a frequency value
+# wider than the "FREQ" header word (`9,520`), a zero frequency printed further
+# right than its neighbours (`97 Not Asked  0`), and a 0-10 scale that labels
+# only its endpoints and leaves codes 01-09 bare.
+
+.gss26_crosscheck_ready <- function() {
+  vdir <- .gss_vdir("Cycle 26 (2012)")
+  canpumf:::.version_is_extracted(vdir) &&
+    file.exists(file.path(vdir, "metadata", "pdf_validation.csv"))
+}
+
+test_that("GSS 2012: the user guide is chosen over the analytical-file dictionary", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss26_crosscheck_ready(), "GSS 2012 PDF cross-check not in cache")
+
+  vdir <- .gss_vdir("Cycle 26 (2012)")
+  meta <- canpumf:::read_metadata(file.path(vdir, "metadata"))
+  reg  <- canpumf:::pumf_registry_lookup("GSS", "Cycle 26 (2012)")
+  fmt  <- canpumf:::detect_formats(vdir, sps_mask = reg$layout_mask)
+  skip_if(is.null(fmt$pdf_freq), "no frequency dictionary detected")
+
+  chosen <- canpumf:::.pumf_pdf_choose_candidates(fmt$pdf_freq, meta$layout)
+  expect_match(basename(chosen$eng), "Users_Guide")
+})
+
+test_that("GSS 2012: every documented variable reconciles with the data", {
+  skip_if_not_installed("pdftools")
+  skip_if_not(.gss26_crosscheck_ready(), "GSS 2012 PDF cross-check not in cache")
+
+  tbl <- get_pumf("GSS", "Cycle 26 (2012)")
+  on.exit(close_pumf(tbl), add = TRUE)
+
+  v <- pumf_freq_validation(tbl)
+  expect_gt(nrow(v), 500L)
+  expect_equal(sum(v$status == "mismatch"), 0L)
+  expect_equal(sum(v$status == "unchecked"), 0L)
+
+  # WLY_Q150's code 1 prints "9,520", wider than the "FREQ" header it is
+  # right-aligned to; MAR_Q110's code 97 prints a bare "0" three columns
+  # further right than the counts above it.  Both are read off the number
+  # column nearest the anchor rather than by walking out from it.
+  expect_equal(v$status[v$name == "WLY_Q150"], "validated")
+  expect_equal(v$status[v$name == "MAR_Q110"], "validated")
+
+  # LSR_Q110 is a 0-10 satisfaction scale: the guide labels only 00 and 10, so
+  # codes 01-09 are code rows with no label at all.  Dropping them would leave
+  # nine of the column's values undocumented.
+  expect_equal(v$status[v$name == "LSR_Q110"], "validated")
+  expect_gte(v$n_codes[v$name == "LSR_Q110"], 14L)
+})
+
+test_that("GSS 2010: a block with no frequency table stops at its own rule", {
+  skip_if_not_installed("pdftools")
+  vdir <- .gss_vdir("Cycle 24 (2010)")
+  skip_if_not(canpumf:::.version_is_extracted(vdir), "GSS 2010 not in cache")
+
+  pdfs <- list.files(vdir, pattern = "[.]pdf$", recursive = TRUE, full.names = TRUE)
+  cand <- canpumf:::.pumf_detect_freq_pdfs(pdfs, NULL)
+  skip_if(is.null(cand$eng), "no English frequency dictionary detected")
+
+  v <- canpumf:::.parse_pdf_freq_single(cand$eng, "eng")$variables
+
+  # The label is the free text between the block header and the FREQ table, so
+  # the guide's *last* block -- WTSBS_001, a bootstrap weight printed with no
+  # table -- used to run to the end of the document and take the appendix and
+  # table of contents with it (78,014 characters, which the repair pass then
+  # wrote over a sound command-file label).
+  w <- v$label_en[v$name == "WTSBS_001"]
+  expect_equal(w, "Bootstrap weight # 1 for sport participation sample weight.")
+
+  # No other block should be anywhere near that size either: the longest
+  # legitimate label in this guide is a wrapped survey question.
+  expect_lt(max(nchar(v$label_en), na.rm = TRUE), 500L)
+})
+
+test_that("GSS 2010 Episode: a label reaching into the number column", {
+  skip_if_not_installed("pdftools")
+  vdir <- .gss_vdir("Cycle 24 (2010)")
+  skip_if_not(canpumf:::.version_is_extracted(vdir), "GSS 2010 not in cache")
+  mdir <- file.path(vdir, "metadata", "Episode")
+  skip_if_not(file.exists(file.path(mdir, "layout.csv")), "Episode metadata not built")
+
+  reg  <- canpumf:::pumf_registry_lookup("GSS", "Cycle 24 (2010)")
+  m    <- Filter(function(z) z$id == "Episode", canpumf:::.pumf_entry_modules(reg))[[1L]]
+  lay  <- canpumf:::read_metadata(mdir)$layout
+  fmt  <- canpumf:::detect_formats(vdir, sps_mask = m$layout_mask)
+  cand <- canpumf:::.pumf_pdf_choose_candidates(fmt$pdf_freq, lay)
+  skip_if(is.null(cand$eng), "no English Episode frequency dictionary detected")
+
+  p  <- canpumf:::.parse_pdf_freq_single(cand$eng, "eng")
+  b  <- p$variables$block[p$variables$name == "SACT1"][[1L]]
+  cd <- p$codes[p$codes$block == b, ]
+  fq <- p$freqs[p$freqs$block == b, ]
+  lab <- function(v) cd$label_en[cd$val == v]
+  frq <- function(v) fq$freq[fq$val == v]
+
+  # Code 15's label reaches into the number column, which pushes the frequency
+  # past the FREQ anchor and sends the weighted count to the following line:
+  #   15  Domestic work (meal prep and cleanup, cleaning, laundry)     4,255
+  #                            6,759,111
+  # The stranded number is unambiguous -- one candidate, past the anchor, with
+  # whitespace before it -- so it is read, and the orphaned weighted count is
+  # not appended to the label.
+  expect_equal(lab("15"), "Domestic work (meal prep and cleanup, cleaning, laundry)")
+  expect_equal(frq("15"), 4255)
+
+  # Code 18 prints its label flush against both counts
+  # ("...cassette tapes or records3,4417,790,477"), so the two cannot be told
+  # apart and the frequency stays unknown -- but the digits are certainly the
+  # number column, so they are cut off the label rather than left in it.
+  expect_equal(lab("18"), "Listening to MP3 players, CD's, cassette tapes or records")
+  expect_true(is.na(frq("18")))
+
+  # An ordinary row in the same table, for contrast.
+  expect_equal(lab("20"), "Computer use (excluding email, chat groups, social networking)")
+  expect_equal(frq("20"), 1680)
+
+  # An unreadable count is missing evidence, not contrary evidence: it must not
+  # abort the run (it used to make all() return NA and error the `if` after it,
+  # taking the whole Stage 2 parse of this module down).
+  dp <- canpumf:::.find_pumf_data_file(vdir, m$file_mask)
+  skip_if(is.null(dp) || !file.exists(dp), "Episode data file not in cache")
+  val <- canpumf:::.pumf_validate_pdf_freqs(p, lay, dp)
+  expect_equal(val$status[val$block == b], "unchecked")
+  expect_match(val$note[val$block == b], "unreadable")
+  # ... and the rest of the guide still validates against the data.
+  expect_true(sum(val$status %in% c("validated", "continuous")) > 20L)
+})
+
 test_that("get_pumf rejects module for non-modular surveys", {
   expect_error(
     canpumf:::.pumf_table_name("GSS", "Cycle 32 (2018)", "eng", module = "MAIN"),
