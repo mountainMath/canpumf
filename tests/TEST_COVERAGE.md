@@ -24,7 +24,7 @@ is added, or the scope of an existing test changes.
 | `test-factor-enum.R` | Factor → DuckDB ENUM encoding |
 | `test-cache-mgmt.R` | Cache path resolution, version extraction checks |
 | `test-registry.R` | `pumf_registry_lookup()` for all registered surveys |
-| `test-override-verification.R` | Every manual registry override (`force_numeric`, `na_values`, `cols_swap`, `rename`, `rename_regex`, `codes_supplement`, `missing_supplement`, `missing_codes`) has a `confirmed`/`unverifiable` row in `override_verification.csv`; no stale ledger rows; confirmed rows carry a source file and date. See "Override verification workflow" in CLAUDE.md |
+| `test-override-verification.R` | Every manual registry override (`force_numeric`, `na_values`, `cols_swap`, `rename`, `rename_regex`, `codes_supplement`, `missing_supplement`, `missing_codes`) has a `confirmed`/`unverifiable` row in `override_verification.csv`; no stale ledger rows; confirmed rows carry a source file and date. See "Override verification workflow" in `.claude/docs/registry.md` |
 | `test-pipeline-stage1.R` | `pumf_locate_or_download()` (download, unzip, collision handling) — uses `skip_if_offline()` for download tests; download attempts wrapped in `tryCatch` → `skip()` so StatCan downtime produces a skip, not a failure |
 | `test-pipeline-stage3.R` | Stage 3 helpers: `.find_pumf_data_file()`, `pumf_build_duckdb()` end-to-end with synthetic data; `.apply_numeric_conversion()`'s opt-in `implied_decimals` (SAS `w.d` scaling for fixed-width BSW files — off by default, deferring to an explicit `.`, and applied before the display-unit missing range) and its `missing_codes` discrete-sentinel blanking; the `rename_regex` fixup (rewrites only onto declared variable names, never collides with an already-correct column, no-op without `known_vars`, and is not applied as a literal rename) |
 | `test-api.R` | `get_pumf()`, `label_pumf_columns()`, `close_pumf()`, `pumf_metadata()` — mostly synthetic; some use `skip_if_offline()`. Includes the multi-module announcement (`.pumf_announce_modules()` lists sibling modules once per survey; silent for single-module surveys) — registry-only, no cache |
@@ -103,7 +103,8 @@ When you add a new survey or version to the test suite:
 
 1. Add a row to the coverage matrix above.
 2. Update the **Verified datasets** table in `README.md`.
-3. Confirm there is a matching registry entry in `R/registry.R`.
+3. Confirm there is a matching registry entry in `R/registry.R`, and that any
+   overrides it adds are recorded in `tests/testthat/override_verification.csv`.
 
 When you add a new test category (e.g. a new assertion in the per-version
 loop), add a column to the matrix and update the symbol legend.

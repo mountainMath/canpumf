@@ -65,7 +65,7 @@ you of the key the modules join on:
 
 ```{r}
 cg4 <- pumf_module(main, "CG4")   # the caregiving module
-#> GSS/2002 modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
+#> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
 
 cg4 |> select(1:5) |> head()
 ```
@@ -140,7 +140,7 @@ close_pumf(con)
 
 ## Notes
 
-- `get_pumf("GSS", "2002", module = "CG4")` opens a module **standalone** (its
+- `get_pumf("GSS", "Cycle 16 (2002)", module = "CG4")` opens a module **standalone** (its
   own connection). Prefer `pumf_module()` when you intend to join, so both tbls
   share one connection.
 - The join key is recorded in the survey registry and surfaced in the messages
