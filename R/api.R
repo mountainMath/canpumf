@@ -134,6 +134,18 @@
 #'   passed (a message is emitted in that case).  Not supported for LFS.  For a
 #'   survey not in [list_canpumf_collection()], deposit the raw files under
 #'   `<cache_path>/<series>/<version>/` first (there is no download URL).
+#' @param borealis Load the data from the [Borealis](https://borealisdata.ca)
+#'   Dataverse instead of Statistics Canada: a dataset DOI (e.g.
+#'   `"doi:10.5683/SP3/LG7WKC"`) or a one-row tibble from
+#'   [list_borealis_pumf_catalogue()]. canpumf downloads the dataset's CSV data
+#'   file, its command files and documentation (see
+#'   [list_borealis_pumf_files()]). Without this argument Borealis is used
+#'   automatically only for versions StatCan does not post, such as the
+#'   1971--1986 Census PUMFs. When `version` names a registered survey, its
+#'   built-in configuration is replaced by auto-detection unless the registry
+#'   entry points at the same DOI; combine with `registry` to supply fixups.
+#'   A version already cached from another source is not replaced unless
+#'   `redownload = TRUE`. Not supported for LFS.
 #' @param module For multi-module surveys (several linked files in one DuckDB,
 #'   e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,
 #'   `CG6` and `CR` files join on `RECID`), selects which module table to
@@ -194,6 +206,7 @@ get_pumf <- function(series     = NULL,
                      read_only  = TRUE,
                      registry   = NULL,
                      module     = NULL,
+                     borealis   = NULL,
                      register_connection =
                        getOption("canpumf.register_connection", TRUE),
                      ...) {
@@ -205,7 +218,7 @@ get_pumf <- function(series     = NULL,
 
   if (is.null(series))
     stop("'series' must be specified (e.g. get_pumf(\"SFS\", \"2019\")).")
-  version <- pumf_resolve_version(series, version)
+  version <- pumf_resolve_version(series, version, cache_path)
   stopifnot(lang %in% c("eng", "fra"))
 
   if (!is.null(module) && series == "LFS")
@@ -229,6 +242,28 @@ get_pumf <- function(series     = NULL,
     if (series == "LFS")
       stop("'registry' overrides are not supported for LFS, which uses a ",
            "dedicated pipeline.", call. = FALSE)
+  }
+
+  # get_pumf(borealis = ) becomes a registry override carrying an explicit
+  # Borealis source (see pumf_locate_or_download()).
+  user_registry <- registry
+  # A version previously loaded with `borealis =` keeps its Borealis source:
+  # its files and build do not match the built-in (StatCan) configuration, so
+  # reopening it without the argument re-applies the recorded DOI.
+  # redownload = TRUE discards the Borealis files and returns to the default.
+  if (is.null(borealis) && !isTRUE(redownload))
+    borealis <- .borealis_cached_doi(series, version, cache_path, registry)
+  if (!is.null(borealis)) {
+    if (series == "LFS")
+      stop("'borealis' is not supported for LFS.", call. = FALSE)
+    if (is.null(version))
+      stop("'version' must be specified with 'borealis'; it names the cache ",
+           "directory for the dataset.", call. = FALSE)
+    doi <- .borealis_doi_arg(borealis)
+    if (is.null(registry))
+      registry <- structure(list(), class = "pumf_registry_entry")
+    registry$borealis <- list(doi = doi, files = registry$borealis$files,
+                              explicit = TRUE)
   }
 
   # Optionally keep the DuckDB connection out of the RStudio Connections pane.
@@ -268,7 +303,7 @@ get_pumf <- function(series     = NULL,
     on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
     eff_rebuild <- isTRUE(refresh) || identical(refresh, "auto") ||
       isTRUE(redownload)
-    if (!eff_rebuild &&
+    if (!eff_rebuild && !is.null(user_registry) &&
         .duckdb_table_exists(.pumf_db_path(series, version, cache_path),
                              .pumf_table_name(series, version, lang)))
       message("A built table for ", series, " ", version, " [", lang,
@@ -1694,7 +1729,7 @@ pumf_metadata <- function(series,
                            refresh    = FALSE,
                            redownload = FALSE,
                            registry   = NULL) {
-  version     <- pumf_resolve_version(series, version)
+  version     <- pumf_resolve_version(series, version, cache_path)
   if (!is.null(registry)) {
     if (!inherits(registry, "pumf_registry_entry"))
       stop("'registry' must be created by pumf_registry_entry() or ",

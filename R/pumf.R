@@ -105,7 +105,7 @@ get_pumf_connection <- function(series     = NULL,
 
   if (is.null(series))
     stop("'series' must be specified.")
-  version <- pumf_resolve_version(series, version)
+  version <- pumf_resolve_version(series, version, cache_path)
   stopifnot(lang %in% c("eng", "fra"))
 
   if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&

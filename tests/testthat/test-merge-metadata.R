@@ -333,3 +333,13 @@ test_that(".fix_metadata_mojibake repairs variable and code labels", {
   expect_equal(out$variables$label_fr, "Âge")
   expect_equal(out$codes$label_en, "café")
 })
+
+test_that(".fix_label_escapes decodes HTML entities and doubled apostrophes", {
+  fix <- canpumf:::.fix_label_escapes
+  expect_equal(fix(c("Yukon &amp; Northwest Territories", "No chldrn &lt;15, some &gt;14",
+                     "Person 1''s spouse", "Plain", NA)),
+               c("Yukon & Northwest Territories", "No chldrn <15, some >14",
+                 "Person 1's spouse", "Plain", NA))
+  # "&amp;lt;" is decoded once, not twice
+  expect_equal(fix("&amp;lt;"), "&lt;")
+})

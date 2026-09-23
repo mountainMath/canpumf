@@ -131,7 +131,7 @@ robust_unzip <- function(path, exdir) {
 
 # download.file() wrapper that converts any failure -- unreachable host, HTTP
 # error, or a truncated/empty result -- into a canpumf_network_error condition.
-.pumf_download <- function(url, destfile, ...) {
+.pumf_download <- function(url, destfile, ..., source = "Statistics Canada") {
   status <- tryCatch(utils::download.file(url, destfile, ...),
                      error = function(e) 1L)
   ok <- identical(as.integer(status), 0L) &&
@@ -139,7 +139,7 @@ robust_unzip <- function(path, exdir) {
   if (!ok) {
     if (file.exists(destfile)) unlink(destfile)   # drop a truncated/empty file
     stop(.pumf_network_error(paste0(
-      "Statistics Canada is unreachable; could not download '", url, "'. ",
+      source, " is unreachable; could not download '", url, "'. ",
       "The server may be down or the file may have moved -- try again later.")))
   }
   invisible(0L)

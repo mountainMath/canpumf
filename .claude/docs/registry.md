@@ -12,6 +12,7 @@ Back to [CLAUDE.md](../CLAUDE.md). Code: `R/registry.R` (entries, lookup, aliase
 - `data_encoding`, `metadata_encoding`: encoding overrides. The known exceptions are listed in [metadata-parsers.md](metadata-parsers.md#encoding).
 - `modules`, `module_key`: multi-module surveys. See [multi-module.md](multi-module.md).
 - `data_fixups`: transformations applied before labels are mapped (below).
+- `borealis`: `list(doi =, files =)`, a Borealis Dataverse source for the version (see [Borealis](#borealis-dataverse-source) below). `files` optionally pins file names; otherwise `.borealis_select_files()` picks them.
 
 ### `data_fixups`
 
@@ -35,7 +36,7 @@ Called before every lookup to turn the user's version string into the canonical 
 
 - **GSS**: canonical keys are `"Cycle N (YYYY)"`. `.pumf_gss_alias()` generates `Cycle N`, bare `N`, bare `YYYY` and `Cycle N YYYY` for each canonical key. It layers on `.pumf_gss_theme_aliases`, which holds theme names and the historical registry keys (`"Family 2017"`, `"Aging and Social Support 2002"`, `"Education 2007"`). Matching is case-insensitive after stripping punctuation, splitting `cycle16` → `cycle 16`, and collapsing whitespace. SGVP is a separate series with plain-year keys.
 - **CPSS / CCAHS**: `.pumf_cycle_alias()` maps `Series N`/`Cycle N`/`CPSS N` → bare `N`. The keys are cycle numbers, because reference years collide. A bare year is deliberately **not** a CPSS alias.
-- **Census**: any string starting with a four-digit year is parsed flexibly. The file type comes from grepping for `hierarchical`/`household`/`famil`, and CMA vs provincial from `cma`.
+- **Census**: any string starting with a four-digit year is parsed flexibly. The file type comes from grepping for `hierarchical`/`household`/`famil`, and CMA vs provincial from `cma`. For 1971–1986 two keys exist per file: the EFT key (`"1971/individuals_cma"`, `"1986/families"`) and the Borealis key (`"1971 (individuals, CMA)"`, `"1986 (families)"`). The keyword `eft` or `borealis` in the version string forces one. Otherwise the EFT key wins only when `.census_eft_bundle_present()` finds the bundle (zip, extracted raw files, or an existing EFT build) under `<cache_path>/Census/<year>/`; with no bundle the Borealis key is returned. So `pumf_resolve_version()` takes `cache_path`, and tests of bare "1971" resolution must use a temp cache.
 
 ## Download URL resolution (Stage 1)
 
@@ -46,6 +47,18 @@ Called before every lookup to turn the user's version string into the canonical 
 StatCan files GSS cycle 16's `c16_2002.zip` under Education. The zip filename still yields `Cycle 16 (2002)`.
 
 The snapshot is regenerated with `tools/refresh_catalogue_snapshot.R`, and `list_statcan_pumf_catalogue()` is the exported crawler.
+
+## Borealis Dataverse source
+
+Code: `R/borealis.R`. [Borealis](https://borealisdata.ca) hosts the ODESI PUMF collection (the `pumfs` dataverse, plus PUMF titles in `census`). StatCan stays primary; Borealis is used when:
+- a registry entry carries `borealis` and StatCan has no download for it (the 14 Census 1971–1986 keys; these have no `list_canpumf_collection()` row, and `.borealis_registry_collection()` lists them), or
+- the user passes `get_pumf(series, version, borealis = <doi or catalogue row>)`. This becomes a registry override: when the version's built-in entry points at the same DOI its fixups are kept, otherwise the entry is replaced by auto-detection (combine with `registry =` to supply fixups). An already-cached version from another source is only replaced with `redownload = TRUE`.
+
+Stage 1 (`pumf_locate_or_download()`) downloads via `/api/access/datafile/<id>` into a flat version directory and writes `borealis_manifest.csv` (doi, file id, name, role). `.borealis_select_files()` picks one data file (CSV preferred; else FWF with a `.sav`/`.sps`), the `.sps`/`.sas` command files, and documentation under `canpumf.borealis_max_doc_mb` (default 50); SAS/Stata/tab copies and ODESI `missRecode` files are skipped. Stage 3 takes its `file_mask` from the manifest (`.borealis_manifest_file_mask()`), since ODESI datasets also ship FWF copies and text codebooks that would be data-file candidates; the PDF cross-check uses the same fallback.
+
+Browsing: `list_borealis_pumf_catalogue()` (Dataverse search API, session-cached and persisted to `<cache_path>/borealis_catalogue.rds`, staleness warning like the StatCan catalogue) and `list_borealis_pumf_files(doi)`. `BOREALIS_DATAVERSE_KEY`, when set, is sent as `X-Dataverse-key` to `BOREALIS_SERVER` only.
+
+The Borealis Census copies are English-only (ODESI `.sps`). Their overrides differ from the EFT twins: no `cols_swap` for 1981 (ODESI fixed the names), no ETHNICOR supplement for 1986, and 1986 families gets `force_numeric` (the ODESI `.sps` declares labels and MISSING VALUES the EFT family file lacks). The 1971 Borealis CSV carries correct negative incomes, whereas the EFT text files use sign overpunch that the FWF reader does not decode.
 
 ## Override verification workflow
 

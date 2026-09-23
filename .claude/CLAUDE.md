@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Package Overview
 
-`canpumf` is an R package for loading Statistics Canada Public Use Microdata Files (PUMF) into R. It downloads the files, parses the metadata, applies bilingual labels, and returns lazy DuckDB-backed tables so the data can be used without loading it into memory.
+`canpumf` is an R package for loading Statistics Canada Public Use Microdata Files (PUMF) into R. It downloads the files (from StatCan, or from the Borealis Dataverse for vintages StatCan does not post), parses the metadata, applies bilingual labels, and returns lazy DuckDB-backed tables so the data can be used without loading it into memory.
 
 ## Topic docs (read before changing that area)
 
@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | [docs/metadata-parsers.md](docs/metadata-parsers.md) | The nine parsers, sentinel/missing detection, SPSS/SAS/PDF parsing quirks, encodings, mojibake repair |
 | [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md) | User-guide PDF parser, frequency validation, truncation fingerprints, label repair (`R/pdf_repair.R`) |
-| [docs/registry.md](docs/registry.md) | Registry fields and `data_fixups`, sibling inheritance, version aliases, download-URL resolution, **override verification workflow** |
+| [docs/registry.md](docs/registry.md) | Registry fields and `data_fixups`, sibling inheritance, version aliases (incl. EFT-vs-Borealis Census resolution), download-URL resolution, the Borealis source, **override verification workflow** |
 | [docs/multi-module.md](docs/multi-module.md) | Linked-module surveys (GSS 16, GSS Time Use, SHS 2017, SGVP): registry, pipeline, `pumf_module()` |
 | `tests/TEST_COVERAGE.md` | What each test file covers; per-survey coverage matrix |
 
@@ -42,6 +42,7 @@ The registry (`R/registry.R`), the test suite, and the **Verified datasets** tab
 - **Bootstrap weights** (`R/api.R`): `add_bootstrap_weights(tbl, weight_col, ...)` works on DuckDB-backed or in-memory tbls. `remove_bootstrap_weights()` drops the BSW table and its companion view. `bsw_info()` summarises the BSW tables present.
 - **Label repair**: `pumf_label_repairs()`, `pumf_freq_validation()` (see [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md)).
 - **Registry and catalogue**: `pumf_registry()`, `list_pumf_registry()`, `pumf_registry_entry()`, `list_canpumf_collection()`, `list_statcan_pumf_catalogue()`, `list_available_lfs_pumf_versions()`.
+- **Borealis**: `get_pumf(..., borealis = <doi or catalogue row>)`, `list_borealis_pumf_catalogue()`, `list_borealis_pumf_files()` (`R/borealis.R`; see [docs/registry.md](docs/registry.md#borealis-dataverse-source)).
 - **Cache**: `list_pumf_cache()`, `remove_pumf_cache()`. **LFS helpers**: `add_lfs_SURVDATE()`, `add_lfs_GENDER_SEX()`.
 
 ### Connection provenance registry (`R/api.R`)
@@ -91,8 +92,9 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
 ```
 <cache_path>/
   pumf_catalogue.rds        # persisted StatCan catalogue scrape
+  borealis_catalogue.rds    # persisted Borealis catalogue
   <series>/<version>/
-    <original>.zip          # retained
+    <original>.zip          # retained (Borealis: loose files + borealis_manifest.csv)
     <series>_<version>.duckdb
     metadata/
       variables.csv, codes.csv
@@ -111,6 +113,7 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
 - `R/metadata_parsers.R`: all parsers, `detect_formats()`, `merge_metadata()`, `pumf_parse_metadata()`, `read_metadata()`/`write_metadata()`
 - `R/pdf_repair.R`: the PDF cross-check and label repair
 - `R/registry.R`: registry entries, lookup, aliases, `pumf_registry*()`
+- `R/borealis.R`: Borealis Dataverse catalogue, file selection, download, manifest
 - `R/statcan_catalogue.R`: StatCan catalogue scraper and adapter, `.pumf_resolve_collection_row()`
 - `R/pumf_collection.R`: curated `list_canpumf_collection()`, `list_gss_collection()`, `list_available_lfs_pumf_versions()`
 - `R/lfs_pipeline.R`, `R/lfs_helpers.R`: the LFS pipeline and the `add_lfs_*()` helpers

@@ -54,7 +54,8 @@
                         download_format   = NULL,
                         modules           = NULL,
                         primary_module    = NULL,
-                        module_key        = NULL) {
+                        module_key        = NULL,
+                        borealis          = NULL) {
   # Multi-module surveys (e.g. GSS cycle 16) ship several related files that
   # share a respondent key (RECID) and must be linked for analysis because the
   # survey weight lives only in the primary file.  `modules` is a named list
@@ -105,7 +106,8 @@
     download_format   = download_format,
     modules           = modules,
     primary_module    = primary_module,
-    module_key        = module_key
+    module_key        = module_key,
+    borealis          = borealis
   )
 }
 
@@ -193,6 +195,28 @@
 # individuals/families), but all six SPSS files only declare code 1 -> 'one'.
 # Force it to numeric so the integer values come through correctly.
 .census_fixup_1971 <- list(force_numeric = "SUBSAMPL")
+
+# 1971 CMA individuals: TYPE66/TYPE71 value 0 ("Data not available") is absent
+# from the SPSS VALUE LABELS (EFT and Borealis alike); confirmed from the PDF
+# documentation.
+.census_1971_type_na <- local({
+  df <- data.frame(val = "0", label_en = "Data not available",
+                   label_fr = "Donn\u00e9es non disponibles",
+                   stringsAsFactors = FALSE)
+  list(TYPE66 = df, TYPE71 = df)
+})
+
+# 1986: continuous variables whose SPSS value labels declare only boundary
+# codes ("<$20,000", "85 yrs or more", "100 hours or more"); shared by the EFT
+# and Borealis entries.
+.census_1986_numeric_ind <- c(
+  "AGEP", "HRSWK", "WKSWK",
+  "TOTINCP", "WAGESP", "SELFIP", "INVSTP", "RETIRP", "OTINCP"
+)
+.census_1986_numeric_hhld <- c(
+  "VALUEH", "GROSRTH", "RENTH", "OMPH", "MPPIT",
+  "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
+)
 
 # GSS cycle 16 (2002) per-module force_numeric: count/age/date variables whose
 # SPSS value-label blocks declare only boundary/sentinel codes (e.g. a top-code
@@ -1373,10 +1397,7 @@
     file_mask       = "^INDIV86\\.DAT$",
     doc_mask        = "Individu|[Pp]articulier|indvls",
     data_fixups     = list(
-      force_numeric = c(
-        "AGEP", "HRSWK", "WKSWK",
-        "TOTINCP", "WAGESP", "SELFIP", "INVSTP", "RETIRP", "OTINCP"
-      ),
+      force_numeric = .census_1986_numeric_ind,
       codes_supplement = list(
         ETHNICOR = data.frame(
           val      = c("29", "30"),
@@ -1393,10 +1414,7 @@
     bundle_sps_mask = "hhld86",
     file_mask       = "^HHLD86\\.DAT$",
     doc_mask        = "Household|[Mm][e\u00e9]nages|hhldhsg",
-    data_fixups     = list(force_numeric = c(
-      "VALUEH", "GROSRTH", "RENTH", "OMPH", "MPPIT",
-      "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
-    ))),
+    data_fixups     = list(force_numeric = .census_1986_numeric_hhld)),
 
   "Census/1986/families" = .make_entry("Census", "1986/families",
     bundle_sps_mask = "fam",
@@ -1449,16 +1467,7 @@
     bundle_sps_mask = "indiv71_cma",
     file_mask       = "^indiv71_cma\\.txt$",
     data_fixups     = c(.census_fixup_1971, list(
-      # TYPE66/TYPE71: value 0 ("Data not available") is absent from the SPSS
-      # VALUE LABELS; confirmed from PDF documentation.
-      codes_supplement = list(
-        TYPE66 = data.frame(val = "0", label_en = "Data not available",
-                            label_fr = "Donn\u00e9es non disponibles",
-                            stringsAsFactors = FALSE),
-        TYPE71 = data.frame(val = "0", label_en = "Data not available",
-                            label_fr = "Donn\u00e9es non disponibles",
-                            stringsAsFactors = FALSE)
-      )
+      codes_supplement = .census_1971_type_na
     ))),
 
   "Census/1971/households_prov" = .make_entry("Census", "1971/households_prov",
@@ -1489,6 +1498,81 @@
     bundle_sps_mask = "fam71_cma",
     file_mask       = "^fam71_cma\\.txt$",
     data_fixups     = .census_fixup_1971)
+,
+
+  # ---- Census 1971-1986 from Borealis --------------------------------------
+  # StatCan distributes these vintages only via EFT (the bundle entries above).
+  # The ODESI collection on Borealis (https://borealisdata.ca) republishes each
+  # file type as its own dataset: a CSV conversion of the data (codes without
+  # zero padding, declared-missing values blank) plus the original SPSS command
+  # file.  canpumf reads the CSV and parses the .sps for labels; the manifest
+  # written at download time pins the CSV as the data file.  These keys are the
+  # default for a bare "1971"/"1986 families"/... request unless the EFT bundle
+  # has been deposited (see pumf_resolve_version()).  English datasets only.
+  #
+  # Data fixups mirror the EFT twins where the command files agree.  Unlike the
+  # EFT files, these need no 1981 cols_swap (ODESI's .sps labels the columns
+  # correctly, under its own names ATTEND/BIRTHPLA/MOTHFLP/VHOME) and no 1986
+  # ETHNICOR supplement (codes 29/30 are declared); the 1986 family .sps
+  # declares VALUEC's 999999 as missing itself.
+  "Census/1986 (individuals)" = .make_entry("Census", "1986 (individuals)",
+    borealis    = list(doi = "doi:10.5683/SP3/7F9HMQ"),
+    data_fixups = list(force_numeric = .census_1986_numeric_ind)),
+  "Census/1986 (households)" = .make_entry("Census", "1986 (households)",
+    borealis    = list(doi = "doi:10.5683/SP3/FSJJFR"),
+    data_fixups = list(force_numeric = .census_1986_numeric_hhld)),
+  # The EFT family .sps has no value labels on these, so they are numeric
+  # there already; ODESI's adds boundary labels ("85 yrs or more").
+  "Census/1986 (families)" = .make_entry("Census", "1986 (families)",
+    borealis    = list(doi = "doi:10.5683/SP3/FUAWYX"),
+    data_fixups = list(force_numeric = c(
+      "AGEM", "AGEF", "HRSWKM", "HRSWKF", "WKSWKM", "WKSWKF",
+      "TOTALC", "WAGESC", "INVSTC", "RETIRC", "TOTALH", "TOTALW",
+      "WAGEH", "WAGEW", "SELFH", "SELFW", "INVSTH", "INVSTW",
+      "OMPC", "MPPITC", "GROSRTC", "RENTC", "VALUEC"
+    ))),
+  "Census/1981 (individuals)" = .make_entry("Census", "1981 (individuals)",
+    borealis = list(doi = "doi:10.5683/SP3/XHTFC8")),
+  # One combined "Households and Family File", as in the EFT bundle.
+  "Census/1981 (households)" = .make_entry("Census", "1981 (households)",
+    borealis = list(doi = "doi:10.5683/SP3/WECYST")),
+  "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
+    borealis = list(doi = "doi:10.5683/SP3/ZX0MPJ")),
+  "Census/1976 (households)" = .make_entry("Census", "1976 (households)",
+    borealis = list(doi = "doi:10.5683/SP3/QDJL7W")),
+  "Census/1976 (families)" = .make_entry("Census", "1976 (families)",
+    borealis = list(doi = "doi:10.5683/SP3/5LWCXB")),
+  "Census/1971 (individuals, provincial)" = .make_entry("Census",
+    "1971 (individuals, provincial)",
+    borealis    = list(doi = "doi:10.5683/SP3/RUGTLM"),
+    # INCTOTAL: only "0 NO INCOME/NOT APLICABLE" is labelled (the CMA file
+    # declares no codes and is numeric already); 0 is declared missing.
+    data_fixups = list(force_numeric = c("SUBSAMPL", "INCTOTAL"))),
+  "Census/1971 (individuals, CMA)" = .make_entry("Census",
+    "1971 (individuals, CMA)",
+    borealis    = list(doi = "doi:10.5683/SP3/LG7WKC"),
+    data_fixups = c(.census_fixup_1971,
+                    list(codes_supplement = .census_1971_type_na))),
+  "Census/1971 (households, provincial)" = .make_entry("Census",
+    "1971 (households, provincial)",
+    borealis    = list(doi = "doi:10.5683/SP3/N0T7DE"),
+    data_fixups = .census_fixup_1971),
+  "Census/1971 (households, CMA)" = .make_entry("Census",
+    "1971 (households, CMA)",
+    borealis    = list(doi = "doi:10.5683/SP3/AXB44T"),
+    data_fixups = .census_fixup_1971),
+  "Census/1971 (families, provincial)" = .make_entry("Census",
+    "1971 (families, provincial)",
+    borealis    = list(doi = "doi:10.5683/SP3/CYMXK3"),
+    # CMACODE is always 0 in the provincial file (unpadded in the CSV).
+    data_fixups = c(.census_fixup_1971, list(codes_supplement = list(
+      CMACODE = data.frame(val = "0", label_en = NA_character_,
+                           label_fr = NA_character_, stringsAsFactors = FALSE)
+    )))),
+  "Census/1971 (families, CMA)" = .make_entry("Census",
+    "1971 (families, CMA)",
+    borealis    = list(doi = "doi:10.5683/SP3/R8V3ID"),
+    data_fixups = .census_fixup_1971)
 )
 
 #' Resolve version aliases
@@ -1498,21 +1582,32 @@
 #' type is detected by grepping for "hierarchical", "household", or "famil"
 #' (defaulting to "individuals"), and CMA vs provincial by grepping for "cma".
 #' The registry is then probed to find the correct canonical format for that
-#' year (e.g. `"1971/households_cma"`, `"1986/households"`, or
+#' year (e.g. `"1971 (households, CMA)"`, `"1986 (families)"`, or
 #' `"2001 (households)"`).
+#'
+#' The 1971--1986 vintages exist twice: as StatCan EFT bundles that must be
+#' deposited by hand (`"1971/individuals_cma"`, `"1986/families"`, ...) and as
+#' Borealis downloads (`"1971 (individuals, CMA)"`, `"1986 (families)"`, ...).
+#' A loose request resolves to the EFT key when that year's bundle is present
+#' in `cache_path`, and to the Borealis key otherwise. Adding `"EFT"` or
+#' `"Borealis"` to the version string picks one explicitly, and an exact
+#' registry key is always returned unchanged.
 #'
 #' Examples of accepted inputs (case-insensitive keywords):
 #' - `"2021"` -> `"2021 (individuals)"`
-#' - `"1971"` -> `"1971/individuals_prov"`
-#' - `"1971 CMA"` -> `"1971/individuals_cma"`
-#' - `"1971 households CMA"` -> `"1971/households_cma"`
-#' - `"1986 families"` -> `"1986/families"`
+#' - `"1971"` -> `"1971 (individuals, provincial)"` (or `"1971/individuals_prov"`
+#'   with the EFT bundle deposited)
+#' - `"1971 households CMA"` -> `"1971 (households, CMA)"`
+#' - `"1986 families EFT"` -> `"1986/families"`
 #'
 #' @param series survey series acronym
 #' @param version raw version string supplied by the caller, or `NULL`
+#' @param cache_path cache root, used to detect a deposited EFT bundle
 #' @return canonical version string (or `NULL` if `version` was `NULL`)
 #' @keywords internal
-pumf_resolve_version <- function(series, version) {
+pumf_resolve_version <- function(series, version,
+                                 cache_path = getOption("canpumf.cache_path",
+                                                        tempdir())) {
   if (is.null(version)) return(NULL)
   if (series == "GSS") {
     a <- .pumf_gss_alias(version)
@@ -1523,6 +1618,7 @@ pumf_resolve_version <- function(series, version) {
     if (!is.null(a)) return(a)
   }
   if (series == "Census" && grepl("^\\d{4}", version)) {
+    if (!is.null(.pumf_registry[[paste0("Census/", version)]])) return(version)
     year <- substr(version, 1L, 4L)
 
     type <- if (grepl("hierarchical", version, ignore.case = TRUE)) "hierarchical"
@@ -1530,19 +1626,73 @@ pumf_resolve_version <- function(series, version) {
             else if (grepl("famil",        version, ignore.case = TRUE)) "families"
             else "individuals"
 
-    is_cma <- grepl("cma", version, ignore.case = TRUE)
+    is_cma   <- grepl("cma", version, ignore.case = TRUE)
+    want_eft <- grepl("\\beft\\b", version, ignore.case = TRUE)
+    want_bor <- grepl("borealis", version, ignore.case = TRUE)
 
-    if (is_cma) {
-      k <- paste0(year, "/", type, "_cma")
-      if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
+    eft_key <- .census_eft_key(year, type, is_cma)
+    bor_key <- .census_borealis_key(year, type, is_cma)
+    if (!is.null(eft_key) && !is.null(bor_key)) {
+      if (want_eft) return(eft_key)
+      if (want_bor) return(bor_key)
+      return(if (.census_eft_bundle_present(cache_path, year, eft_key))
+               eft_key else bor_key)
     }
-    k <- paste0(year, "/", type, "_prov")
-    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
-    k <- paste0(year, "/", type)
-    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
+    if (!is.null(eft_key)) return(eft_key)
+    if (!is.null(bor_key)) return(bor_key)
     return(paste0(year, " (", type, ")"))
   }
   version
+}
+
+# Registry key of an EFT bundle entry ("1971/individuals_cma", "1986/families"),
+# or NULL when that year/type has none.
+.census_eft_key <- function(year, type, is_cma) {
+  cands <- c(if (is_cma) paste0(year, "/", type, "_cma"),
+             paste0(year, "/", type, "_prov"),
+             paste0(year, "/", type))
+  for (k in cands)
+    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
+  NULL
+}
+
+# Registry key of a Borealis-sourced entry ("1971 (individuals, CMA)",
+# "1986 (families)"), or NULL.  Only keys carrying a borealis DOI qualify, so
+# StatCan-downloadable years (1991+) never resolve here.
+.census_borealis_key <- function(year, type, is_cma) {
+  cands <- c(if (is_cma) paste0(year, " (", type, ", CMA)"),
+             paste0(year, " (", type, ", provincial)"),
+             paste0(year, " (", type, ")"))
+  for (k in cands) {
+    e <- .pumf_registry[[paste0("Census/", k)]]
+    if (!is.null(e) && !is.null(e$borealis)) return(k)
+  }
+  NULL
+}
+
+# Has the user deposited (or already built) the EFT bundle for `year`?
+.census_eft_bundle_present <- function(cache_path, year, eft_key) {
+  if (is.null(cache_path)) return(FALSE)
+  bundle_dir <- file.path(cache_path, "Census", year)
+  if (!dir.exists(bundle_dir)) return(FALSE)
+  if (!is.null(.find_version_zip(bundle_dir))) return(TRUE)
+  eft_dir <- file.path(cache_path, "Census", eft_key)
+  if (.version_is_extracted(eft_dir) ||
+      length(list.files(eft_dir, pattern = "\\.duckdb$")) > 0L) return(TRUE)
+  # Extracted bundle content: raw files directly in Census/<year>/ (the per-type
+  # subdirectories alone do not count -- they may hold only a stale build).
+  raw <- list.files(bundle_dir, recursive = FALSE)
+  raw <- raw[!dir.exists(file.path(bundle_dir, raw))]
+  length(raw) > 0L
+}
+
+# For an EFT bundle key, the equivalent Borealis key (used in error hints).
+.pumf_borealis_alternative <- function(series, version) {
+  if (series != "Census" || !grepl("^\\d{4}/", version)) return(NULL)
+  year <- substr(version, 1L, 4L)
+  rest <- sub("^\\d{4}/", "", version)
+  type <- sub("_(cma|prov)$", "", rest)
+  .census_borealis_key(year, type, grepl("_cma$", rest))
 }
 
 # GSS theme/cycle aliases.  Canonical registry keys are "Cycle N (YYYY)".  Each
@@ -1666,6 +1816,12 @@ pumf_registry_lookup <- function(series, version) {
   # entry when the survey is not registered).  series/version always come from
   # the lookup arguments, never from the patch.
   if (is.null(base)) base <- .make_entry(series, version)
+  # get_pumf(borealis = <doi>) on a registered version: the built-in config was
+  # calibrated for that entry's own source files, not for an arbitrary Borealis
+  # dataset, so it is dropped unless it names the same DOI.
+  if (isTRUE(ovr$borealis$explicit) &&
+      !identical(.borealis_entry_doi(base), .borealis_entry_doi(ovr)))
+    base <- .make_entry(series, version)
   for (f in setdiff(names(ovr), c("series", "version")))
     base[[f]] <- ovr[[f]]
   base$series  <- series
@@ -1736,7 +1892,7 @@ pumf_registry_keys <- function() {
   "layout_mask", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
   "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
   "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
-  "doc_mask", "download_format")
+  "doc_mask", "download_format", "borealis")
 
 # Recognised data_fixups sub-fields (for validation warnings).
 .pumf_fixup_fields <- c(
@@ -1766,6 +1922,19 @@ pumf_registry_keys <- function() {
     if (!is.null(v) && !is_chr(v))
       stop("Registry field '", f, "' must be a character vector (or NULL).",
            call. = FALSE)
+  }
+  if (!is.null(x$borealis)) {
+    b <- x$borealis
+    if (is.character(b) && length(b) == 1L) b <- list(doi = b)
+    if (!is.list(b) || is.null(b$doi) || !is.character(b$doi) ||
+        length(b$doi) != 1L)
+      stop("Registry field 'borealis' must be a DOI string or ",
+           "list(doi = , files = ).", call. = FALSE)
+    unknown <- setdiff(names(b), c("doi", "files", "explicit"))
+    if (length(unknown) > 0L)
+      stop("Unrecognised borealis field(s): ", paste(unknown, collapse = ", "),
+           ". Recognised: doi, files.", call. = FALSE)
+    .borealis_normalize_doi(b$doi)
   }
   if (!is.null(x$data_fixups)) {
     if (!is.list(x$data_fixups))
@@ -1801,10 +1970,11 @@ pumf_registry_keys <- function() {
 #' than a full replacement.  Use [pumf_registry()] to inspect an existing entry
 #' as a starting template.
 #'
-#' The custom registry covers parsing and building configuration only; it does
-#' not provide a download URL.  For a survey not in [list_canpumf_collection()],
-#' deposit the raw zip (or extracted files) under
-#' `<cache_path>/<series>/<version>/` first, then call
+#' The custom registry covers parsing and building configuration, plus an
+#' optional Borealis source (`borealis`); it does not provide a StatCan
+#' download URL.  For a survey not in [list_canpumf_collection()], either point
+#' `borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
+#' files) under `<cache_path>/<series>/<version>/` first, then call
 #' `get_pumf(series, version, registry = ...)`.
 #'
 #' @param layout_mask SPSS/SAS command-file disambiguator for split-file
@@ -1838,6 +2008,12 @@ pumf_registry_keys <- function() {
 #'   default the preferred format wins; set this when only one bundle carries
 #'   the command files the metadata parsers need (e.g. the Canadian Health
 #'   Survey on Seniors, whose CSV zip ships the data alone).
+#' @param borealis A Borealis Dataverse source for the data: a DOI string
+#'   (`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the
+#'   optional `files` (file ids or names from [list_borealis_pumf_files()])
+#'   overrides canpumf's automatic choice of data and command files. A
+#'   registry `borealis` source is used only when Statistics Canada has no
+#'   download for the version; pass `get_pumf(..., borealis =)` to force it.
 #' @param ... Reserved; passing any unrecognised field name raises an error.
 #'
 #' @return A classed `"pumf_registry_entry"` list containing only the supplied
@@ -1869,6 +2045,7 @@ pumf_registry_entry <- function(layout_mask       = NULL,
                                 bundle_sps_mask   = NULL,
                                 doc_mask          = NULL,
                                 download_format   = NULL,
+                                borealis          = NULL,
                                 ...) {
   dots <- names(list(...))
   if (length(dots) > 0L)
@@ -1880,6 +2057,7 @@ pumf_registry_entry <- function(layout_mask       = NULL,
   out <- list()
   for (f in intersect(supplied, .pumf_registry_fields))
     out[[f]] <- get(f, envir = env)
+  if (is.character(out$borealis)) out$borealis <- list(doi = out$borealis)
   .validate_registry_entry(out)
   structure(out, class = "pumf_registry_entry")
 }
@@ -1962,6 +2140,7 @@ print.pumf_registry_entry <- function(x, ...) {
   show("bundle_source",     x$bundle_source)
   show("doc_mask",          x$doc_mask)
   show("download_format",   x$download_format)
+  show("borealis",          x$borealis$doi)
   if (length(x$data_fixups) > 0L) {
     cat("  data_fixups:\n")
     for (nm in names(x$data_fixups)) {

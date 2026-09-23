@@ -577,11 +577,20 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 }
 
 
+# Read a command file as lines, treating any run of CRs before an LF (and a
+# lone CR) as one line break.  readr splits "\r\r\n" -- the Borealis/ODESI
+# copy of the 1976 Census household SPSS file -- into a blank line plus a line
+# starting with "\n", which breaks every section of the parse.
+.read_cmd_lines <- function(path, encoding) {
+  txt <- readr::read_file(path, locale = readr::locale(encoding = encoding))
+  strsplit(txt, "\r*\n|\r", perl = TRUE)[[1L]]
+}
+
 # Read and pre-process an SPSS file: tab->space, strip trailing whitespace,
 # join single-quote + continuation lines, normalize single->double quotes.
 # Returns a tibble with 'value' (original) and 'clean' (processed) columns.
 .spss_read_preprocess <- function(path, encoding) {
-  raw <- readr::read_lines(path, locale = readr::locale(encoding = encoding))
+  raw <- .read_cmd_lines(path, encoding)
 
   lines <- gsub("\\t", " ", raw)
   lines <- gsub("\\s+$", "", lines)
@@ -629,10 +638,14 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   #   CODE 'label' /          (2006 Census: block separator on same line)
   #   CODE 'label' / .        (2006 Census: last block + section terminator)
   #   CODE 'label' .          (2021 Census: section terminator)
+  # An apostrophe inside a single-quoted string is doubled ('Person 1''s son',
+  # Census 1986); park it so the quote swap cannot split the label there.
+  lines <- gsub("(?<=\\w)''(?=\\w)", "\001", lines, perl = TRUE)
   sq <- grepl("'[^']*'(\\s*[./])*\\s*$", lines) &
         !grepl('"', lines, fixed = TRUE) &
         !grepl("^\\s*/\\*", lines)            # skip comments
   lines[sq] <- gsub("'", '"', lines[sq])
+  lines <- gsub("\001", "'", lines, fixed = TRUE)
 
   # Strip trailing '.' that some 2021-style lines use as section terminators
   lines <- gsub('"\\s*\\.$', '"', lines)
@@ -709,7 +722,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     # Collect variable names: the header may span several continuation lines.
     # A code line always contains at least one double-quoted label; header/name
     # lines do not.  Read lines while no double-quotes are present.
-    name_words <- strsplit(first_line, "\\s+")[[1L]]
+    # Only text before the first quote can hold names: on an inline header
+    # (`HHTYPE 1 "1 FMLY 2 PARENTS NO OTHERS"`, Census 1976) the label's words
+    # would otherwise become variables FMLY/PARENTS/NO.
+    name_words <- strsplit(trimws(sub('".*', "", first_line)), "\\s+")[[1L]]
     code_start <- s + 1L
     while (code_start <= ge && !grepl('"', lines[code_start], fixed = TRUE)) {
       name_words <- c(name_words,
@@ -821,30 +837,39 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
 
 # Parse MISSING VALUES section -> tibble(name, missing_low, missing_high).
+# Declarations are "NAMES (values)" groups; a line may hold several (Census
+# 1971 on Borealis: "INCWAGES (0)             SELF (0) .") and one group may
+# name several variables ("A B (0)").
 .spss_parse_missing <- function(lines) {
-  lines <- lines[nchar(trimws(lines)) > 0L]
-  if (length(lines) == 0L)
-    return(tibble::tibble(name = character(),
-                          missing_low = double(), missing_high = double()))
+  empty <- tibble::tibble(name = character(),
+                          missing_low = double(), missing_high = double())
+  combined <- paste(trimws(lines), collapse = " ")
+  # values may be padded inside the parens: "VALUEH  ( 999999 )/"
+  groups <- stringr::str_match_all(combined, "([^()]*)\\(([^)]+)\\)")[[1L]]
+  if (nrow(groups) == 0L) return(empty)
 
-  tibble::tibble(value = trimws(lines)) |>
-    mutate(
-      name        = stringr::str_match(.data$value, "^([A-Za-z][A-Za-z0-9_]*)")[, 2L],
-      # values may be padded inside the parens: "VALUEH  ( 999999 )/"
-      miss_str    = trimws(stringr::str_match(.data$value, "\\(([^)]+)\\)")[, 2L])
-    ) |>
-    filter(!is.na(.data$name), !is.na(.data$miss_str)) |>
-    mutate(
-      missing_low  = as.numeric(
-        stringr::str_match(.data$miss_str, "^(-?[\\d.]+(?:[Ee][+-]?\\d+)?)")[, 2L]),
-      missing_high = if_else(
-        grepl("THRU", .data$miss_str, ignore.case = TRUE),
-        as.numeric(stringr::str_match(
-          .data$miss_str, "THRU\\s+(-?[\\d.]+(?:[Ee][+-]?\\d+)?)")[, 2L]),
-        .data$missing_low
-      )
-    ) |>
-    select("name", "missing_low", "missing_high")
+  num_pat <- "-?[\\d.]+(?:[Ee][+-]?\\d+)?"
+  rows <- lapply(seq_len(nrow(groups)), function(g) {
+    names <- stringr::str_extract_all(groups[g, 2L], "[A-Za-z][A-Za-z0-9_]*")[[1L]]
+    names <- names[!toupper(names) %in% c("TO", "MISSING", "VALUES")]
+    if (length(names) == 0L) return(NULL)
+    miss_str <- trimws(groups[g, 3L])
+    lo <- as.numeric(stringr::str_match(miss_str, paste0("^(", num_pat, ")"))[, 2L])
+    hi <- if (grepl("THRU", miss_str, ignore.case = TRUE))
+      as.numeric(stringr::str_match(miss_str, paste0("THRU\\s+(", num_pat, ")"))[, 2L])
+    else lo
+    # A discrete list that is a run of consecutive integers ("998,999",
+    # "15,16,17", "8, 7") is exactly the range; other lists keep only their
+    # first value, since one range cannot express them.
+    v <- suppressWarnings(as.numeric(strsplit(miss_str, "\\s*,\\s*")[[1L]]))
+    if (length(v) > 1L && !anyNA(v) && all(v == round(v))) {
+      v <- sort(v)
+      if (all(diff(v) == 1)) { lo <- v[1L]; hi <- v[length(v)] }
+    }
+    tibble::tibble(name = names, missing_low = lo, missing_high = hi)
+  })
+  out <- dplyr::bind_rows(c(list(empty), rows))
+  out[!duplicated(out$name), ]
 }
 
 
@@ -1063,7 +1088,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 # line(s) and comment lines stripped.  Does NOT do quote normalisation -- the
 # section parsers handle that via the monolithic preprocessor when needed.
 .spss_split_read_section <- function(path, encoding) {
-  raw   <- readr::read_lines(path, locale = readr::locale(encoding = encoding))
+  raw   <- .read_cmd_lines(path, encoding)
   lines <- trimws(gsub("\\t", " ", raw))
   lines <- lines[nchar(lines) > 0L]
 
@@ -1088,7 +1113,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 # fmt_type: "A" = character, "F" = numeric, NA = unknown.
 # decimals: decimal places from format code (0 = integer, NA = unknown or character).
 .spss_split_parse_layout <- function(path, encoding) {
-  raw   <- readr::read_lines(path, locale = readr::locale(encoding = encoding))
+  raw   <- .read_cmd_lines(path, encoding)
   lines <- trimws(gsub("\\t", " ", raw))
   lines <- lines[nchar(lines) > 0L]
 
@@ -1243,7 +1268,7 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
   read_sas_lines <- function(path) {
     if (is.null(path)) return(character(0L))
     tryCatch(
-      readr::read_lines(path, locale = readr::locale(encoding = encoding)),
+      .read_cmd_lines(path, encoding),
       error = function(e) character(0L)
     )
   }
@@ -2263,12 +2288,24 @@ merge_metadata <- function(parsed_list) {
   x
 }
 
+# Undo escapes that leaked into labels: HTML entities ("Yukon &amp; NWT", the
+# Census 1986 EFT command files) and an SPSS doubled apostrophe kept inside a
+# double-quoted label ("Person 1''s spouse").
+.fix_label_escapes <- function(x) {
+  if (!is.character(x)) return(x)
+  x <- gsub("(?<=\\w)''(?=\\w)", "'", x, perl = TRUE)
+  ents <- c("&lt;" = "<", "&gt;" = ">", "&quot;" = "\"", "&#39;" = "'",
+            "&apos;" = "'", "&amp;" = "&")
+  for (e in names(ents)) x <- gsub(e, ents[[e]], x, fixed = TRUE)
+  x
+}
+
 .fix_metadata_mojibake <- function(metadata) {
   for (tbl in c("variables", "codes")) {
     df <- metadata[[tbl]]
     if (is.null(df)) next
     for (col in intersect(c("label_en", "label_fr"), names(df)))
-      df[[col]] <- .fix_mojibake(df[[col]])
+      df[[col]] <- .fix_label_escapes(.fix_mojibake(df[[col]]))
     metadata[[tbl]] <- df
   }
   metadata
@@ -2427,7 +2464,8 @@ pumf_parse_metadata <- function(version_dir,
       metadata, formats$pdf_freq,
       version_dir   = source_dir,
       metadata_dir  = metadata_dir,
-      file_mask     = file_mask %||% reg$file_mask,
+      file_mask     = file_mask %||% reg$file_mask %||%
+                      .borealis_manifest_file_mask(source_dir),
       data_encoding = reg$data_encoding %||% "CP1252")
   }
 

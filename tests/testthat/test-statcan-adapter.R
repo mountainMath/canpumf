@@ -202,3 +202,17 @@ test_that("adapter handles empty / all-unsupported input", {
   expect_equal(nrow(canpumf:::.statcan_catalogue_to_collection(only_unsupported)),
                0L)
 })
+
+test_that("Census collection falls back to the catalogue when the index page is gone", {
+  # The 98m0001x index page 404s; an empty scrape must not leave the Census
+  # version list empty (which broke list_canpumf_collection()'s EFT year range).
+  local_mocked_bindings(read_html = function(...) stop("HTTP error 404."),
+                        .package = "rvest")
+  withr::local_options(canpumf.cache_path = NULL)
+  cen <- canpumf:::list_census_collection()
+  expect_true(all(c("1991 (individuals)", "2021 (hierarchical)") %in% cen$Version))
+  expect_true(all(grepl("/98m0001x/2023001/", cen$url)))
+  # the last-resort hard-coded list points at the same live location
+  expect_true(all(grepl("/98m0001x/2023001/",
+                        canpumf:::.census_collection_fallback()$url)))
+})

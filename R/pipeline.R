@@ -218,8 +218,13 @@ pumf_locate_or_download <- function(series,
         )
         src_url <- if (nrow(src_row) > 0L) src_row$url[[1L]] else "(EFT)"
         if (identical(src_url, "(EFT)")) {
+          alt <- .pumf_borealis_alternative(series, version)
           stop(series, " ", version, " is part of a bundled EFT archive.\n",
-               "Deposit the bundle zip in:\n  ", source_dir, call. = FALSE)
+               "Deposit the bundle zip in:\n  ", source_dir,
+               if (!is.null(alt))
+                 paste0("\nOr load the Borealis copy instead: get_pumf(\"",
+                        series, "\", \"", alt, "\")"),
+               call. = FALSE)
         }
         dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
         bzip <- file.path(source_dir, .zip_filename_from_url(src_url))
@@ -239,6 +244,24 @@ pumf_locate_or_download <- function(series,
     return(invisible(version_dir))
   }
   # ---- End bundled-archive branch --------------------------------------------
+
+  # Borealis source.  An explicit get_pumf(borealis =) request always uses it;
+  # a registry DOI is only the fallback when StatCan has no download.  A
+  # directory previously filled from Borealis keeps that source on redownload
+  # (the manifest DOI is read before the wipe).
+  bor          <- reg$borealis
+  if (is.character(bor)) bor <- list(doi = bor)
+  bor_explicit <- isTRUE(bor$explicit)
+  prior_doi    <- .borealis_manifest_doi(version_dir)
+  if (bor_explicit && !redownload && .version_is_extracted(version_dir) &&
+      !identical(prior_doi, .borealis_normalize_doi(bor$doi)))
+    stop(series, " ", version, " is already cached from ",
+         if (is.null(prior_doi)) "Statistics Canada" else prior_doi,
+         " in\n  ", version_dir, "\n",
+         "Pass redownload = TRUE to replace it with ", bor$doi,
+         ", or load the Borealis dataset under a different version name.",
+         call. = FALSE)
+  bor_doi <- if (bor_explicit) bor$doi else prior_doi
 
   # Step 2a: redownload — wipe the entire version directory (zip, extracted
   # content, DuckDB, metadata) so the download/extract cycle starts fresh.
@@ -275,28 +298,43 @@ pumf_locate_or_download <- function(series,
   if (is.null(zip_path) && !is_extracted) {
     # Resolve the download URL: scraped catalogue first for series the crawler
     # covers, otherwise the curated collection (see .pumf_resolve_collection_row).
-    row <- .pumf_resolve_collection_row(series, version)
-    if (nrow(row) == 0L) {
-      stop(series, " version '", version, "' was not found in the canpumf ",
-           "collection. Check available versions with list_canpumf_collection().")
+    # StatCan wins over a registry Borealis DOI; Borealis fills in when StatCan
+    # has no public download (no row, or an EFT-only vintage).
+    url <- NULL
+    if (is.null(bor_doi)) {
+      row <- .pumf_resolve_collection_row(series, version)
+      url <- if (nrow(row) > 0L) row$url[[1L]] else NULL
+      if (!is.null(url) && startsWith(url, BOREALIS_SERVER)) url <- "(EFT)"
+      if (is.null(url) || identical(url, "(EFT)")) {
+        bor_doi <- bor$doi
+        if (is.null(bor_doi) && is.null(url))
+          stop(series, " version '", version, "' was not found in the canpumf ",
+               "collection. Check available versions with ",
+               "list_canpumf_collection(), or load a Borealis copy with ",
+               "get_pumf(..., borealis = <doi>) (see ",
+               "list_borealis_pumf_catalogue()).")
+        if (is.null(bor_doi))
+          stop(series, " ", version, " is distributed via Statistics Canada's ",
+               "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",
+               "Download the zip file manually from the Statistics Canada EFT portal ",
+               "and place it in:\n  ", version_dir)
+      }
     }
-    url <- row$url[[1L]]
-    if (identical(url, "(EFT)")) {
-      stop(series, " ", version, " is distributed via Statistics Canada's ",
-           "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",
-           "Download the zip file manually from the Statistics Canada EFT portal ",
-           "and place it in:\n  ", version_dir)
+    if (!is.null(bor_doi)) {
+      .borealis_download_dataset(bor_doi, version_dir, files = bor$files)
+      is_extracted <- TRUE
+    } else {
+      dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
+      zip_name <- .zip_filename_from_url(url)
+      zip_path  <- file.path(version_dir, zip_name)
+      .pumf_warn_cache_path_on_download()
+      message("Downloading ", series, " ", version, " ...")
+      old_timeout <- getOption("timeout")
+      options(timeout = max(600L, old_timeout))
+      on.exit(options(timeout = old_timeout), add = TRUE)
+      .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
+      is_extracted <- FALSE  # need extraction after download
     }
-    dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
-    zip_name <- .zip_filename_from_url(url)
-    zip_path  <- file.path(version_dir, zip_name)
-    .pumf_warn_cache_path_on_download()
-    message("Downloading ", series, " ", version, " ...")
-    old_timeout <- getOption("timeout")
-    options(timeout = max(600L, old_timeout))
-    on.exit(options(timeout = old_timeout), add = TRUE)
-    .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
-    is_extracted <- FALSE  # need extraction after download
   }
 
   # Step 4: extract zip when not yet done.
@@ -938,7 +976,11 @@ pumf_build_duckdb <- function(version_dir,
 
   # Step 5: read data file
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
-  eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
+  # A Borealis download records its data file in the manifest; ODESI datasets
+  # also carry fixed-width copies and text codebooks that could be mistaken
+  # for it.
+  eff_mask <- file_mask %||% reg$file_mask %||%
+    .borealis_manifest_file_mask(version_dir)
 
   # For bundled-archive versions (version contains "/"), raw data and BSW files
   # live in dirname(version_dir); metadata CSVs and DuckDB stay in version_dir.

@@ -8,8 +8,10 @@ list_canpumf_collection()
 }
 \value{
 A tibble with columns `Title`, `Acronym`, `Version`,
-  `Survey Number`, and `url`.  The `url` column contains the download URL or
-  `"(EFT)"` for versions distributed via the Research Data Centre (EFT only).
+  `Survey Number`, and `url`.  The `url` column contains the download URL,
+  `"(EFT)"` for versions distributed via the Research Data Centre (EFT only),
+  or the Borealis dataset page for versions canpumf loads from Borealis
+  (see [list_borealis_pumf_catalogue()]).
   Pass `Acronym` and `Version` to [get_pumf()] to download a dataset.
 }
 \description{

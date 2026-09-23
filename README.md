@@ -42,6 +42,18 @@ options("canpumf.register_connection" = TRUE)
 
 Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.
 
+PUMF data can also be loaded from the [Borealis](https://borealisdata.ca) Dataverse, which hosts the ODESI collection of Statistics Canada PUMFs. Statistics Canada stays the primary source; Borealis is used automatically for vintages StatCan does not post (the 1971–1986 Census PUMFs), and any other Borealis PUMF dataset can be loaded by its DOI:
+
+```r
+cat <- list_borealis_pumf_catalogue()                 # browse the Borealis PUMF collection
+list_borealis_pumf_files("doi:10.5683/SP3/EZXFNL")   # inspect a dataset's files
+shs_1997 <- get_pumf("SHS", "1997", borealis = "doi:10.5683/SP3/EZXFNL")
+```
+
+The `version` names the cache directory, and later calls to `get_pumf("SHS", "1997")` reopen the Borealis copy. Datasets outside the built-in registry are parsed by auto-detection. If the build warns that a variable's unmatched values become `NA`, that variable is usually continuous with only a top-code labelled. Pass `registry = pumf_registry_entry(data_fixups = list(force_numeric = c("NUMROOM", "AGEREFP")))` together with `refresh = TRUE` to keep it numeric.
+
+No account is needed. If the `BOREALIS_DATAVERSE_KEY` environment variable is set, it is sent to Borealis as the API key, which gives access to restricted files the key's owner is entitled to.
+
 `get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
 
 Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
@@ -94,7 +106,7 @@ lfs_all <- get_pumf("LFS", refresh = "auto")
 
 ## Census data
 
-The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download; years 1986 and earlier must be ordered through Statistics Canada's EFT portal and placed in the cache directory.
+The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download from Statistics Canada. Years 1986 and earlier are downloaded automatically from Borealis (English labels only). If you have ordered the Statistics Canada EFT bundle for one of those years and placed it in the cache directory, it is used instead; add `"eft"` or `"borealis"` to the version string to pick a source explicitly, e.g. `get_pumf("Census", "1971 individuals CMA borealis")`.
 
 ```r
 pumf_2021 <- get_pumf("Census", "2021")
@@ -111,10 +123,10 @@ By default the package loads the *individuals* file. Available variants by year:
 | 2001 | individuals, households, families |
 | 1996 | individuals, households, families |
 | 1991 | individuals, households, families |
-| 1986 | individuals, households |
+| 1986 | individuals, households, families |
 | 1981 | individuals, households |
-| 1976 | individuals |
-| 1971 | individuals, individuals PR |
+| 1976 | individuals, households, families |
+| 1971 | individuals, households, families (each as provincial and CMA file) |
 
 ```r
 pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
@@ -122,13 +134,14 @@ pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 
 ## Verified datasets
 
-The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked **direct download** can be fetched automatically by `get_pumf()`; others must be placed in the cache directory via Statistics Canada's EFT portal.
+The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked **direct download** can be fetched automatically by `get_pumf()` (from Statistics Canada, or from Borealis where marked); others must be placed in the cache directory via Statistics Canada's EFT portal.
 
 | Survey | Series | Verified versions | Direct download |
 |---|---|---|:---:|
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
+| Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
 | General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
 | General Social Survey — Aging and Social Support | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
 | General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |

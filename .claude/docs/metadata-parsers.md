@@ -26,7 +26,7 @@ Parsers 7–9 need `pdftools`, which is in Suggests, and are skipped when it is 
 ## Sentinels and missing values
 
 - **Sentinel detection** uses two anchored patterns built from shared alternatives. `.missing_pat` matches **true-missing** labels (Not applicable, Not stated, Not asked, Valid skip, Refusal, Don't know, … and the French equivalents). `.sentinel_pat` also matches **zero-value** labels ("ZERO HOURS", "None", "Aucun don"): these mark a continuous variable, but the value is a valid zero, not missing data. A variable whose value labels are ALL sentinels is classified `numeric`. Its `missing_low`/`missing_high` range comes from the `.missing_pat` codes **only**. For example, GSS 2012 `ITL_Q10` has 0 = "None" and 97–99 missing, so the range must be [97, 99], not [0, 99].
-- **MISSING VALUES**: `.spss_parse_missing()` tolerates padding inside the parens (`VALUEH  ( 999999 )/`) and negative values. A single value gives `missing_low == missing_high`, and `lo THRU hi` gives a range. For a set of several discrete values, only the first is recorded (conservative). Use the registry's `missing_codes` fixup when that matters.
+- **MISSING VALUES**: `.spss_parse_missing()` tolerates padding inside the parens (`VALUEH  ( 999999 )/`) and negative values. A single value gives `missing_low == missing_high`, and `lo THRU hi` gives a range. Every `NAMES (values)` group on a (joined) MISSING VALUES statement is parsed, so ODESI files declaring several variables per line (`CMACODE (0)/ FAMSIZE (99)/ …`) and the shared form `A B (99)` are all captured. A comma list of contiguous integers (in any order: `998,999`, `8, 7`) becomes a range; any other set of discrete values records only its first value (conservative). Use the registry's `missing_codes` fixup when that matters.
 
 ## SPSS details
 
@@ -37,6 +37,9 @@ Parsers 7–9 need `pdftools`, which is in Suggests, and are skipped when it is 
   - The opening quote must follow whitespace or start the line.
 
   A dropped tail leaves a label cut mid-word (`SSGRAD` as `"Scolarité : … attestation d'éq"`). That looks exactly like the upstream truncation the PDF cross-check repairs.
+- **Line endings**: command files are read with `.read_cmd_lines()`, which treats any run of CRs before an LF (and a lone CR) as one break. readr splits the `\r\r\n` of the Borealis/ODESI 1976 Census household `.sps` into a blank line plus a line starting with `\n`, which breaks every section.
+- **Doubled apostrophes**: `'Person 1''s son'` (Census 1986) is parked before the quote swap in `.spss_read_preprocess()` so the label is not split there. `.fix_label_escapes()` (run with `.fix_mojibake()` in `.fix_metadata_mojibake()`) also turns a `''` left inside a double-quoted label, and HTML entities such as `Yukon &amp; NWT` (1986 EFT), into plain text.
+- **Inline VALUE LABELS headers**: only text before the first quote can hold variable names, so `HHTYPE 1 "1 FMLY 2 PARENTS NO OTHERS"` (Census 1976) does not create variables `FMLY`/`PARENTS`/`NO`.
 - **Zero-padded codes**: unquoted numeric codes like `01` are normalised via `as.numeric()` → `.code_chr()` so they match bare integers in CSV data. `.code_chr()` formats each element separately and never uses scientific notation (`as.character(200000)` gives `"2e+05"`, which breaks joins).
 - **Multi-variable VALUE LABELS blocks**: `/VAR1 VAR2 VAR3` headers are fully parsed, including headers that span continuation lines.
 - **DATA LIST column ranges**: spaces around the dash are tolerated (`129-135`, `129 - 135`, `129-  135`). A leading `/` record-group marker on the first variable line is stripped, and the variable is kept.

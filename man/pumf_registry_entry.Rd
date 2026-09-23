@@ -20,6 +20,7 @@ pumf_registry_entry(
   bundle_sps_mask = NULL,
   doc_mask = NULL,
   download_format = NULL,
+  borealis = NULL,
   ...
 )
 }
@@ -62,6 +63,13 @@ default the preferred format wins; set this when only one bundle carries
 the command files the metadata parsers need (e.g. the Canadian Health
 Survey on Seniors, whose CSV zip ships the data alone).}
 
+\item{borealis}{A Borealis Dataverse source for the data: a DOI string
+(`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the
+optional `files` (file ids or names from [list_borealis_pumf_files()])
+overrides canpumf's automatic choice of data and command files. A
+registry `borealis` source is used only when Statistics Canada has no
+download for the version; pass `get_pumf(..., borealis =)` to force it.}
+
 \item{...}{Reserved; passing any unrecognised field name raises an error.}
 }
 \value{
@@ -81,10 +89,11 @@ pipeline defaults (for a new survey).  This makes the result a *patch* rather
 than a full replacement.  Use [pumf_registry()] to inspect an existing entry
 as a starting template.
 
-The custom registry covers parsing and building configuration only; it does
-not provide a download URL.  For a survey not in [list_canpumf_collection()],
-deposit the raw zip (or extracted files) under
-`<cache_path>/<series>/<version>/` first, then call
+The custom registry covers parsing and building configuration, plus an
+optional Borealis source (`borealis`); it does not provide a StatCan
+download URL.  For a survey not in [list_canpumf_collection()], either point
+`borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
+files) under `<cache_path>/<series>/<version>/` first, then call
 `get_pumf(series, version, registry = ...)`.
 }
 \examples{

@@ -81,6 +81,28 @@ test_that(".spss_parse_missing: handles standard single-value and range declarat
   expect_equal(result$missing_low[result$name == "NEGVAL"],  -99)
 })
 
+test_that(".spss_parse_missing: consecutive discrete values become a range", {
+  # Census 1986 families: "HRSWKM ( 998,999 )/" -- both are missing.  A list
+  # with gaps cannot be one range and keeps its first value.
+  result <- canpumf:::.spss_parse_missing(
+    c("HRSWKM ( 998,999 )/", "COWF ( 0,9 )/", "RES66 (8, 7)"))
+  expect_equal(result$missing_low,  c(998, 0, 7))
+  expect_equal(result$missing_high, c(999, 0, 8))
+})
+
+test_that(".spss_parse_missing: several declarations per line", {
+  # Census 1971 on Borealis packs three declarations per line; the old
+  # line-anchored parser kept only the first.
+  result <- canpumf:::.spss_parse_missing(c(
+    "  CMACODE (0)              FAMSIZE (0)              HEADED (0)",
+    "  INCWAGES (0)             SELF (0) .",
+    "  A B (99)"))
+  expect_equal(result$name, c("CMACODE", "FAMSIZE", "HEADED", "INCWAGES",
+                              "SELF", "A", "B"))
+  expect_equal(result$missing_low, c(0, 0, 0, 0, 0, 99, 99))
+  expect_equal(result$missing_high, c(0, 0, 0, 0, 0, 99, 99))
+})
+
 test_that("parse_spss_mono: DATA LIST layout extracted from 2021-style file", {
   m <- canpumf:::parse_spss_mono(fx("simple_en.sps"))
 
@@ -91,6 +113,46 @@ test_that("parse_spss_mono: DATA LIST layout extracted from 2021-style file", {
   agegrp <- m$layout[m$layout$name == "AGEGRP", ]
   expect_equal(agegrp$start, 1L)
   expect_equal(agegrp$end,   2L)
+})
+
+test_that("parse_spss_mono: CR-CR-LF line endings and label words on inline headers", {
+  # Borealis' copy of the 1976 Census household file ends every line with
+  # "\r\r\n" and has no section terminators; labels such as
+  # '1 FMLY 2 PARENTS NO OTHERS' must not turn FMLY/PARENTS/NO into variables.
+  sps <- c("DATA LIST FILE=IN RECORDS=1/",
+           "    HHTYPE  1 - 2",
+           "    TENURE  3 - 3",
+           "    HHSTAT  4 - 5",
+           "VARIABLE LABELS",
+           "  HHTYPE  'TYPE OF PRIVATE HOUSEHOLD'",
+           "  TENURE  'TENURE'",
+           "  HHSTAT  'HOUSEHOLD STATUS'",
+           "VALUE LABELS",
+           "    HHTYPE   1  '1 FMLY 2 PARENTS NO OTHERS'",
+           "          2  '1 FMLY 1 PARENT+OTHERS'",
+           "         /",
+           "    TENURE   1  'OWNED'",
+           "          2  'RENTED'",
+           "         /",
+           "    HHSTAT   2  'Person 1''s spouse'",
+           "          3  'Person 1''s son or daughter'",
+           "         /",
+           "MISSING VALUES  TENURE  ( 9 )/")
+  f <- tempfile(fileext = ".sps")
+  on.exit(unlink(f))
+  writeBin(charToRaw(paste0(paste(sps, collapse = "\r\r\n"), "\r\r\n")), f)
+
+  m <- canpumf:::parse_spss_mono(f)
+  expect_setequal(unique(m$codes$name), c("HHTYPE", "TENURE", "HHSTAT"))
+  # SPSS doubled apostrophe inside a single-quoted label
+  expect_equal(m$codes$label_en[m$codes$name == "HHSTAT"],
+               c("Person 1's spouse", "Person 1's son or daughter"))
+  expect_equal(m$codes$label_en[m$codes$name == "HHTYPE"],
+               c("1 FMLY 2 PARENTS NO OTHERS", "1 FMLY 1 PARENT+OTHERS"))
+  expect_equal(m$codes$label_en[m$codes$name == "TENURE"], c("OWNED", "RENTED"))
+  expect_equal(m$variables$label_en[m$variables$name == "HHTYPE"],
+               "TYPE OF PRIVATE HOUSEHOLD")
+  expect_equal(m$layout$name, c("HHTYPE", "TENURE", "HHSTAT"))
 })
 
 test_that("parse_spss_mono: label_fr = NA when no French file", {
