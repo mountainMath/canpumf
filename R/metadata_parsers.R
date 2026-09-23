@@ -2209,6 +2209,72 @@ merge_metadata <- function(parsed_list) {
 }
 
 
+# ---- Double-encoded UTF-8 ("mojibake") repair --------------------------------
+#
+# Some command files carry text that was UTF-8, decoded as CP1252 and re-encoded
+# as UTF-8 before StatCan shipped it: the Census 2021 individuals English .sps
+# (and .dct) spell an en-dash as "â€“".  The file itself is valid UTF-8, so no
+# metadata_encoding can undo this -- the damage is in the text.
+#
+# The repair works on individual characters, not whole strings, because a
+# damaged label can also hold genuine accents.  A candidate is a CP1252-rendered
+# UTF-8 lead byte followed by exactly the number of continuation bytes that
+# lead byte requires; it is replaced only when those bytes decode to a valid
+# UTF-8 character.  A real "Âge" or "é" can never meet that test: "Â" (0xC2)
+# must be followed by a continuation byte, and "g" is not one.
+
+# CP1252 characters for bytes 0x80-0x9F; NA marks the five undefined bytes,
+# which a decoder passes through as the C1 control of the same code point.
+.cp1252_c1 <- c("€", NA, "‚", "ƒ", "„", "…", "†",
+                "‡", "ˆ", "‰", "Š", "‹", "Œ", NA,
+                "Ž", NA, NA, "‘", "’", "“", "”",
+                "•", "–", "—", "˜", "™", "š",
+                "›", "œ", NA, "ž", "Ÿ")
+
+.mojibake_rx <- local({
+  # A continuation byte (0x80-0xBF) as CP1252 renders it.
+  cont <- paste0("[\\x{80}-\\x{BF}",
+                 paste(stats::na.omit(.cp1252_c1), collapse = ""), "]")
+  paste0("[\\x{C2}-\\x{DF}]", cont, "|",
+         "[\\x{E0}-\\x{EF}]", cont, "{2}|",
+         "[\\x{F0}-\\x{F4}]", cont, "{3}")
+})
+
+.cp1252_byte <- function(ch) {
+  cp <- utf8ToInt(ch)
+  if (cp <= 0xFFL) return(cp)
+  0x7FL + match(ch, .cp1252_c1)
+}
+
+.fix_mojibake <- function(x) {
+  if (!is.character(x)) return(x)
+  hit <- !is.na(x) & grepl(.mojibake_rx, x, perl = TRUE)
+  if (!any(hit)) return(x)
+  x[hit] <- vapply(x[hit], function(s) {
+    m <- gregexpr(.mojibake_rx, s, perl = TRUE)
+    regmatches(s, m) <- list(vapply(regmatches(s, m)[[1L]], function(run) {
+      bytes <- as.raw(vapply(strsplit(run, "")[[1L]], .cp1252_byte, numeric(1)))
+      out   <- rawToChar(bytes)
+      Encoding(out) <- "UTF-8"
+      if (validUTF8(out)) out else run
+    }, character(1), USE.NAMES = FALSE))
+    s
+  }, character(1), USE.NAMES = FALSE)
+  x
+}
+
+.fix_metadata_mojibake <- function(metadata) {
+  for (tbl in c("variables", "codes")) {
+    df <- metadata[[tbl]]
+    if (is.null(df)) next
+    for (col in intersect(c("label_en", "label_fr"), names(df)))
+      df[[col]] <- .fix_mojibake(df[[col]])
+    metadata[[tbl]] <- df
+  }
+  metadata
+}
+
+
 #' Parse all metadata from a PUMF version directory
 #'
 #' Detects every parseable command-file format in \code{version_dir}, runs all
@@ -2353,7 +2419,7 @@ pumf_parse_metadata <- function(version_dir,
     }
   }
 
-  metadata <- merge_metadata(parsed)
+  metadata <- .fix_metadata_mojibake(merge_metadata(parsed))
 
   if (!is.null(formats$pdf_freq) && is.null(parsed$pdf_freq)) {
     dir.create(metadata_dir, showWarnings = FALSE, recursive = TRUE)

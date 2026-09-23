@@ -100,7 +100,7 @@ test_that("Census 2021: metadata uses UTF-8 encoding correctly", {
               "Census 2021 (individuals) not in cache")
 
   canpumf:::pumf_parse_metadata(.census_vdir("2021 (individuals)"),
-                                 metadata_encoding = "UTF-8")
+                                 metadata_encoding = "UTF-8", refresh = TRUE)
 
   meta <- canpumf:::read_metadata(
     file.path(.census_vdir("2021 (individuals)"), "metadata"))
@@ -109,9 +109,16 @@ test_that("Census 2021: metadata uses UTF-8 encoding correctly", {
   if (length(fr_labels) > 0L) {
     expect_true(any(grepl("[éèêëàâîïôùûüç]", fr_labels)),
       label = "French labels should contain accented characters")
-    expect_false(any(grepl("Ã", fr_labels)),
-      label = "French labels must not contain mojibake 'Ã'")
   }
+
+  # The English .sps itself ships double-encoded en-dashes ("â€“", 10 variable
+  # labels incl. ATTSCH); .fix_metadata_mojibake() must undo them.
+  all_labels <- stats::na.omit(c(meta$variables$label_en, meta$variables$label_fr,
+                                 meta$codes$label_en, meta$codes$label_fr))
+  expect_false(any(grepl("Ã|â€", all_labels)),
+    label = "labels must not contain mojibake")
+  expect_equal(meta$variables$label_en[meta$variables$name == "ATTSCH"],
+               "Education: School attendance \u2013 Detailed")
 })
 
 test_that("Census 2011 (individuals): variable labels present from SAS parser", {
