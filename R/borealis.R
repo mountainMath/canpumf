@@ -389,8 +389,9 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 #' @seealso [list_borealis_pumf_files()], [get_pumf()]
 #' @examples
 #' \donttest{
-#' cat <- list_borealis_pumf_catalogue()
-#' dplyr::filter(cat, grepl("1971 Census", title))
+#' # needs internet access; fails gracefully when Borealis is unreachable
+#' cat <- tryCatch(list_borealis_pumf_catalogue(), error = function(e) NULL)
+#' if (!is.null(cat)) dplyr::filter(cat, grepl("1971 Census", title))
 #' }
 #' @export
 list_borealis_pumf_catalogue <- function(refresh    = FALSE,
@@ -569,7 +570,8 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
 #' @seealso [list_borealis_pumf_catalogue()], [get_pumf()]
 #' @examples
 #' \donttest{
-#' list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC")
+#' tryCatch(list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC"),
+#'          error = function(e) message(conditionMessage(e)))
 #' }
 #' @export
 list_borealis_pumf_files <- function(doi) {

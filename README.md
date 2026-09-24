@@ -118,7 +118,7 @@ ODESI labelled the same codes differently in different years ("Unemployed, tempo
 
 ### One LFS timeline, 1976 onward
 
-`get_lfs_timeline()` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only and loads nothing itself.
+`get_lfs_timeline()` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. `get_lfs_timeline(refresh = "auto")` first loads any newly released months, so an analysis script built on it stays up to date.
 
 ```r
 tl <- get_lfs_timeline()

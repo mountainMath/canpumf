@@ -25,7 +25,8 @@ file and command files a DOI provides before loading it.
 }
 \examples{
 \donttest{
-list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC")
+tryCatch(list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC"),
+         error = function(e) message(conditionMessage(e)))
 }
 }
 \seealso{

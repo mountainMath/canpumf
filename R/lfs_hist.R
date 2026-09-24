@@ -63,12 +63,12 @@
 # Returns version, lang, doi, title, rebased (the "[Rebased ...]" tag).
 .lfs_hist_index_from_catalogue <- function(cat_b) {
   en <- "^Labour Force Survey,.*\\[Canada\\]"
-  fr <- "^Enquête sur la population active,.*\\[Canada\\]"
+  fr <- "^Enqu\u00eate sur la population active,.*\\[Canada\\]"
   d  <- cat_b[grepl(en, cat_b$title) | grepl(fr, cat_b$title), ]
   mo_en <- tolower(month.name)
-  mo_fr <- c("janvier", "février", "mars", "avril", "mai", "juin",
-             "juillet", "août", "septembre", "octobre", "novembre",
-             "décembre")
+  mo_fr <- c("janvier", "f\u00e9vrier", "mars", "avril", "mai", "juin",
+             "juillet", "ao\u00fbt", "septembre", "octobre", "novembre",
+             "d\u00e9cembre")
   t <- tolower(d$title)
   month <- rep(NA_integer_, nrow(d))
   for (i in 1:12)
@@ -80,7 +80,7 @@
     lang    = ifelse(grepl(fr, d$title), "fra", "eng"),
     doi     = d$doi,
     title   = d$title,
-    rebased = stringr::str_match(d$title, "(?i)(?:Rebased|Remanié)[^0-9]*([0-9]{4})?")[, 1L])
+    rebased = stringr::str_match(d$title, "(?i)(?:Rebased|Remani\u00e9)[^0-9]*([0-9]{4})?")[, 1L])
   out$rebased <- ifelse(is.na(out$rebased), "",
     ifelse(grepl("[0-9]{4}", out$rebased),
            sub(".*([0-9]{4}).*", "\\1", out$rebased), "yes"))

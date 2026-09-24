@@ -58,8 +58,9 @@ warning.
 }
 \examples{
 \donttest{
-cat <- list_borealis_pumf_catalogue()
-dplyr::filter(cat, grepl("1971 Census", title))
+# needs internet access; fails gracefully when Borealis is unreachable
+cat <- tryCatch(list_borealis_pumf_catalogue(), error = function(e) NULL)
+if (!is.null(cat)) dplyr::filter(cat, grepl("1971 Census", title))
 }
 }
 \seealso{

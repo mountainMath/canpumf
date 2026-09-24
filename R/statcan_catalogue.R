@@ -714,7 +714,8 @@
 #' @examples
 #' \donttest{
 #' # Quick look at the first 5 surveys
-#' head(list_statcan_pumf_catalogue(max_surveys = 5))
+#' tryCatch(head(list_statcan_pumf_catalogue(max_surveys = 5)),
+#'          error = function(e) message(conditionMessage(e)))
 #' }
 #' @export
 list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_tokens),

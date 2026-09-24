@@ -7,6 +7,7 @@
 get_lfs_timeline(
   lang = c("eng", "fra"),
   sources = .lfs_timeline_series,
+  refresh = FALSE,
   cache_path = getOption("canpumf.cache_path", tempdir())
 )
 }
@@ -14,6 +15,15 @@ get_lfs_timeline(
 \item{lang}{`"eng"` (default) or `"fra"` for the labels.}
 
 \item{sources}{The series to include, by default both.}
+
+\item{refresh}{`FALSE` (default) opens what is already loaded. `"auto"`
+first calls `get_pumf(<source>, refresh = "auto")` for each series in
+`sources`, which loads every available version not yet in its database
+(for example a newly released LFS month), then opens the timeline. When
+everything is loaded this only checks the list of available versions. The
+first call loads all of LFS_HIST (360 monthly files from Borealis) and all
+LFS years from StatCan, which takes hours. If a version fails to load, the
+warning says so and the timeline opens with what is there.}
 
 \item{cache_path}{Root cache directory. Defaults to
 `getOption("canpumf.cache_path", tempdir())`.}
@@ -32,9 +42,11 @@ single query.
 \details{
 The two series keep their own DuckDB files. This function attaches both
 **read-only** to an in-memory DuckDB and returns a view over them, so it
-never blocks (and is never blocked by) other readers. It reads only what
-is already loaded. Load data first with, for example,
-`get_pumf("LFS_HIST", "1995")` or `get_pumf("LFS", "2015")`.
+never blocks (and is never blocked by) other readers. By default it reads
+only what is already loaded. Load data first with, for example,
+`get_pumf("LFS_HIST", "1995")` or `get_pumf("LFS", "2015")`, or pass
+`refresh = "auto"` to bring both series up to date before opening the
+timeline.
 
 The harmonised table has these columns:
 * `SOURCE` (`"LFS_HIST"` or `"LFS"`), `SURVYEAR` and `SURVMNTH`.

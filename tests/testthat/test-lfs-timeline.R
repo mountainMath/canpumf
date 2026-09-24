@@ -138,6 +138,30 @@ test_that("get_lfs_timeline: sources, French labels, column labels", {
                  "nothing loaded")
 })
 
+test_that("get_lfs_timeline refresh = \"auto\" updates each source first", {
+  tmp <- make_timeline_cache(withr::local_tempdir())
+  calls <- list()
+  local_mocked_bindings(get_pumf = function(series, version = NULL, lang = "eng",
+                                            cache_path = NULL, refresh = FALSE, ...) {
+    calls[[length(calls) + 1L]] <<- list(series = series, lang = lang,
+                                         refresh = refresh, cache_path = cache_path)
+    NULL
+  })
+  d <- collect_timeline(refresh = "auto", cache_path = tmp)
+  expect_equal(vapply(calls, `[[`, "", "series"), c("LFS_HIST", "LFS"))
+  expect_true(all(vapply(calls, function(x) identical(x$refresh, "auto"), NA)))
+  expect_true(all(vapply(calls, `[[`, "", "cache_path") == tmp))
+  expect_equal(nrow(d), 5L)
+
+  calls <- list()
+  collect_timeline(sources = "LFS", refresh = "auto", cache_path = tmp)
+  expect_equal(vapply(calls, `[[`, "", "series"), "LFS")
+  calls <- list()
+  collect_timeline(cache_path = tmp)            # default: no update
+  expect_length(calls, 0L)
+  expect_error(get_lfs_timeline(refresh = TRUE, cache_path = tmp), "FALSE or")
+})
+
 test_that("get_lfs_timeline attaches read-only and reports unmapped values", {
   tmp <- make_timeline_cache(withr::local_tempdir())
   hist_db <- file.path(tmp, "LFS_HIST", "LFS_HIST.duckdb")
