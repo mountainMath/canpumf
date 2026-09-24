@@ -106,8 +106,22 @@ Findings from the conflict review (September 2026):
   files repeat EFAMTYPE 13's label on 15. The canonical labels and
   `.lfs_hist_label_fixes()` correct both.
 - A scan of observed code sets over 20 sampled months found no other
-  recoding. Variables that are simply blank in some eras (ED76TO89/EDUC90,
-  the NOC/SOC occupation sets, FIRMSIZE/ESTSIZE before 1997) are expected.
+  recoding.
+
+Full import check (September 2026, all 360 English months): 39.1M rows,
+66k-126k per month, no gaps or outlier months. The June FWEIGHT total rises
+smoothly from 17.05M (1976) to 25.74M (2005), with no jumps at the rebasing
+boundaries. CMA is identified from 1987-01 exactly. MARSTAT switches from 4
+to 6 categories in 1999-11. Columns present only in some years:
+
+| Years | Columns |
+|---|---|
+| 1976-89 | ED76TO89, SPED7689 (EDUC90 from 1990, SPED1990 from 1989) |
+| 1976-86 | SP_SOC80 (SP_NOC01 from 1987); SOC80_49 only 1984-86 |
+| 1976-98 | SOC80_21 (NOC01_25/NOC01_47 from 1987, so 1987-98 have both) |
+| 1976-96 | WHYPTOLD, YNOLKOLD (WHYPTNEW from 1996, YNOLOOK from 1997) |
+| 1996- | UNION, PERMTEMP, ESTSIZE, WHYLEFTN; FIRMSIZE from 1998 |
+| 1997- | HRLYEARN, PAIDOT, UNPAIDOT |
 
 At load time `.lfs_hist_write_metadata()` restricts the canonical dictionary
 to the month's CSV columns. It warns about columns the dictionary lacks, and
