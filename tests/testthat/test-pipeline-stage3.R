@@ -508,6 +508,100 @@ test_that("pumf_build_duckdb: fixed-width implied decimals come from the layout"
   expect_equal(res$AMT, c(1234, 15))
 })
 
+test_that("pumf_build_duckdb: labelled missing codes of numeric variables become NA", {
+  # No MISSING VALUES anywhere.  AGE is sentinel-only (999.7/999.9 read with one
+  # implied decimal, GSS Cycle 21 AGE_DIV_MA1); IDX is a 0-1 index whose
+  # sentinels 7/9 sit above the data, one with a qualified label (Cycle 8 D11),
+  # so it is kept numeric via force_numeric; HRS has a zero label, a valid 0.
+  tmp  <- withr::local_tempdir()
+  vdir <- file.path(tmp, "FAKE", "2099")
+  meta <- file.path(vdir, "metadata")
+  dir.create(meta, recursive = TRUE)
+  readr::write_csv(tibble::tibble(
+    name = c("AGE", "IDX", "HRS"), label_en = c("Age", "Index", "Hours"),
+    label_fr = c("Âge", "Indice", "Heures"), type = "numeric",
+    decimals = c(1L, 3L, NA), missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(
+    name     = c("AGE", "AGE", "IDX", "IDX", "IDX", "HRS", "HRS"),
+    val      = c("999.7", "999.9", "1", "7", "9", "0", "99"),
+    label_en = c("Not asked", "Not stated", "Full health",
+                 "NOT STATED - PATH UNKNOWN", "Don't know", "None", "Not stated"),
+    label_fr = c("Non demandé", "Non déclaré", "Pleine santé",
+                 "Non déclaré", "Ne sait pas", "Aucun", "Non déclaré")),
+    file.path(meta, "codes.csv"))
+  readr::write_csv(tibble::tibble(name = c("AGE", "IDX", "HRS"),
+                                  start = c(1L, 5L, 10L), end = c(4L, 9L, 11L),
+                                  decimals = c(1L, NA, NA)),
+                   file.path(meta, "layout.csv"))
+  writeLines(c("04530.97300", "9997    799", "99991.00012", "0071    912"),
+             file.path(vdir, "survey.txt"))
+  canpumf:::.pumf_registry_override_set(
+    "FAKE", "2099", pumf_registry_entry(data_fixups = list(force_numeric = "IDX")))
+  on.exit(canpumf:::.pumf_registry_override_clear("FAKE", "2099"), add = TRUE)
+
+  res <- collect_build(vdir)
+  expect_equal(res$AGE, c(45.3, NA, NA, 7.1))
+  expect_equal(res$IDX, c(0.973, NA, 1, NA))
+  expect_equal(res$HRS, c(0, NA, 12, 12))
+})
+
+test_that("pumf_build_duckdb: force_numeric is ignored when every value is labelled", {
+  # DAY is fully labelled (GSS Cycle 12 DDAY): a category despite the override.
+  # HRS carries a top-code label beside unlabelled values: the case
+  # force_numeric exists for, so it is numeric and its sentinel is NA.
+  tmp  <- withr::local_tempdir()
+  vdir <- file.path(tmp, "FAKE", "2099")
+  meta <- file.path(vdir, "metadata")
+  dir.create(meta, recursive = TRUE)
+  readr::write_csv(tibble::tibble(
+    name = c("DAY", "HRS"), label_en = c("Day", "Hours"),
+    label_fr = c("Jour", "Heures"), type = "character", decimals = NA_integer_,
+    missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(
+    name     = c("DAY", "DAY", "HRS", "HRS"),
+    val      = c("1", "2", "75", "98"),
+    label_en = c("Sunday", "Monday", "75 and more", "Not stated"),
+    label_fr = c("Dimanche", "Lundi", "75 et plus", "Non déclaré")),
+    file.path(meta, "codes.csv"))
+  readr::write_csv(tibble::tibble(DAY = c("1", "2", "01"), HRS = c("40", "75", "98")),
+                   file.path(vdir, "survey.csv"))
+  canpumf:::.pumf_registry_override_set(
+    "FAKE", "2099",
+    pumf_registry_entry(data_fixups = list(force_numeric = c("DAY", "HRS"))))
+  on.exit(canpumf:::.pumf_registry_override_clear("FAKE", "2099"), add = TRUE)
+
+  res <- collect_build(vdir)
+  expect_equal(as.character(res$DAY), c("Sunday", "Monday", "Sunday"))
+  expect_equal(res$HRS, c(40, 75, NA))
+})
+
+test_that(".fully_labelled_vars: numeric and implied-decimal matches", {
+  codes <- tibble::tibble(name = c("A", "A", "B", "C"),
+                          val = c("1", "2", "999.7", "5"),
+                          label_en = c("x", "y", "Not asked", "Five"),
+                          label_fr = NA_character_)
+  data  <- tibble::tibble(A = c("01", "2", " "), B = c("9997", "9997", "9997"),
+                          C = c("5", "6", "5"))
+  lay   <- tibble::tibble(name = "B", start = 1L, end = 4L, decimals = 1L)
+  expect_equal(canpumf:::.fully_labelled_vars(data, codes, c("A", "B", "C", "Z"),
+                                              decimals = lay),
+               c("A", "B"))
+})
+
+test_that(".label_missing_codes: qualified labels count, zero and count labels do not", {
+  codes <- tibble::tibble(
+    name     = c("A", "A", "B", "B", "C", "D"),
+    val      = c("96", "97", "0", "98", "0", "2"),
+    label_en = c("NOT APPLICABLE(DOES NOT DRIVE)", "Refused", "None",
+                 "Not asked - born in Canada", "zero income, not applicable",
+                 "Two Not stated codes"),
+    label_fr = c(NA, NA, "Aucun", "Non demandé - né au Canada", NA, NA))
+  expect_equal(canpumf:::.label_missing_codes(codes),
+               list(A = c(96, 97), B = 98))
+})
+
 test_that("read_metadata: layout.csv without a decimals column reads as NA", {
   # Caches written before layout decimals existed must still load.
   tmp <- withr::local_tempdir()

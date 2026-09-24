@@ -67,6 +67,15 @@ utils::globalVariables(c("name", "val"))
 .sentinel_pat <- paste0("(*UCP)(?i)^(", .missing_label_alts, "|",
                         .zero_label_alts, ")[.]?$")
 
+# .missing_prefix_pat — a true-missing label, optionally followed by a qualifier
+# after a dash, bracket, colon, comma or semicolon ("NOT STATED - PATH UNKNOWN",
+# "NOT APPLICABLE(DOES NOT DRIVE)", "Non demandé - aucun enfant dans le
+# ménage").  It is deliberately not used for type classification: a qualified
+# label still counts as a real category there.  Stage 3 uses it only to NA the
+# labelled missing codes of variables that end up numeric.
+.missing_prefix_pat <- paste0("(*UCP)(?i)^(", .missing_label_alts,
+                              ")([.]?$|\\s*[-\u2013(:,;])")
+
 # Render code values as plain decimal strings.  as.character() switches to
 # scientific notation for large doubles (as.character(200000) == "2e+05"),
 # which would break joins against raw data strings.

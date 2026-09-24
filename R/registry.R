@@ -191,9 +191,10 @@
 .census_fixup_8 <- list(na_values = c("99999999", "88888888"))
 .census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
 
-# 1971: SUBSAMPL is an integer sub-sample index (0 for households, 1-5 for
-# individuals/families), but all six SPSS files only declare code 1 -> 'one'.
-# Force it to numeric so the integer values come through correctly.
+# 1971: SUBSAMPL is a sub-sample index, 1-5 for individuals/families and 0 for
+# households.  The household files hold only the unlabelled 0, so it is forced
+# numeric there.  In the individual and family files every value is labelled
+# (ONE-FIVE), so Stage 3 ignores the override and keeps the factor.
 .census_fixup_1971 <- list(force_numeric = "SUBSAMPL")
 
 # 1971 CMA individuals: TYPE66/TYPE71 value 0 ("Data not available") is absent
@@ -750,60 +751,13 @@
     ))),
 
   # Social Identity 2003 (cycle 17): monolithic SPSS + SAS; single main file.
-  # 242 variables have boundary labels alongside unlabeled continuous values.
+  # Six count/age variables carry a top-code label ("75 and more") alongside
+  # unlabeled values.  Every other labelled variable is fully covered by its
+  # codes and stays categorical.
   "GSS/Cycle 17 (2003)" = .make_entry("GSS", "Cycle 17 (2003)",
     file_mask   = "C17PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
-      "AGEGR5",    "AGEGR10",   "SEX",       "MARSTAT",   "AGEPRGRDIF",
-      "PRTYPEC",   "AGECHRYC",  "CHRFLAG",   "PARHSDC",   "LIVARR08",
-      "LIVARR12",  "FAMTYPE",   "MULTIGEN",  "PRV",       "REGION",
-      "LUC_RST",   "HAL_Q110",  "HAL_Q120",  "HAL_Q150",  "HAL_Q160",
-      "HAL_Q170",  "HAL_Q210",  "MSS_Q110",  "MSS_Q120",  "HS_Q110",
-      "LS_Q110",   "LS_Q120",   "LS_Q130",   "LS_Q140",   "LS_Q210",
-      "LS_Q310",   "LS_Q320",   "LS_Q330",   "LANCH",     "LANCHSUE",
-      "LANCHSUF",  "LANCHSUO",  "LANHSDC",   "NET_Q110",  "NET_Q120",
-      "NET_Q130",  "YER_Q110",  "YER_Q120",  "YER_Q130",  "YER_Q150",
-      "YER_Q170",  "YER_Q180",  "YER_Q190",  "YER_Q210",  "SCR_Q120",
-      "SCR_Q130",  "SCR_Q140",  "SCR_Q810",  "SCF_Q100",  "SCF_Q110",
-      "NO_OFRNDS", "SCF_Q120",  "SCF_Q130",  "SCF_Q140",  "SCG_Q120",
-      "SCG_Q130",  "SCG_Q150",  "SCG_Q160",  "SCG_Q170",  "SCG_Q180",
-      "SCP_Q110",  "HICR_Q110_WO","HICR_Q110_TR","HICR_Q110_CH","HICR_Q110_TE",
-      "HICR_Q110_EM","HICR_Q110_OT","HICR_Q110_NO","HICR_Q120","HICR_Q140_RE",
-      "HICR_Q140_FR","HICR_Q140_NE","HICR_Q140_PE","HICR_Q150","HICG_Q110_WO",
-      "HICG_Q110_TR","HICG_Q110_CH","HICG_Q110_TE","HICG_Q110_EM","HICG_Q110_OT",
-      "HICG_Q110_NO","HICG_Q120", "HICG_Q140_RE","HICG_Q140_FR","HICG_Q140_NE",
-      "HICG_Q140_PE","HICG_Q150", "VCG_Q300",  "VCG_Q310",  "VCG_Q340",
-      "CE_Q110",   "CE_Q111",   "CE_Q112",   "CE_Q113",   "CE_Q114",
-      "CE_Q115",   "CE_Q116",   "CE_Q240",   "CE_Q330",   "CE_Q340",
-      "OMA_Q110",  "OMA_Q115",  "OMA_Q120",  "OMA_Q130",  "OMA_Q140",
-      "OMA_Q150",  "OMA_Q160",  "OMA_Q170",  "OMA_Q210",  "PE_Q110",
-      "PE_Q120",   "PE_Q130",   "PE_Q220",   "PE_Q230",   "PE_Q250",
-      "PE_Q260",   "PE_Q270",   "PE_Q280",   "PE_Q290",   "PE_Q300",
-      "PE_Q310",   "PE_Q320_NEWS","PE_Q320_MAGS","PE_Q320_TELEV","PE_Q320_RADIO",
-      "PE_Q320_NET","PE_Q330",  "ACMYR",     "EDUSTAT",   "MAR_Q125",
-      "MAR_Q130",  "AGE_LSTPDWKC","MAR_Q150","MAR_Q160",  "MAR_Q161",
-      "WKWEHR",    "MAR_Q190",  "WKWEHOHR",  "NAICS16",   "SOC91C10",
-      "MAR_Q314",  "MAR_Q315",  "MAR_Q410",  "MAR_Q480",  "MAR_Q485_REL",
-      "MAR_Q485_FRND","MAR_Q485_NEIG","MAR_Q485_PERS","MAR_Q485_WORK","MAR_Q510",
-      "MAR_Q520_FAMILY","MAR_Q520_JOB","MAR_Q520_ACT","MAR_Q520_EMPLY",
-      "MAR_Q520_EMPREL","MAR_Q520_HEALTH","MAR_Q520_FAMREL","MAR_Q520_OTHER",
-      "MAR_Q650",  "EDUYR",     "EOR_Q110",  "EOR_Q150",  "EDU5",
-      "EDU10",     "EDUPR5",    "EDUPR10",   "EDUM5",     "EDUM10",
-      "EDUF5",     "EDUF10",    "ACMPRYR",   "MAP_Q20",   "MAP_Q30",
-      "MAP_Q32",   "MAP_Q40",   "DWELC",     "DWELLOWN",  "DOR_Q210",
-      "DOR_Q222",  "DOR_Q227",  "DOR_Q228",  "DOR_Q229",  "DOR_Q230",
-      "DOR_Q231",  "SOR_Q110",  "SOR_Q120",  "SOR_Q130",  "BRTHCAN",
-      "BRTHPRVC",  "BRTHREGC",  "YRARRI",    "AGEARRIGRC","BRTHMCAN",
-      "BRTHMREGC", "BRTHFCAN",  "BRTHFREGC", "TRT_Q110",  "TRT_Q310",
-      "TRT_Q330",  "TRT_Q390",  "TRT_Q400",  "TRT_Q420",  "TRT_Q540",
-      "TRT_Q570",  "TRT_Q610",  "TRT_Q630",  "TRT_Q640",  "TRT_Q650",
-      "TRT_Q660",  "TRT_Q670",  "TRT_Q680",  "TRT_Q690",  "TRT_Q700",
-      "VOR_Q110",  "VOR_Q120",  "DBT_Q320",  "DBT_Q330",  "DBT_Q340",
-      "RELIG6",    "RL_Q105",   "RELIGATT",  "RL_Q130",   "IN_Q0021",
-      "IN_Q0022",  "IN_Q0023",  "IN_Q0024",  "IN_Q0025",  "IN_Q0026",
-      "IN_Q0027",  "IN_Q0028",  "IN_Q0029",  "IN_Q0030",  "IN_Q0031",
-      "IN_Q0032",  "IN_Q0050",  "INCM",      "INCMHSD"
-    ))),
+      "AGECHRYC", "OMA_Q110", "MAR_Q161", "WKWEHR", "WKWEHOHR", "MAR_Q315"))),
 
   # Cycle 16 (2002), "Aging and Social Support": part of the Caregiving series
   # (survey 4502).  Unlike other GSS cycles this ships FOUR linked fixed-width
@@ -916,7 +870,6 @@
           "RESTSOCL", "HOMESOCL", "OTHRSOCL",
           "TELEMDIA", "READMDIA", "OTHRMDIA",
           "ENTREVNT", "SPRTACTV", "OTHRACTV",
-          "TIMECR",   "TIMENS",
           "AGE_LSTPDWK_C", "MAR_Q174_C", "WKWEHOHR_C", "MAR_Q370_C", "EOR_Q320"))),
       Episode = list(
         layout_mask = "_SPSS_(withno|sans)_bootstrap",
@@ -940,7 +893,7 @@
         # labels — appear there but not under a UTF-8 locale.  force_numeric
         # re-asserts the SPSS typing so the continuous values survive.
         data_fixups = list(force_numeric = c(
-          "DDAY",    "PLACE",   "ALONE",   "SPOUSE",  "PARHSD",  "MEMBHSD",
+          "PLACE",   "ALONE",   "SPOUSE",  "PARHSD",  "MEMBHSD",
           "NHSDCL15","NHSDC15P","NHSDPAR", "OTHFAM",  "FRIENDS", "OTHERS",
           "HELP65",  "HELPLIM", "HELPREL", "ORGCON",  "ENJOYAC",
           "AGECHRYC","C4",      "C5",      "C4C5",    "C6DUR",   "F47",

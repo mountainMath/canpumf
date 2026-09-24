@@ -732,12 +732,54 @@ pumf_locate_or_download <- function(series,
     if (length(na_values) > 0L)
       vals[trimws(raw) %in% na_values] <- NA_real_
     mc <- missing_codes[[col]]
+    # Rounded, so a code written as 999.7 matches 9997 read with 1 implied
+    # decimal whatever the floating-point route.
     if (length(mc) > 0L)
-      vals[!is.na(vals) & vals %in% as.numeric(mc)] <- NA_real_
+      vals[!is.na(vals) & round(vals, 8) %in% round(as.numeric(mc), 8)] <-
+        NA_real_
 
     data[[col]] <- vals
   }
   data
+}
+
+
+# Of `vars`, those whose every non-empty data value is a labelled code.
+# Values compare numerically ("01" == "1"), and a fixed-width field's value
+# also as read with its layout's implied decimals.  A variable absent from the
+# data or without codes is never returned.
+.fully_labelled_vars <- function(data, codes, vars, na_values = character(0L),
+                                 decimals = NULL) {
+  out <- character(0L)
+  for (v in intersect(vars, intersect(names(data), unique(codes$name)))) {
+    lab <- codes[codes$name == v & !(is.na(codes$label_en) & is.na(codes$label_fr)), ]
+    raw <- trimws(as.character(data[[v]]))
+    raw <- unique(raw[!is.na(raw) & nzchar(raw) & !raw %in% na_values])
+    if (length(raw) == 0L || nrow(lab) == 0L) next
+    if (all(raw %in% trimws(lab$val))) { out <- c(out, v); next }
+    cv <- suppressWarnings(as.numeric(lab$val))
+    rv <- suppressWarnings(as.numeric(raw))
+    if (anyNA(rv)) next
+    dec <- if (!is.null(decimals) && "decimals" %in% names(decimals))
+      decimals$decimals[match(v, decimals$name)] else NA
+    hit <- round(rv, 8) %in% round(cv, 8)
+    if (!is.na(dec) && dec > 0L)
+      hit <- hit | round(rv / 10^dec, 8) %in% round(cv, 8)
+    if (all(hit)) out <- c(out, v)
+  }
+  out
+}
+
+# Numeric code values labelled as true missing (English or French label), per
+# variable.  Returns a named list of numeric vectors.
+.label_missing_codes <- function(codes) {
+  if (is.null(codes) || nrow(codes) == 0L) return(list())
+  is_miss <- function(l) !is.na(l) & grepl(.missing_prefix_pat, trimws(l), perl = TRUE)
+  hit  <- is_miss(codes$label_en) | is_miss(codes$label_fr)
+  vals <- suppressWarnings(as.numeric(codes$val))
+  keep <- hit & !is.na(vals)
+  if (!any(keep)) return(list())
+  lapply(split(vals[keep], codes$name[keep]), unique)
 }
 
 
@@ -1083,6 +1125,12 @@ pumf_build_duckdb <- function(version_dir,
       codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
     }
   }
+  # Labelled missing codes, captured before the force_* blocks drop codes: each
+  # numeric code value whose English or French label is a true-missing label
+  # (qualified forms included).  They become discrete missing codes for every
+  # variable that is still numeric after promotion below.
+  label_miss <- .label_missing_codes(codes)
+
   # force_numeric: override type to "numeric" for variables that carry
   # top-coded boundary labels (e.g. "85 years and over") alongside unlabeled
   # data values, preventing the character-type path from NAs-ing valid data.
@@ -1092,8 +1140,17 @@ pumf_build_duckdb <- function(version_dir,
   # polluting the continuous data (e.g. GSS 2012 declares no MISSING VALUES,
   # so ages would otherwise contain 998/999).  An existing missing range
   # (from MISSING VALUES or a split-SPSS miss file) takes precedence.
+  #
+  # Labels win: a forced variable whose every non-missing data value has a
+  # label is a category, so the override is ignored for it.  Only unlabelled
+  # values justify numeric.  GSS Cycle 17 once forced 236 fully labelled
+  # variables (SEX, PRV, …) and Cycle 12 its DDAY (Sunday-Saturday), and the
+  # 1971 Census SUBSAMPL is labelled ONE-FIVE except in the household files.
   if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
-    fn <- reg$data_fixups$force_numeric
+    fn <- setdiff(reg$data_fixups$force_numeric,
+                  .fully_labelled_vars(data, codes, reg$data_fixups$force_numeric,
+                                       na_values = na_vals,
+                                       decimals  = if (is_fwf) layout else NULL))
     variables$type[variables$name %in% fn] <- "numeric"
     for (v in intersect(fn, unique(codes$name))) {
       i <- which(variables$name == v)
@@ -1161,6 +1218,17 @@ pumf_build_duckdb <- function(version_dir,
     if (length(promote_to_char) > 0L)
       variables$type[variables$name %in% promote_to_char] <- "character"
   }
+
+  # Labelled non-response codes of numeric variables become NA even when
+  # MISSING VALUES does not declare them (GSS Cycle 21 AGE_DIV_MA1 999.7 "Not
+  # asked", Cycle 8 D11 996 "NOT APPLICABLE(DOES NOT DRIVE)").  Discrete codes,
+  # not a range, since a span over the sentinels could cover valid values (the
+  # Cycle 21 HLTH_UTIL_INDEX has 7/9 "Not asked"/"Don't know" and a -0.3 to 1
+  # scale, and PALS 2006 AUDE_Q02 has sentinels on both sides of its data).
+  # They add to any parsed or derived range.
+  for (v in intersect(names(label_miss),
+                      variables$name[variables$type == "numeric"]))
+    miss_codes[[v]] <- union(as.numeric(miss_codes[[v]]), label_miss[[v]])
 
   # A fixed-width field declared with implied decimals (DATA LIST "( 4 )", SAS
   # w.d) is divided on read, as SPSS/SAS would.  Only the layout's read-side

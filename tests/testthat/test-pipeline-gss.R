@@ -641,3 +641,47 @@ for (.v in names(.gss_timeuse_modules)) {
     })
   })
 }
+
+# Labelled non-response codes of numeric variables become NA without a
+# MISSING VALUES declaration, and fully labelled variables stay factors even
+# when force_numeric lists them (Cycle 17 once listed 236, Cycle 12 DDAY).
+.gss_sentinel_checks <- list(
+  "Cycle 8 (1993)"  = function(d) expect_false(any(d$D11 %in% 996)),
+  "Cycle 12 (1998)" = function(d)
+    expect_setequal(unique(as.character(d$DDAY)),
+                    c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
+                      "Friday", "Saturday")),
+  "Cycle 17 (2003)" = function(d) {
+    expect_true(is.factor(d$SEX) || is.character(d$SEX))
+    expect_setequal(unique(stats::na.omit(as.character(d$SEX))), c("Male", "Female"))
+    expect_true(is.numeric(d$WKWEHR))
+    expect_lte(max(d$WKWEHR, na.rm = TRUE), 96)
+  },
+  "Cycle 21 (2007)" = function(d) expect_lt(max(d$AGE_DIV_MA1, na.rm = TRUE), 999)
+)
+
+for (.v in names(.gss_sentinel_checks)) {
+  local({
+    ver   <- .v
+    check <- .gss_sentinel_checks[[ver]]
+    test_that(paste0("GSS '", ver, "': labelled missing codes are NA in numeric columns"), {
+      skip_if_not(canpumf:::.version_is_extracted(.gss_vdir(ver)),
+                  paste("GSS", ver, "not extracted in cache"))
+      reg <- canpumf:::pumf_registry_lookup("GSS", ver)
+      tmp <- tempfile(fileext = ".duckdb")
+      suppressWarnings({
+        canpumf:::pumf_parse_metadata(.gss_vdir(ver),
+                                       layout_mask       = reg$layout_mask,
+                                       metadata_encoding = reg$metadata_encoding)
+        r <- canpumf:::pumf_build_duckdb(.gss_vdir(ver), "GSS", ver,
+                                          lang = "eng",
+                                          layout_mask = reg$layout_mask,
+                                          file_mask   = reg$file_mask,
+                                          db_path = tmp, refresh = TRUE)
+      })
+      tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+      on.exit({ DBI::dbDisconnect(tbl$src$con, shutdown = TRUE); unlink(tmp) })
+      check(dplyr::collect(tbl))
+    })
+  })
+}
