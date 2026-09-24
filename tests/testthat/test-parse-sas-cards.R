@@ -123,7 +123,7 @@ test_that("parse_sas_cards: canonical schema", {
   m <- canpumf:::parse_sas_cards(fx())
   expect_named(m$variables, c("name","label_en","label_fr","type","decimals","missing_low","missing_high"))
   expect_named(m$codes,     c("name","val","label_en","label_fr"))
-  expect_named(m$layout,    c("name","start","end"))
+  expect_named(m$layout,    c("name","start","end","decimals"))
 })
 
 # ---- @pos format fixture ------------------------------------------------

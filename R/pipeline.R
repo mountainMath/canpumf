@@ -720,9 +720,8 @@ pumf_locate_or_download <- function(series,
     vals <- suppressWarnings(as.numeric(raw))
     # A SAS `w.d` informat (SPSS `(Fw.d)`) means the field is d digits narrower
     # than it looks: "   8269" read with 7.2 is 82.69.  Values that already carry
-    # an explicit "." are taken at face value, per the informat's own rule.  Only
-    # fixed-width bootstrap-weight files need this; the main PUMF flat files
-    # StatCan ships write the point explicitly, so callers leave it off.
+    # an explicit "." are taken at face value, per the informat's own rule.
+    # Callers enable it only for fixed-width data, passing read-side decimals.
     if (implied_decimals && !is.na(v$decimals) && v$decimals > 0L) {
       plain <- !is.na(vals) & !grepl(".", raw, fixed = TRUE)
       vals[plain] <- vals[plain] / 10^v$decimals
@@ -1163,7 +1162,17 @@ pumf_build_duckdb <- function(version_dir,
       variables$type[variables$name %in% promote_to_char] <- "character"
   }
 
-  data <- .apply_numeric_conversion(data, variables, na_values = na_vals,
+  # A fixed-width field declared with implied decimals (DATA LIST "( 4 )", SAS
+  # w.d) is divided on read, as SPSS/SAS would.  Only the layout's read-side
+  # decimals count: variables$decimals also takes display FORMATS, which do not
+  # change the stored value.  GSS cycles 8-9 weights were 10^4 too large before.
+  conv_vars <- variables
+  if (is_fwf) {
+    lay_dec <- if ("decimals" %in% names(layout)) layout$decimals else NA_integer_
+    conv_vars$decimals <- lay_dec[match(variables$name, layout$name)]
+  }
+  data <- .apply_numeric_conversion(data, conv_vars, na_values = na_vals,
+                                    implied_decimals = is_fwf,
                                     missing_codes = miss_codes)
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
 

@@ -696,56 +696,38 @@
     ))),
 
   # Family 2001 (cycle 15): monolithic SPSS + SAS; M + C + U files; use Main.
-  # 80 child/arrangement variables have boundary labels alongside continuous data.
+  # layout_mask selects the Main cards (C15PUMFM); without it the Child cards
+  # were paired with the Main data.
   "GSS/Cycle 15 (2001)" = .make_entry("GSS", "Cycle 15 (2001)",
+    layout_mask = "C15PUMFM",
     file_mask   = "C15PUMFM\\.DAT",
     data_fixups = list(force_numeric = c(
-      "CHD_IMPUTED",       "AGECHDC",           "SEXCHD",
-      "MSCHD",             "CHDTYPE",           "HHLDSTAT",
-      "HHLDCHD",           "PRTCHDC",           "OTHERHHLDPARENT",
-      "SEX",               "PRTYPE",            "REA_LIVHOMPT",
-      "CHD_LIVARR",        "KM_CHDLIVE",        "AFC_Q110",
-      "AFC_Q120",          "AFC_Q135",          "CCR_Q130",
-      "SCC_Q210",          "SCC_Q215_C01",      "SCC_Q215_C02",
-      "SCC_Q215_C03",      "SCC_Q215_C04",      "SCC_Q231",
-      "SCC_Q232",          "SAT_CHDLIVARR",     "REA_DIS_CHDLIVARR",
-      "SCC_Q251",          "SCC_Q252",          "CHDBAPAR_ALIVE",
-      "OBP_Q120",          "OPC_Q110",          "OPF_Q110",
-      "OPF_Q115_C01",      "OPF_Q115_C02",      "OPF_Q115_C03",
-      "OPF_Q115_C04",      "OPF_Q120",          "OPF_Q130",
-      "OPF_Q135",          "OPF_Q140",          "OPF_Q150",
-      "OPS_Q130",          "OPS_Q140",          "OPS_Q150",
-      "OPS_Q160",          "OPS_Q165",          "TSC_Q110",
-      "REA_NHHLD_LFTHOM_C01","REA_NHHLD_LFTHOM_C02","REA_NHHLD_LFTHOM_C03",
-      "REA_NHHLD_LFTHOM_C04","REA_NHHLD_LFTHOM_C05","REA_NHHLD_LFTHOM_C06",
-      "REA_NHHLD_LFTHOM_C07","REA_NHHLD_LFTHOM_C08","REA_NHHLD_LFTHOM_C09",
-      "LHNC_Q610",         "LHNC_Q620",         "LHNC_Q630",
-      "LHHC_Q110",         "REA_HHLD_LFTHOM_C01","REA_HHLD_LFTHOM_C02",
-      "REA_HHLD_LFTHOM_C03","REA_HHLD_LFTHOM_C04","REA_HHLD_LFTHOM_C05",
-      "REA_HHLD_LFTHOM_C06","REA_HHLD_LFTHOM_C07","REA_HHLD_LFTHOM_C08",
-      "REA_HHLD_LFTHOM_C09","DC_Q120",           "REA_DC_LFTHOM_C01",
-      "REA_DC_LFTHOM_C02", "REA_DC_LFTHOM_C03", "REA_DC_LFTHOM_C04",
-      "REA_DC_LFTHOM_C05", "REA_DC_LFTHOM_C06", "REA_DC_LFTHOM_C07",
-      "REA_DC_LFTHOM_C08", "REA_DC_LFTHOM_C09"
+      # Age, year, duration and hours: continuous values with top-code or
+      # status codes (995 "On going", 994 "Discontinued studies") labelled.
+      "AGEC",            "AGELTWKC",        "GU_Q220YC",       "DUR_USECONTR",
+      "DUR_STU1",        "DUR_STU2",        "DUR_STU3",        "DUR_STU4",
+      "DUR_STU5",        "DUR_WK1",         "DUR_WK2",         "DUR_WK3",
+      "DUR_WK4",         "DUR_WK5",         "DUR_WKTOT",       "DUR_INT1",
+      "DUR_INT2",        "DUR_INT3",        "DUR_INT4",        "DUR_MAT1",
+      "DUR_MAT2",        "DUR_MAT3",        "DUR_MAT4",        "DUR_MAT5",
+      "DUR_PAT1",        "DUR_PAT2",        "DUR_PAT3",        "WKWEHR",
+      "WKWEHOHR",        "DUR_FIRSTOTHPRV", "DUR_NXTOTHPRV"
     ))),
 
   # Family 1995 (cycle 10): monolithic SPSS + SAS; three files (Main/Child/Union).
+  # layout_mask selects the Main cards (C10micme); without it the Child cards
+  # were paired with the Main data.
   # French SPS files use CP850 (DOS-era); byte 0x90 (É) is undefined in CP1252.
   "GSS/Cycle 10 (1995)" = .make_entry("GSS", "Cycle 10 (1995)",
+    layout_mask       = "C10micme",
     file_mask         = "C10micme\\.dat",
     metadata_encoding = "CP850",
     data_fixups = list(force_numeric = c(
-      "DVAGECHD", "DVSEXCHD", "MS",       "CHDTYPE",  "HHLDSTAT", "HHLDCHD",
-      "PRTCHD",   "DVSEX",    "DVPART",   "D40",      "DVD41",    "D44D58",
-      "D45A",     "DVD45",    "DVD46",    "D47",      "DVD49",    "D50",
-      "D51",      "DVD52",    "D53D76",   "DVD54",    "D55",      "DVD56",
-      "DVPARENT", "D67",      "DVD68",    "DVD69",    "DVD70",    "DVD72",
-      "D73",      "D74",      "DVD75",    "D76",      "D78",      "DVD79",
-      "D80",      "DVD84",    "D86C01",   "D86C02",   "D86C04",   "D86C05",
-      "D86C06",   "D86C07",   "D86C08",   "D86C10",   "D87",      "D88",
-      "D89",      "D90",      "DVD91",    "D93C01",   "D93C02",   "D93C05",
-      "D93C06",   "D93C07",   "D93C08",   "DVD94",    "D98",      "DVD99",
-      "D101C01",  "D101C02",  "D101C03",  "D101C06",  "D101C07",  "D101C08"
+      # Years, ages, counts, weeks and months: continuous values with only
+      # the 96-99 / 995-999 non-response codes labelled.
+      "A11Y",   "A13Y",   "DVA38",  "DVA62",  "A79CAP", "DVF22F26", "H89",
+      "J47",    "L13",    "L14",    "L22",    "DVM9",   "DVM17",    "DVM25",
+      "DVM33",  "N5",     "R37",    "R38",    "R42"
     ))),
 
   # ---- Social Identity -------------------------------------------------------

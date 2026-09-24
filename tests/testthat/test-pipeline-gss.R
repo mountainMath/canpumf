@@ -546,6 +546,44 @@ test_that("GSS 2010 Episode: a label reaching into the number column", {
   expect_true(sum(val$status %in% c("validated", "continuous")) > 20L)
 })
 
+# Survey weights sum to the 15+ population.  Cycles 8/9 declare the weight's
+# decimals with padded parens ("( 4  )") and were 10^4 too large; Cycles 10/15
+# were read with the Child file's layout, which put the weight elsewhere.
+.gss_weight_checks <- list(
+  "Cycle 8 (1993)"  = "WGHT_PER",
+  "Cycle 9 (1994)"  = "PERWGHT",
+  "Cycle 10 (1995)" = "WGHTFNL",
+  "Cycle 15 (2001)" = "WGHT_PER"
+)
+
+for (.v in names(.gss_weight_checks)) {
+  local({
+    ver <- .v
+    wt  <- .gss_weight_checks[[ver]]
+    test_that(paste0("GSS '", ver, "': ", wt, " sums to the 15+ population"), {
+      skip_if_not(canpumf:::.version_is_extracted(.gss_vdir(ver)),
+                  paste("GSS", ver, "not extracted in cache"))
+      reg <- canpumf:::pumf_registry_lookup("GSS", ver)
+      tmp <- tempfile(fileext = ".duckdb")
+      suppressWarnings({
+        canpumf:::pumf_parse_metadata(.gss_vdir(ver),
+                                       layout_mask       = reg$layout_mask,
+                                       metadata_encoding = reg$metadata_encoding)
+        r <- canpumf:::pumf_build_duckdb(.gss_vdir(ver), "GSS", ver,
+                                          lang = "eng",
+                                          layout_mask = reg$layout_mask,
+                                          file_mask   = reg$file_mask,
+                                          db_path = tmp, refresh = TRUE)
+      })
+      tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+      on.exit({ DBI::dbDisconnect(tbl$src$con, shutdown = TRUE); unlink(tmp) })
+      total <- dplyr::pull(dplyr::summarise(tbl, s = sum(.data[[wt]], na.rm = TRUE)))
+      expect_gt(total, 20e6)
+      expect_lt(total, 27e6)
+    })
+  })
+}
+
 test_that("get_pumf rejects module for non-modular surveys", {
   expect_error(
     canpumf:::.pumf_table_name("GSS", "Cycle 32 (2018)", "eng", module = "MAIN"),

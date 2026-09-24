@@ -7,7 +7,8 @@ utils::globalVariables(c("name", "val"))
 #                decimals (int|NA)  -- decimal places from format code; 0=integer, NA=unknown
 #                missing_low (dbl|NA), missing_high (dbl|NA)
 # codes.csv:     name (chr), val (chr), label_en (chr), label_fr (chr|NA)
-# layout.csv:    name (chr), start (int), end (int)   [only for fixed-width data]
+# layout.csv:    name (chr), start (int), end (int),  [only for fixed-width data]
+#                decimals (int|NA) -- decimals implied on read, see .metadata_layout_cols
 
 # True-missing label alternatives: labels that mark a missing/non-response
 # code (Not applicable, Don't know, Refusal, …).  Values carrying these labels
@@ -118,10 +119,13 @@ utils::globalVariables(c("name", "val"))
   label_fr = readr::col_character()
 )
 
+# `decimals` (optional; absent from caches written before it existed) holds the
+# decimal places *implied on read*: SPSS DATA LIST "(n)" / "(Fw.d)" or a SAS
+# informat w.d.  Unlike variables.csv's `decimals`, which also takes display
+# FORMATS, it tells Stage 3 to divide a fixed-width field that carries no ".".
 .metadata_layout_cols <- readr::cols(
-  name  = readr::col_character(),
-  start = readr::col_integer(),
-  end   = readr::col_integer()
+  name     = readr::col_character(),
+  .default = readr::col_integer()
 )
 
 empty_variables <- function() {
@@ -136,7 +140,8 @@ empty_codes <- function() {
 }
 
 empty_layout <- function() {
-  tibble::tibble(name = character(), start = integer(), end = integer())
+  tibble::tibble(name = character(), start = integer(), end = integer(),
+                 decimals = integer())
 }
 
 
@@ -195,6 +200,8 @@ read_metadata <- function(metadata_dir) {
                                show_col_types = FALSE))
   else
     NULL
+  if (!is.null(layout) && !"decimals" %in% names(layout))
+    layout$decimals <- NA_integer_
 
   list(variables = variables, codes = codes, layout = layout)
 }
@@ -853,18 +860,23 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     names <- stringr::str_extract_all(groups[g, 2L], "[A-Za-z][A-Za-z0-9_]*")[[1L]]
     names <- names[!toupper(names) %in% c("TO", "MISSING", "VALUES")]
     if (length(names) == 0L) return(NULL)
-    miss_str <- trimws(groups[g, 3L])
+    # Older GSS cards leave the first slot empty: "(  ,995 THRU 999 )".
+    miss_str <- sub("^[\\s,]+", "", trimws(groups[g, 3L]), perl = TRUE)
     lo <- as.numeric(stringr::str_match(miss_str, paste0("^(", num_pat, ")"))[, 2L])
     hi <- if (grepl("THRU", miss_str, ignore.case = TRUE))
       as.numeric(stringr::str_match(miss_str, paste0("THRU\\s+(", num_pat, ")"))[, 2L])
     else lo
     # A discrete list that is a run of consecutive integers ("998,999",
-    # "15,16,17", "8, 7") is exactly the range; other lists keep only their
-    # first value, since one range cannot express them.
+    # "15,16,17", "8, 7") is exactly the range.  So is a gapped list of
+    # reserved codes in the top band of the field ("96,97,99", "9996,9997,9999":
+    # GSS cycles 8 and 10), where the gap is itself a reserved code.  Other
+    # lists keep only their first value, since one range cannot express them.
     v <- suppressWarnings(as.numeric(strsplit(miss_str, "\\s*,\\s*")[[1L]]))
     if (length(v) > 1L && !anyNA(v) && all(v == round(v))) {
       v <- sort(v)
-      if (all(diff(v) == 1)) { lo <- v[1L]; hi <- v[length(v)] }
+      reserved <- all(v >= 10) && all(grepl("^9", v)) &&
+        length(unique(nchar(v))) == 1L && v[length(v)] - v[1L] < 10
+      if (all(diff(v) == 1) || reserved) { lo <- v[1L]; hi <- v[length(v)] }
     }
     tibble::tibble(name = names, missing_low = lo, missing_high = hi)
   })
@@ -903,9 +915,11 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # Parenthesised annotations are stripped by the tokeniser below, so we capture
   # them in a pre-pass.  Only numeric-format annotations (pure digits) indicate
   # decimal places; (A...) forms indicate character type and are handled later.
+  # Older StatCan cards pad the parentheses ("( 4  )": GSS cycles 8-10,
+  # Census 1981).
   dec_matches <- stringr::str_match_all(
     all_text,
-    "([A-Za-z][A-Za-z0-9_]*)\\s+(?:\\d+-\\d+|\\d+)\\s+\\((\\d+)\\)"
+    "([A-Za-z][A-Za-z0-9_]*)\\s+(?:\\d+-\\d+|\\d+)\\s+\\(\\s*(\\d+)\\s*\\)"
   )[[1L]]
   dl_dec <- if (nrow(dec_matches) > 0L)
     stats::setNames(as.integer(dec_matches[, 3L]), dec_matches[, 2L])
@@ -941,8 +955,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   if (length(rows) == 0L) return(NULL)
   out <- tibble::as_tibble(do.call(rbind, lapply(rows, as.data.frame,
                                                   stringsAsFactors = FALSE)))
-  # Attach decimal info as an attribute so the caller can override type
-  # determination for variables declared with non-zero decimal places.
+  # Implied decimals travel with the layout (read semantics, see
+  # .metadata_layout_cols); the attribute additionally lets the caller override
+  # type determination for variables declared with non-zero decimal places.
+  out$decimals <- unname(dl_dec[out$name])
   attr(out, "dl_decimals") <- dl_dec
   out
 }
@@ -1125,7 +1141,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
                   formats = tibble::tibble(name = character(),
                                            fmt_type = character(),
                                            decimals = integer())))
-    return(list(layout  = fields[, c("name", "start", "end")],
+    return(list(layout  = fields[, c("name", "start", "end", "decimals")],
                 formats = fields[, c("name", "fmt_type", "decimals")]))
   }
 

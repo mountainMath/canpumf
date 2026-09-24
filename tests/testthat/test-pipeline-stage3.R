@@ -482,6 +482,48 @@ test_that("pumf_open_duckdb: errors when table missing", {
 
 # ---- pumf_run_pipeline ------------------------------------------------------
 
+test_that("pumf_build_duckdb: fixed-width implied decimals come from the layout", {
+  # WGT is declared "( 4 )" in DATA LIST: divided on read unless the value
+  # carries its own point.  AMT has only a display FORMAT with 2 decimals,
+  # which must not change the stored value.
+  tmp  <- withr::local_tempdir()
+  vdir <- file.path(tmp, "FAKE", "2099")
+  meta <- file.path(vdir, "metadata")
+  dir.create(meta, recursive = TRUE)
+  readr::write_csv(tibble::tibble(
+    name = c("WGT", "AMT"), label_en = c("Weight", "Amount"),
+    label_fr = c("Poids", "Montant"), type = "numeric", decimals = c(4L, 2L),
+    missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(name = character(), val = character(),
+                                  label_en = character(), label_fr = character()),
+                   file.path(meta, "codes.csv"))
+  readr::write_csv(tibble::tibble(name = c("WGT", "AMT"), start = c(1L, 8L),
+                                  end = c(7L, 11L), decimals = c(4L, NA)),
+                   file.path(meta, "layout.csv"))
+  writeLines(c("00123451234", "12.3456  15"), file.path(vdir, "survey.txt"))
+
+  res <- collect_build(vdir)
+  expect_equal(res$WGT, c(1.2345, 12.3456))
+  expect_equal(res$AMT, c(1234, 15))
+})
+
+test_that("read_metadata: layout.csv without a decimals column reads as NA", {
+  # Caches written before layout decimals existed must still load.
+  tmp <- withr::local_tempdir()
+  readr::write_csv(tibble::tibble(name = "X", label_en = "X", label_fr = "X",
+    type = "numeric", decimals = 2L, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(tmp, "variables.csv"))
+  readr::write_csv(tibble::tibble(name = character(), val = character(),
+                                  label_en = character(), label_fr = character()),
+                   file.path(tmp, "codes.csv"))
+  readr::write_csv(tibble::tibble(name = "X", start = 1L, end = 4L),
+                   file.path(tmp, "layout.csv"))
+  md <- canpumf:::read_metadata(tmp)
+  expect_true("decimals" %in% names(md$layout))
+  expect_true(is.na(md$layout$decimals))
+})
+
 test_that("pumf_run_pipeline: returns lazy tbl for minimal fixture", {
   tmp  <- withr::local_tempdir()
   vdir <- make_minimal_version_dir(tmp)

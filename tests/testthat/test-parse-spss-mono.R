@@ -90,6 +90,17 @@ test_that(".spss_parse_missing: consecutive discrete values become a range", {
   expect_equal(result$missing_high, c(999, 0, 8))
 })
 
+test_that(".spss_parse_missing: gapped reserved-code lists and empty first slot", {
+  # GSS cycles 8 and 10: "( 96,97,99 )" leaves 98 unused, and "(  ,995 THRU
+  # 999 )" leaves the first slot empty.  Both used to lose codes, so 97/99 or
+  # 9996-9998 stayed in numeric columns as real values.
+  result <- canpumf:::.spss_parse_missing(c(
+    "H89  ( 96,97,99 )/", "A11Y  ( 9996,9997,9999 )/",
+    "DVM9  (  ,995 THRU 999 )/", "COWF ( 0,9 )/"))
+  expect_equal(result$missing_low,  c(96, 9996, 995, 0))
+  expect_equal(result$missing_high, c(99, 9999, 999, 0))
+})
+
 test_that(".spss_parse_missing: several declarations per line", {
   # Census 1971 on Borealis packs three declarations per line; the old
   # line-anchored parser kept only the first.
@@ -113,6 +124,16 @@ test_that("parse_spss_mono: DATA LIST layout extracted from 2021-style file", {
   agegrp <- m$layout[m$layout$name == "AGEGRP", ]
   expect_equal(agegrp$start, 1L)
   expect_equal(agegrp$end,   2L)
+})
+
+test_that(".spss_parse_data_list: padded implied-decimal parens", {
+  # GSS cycles 8-10 and Census 1981 pad the parentheses: "( 4  )".  The
+  # read-side decimals land in layout$decimals; fields without one are NA.
+  lines <- c("DATA LIST FILE=x", "  RECID 1-5  WGHTFNL 6 - 14 ( 4  )",
+             "  FAMWGT 15-20 (2)  SEX 21", ".")
+  lay <- canpumf:::.spss_parse_data_list(lines, 1L)
+  expect_equal(lay$name, c("RECID", "WGHTFNL", "FAMWGT", "SEX"))
+  expect_equal(lay$decimals, c(NA, 4L, 2L, NA))
 })
 
 test_that("parse_spss_mono: CR-CR-LF line endings and label words on inline headers", {
@@ -239,7 +260,7 @@ test_that("parse_spss_mono: canonical schema returned", {
 
   expect_named(m$variables, c("name","label_en","label_fr","type","decimals","missing_low","missing_high"))
   expect_named(m$codes,     c("name","val","label_en","label_fr"))
-  expect_named(m$layout,    c("name","start","end"))
+  expect_named(m$layout,    c("name","start","end","decimals"))
 })
 
 # ---- Real Census 2016 data (skip if not available) -------------------------

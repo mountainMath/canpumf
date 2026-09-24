@@ -113,7 +113,7 @@ test_that("parse_spss_split: canonical schema returned", {
   m <- canpumf:::parse_spss_split(fx_dir())
   expect_named(m$variables, c("name","label_en","label_fr","type","decimals","missing_low","missing_high"))
   expect_named(m$codes,     c("name","val","label_en","label_fr"))
-  expect_named(m$layout,    c("name","start","end"))
+  expect_named(m$layout,    c("name","start","end","decimals"))
 })
 
 # ---- Real SFS 2019 data (skip if not in cache) -------------------------
