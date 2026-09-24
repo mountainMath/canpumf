@@ -22,6 +22,9 @@ exists.}
 \value{
 A tibble with one row per dataset: `title`, `year` (the first year
   in the title), `language` (`"eng"`/`"fra"`, guessed from the title),
+  `statcan` (logical, the dataset is also available from Statistics
+  Canada), `statcan_series` and `statcan_title` (the matching StatCan
+  catalogue entry, `NA` when none), `series` (the Borealis series name),
   `doi`, `dataverse`, `file_count`, `published_at` and `url`. English and
   French versions of a PUMF are separate datasets.
 }
@@ -34,12 +37,24 @@ can be loaded with `get_pumf(series, version, borealis = <doi or row>)`;
 see [list_borealis_pumf_files()] to inspect a dataset's files first.
 }
 \details{
-The catalogue is fetched from the public Dataverse search API (a handful of
-requests), cached for the session and, when `canpumf.cache_path` is set,
-persisted to `<cache_path>/borealis_catalogue.rds`. A persisted copy older
-than `getOption("canpumf.catalogue_max_age_days", 30)` days triggers a
-warning. If Borealis is unreachable the last persisted copy is returned
-with a warning.
+Where Statistics Canada also posts a dataset for direct download, the
+`statcan` column is `TRUE`. Prefer StatCan's copy in that case (via
+`get_pumf(series, version)` without `borealis =`): the Borealis files are
+re-deposits and can carry transcription errors. `get_pumf()` warns when an
+explicitly requested Borealis dataset is flagged this way. The flag is a
+heuristic match on catalogue number, series title, years and cycle number
+against [list_statcan_pumf_catalogue()], so check `statcan_title` before
+relying on it.
+
+The catalogue is fetched from the public Dataverse search API. There are
+several thousand datasets and Borealis renders them slowly, so pages are
+requested concurrently (`getOption("canpumf.borealis_parallel", 8)`), and a
+full fetch takes about a minute. The result is cached for the session and,
+when `canpumf.cache_path` is set, persisted to
+`<cache_path>/borealis_catalogue.rds`. A persisted copy older than
+`getOption("canpumf.catalogue_max_age_days", 30)` days triggers a warning.
+If Borealis is unreachable the last persisted copy is returned with a
+warning.
 }
 \examples{
 \donttest{

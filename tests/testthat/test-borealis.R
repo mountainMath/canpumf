@@ -107,6 +107,86 @@ test_that(".borealis_select_files: oversized docs and restricted files skipped",
   expect_equal(sel$role[[4L]], "doc")
 })
 
+# ---- StatCan-availability flag ---------------------------------------------
+
+test_that(".borealis_norm_series strips years, suffixes and articles", {
+  norm <- canpumf:::.borealis_norm_series
+  expect_equal(norm("General Social Survey, Cycle 18, 2004 [Canada]: Main File"),
+               "general social survey cycle 18 2004 canada main file")
+  expect_equal(norm("1971 Census of Canada (Individuals)"),
+               "census of population")
+  expect_equal(norm("The Labour Force Survey Public Use Microdata File"),
+               "labour force survey")
+})
+
+test_that(".borealis_edition_years expands ranges and ignores brackets", {
+  yrs <- function(x) sort(canpumf:::.borealis_edition_years("", x))
+  expect_equal(yrs("Canadian Community Health Survey, 2011-2012"), c(2011, 2012))
+  expect_equal(yrs("Labour Force Survey, 1976–1978"), 1976:1978)
+  expect_equal(yrs("GSS, Cycle 18, 2004 [Canada 2006 revision]"), 2004)
+  expect_length(yrs("No year here"), 0L)
+})
+
+test_that(".borealis_match_statcan flags datasets StatCan also posts", {
+  sc <- tibble::tibble(
+    Acronym      = c("GSS", "GSS", "CCHS", "CCHS", "LFS", "EFT"),
+    SeriesTitle  = c("General Social Survey", "General Social Survey",
+                     "Canadian Community Health Survey",
+                     "Canadian Community Health Survey",
+                     "Labour Force Survey", "Census of Population"),
+    Title        = c("General Social Survey — Cycle 18 (2004)",
+                     "General Social Survey — CSGVP (2004)",
+                     "Canadian Community Health Survey — 2011-2012",
+                     "Canadian Community Health Survey — 2012",
+                     "Labour Force Survey — 2019",
+                     "Census of Population — 1981"),
+    edition      = c("2004", "2004", "2011-2012", "2012", "2019", "1981"),
+    catalogue_id = c("45250001", "45250001", "82M0013X", "82M0013X",
+                     "71M0001X", ""),
+    url          = c(rep("https://www150.statcan.gc.ca/x", 5), "EFT"))
+  bor <- tibble::tibble(
+    title = c("General Social Survey, Cycle 18, 2004 [Canada]: Main File",
+              "Enquête sociale générale, Cycle 18, 2004 [Canada]",
+              "Canadian Community Health Survey, 2012: Mental Health Component",
+              "Canadian Community Health Survey, 2011-2012: Annual Component",
+              "Some LFS release 2019",
+              "Labour Force Survey, 1976",
+              "1981 Census of Canada: Individuals",
+              "General Social Survey, Cycle 19, 2005 [Canada]"),
+    alt_title = c(NA, "General Social Survey, Cycle 18, 2004", NA, NA, NA, NA,
+                  NA, NA),
+    other_id  = c(NA, NA, NA, NA, "71M0001XCB", "71M0001XCB", NA, NA))
+  out <- canpumf:::.borealis_match_statcan(bor, sc)
+  expect_equal(out$statcan, c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE))
+  # Same cycle beats the CSGVP row that shares series and year.
+  expect_equal(out$statcan_title[1:2],
+               rep("General Social Survey — Cycle 18 (2004)", 2))
+  # Year sets must agree exactly: 2012 is not 2011-2012.
+  expect_equal(out$statcan_title[3:4],
+               c("Canadian Community Health Survey — 2012",
+                 "Canadian Community Health Survey — 2011-2012"))
+  # Catalogue number in otherId matches without a title match.
+  expect_equal(out$statcan_series[[5]], "LFS")
+  # EFT-only rows are not direct downloads.
+  expect_true(is.na(out$statcan_series[[7]]))
+  expect_false(any(canpumf:::.borealis_match_statcan(bor, NULL)$statcan))
+})
+
+test_that("an explicit Borealis load warns when StatCan has the data", {
+  env <- canpumf:::.borealis_catalogue_cache
+  old <- env$data
+  on.exit(env$data <- old, add = TRUE)
+  env$data <- tibble::tibble(
+    doi = c("doi:10.5683/SP/AAAAAA", "doi:10.5683/SP/BBBBBB"),
+    title = c("GSS Cycle 18", "Census 1971"),
+    statcan = c(TRUE, FALSE), statcan_series = c("GSS", NA),
+    statcan_title = c("General Social Survey — Cycle 18 (2004)", NA))
+  warn <- canpumf:::.borealis_warn_statcan_available
+  expect_warning(warn("doi:10.5683/SP/AAAAAA"), "also available directly")
+  expect_no_warning(warn("doi:10.5683/SP/BBBBBB"))
+  expect_no_warning(warn("doi:10.5683/SP/CCCCCC"))
+})
+
 # ---- Manifest ---------------------------------------------------------------
 
 test_that("the manifest pins the data file as an anchored, escaped mask", {

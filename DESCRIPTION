@@ -26,6 +26,8 @@ Imports:
     tibble,
     rvest,
     httr,
+    curl,
+    jsonlite,
     purrr,
     DBI,
     duckdb  (>= 1.5.2),

@@ -2275,11 +2275,13 @@ merge_metadata <- function(parsed_list) {
 
 # CP1252 characters for bytes 0x80-0x9F; NA marks the five undefined bytes,
 # which a decoder passes through as the C1 control of the same code point.
-.cp1252_c1 <- c("€", NA, "‚", "ƒ", "„", "…", "†",
-                "‡", "ˆ", "‰", "Š", "‹", "Œ", NA,
-                "Ž", NA, NA, "‘", "’", "“", "”",
-                "•", "–", "—", "˜", "™", "š",
-                "›", "œ", NA, "ž", "Ÿ")
+.cp1252_c1 <- vapply(
+  c(0x20AC, NA, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, NA, 0x017D, NA,
+    NA, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, NA, 0x017E, 0x0178),
+  function(cp) if (is.na(cp)) NA_character_ else intToUtf8(cp),
+  character(1))
 
 .mojibake_rx <- local({
   # A continuation byte (0x80-0xBF) as CP1252 renders it.

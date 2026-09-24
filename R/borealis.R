@@ -106,36 +106,204 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 }
 
 .borealis_title_lang <- function(title) {
-  fra <- grepl(paste0("(?i)(Enqu[eê]te|Recensement|FMGD|microdonn|",
-                      "Fichier|Programme|[EÉ]tude|Sondage|à grande diffusion)"),
+  fra <- grepl(paste0("(?i)(Enqu[e\u00ea]te|Recensement|FMGD|microdonn|",
+                      "Fichier|Programme|[E\u00c9]tude|Sondage|\u00e0 grande diffusion)"),
                title, perl = TRUE)
   ifelse(fra, "fra", "eng")
 }
 
-.borealis_search_subtree <- function(subtree, verbose = TRUE) {
-  per_page <- 1000L
-  start    <- 0L
-  items    <- list()
-  repeat {
-    d <- .borealis_api("/api/search",
-                       list(q = "*", type = "dataset", subtree = subtree,
-                            per_page = per_page, start = start))
-    items <- c(items, d$items)
-    start <- start + per_page
-    if (verbose)
-      message("Borealis '", subtree, "': ", min(start, d$total_count), " of ",
-              d$total_count, " datasets")
-    if (start >= d$total_count || length(d$items) == 0L) break
+# Search-API query for one page of a subtree.  Sorting by name makes the paging
+# stable, so pages can be fetched concurrently.  `metadata_fields` adds the
+# citation fields used to match a dataset to the StatCan catalogue.
+.borealis_search_query <- function(subtree, start, per_page) {
+  list(q = "*", type = "dataset", subtree = subtree, sort = "name",
+       order = "asc", per_page = per_page, start = start,
+       metadata_fields = "citation:otherId",
+       metadata_fields = "citation:series",
+       metadata_fields = "citation:alternativeTitle")
+}
+
+# Fetch several search pages concurrently.  Borealis renders each result
+# server-side at roughly 0.07 s per dataset whatever the page size, so the
+# ~3700 PUMF datasets take four minutes sequentially.  Fetching pages of 100
+# with a few requests in flight brings that down to well under a minute.
+# HTTP/2 multiplexing is off: Borealis answers multiplexed streams on one
+# connection one after another, so only separate connections run in parallel.
+# Returns the list of `data` elements, one per start offset; a page that fails
+# is retried sequentially through .borealis_api(), which raises a
+# canpumf_network_error.
+.borealis_search_pages <- function(subtree, starts, per_page,
+                                   max_parallel = getOption("canpumf.borealis_parallel", 8L)) {
+  urls <- vapply(starts, function(st)
+    httr::modify_url(paste0(BOREALIS_SERVER, "/api/search"),
+                     query = .borealis_search_query(subtree, st, per_page)),
+    character(1L))
+  bodies <- vector("list", length(urls))
+  pool <- curl::new_pool(total_con = max_parallel, host_con = max_parallel,
+                         multiplex = FALSE)
+  key  <- .borealis_token()
+  # Requests are added as slots free up rather than all at once: curl starts a
+  # request's connect timeout when it is queued, so a page waiting behind
+  # slow ones would otherwise time out.
+  nxt <- 0L
+  submit <- function() {
+    if (nxt >= length(urls)) return(invisible())
+    nxt <<- nxt + 1L
+    j <- nxt
+    h <- curl::new_handle(timeout = 120, useragent =
+                            "canpumf (https://github.com/mountainMath/canpumf)")
+    if (!is.null(key)) curl::handle_setheaders(h, `X-Dataverse-key` = key)
+    curl::curl_fetch_multi(urls[[j]], handle = h, pool = pool,
+      done = function(res) {
+        if (res$status_code == 200L) {
+          body <- tryCatch(jsonlite::fromJSON(rawToChar(res$content),
+                                              simplifyVector = FALSE),
+                           error = function(e) NULL)
+          if (is.list(body) && identical(body$status, "OK"))
+            bodies[[j]] <<- body$data
+        }
+        submit()
+      },
+      fail = function(msg) submit())
   }
+  for (k in seq_len(min(max_parallel, length(urls)))) submit()
+  curl::multi_run(pool = pool)
+  for (i in which(vapply(bodies, is.null, logical(1L))))
+    bodies[[i]] <- .borealis_api("/api/search",
+                                 .borealis_search_query(subtree, starts[[i]], per_page))
+  bodies
+}
+
+# Value of a citation field in a search item's `metadataBlocks`, or NULL.
+.borealis_item_field <- function(item, field) {
+  for (f in item$metadataBlocks$citation$fields)
+    if (identical(f$typeName, field)) return(f$value)
+  NULL
+}
+
+.borealis_search_subtree <- function(subtree, verbose = TRUE, per_page = 100L) {
+  first <- .borealis_api("/api/search", .borealis_search_query(subtree, 0L, per_page))
+  total <- as.integer(first$total_count)
+  if (verbose)
+    message("Borealis '", subtree, "': fetching ", total, " datasets")
+  starts <- if (total > per_page) seq(per_page, total - 1L, by = per_page) else integer()
+  rest   <- if (length(starts)) .borealis_search_pages(subtree, starts, per_page) else list()
+  items  <- unlist(lapply(c(list(first), rest), `[[`, "items"), recursive = FALSE)
+
   chr <- function(x) if (is.null(x)) NA_character_ else as.character(x)[[1L]]
+  other_id <- function(i) {
+    v <- .borealis_item_field(i, "otherId")
+    if (is.null(v)) return(NA_character_)
+    paste(vapply(v, function(o) chr(o$otherIdValue$value), character(1L)),
+          collapse = " ")
+  }
+  series_name <- function(i) {
+    v <- .borealis_item_field(i, "series")
+    if (is.null(v)) NA_character_ else chr(v[[1L]]$seriesName$value)
+  }
+  alt_titles <- function(i) {
+    v <- .borealis_item_field(i, "alternativeTitle")
+    if (is.null(v)) NA_character_ else paste(unlist(v), collapse = " | ")
+  }
   tibble::tibble(
     doi            = vapply(items, function(i) chr(i$global_id), character(1L)),
     title          = vapply(items, function(i) chr(i$name), character(1L)),
+    series         = vapply(items, series_name, character(1L)),
+    other_id       = vapply(items, other_id, character(1L)),
+    alt_title      = vapply(items, alt_titles, character(1L)),
     dataverse      = vapply(items, function(i) chr(i$identifier_of_dataverse), character(1L)),
     published_at   = vapply(items, function(i) chr(i$published_at), character(1L)),
     file_count     = vapply(items, function(i)
                        if (is.null(i$fileCount)) NA_integer_ else as.integer(i$fileCount),
                        integer(1L)))
+}
+
+# ---- Matching against the StatCan catalogue ------------------------------------
+
+# Normalise a survey title for series matching: lower case, ASCII letters and
+# digits only, with StatCan's product-type suffixes removed.
+.borealis_norm_series <- function(x) {
+  x <- tolower(x)
+  x <- gsub("\\([^)]*\\)?", " ", x)
+  x <- sub(paste0("(,? *(public use )?microdata( file)?| public use microdata file",
+                  "|, documentation and data files| pumf).*$"), "", x)
+  x <- gsub("[^a-z0-9]+", " ", x)
+  x <- sub("^((19|20)[0-9]{2} )?(the )?", "", trimws(x))
+  x <- sub("^census of canada", "census of population", x)
+  trimws(x)
+}
+
+# Years a StatCan catalogue row covers, from its edition and title: every
+# four-digit year, with "2024-2025" style ranges filled in.
+.borealis_edition_years <- function(edition, title) {
+  txt <- gsub("\\[[^]]*\\]", " ", paste(edition, title))
+  rng <- stringr::str_match_all(txt, "((?:19|20)[0-9]{2})\\s*[-\u2013/]\\s*((?:19|20)[0-9]{2})")[[1L]]
+  yrs <- as.integer(stringr::str_extract_all(txt, "(?<![0-9])(19|20)[0-9]{2}(?![0-9])")[[1L]])
+  if (nrow(rng))
+    for (k in seq_len(nrow(rng)))
+      yrs <- c(yrs, seq(as.integer(rng[k, 2L]), as.integer(rng[k, 3L])))
+  unique(yrs)
+}
+
+# Mark the Borealis datasets Statistics Canada also offers as a direct
+# download.  A dataset matches a StatCan catalogue row when the row's
+# catalogue number appears in the dataset's ODESI identifier, or its series
+# title starts the dataset's title or one of its alternative titles (French
+# datasets carry their English title there), the dataset covers the same
+# years as the row, and any cycle or series number the two titles both give
+# agrees.  Requiring the same years keeps a component file apart from the
+# annual release: CCHS 2015 Nutrition is not the 2015-2016 annual file.  EFT-only rows are not direct downloads.  Adds `statcan` (TRUE
+# when matched) and `statcan_series`/`statcan_title`, the matched row's
+# acronym and title.
+.borealis_match_statcan <- function(bor, statcan) {
+  bor$statcan        <- FALSE
+  bor$statcan_series <- NA_character_
+  bor$statcan_title  <- NA_character_
+  if (is.null(statcan) || !nrow(statcan)) return(bor)
+  sc <- statcan[grepl("^https?://", statcan$url), , drop = FALSE]
+  if (!nrow(sc)) return(bor)
+  sc$norm  <- .borealis_norm_series(sc$SeriesTitle)
+  sc$years <- Map(.borealis_edition_years, sc$edition, sc$Title)
+  sc$catno <- toupper(gsub("[^A-Za-z0-9]", "", sc$catalogue_id))
+  # Longest series names first, so "canadian internet use survey household ..."
+  # wins over a shorter prefix.
+  sc <- sc[order(-nchar(sc$norm)), , drop = FALSE]
+
+  titles <- lapply(seq_len(nrow(bor)), function(i) {
+    alt <- if (is.na(bor$alt_title[[i]])) character()
+           else strsplit(bor$alt_title[[i]], " | ", fixed = TRUE)[[1L]]
+    .borealis_norm_series(c(bor$title[[i]], alt))
+  })
+  ids  <- toupper(gsub("[^A-Za-z0-9]", "", ifelse(is.na(bor$other_id), "", bor$other_id)))
+  cycle_no <- function(x)
+    stringr::str_match(x, "\\b(?:cycle|series) ([0-9]+(?: [0-9])?)\\b")[, 2L]
+  sc$cycle <- cycle_no(.borealis_norm_series(sc$Title))
+  has_catno <- nzchar(sc$catno) & grepl("[0-9]", sc$catno)
+  for (i in seq_len(nrow(bor))) {
+    y <- sort(.borealis_edition_years("", bor$title[[i]]))
+    if (!length(y)) next
+    cyc <- cycle_no(titles[[i]][[1L]])
+    by_cat    <- has_catno &
+                   vapply(sc$catno, function(k) grepl(k, ids[[i]], fixed = TRUE), logical(1L))
+    by_series <- nzchar(sc$norm) &
+                   vapply(sc$norm, function(n)
+                     any(titles[[i]] == n | startsWith(titles[[i]], paste0(n, " "))),
+                     logical(1L))
+    same_cycle <- !is.na(sc$cycle) & !is.na(cyc) & sc$cycle == cyc
+    same_years <- vapply(sc$years, function(yy)
+      if (length(yy)) identical(sort(yy), y) else NA, logical(1L))
+    ok  <- (by_cat | by_series) &
+             ifelse(is.na(same_years), same_cycle, same_years) &
+             (is.na(sc$cycle) | is.na(cyc) | same_cycle)
+    # A row naming the same cycle beats one that names none (GSS Cycle 18
+    # over the 2004 CSGVP, both "General Social Survey" in 2004).
+    hit <- which(ok)[order(!same_cycle[ok])]
+    if (!length(hit)) next
+    bor$statcan[[i]]        <- TRUE
+    bor$statcan_series[[i]] <- sc$Acronym[[hit[[1L]]]]
+    bor$statcan_title[[i]]  <- sc$Title[[hit[[1L]]]]
+  }
+  bor
 }
 
 .borealis_crawl_catalogue <- function(verbose = TRUE) {
@@ -151,8 +319,11 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
   out$language     <- .borealis_title_lang(out$title)
   out$published_at <- as.Date(substr(out$published_at, 1L, 10L))
   out$url          <- .borealis_dataset_url(out$doi)
-  out <- out[order(out$title), c("title", "year", "language", "doi", "dataverse",
-                                 "file_count", "published_at", "url")]
+  out <- .borealis_match_statcan(out, .statcan_catalogue_cached())
+  out <- out[order(out$title), c("title", "year", "language", "statcan",
+                                 "statcan_series", "statcan_title", "series",
+                                 "doi", "dataverse", "file_count",
+                                 "published_at", "url")]
   tibble::as_tibble(out)
 }
 
@@ -183,12 +354,24 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 #' can be loaded with `get_pumf(series, version, borealis = <doi or row>)`;
 #' see [list_borealis_pumf_files()] to inspect a dataset's files first.
 #'
-#' The catalogue is fetched from the public Dataverse search API (a handful of
-#' requests), cached for the session and, when `canpumf.cache_path` is set,
-#' persisted to `<cache_path>/borealis_catalogue.rds`. A persisted copy older
-#' than `getOption("canpumf.catalogue_max_age_days", 30)` days triggers a
-#' warning. If Borealis is unreachable the last persisted copy is returned
-#' with a warning.
+#' Where Statistics Canada also posts a dataset for direct download, the
+#' `statcan` column is `TRUE`. Prefer StatCan's copy in that case (via
+#' `get_pumf(series, version)` without `borealis =`): the Borealis files are
+#' re-deposits and can carry transcription errors. `get_pumf()` warns when an
+#' explicitly requested Borealis dataset is flagged this way. The flag is a
+#' heuristic match on catalogue number, series title, years and cycle number
+#' against [list_statcan_pumf_catalogue()], so check `statcan_title` before
+#' relying on it.
+#'
+#' The catalogue is fetched from the public Dataverse search API. There are
+#' several thousand datasets and Borealis renders them slowly, so pages are
+#' requested concurrently (`getOption("canpumf.borealis_parallel", 8)`), and a
+#' full fetch takes about a minute. The result is cached for the session and,
+#' when `canpumf.cache_path` is set, persisted to
+#' `<cache_path>/borealis_catalogue.rds`. A persisted copy older than
+#' `getOption("canpumf.catalogue_max_age_days", 30)` days triggers a warning.
+#' If Borealis is unreachable the last persisted copy is returned with a
+#' warning.
 #'
 #' @param refresh Logical, re-fetch the catalogue even when a cached copy
 #'   exists.
@@ -198,6 +381,9 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 #'
 #' @return A tibble with one row per dataset: `title`, `year` (the first year
 #'   in the title), `language` (`"eng"`/`"fra"`, guessed from the title),
+#'   `statcan` (logical, the dataset is also available from Statistics
+#'   Canada), `statcan_series` and `statcan_title` (the matching StatCan
+#'   catalogue entry, `NA` when none), `series` (the Borealis series name),
 #'   `doi`, `dataverse`, `file_count`, `published_at` and `url`. English and
 #'   French versions of a PUMF are separate datasets.
 #' @seealso [list_borealis_pumf_files()], [get_pumf()]
@@ -237,6 +423,27 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
   .borealis_catalogue_cache$data <- out
   .statcan_write_persistent(cache_file, out, prefer = NULL)
   out
+}
+
+# Warn when an explicitly requested Borealis dataset is one Statistics Canada
+# also offers as a direct download.  StatCan's own copy is preferred: the
+# Borealis copies are re-deposits that can carry transcription errors (the
+# 2006 LFS labels arrive as mojibake, for example).  Only an already-fetched
+# catalogue is consulted -- the session cache or the persisted copy -- so the
+# check never triggers a catalogue download.
+.borealis_warn_statcan_available <- function(doi,
+                                             cache_path = getOption("canpumf.cache_path")) {
+  cat <- .borealis_catalogue_cache$data
+  if (is.null(cat))
+    cat <- .statcan_read_persistent(.borealis_catalogue_cache_file(cache_path))$data
+  if (is.null(cat) || !"statcan" %in% names(cat)) return(invisible(FALSE))
+  row <- cat[cat$doi == doi & cat$statcan %in% TRUE, , drop = FALSE]
+  if (!nrow(row)) return(invisible(FALSE))
+  warning(doi, " (", row$title[[1L]], ") is also available directly from ",
+          "Statistics Canada as \"", row$statcan_title[[1L]], "\". StatCan's ",
+          "copy is preferred; see list_canpumf_collection() for the matching ",
+          row$statcan_series[[1L]], " version.", call. = FALSE)
+  invisible(TRUE)
 }
 
 # ---- Files ------------------------------------------------------------------

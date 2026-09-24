@@ -58,6 +58,19 @@ Stage 1 (`pumf_locate_or_download()`) downloads via `/api/access/datafile/<id>` 
 
 Browsing: `list_borealis_pumf_catalogue()` (Dataverse search API, session-cached and persisted to `<cache_path>/borealis_catalogue.rds`, staleness warning like the StatCan catalogue) and `list_borealis_pumf_files(doi)`. `BOREALIS_DATAVERSE_KEY`, when set, is sent as `X-Dataverse-key` to `BOREALIS_SERVER` only.
 
+Catalogue fetch and the StatCan flag (`R/borealis.R`):
+- It is a search, not a crawl (`/api/search`, `q=*`, subtrees `pumfs` and `census`, `sort=name` for stable paging). The cost is Borealis rendering about 0.07 s per result, so pages of 100 are fetched concurrently with `curl` multi (`canpumf.borealis_parallel`, default 8). A full fetch takes about 70 s instead of about 4.5 min.
+  - `multiplex = FALSE`: over HTTP/2 Borealis answers multiplexed streams serially.
+  - Requests are submitted as slots free up, because curl's connect timeout starts at queue time.
+  - Failed pages are retried sequentially through `.borealis_api()`.
+- `metadata_fields` requests `citation:otherId` (ODESI id, often a StatCan catalogue number), `citation:series` and `citation:alternativeTitle` (French datasets carry the English title there).
+- `.borealis_match_statcan()` sets `statcan` / `statcan_series` / `statcan_title` against `.statcan_catalogue_cached()`, using http(s) rows only, so EFT does not count. A match needs:
+  - the catalogue number in otherId, **or** the normalized StatCan SeriesTitle as a prefix of the title or an alternative title;
+  - **and** an identical year set;
+  - **and** agreeing cycle/series numbers when both sides give one.
+  - Same-cycle hits rank first. It is a heuristic; known misses are CCHS 2001 Cycle 1.1, ALL 2003/06/08 and the 2004 CSGVP (StatCan files it under GSS).
+- `get_pumf(borealis =)` calls `.borealis_warn_statcan_available()` before downloading. It only consults an already-fetched catalogue and never fetches.
+
 The Borealis Census copies are English-only (ODESI `.sps`). Their overrides differ from the EFT twins: no `cols_swap` for 1981 (ODESI fixed the names), no ETHNICOR supplement for 1986, and 1986 families gets `force_numeric` (the ODESI `.sps` declares labels and MISSING VALUES the EFT family file lacks). The 1971 Borealis CSV carries correct negative incomes, whereas the EFT text files use sign overpunch that the FWF reader does not decode.
 
 ## Override verification workflow

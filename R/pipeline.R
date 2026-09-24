@@ -321,6 +321,7 @@ pumf_locate_or_download <- function(series,
       }
     }
     if (!is.null(bor_doi)) {
+      if (bor_explicit) .borealis_warn_statcan_available(bor_doi)
       .borealis_download_dataset(bor_doi, version_dir, files = bor$files)
       is_extracted <- TRUE
     } else {
