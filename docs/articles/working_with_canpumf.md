@@ -37,7 +37,7 @@ chs_pumf |>
   select(1:5) |>
   head(10)
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 27.0.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
 #>    PUMFID PHHSIZE PAGEGR1 PAGEGR2 PAGEGR3
 #>    <chr>  <fct>   <fct>   <fct>   <fct>  
 #>  1 00001  1       No      No      No     
@@ -66,7 +66,7 @@ chs_pumf |>
   select(1:5) |>
   head(10)
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 27.0.0:R 4.6.0//Users/jens/data/pumf.data/CHS/2018/CHS_2018.duckdb]
 #>    `Unique household identifier` `Household size` Demographic information - ag…¹
 #>    <chr>                         <fct>            <fct>                         
 #>  1 00001                         1                No                            

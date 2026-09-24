@@ -40,5 +40,6 @@ if (!is.null(main)) {
   dplyr::left_join(main, cg4, by = "RECID")
   close_pumf(main)
 }
+#> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
 # }
 ```

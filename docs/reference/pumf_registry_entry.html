@@ -13,7 +13,7 @@ fields of one that is."><meta property="og:image" content="https://mountainmath.
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.6.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -73,6 +73,7 @@ fields of one that is.</p>
 <span>  bundle_sps_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  doc_mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  download_format <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  borealis <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  <span class="va">...</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -133,6 +134,15 @@ the command files the metadata parsers need (e.g. the Canadian Health
 Survey on Seniors, whose CSV zip ships the data alone).</p></dd>
 
 
+<dt id="arg-borealis">borealis<a class="anchor" aria-label="anchor" href="#arg-borealis"></a></dt>
+<dd><p>A Borealis Dataverse source for the data: a DOI string
+(`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the
+optional `files` (file ids or names from [list_borealis_pumf_files()])
+overrides canpumf's automatic choice of data and command files. A
+registry `borealis` source is used only when Statistics Canada has no
+download for the version; pass `get_pumf(..., borealis =)` to force it.</p></dd>
+
+
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>Reserved; passing any unrecognised field name raises an error.</p></dd>
 
@@ -149,10 +159,11 @@ back to the built-in entry (when overriding a known survey) or to the
 pipeline defaults (for a new survey).  This makes the result a *patch* rather
 than a full replacement.  Use [pumf_registry()] to inspect an existing entry
 as a starting template.</p>
-<p>The custom registry covers parsing and building configuration only; it does
-not provide a download URL.  For a survey not in [list_canpumf_collection()],
-deposit the raw zip (or extracted files) under
-`&lt;cache_path&gt;/&lt;series&gt;/&lt;version&gt;/` first, then call
+<p>The custom registry covers parsing and building configuration, plus an
+optional Borealis source (`borealis`); it does not provide a StatCan
+download URL.  For a survey not in [list_canpumf_collection()], either point
+`borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
+files) under `&lt;cache_path&gt;/&lt;series&gt;/&lt;version&gt;/` first, then call
 `get_pumf(series, version, registry = ...)`.</p>
     </div>
     <div class="section level2">

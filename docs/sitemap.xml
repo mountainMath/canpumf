@@ -27,12 +27,15 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/dot-pumf_pdf_select_blocks.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/dot-pumf_registry_newest_sibling.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/dot-pumf_validate_pdf_freqs.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/get_lfs_timeline.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/get_pumf.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/get_pumf_connection.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/index.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/label_pumf_columns.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/lfs_get_pumf.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_available_lfs_pumf_versions.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/list_borealis_pumf_catalogue.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/list_borealis_pumf_files.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_canpumf_collection.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_pumf_cache.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/list_pumf_registry.html</loc></url>
@@ -46,6 +49,7 @@
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_pdf_dictionary.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_pdf_freq_codebook.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_sas_cards.html</loc></url>
+<url><loc>https://mountainmath.github.io/canpumf/reference/parse_sas_odesi.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_spss_mono.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_spss_sav.html</loc></url>
 <url><loc>https://mountainmath.github.io/canpumf/reference/parse_spss_split.html</loc></url>

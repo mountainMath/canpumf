@@ -57,7 +57,7 @@ main <- get_pumf("GSS", "Cycle 16 (2002)")  # primary module (MAIN), carries WGH
 
 main |> select(1:5) |> head()
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 27.0.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]
 #>   RECID WGHT_PER AGE_2001_GR5      AGE_2001_GR10     SEX   
 #>   <dbl>    <dbl> <fct>             <fct>             <fct> 
 #> 1     1     367. 45 to 49          45 to 54          Female
@@ -89,11 +89,11 @@ reminds you of the key the modules join on:
 
 cg4 <- pumf_module(main, "CG4")   # the caregiving module
 #> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
-#> GSS/2002 modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
+#> GSS/Cycle 16 (2002) modules join on 'RECID' (e.g. dplyr::inner_join(main, CG4, by = "RECID")).
 
 cg4 |> select(1:5) |> head()
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 27.0.0:R 4.6.0//Users/jens/data/pumf.data/GSS/Cycle 16 (2002)/GSS_Cycle_16__2002_.duckdb]
 #>   RECID PERSONID CG4_FR_Q100_C                           CG4_FR_Q104 CG4_FR_Q105
 #>   <dbl>    <dbl> <fct>                                   <fct>       <fct>      
 #> 1     6        1 Neighbour of respondent                 Not asked   Not asked  
@@ -200,7 +200,7 @@ close_pumf(con)
 
 ## Notes
 
-- `get_pumf("GSS", "2002", module = "CG4")` opens a module
+- `get_pumf("GSS", "Cycle 16 (2002)", module = "CG4")` opens a module
   **standalone** (its own connection). Prefer
   [`pumf_module()`](https://mountainmath.github.io/canpumf/reference/pumf_module.md)
   when you intend to join, so both tbls share one connection.

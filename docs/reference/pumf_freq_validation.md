@@ -68,6 +68,9 @@ repair ledger is empty and no label from it is used.
 ``` r
 # \donttest{
 gss <- get_pumf("GSS", "Cycle 16 (2002)")
+#> GSS/Cycle 16 (2002) is a multi-module survey; you loaded the primary module. Other linked modules: CG4, CG6, CR.
+#> Open one on the same connection with pumf_module(), e.g.:
+#>   cg4 <- pumf_module(main, "CG4")
 if (!is.null(gss)) {
   table(pumf_freq_validation(gss)$status)
   close_pumf(gss)

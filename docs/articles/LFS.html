@@ -25,7 +25,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.3</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.6.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -104,20 +104,20 @@ available for direct download.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/list_canpumf_collection.html">list_canpumf_collection</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">Acronym</span><span class="op">==</span><span class="st">"LFS"</span><span class="op">)</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 92 × 5</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 93 × 5</span></span></span>
 <span><span class="co">#&gt;    Title               Acronym Version `Survey Number` url                      </span></span>
 <span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>           <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                    </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> Labour Force Survey LFS     2026-07 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> Labour Force Survey LFS     2026-06 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> Labour Force Survey LFS     2026-05 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> Labour Force Survey LFS     2026-04 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> Labour Force Survey LFS     2026-03 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> Labour Force Survey LFS     2026-02 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> Labour Force Survey LFS     2026-01 3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> Labour Force Survey LFS     2025    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> Labour Force Survey LFS     2024    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> Labour Force Survey LFS     2023    3701            https://www150.statcan.g…</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 82 more rows</span></span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> Labour Force Survey LFS     2026-08 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> Labour Force Survey LFS     2026-07 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> Labour Force Survey LFS     2026-06 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> Labour Force Survey LFS     2026-05 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> Labour Force Survey LFS     2026-04 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> Labour Force Survey LFS     2026-03 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> Labour Force Survey LFS     2026-02 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> Labour Force Survey LFS     2026-01 3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> Labour Force Survey LFS     2025    3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> Labour Force Survey LFS     2024    3701            https://www150.statcan.g…</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 83 more rows</span></span></span></code></pre></div>
 <p>The second one fetches and loads the LFS data. For example, to
 download the LFS pumf for 2022 we use</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
@@ -127,7 +127,7 @@ download the LFS pumf for 2022 we use</p>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A query:  ?? x 5</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 25.6.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Database: DuckDB 1.5.4 [root@Darwin 27.0.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]</span></span></span>
 <span><span class="co">#&gt;    REC_NUM SURVYEAR SURVMNTH LFSSTAT                    PROV            </span></span>
 <span><span class="co">#&gt;      <span style="color: #949494; font-style: italic;">&lt;int&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>                      <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>           </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span>       1     <span style="text-decoration: underline;">2</span>022        1 Not in labour force        Quebec          </span></span>
@@ -335,7 +335,192 @@ column as done by the convenience function
 <div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_pumf</span> <span class="op">|&gt;</span> <span class="fu"><a href="../reference/close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 </div>
-  </main>
+<div class="section level2">
+<h2 id="the-long-timeline-1976-onward">The long timeline, 1976 onward<a class="anchor" aria-label="anchor" href="#the-long-timeline-1976-onward"></a>
+</h2>
+<p>Statistics Canada posts the LFS PUMF for 2006 onward. The monthly
+files for January 1976 to December 2005 are only publicly available
+through the <a href="https://borealisdata.ca" class="external-link">Borealis</a> Dataverse
+(ODESI). They use the older, pre-2017 file layout. <code>canpumf</code>
+loads them as a separate series, <code>"LFS_HIST"</code>, which works
+just like <code>"LFS"</code>: every month you load is appended to one
+shared database.</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lfs_hist_1995_06</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS_HIST"</span>, <span class="st">"1995-06"</span><span class="op">)</span>  <span class="co"># one month</span></span>
+<span><span class="va">lfs_hist_1995_06</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/count.html" class="external-link">count</a></span><span class="op">(</span><span class="va">LFSSTAT</span>, wt <span class="op">=</span> <span class="va">FWEIGHT</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 6 × 2</span></span></span>
+<span><span class="co">#&gt;   LFSSTAT                             n</span></span>
+<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;fct&gt;</span>                           <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Employed, at work            12<span style="text-decoration: underline;">874</span>136</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Employed, absent from work     <span style="text-decoration: underline;">731</span>588</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Unemployed, temporary layoff    <span style="text-decoration: underline;">81</span>243</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Unemployed, job searcher      1<span style="text-decoration: underline;">240</span>976</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Unemployed, future start        <span style="text-decoration: underline;">42</span>304</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Not in labour force           7<span style="text-decoration: underline;">677</span>684</span></span></code></pre></div>
+<p>A year (<code>"1995"</code>) loads all twelve months, and
+<code>refresh = "auto"</code> loads every month that is not yet in the
+database. The first full load downloads all 360 monthly files and takes
+a couple of hours. After that everything is read from the cache.</p>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lfs_hist</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS_HIST"</span>, refresh <span class="op">=</span> <span class="st">"auto"</span><span class="op">)</span></span></code></pre></div>
+<p>The two series cannot be stacked as they are. The column sets differ,
+some variables are coded differently, and the current LFS stores hours
+in tenths and wages in cents. <code><a href="../reference/get_lfs_timeline.html">get_lfs_timeline()</a></code> does that
+work. It combines whatever has been loaded of <code>"LFS_HIST"</code>
+and <code>"LFS"</code> into one lazy table with a curated set of common
+variables, and <code>SOURCE</code> records which series a row came from.
+The two databases are opened read-only, and nothing is copied or
+loaded.</p>
+<p>By default the timeline uses only what has already been loaded. With
+<code>refresh = "auto"</code> it first loads every available month of
+either series that is not yet in the cache. An analysis script that
+starts with <code>get_lfs_timeline(refresh = "auto")</code> therefore
+always picks up the latest LFS release. When everything is current this
+only checks the list of available versions.</p>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lfs_tl</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_lfs_timeline.html">get_lfs_timeline</a></span><span class="op">(</span>refresh <span class="op">=</span> <span class="st">"auto"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; LFS timeline: LFS_HIST 1976-01..2005-12 (360 versions); LFS 2006..2026-08 (28 versions).</span></span>
+<span><span class="fu"><a href="../reference/pumf_var_labels.html">pumf_var_labels</a></span><span class="op">(</span><span class="va">lfs_tl</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 57 × 3</span></span></span>
+<span><span class="co">#&gt;    name     label_en                                           label_fr         </span></span>
+<span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                                              <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>            </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> SOURCE   Source series                                      Série source     </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> SURVYEAR Survey year                                        Année d'enquête  </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> SURVMNTH Survey month                                       Mois de l'enquête</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> PROV     Province                                           Province         </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> AGE_12   Five-year age group of respondent                  L'âge du réponda…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> AGE_6    Age in 2 and 3 year groups, 15 to 29               L'âge des person…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> EDUC     Highest educational attainment                     Plus haut niveau…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> MJH      Single or multiple jobholder                       Personnes ayant …</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> EVERWORK Identifies if a person has worked in the last year Indique si une p…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> FTPTLAST Full- or part-time status of last job              Situation du der…</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 47 more rows</span></span></span></code></pre></div>
+<p>Variables with identical codes in both series use the current LFS
+labels. The rest are recoded to a common scheme:</p>
+<ul>
+<li>
+<code>LFSSTAT</code> collapses the historical breakdown of
+unemployment.</li>
+<li>
+<code>GENDER_SEX</code> combines sex and gender, in the same way as
+<code><a href="../reference/add_lfs_GENDER_SEX.html">add_lfs_GENDER_SEX()</a></code>.</li>
+<li>
+<code>MARSTAT</code> has four categories, because the files before
+November 1999 have only four.</li>
+<li>
+<code>CMA</code> distinguishes Montréal, Toronto, Vancouver and the
+rest, and is <code>NA</code> before 1987, when the older files do not
+identify CMAs.</li>
+<li>
+<code>SCHOOLN</code>, <code>AGYOWNK</code> and the industry groups
+(<code>NAICS_18</code>) are also recoded.</li>
+</ul>
+<p>Hours are in hours and wages in dollars throughout, and the weight is
+<code>FINALWT</code>. All the usual tools work on the result, including
+<code><a href="../reference/add_lfs_SURVDATE.html">add_lfs_SURVDATE()</a></code> and
+<code><a href="../reference/label_pumf_columns.html">label_pumf_columns()</a></code>.</p>
+<p>To get a long series of the unemployment rate, we again do the heavy
+lifting in the database and only collect the monthly totals.</p>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lf_monthly</span> <span class="op">&lt;-</span> <span class="va">lfs_tl</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">LFSSTAT</span> <span class="op">!=</span> <span class="st">"Not in labour force"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="../reference/add_lfs_SURVDATE.html">add_lfs_SURVDATE</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html" class="external-link">summarise</a></span><span class="op">(</span>labour_force <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">FINALWT</span><span class="op">)</span>,</span>
+<span>            unemployed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">FINALWT</span><span class="op">[</span><span class="va">LFSSTAT</span> <span class="op">==</span> <span class="st">"Unemployed"</span><span class="op">]</span>, na.rm <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>,</span>
+<span>            .by <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">SURVDATE</span>, <span class="va">GENDER_SEX</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>rate <span class="op">=</span> <span class="va">unemployed</span> <span class="op">/</span> <span class="va">labour_force</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">lf_monthly</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">SURVDATE</span>, y <span class="op">=</span> <span class="va">rate</span>, colour <span class="op">=</span> <span class="va">GENDER_SEX</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_path.html" class="external-link">geom_line</a></span><span class="op">(</span>alpha <span class="op">=</span> <span class="fl">0.3</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_smooth.html" class="external-link">geom_smooth</a></span><span class="op">(</span>method <span class="op">=</span> <span class="st">"loess"</span>, span <span class="op">=</span> <span class="fl">0.05</span>, se <span class="op">=</span> <span class="cn">FALSE</span>, linewidth <span class="op">=</span> <span class="fl">0.8</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_abline.html" class="external-link">geom_vline</a></span><span class="op">(</span>xintercept <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/as.Date.html" class="external-link">as.Date</a></span><span class="op">(</span><span class="st">"2006-01-01"</span><span class="op">)</span>, linetype <span class="op">=</span> <span class="st">"dashed"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels <span class="op">=</span> <span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title <span class="op">=</span> <span class="st">"Unemployment rate by gender/sex, 1976 onward"</span>,</span>
+<span>       subtitle <span class="op">=</span> <span class="st">"Monthly, not seasonally adjusted; dashed line: LFS_HIST to LFS"</span>,</span>
+<span>       x <span class="op">=</span> <span class="cn">NULL</span>, y <span class="op">=</span> <span class="st">"Unemployment rate"</span>, colour <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>       caption <span class="op">=</span> <span class="st">"StatCan LFS PUMF (1976-2005 via Borealis/ODESI)"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; `geom_smooth()` using formula = 'y ~ x'</span></span></code></pre></div>
+<p><img src="LFS_files/figure-html/unnamed-chunk-18-1.png" class="r-plt" alt="" width="700"></p>
+<p>The recessions of the early 1980s and 1990s, 2008-09 and 2020 all
+show up clearly, and the series is continuous across the 2005/2006
+seam.</p>
+<p>Longer timelines bring out structural change. The participation rate
+of women in their core working years rose from about half to over
+80%.</p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">core_age</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"25 to 29 years"</span>, <span class="st">"30 to 34 years"</span>, <span class="st">"35 to 39 years"</span>, <span class="st">"40 to 44 years"</span>,</span>
+<span>              <span class="st">"45 to 49 years"</span>, <span class="st">"50 to 54 years"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">participation</span> <span class="op">&lt;-</span> <span class="va">lfs_tl</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">AGE_12</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">core_age</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html" class="external-link">summarise</a></span><span class="op">(</span>population <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">FINALWT</span><span class="op">)</span>,</span>
+<span>            labour_force <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">FINALWT</span><span class="op">[</span><span class="va">LFSSTAT</span> <span class="op">!=</span> <span class="st">"Not in labour force"</span><span class="op">]</span>, na.rm <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>,</span>
+<span>            .by <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">SURVYEAR</span>, <span class="va">GENDER_SEX</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>rate <span class="op">=</span> <span class="va">labour_force</span> <span class="op">/</span> <span class="va">population</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">participation</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">SURVYEAR</span>, y <span class="op">=</span> <span class="va">rate</span>, colour <span class="op">=</span> <span class="va">GENDER_SEX</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_path.html" class="external-link">geom_line</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels <span class="op">=</span> <span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/percent_format.html" class="external-link">percent</a></span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title <span class="op">=</span> <span class="st">"Labour force participation of 25 to 54 year olds"</span>,</span>
+<span>       subtitle <span class="op">=</span> <span class="st">"Pooled monthly samples of each year"</span>,</span>
+<span>       x <span class="op">=</span> <span class="cn">NULL</span>, y <span class="op">=</span> <span class="st">"Participation rate"</span>, colour <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>       caption <span class="op">=</span> <span class="st">"StatCan LFS PUMF (1976-2005 via Borealis/ODESI)"</span><span class="op">)</span></span></code></pre></div>
+<p><img src="LFS_files/figure-html/unnamed-chunk-19-1.png" class="r-plt" alt="" width="700"></p>
+<p>Variables that enter the survey later are <code>NA</code> for earlier
+years, so a filter on them restricts the timeline automatically. The
+three large CMAs are identified from 1987, and hourly wages are
+collected from 1997 on.</p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lfs_tl</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">LFSSTAT</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Employed, at work"</span>, <span class="st">"Employed, absent from work"</span><span class="op">)</span>,</span>
+<span>         <span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">HRLYEARN</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html" class="external-link">summarise</a></span><span class="op">(</span>wage <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">HRLYEARN</span> <span class="op">*</span> <span class="va">FINALWT</span><span class="op">)</span> <span class="op">/</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">FINALWT</span><span class="op">)</span>,</span>
+<span>            .by <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">SURVYEAR</span>, <span class="va">CMA</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">SURVYEAR</span>, y <span class="op">=</span> <span class="va">wage</span>, colour <span class="op">=</span> <span class="va">CMA</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_path.html" class="external-link">geom_line</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_continuous.html" class="external-link">scale_y_continuous</a></span><span class="op">(</span>labels <span class="op">=</span> <span class="fu">scales</span><span class="fu">::</span><span class="va"><a href="https://scales.r-lib.org/reference/dollar_format.html" class="external-link">dollar</a></span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span>title <span class="op">=</span> <span class="st">"Average usual hourly wage of employees"</span>,</span>
+<span>       subtitle <span class="op">=</span> <span class="st">"Nominal dollars"</span>,</span>
+<span>       x <span class="op">=</span> <span class="cn">NULL</span>, y <span class="op">=</span> <span class="cn">NULL</span>, colour <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>       caption <span class="op">=</span> <span class="st">"StatCan LFS PUMF (1997-2005 via Borealis/ODESI)"</span><span class="op">)</span></span></code></pre></div>
+<p><img src="LFS_files/figure-html/unnamed-chunk-20-1.png" class="r-plt" alt="" width="700"></p>
+<p>Some caveats apply when working across the full range:</p>
+<ul>
+<li>
+<strong>Population rebasing.</strong> The weights of each era
+reflect the population estimates in use when the files were last
+revised: 1976–86 original, 1987–95 rebased to the 2001 Census, 1996–2000
+to 2006, 2001–05 to 2011, and the current LFS to more recent Censuses.
+The population series runs smoothly across these boundaries in the
+public-use files, but population counts from different eras are not
+strictly comparable. Rates are much less affected than counts.</li>
+<li>
+<strong>1985–86.</strong> Estimates computed from
+<code>LFS_HIST</code> match the published table 14-10-0287 to rounding,
+except for January 1985 to November 1986. For those months the
+public-use files give about 1.2% more unemployed than the published
+series.</li>
+<li>
+<strong>Variables outside the common schema.</strong> Occupation,
+the spouse variables and other detail only available in one series are
+not part of the timeline. Use <code>get_pumf("LFS_HIST")</code> or
+<code>get_pumf("LFS")</code> for those.</li>
+</ul>
+<p>As before, close the connections when done.</p>
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">lfs_tl</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">lfs_hist</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">lfs_hist_1995_06</span><span class="op">)</span></span></code></pre></div>
+</div>
+  </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
+    </nav></aside>
 </div>
 
 

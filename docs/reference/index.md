@@ -12,6 +12,8 @@
   : Summarise bootstrap weight tables present in a PUMF DuckDB database
 - [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md)
   : Close the DuckDB connection backing a PUMF lazy table
+- [`get_lfs_timeline()`](https://mountainmath.github.io/canpumf/reference/get_lfs_timeline.md)
+  : Harmonised Labour Force Survey timeline, 1976 onward
 - [`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
   : Get a Statistics Canada PUMF dataset as a lazy DuckDB table
 - [`get_pumf_connection()`](https://mountainmath.github.io/canpumf/reference/get_pumf_connection.md)
@@ -20,6 +22,10 @@
   : Rename PUMF table columns to human-readable variable labels
 - [`list_available_lfs_pumf_versions()`](https://mountainmath.github.io/canpumf/reference/list_available_lfs_pumf_versions.md)
   : List available LFS PUMF versions
+- [`list_borealis_pumf_catalogue()`](https://mountainmath.github.io/canpumf/reference/list_borealis_pumf_catalogue.md)
+  : Browse the Statistics Canada PUMF collection on Borealis
+- [`list_borealis_pumf_files()`](https://mountainmath.github.io/canpumf/reference/list_borealis_pumf_files.md)
+  : List the files of a Borealis PUMF dataset
 - [`list_canpumf_collection()`](https://mountainmath.github.io/canpumf/reference/list_canpumf_collection.md)
   : List Statistics Canada PUMF datasets supported by canpumf
 - [`list_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/list_pumf_cache.md)
