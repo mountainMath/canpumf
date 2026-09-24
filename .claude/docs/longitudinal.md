@@ -132,6 +132,20 @@ renamed to canonical names, missing codes become `NA` through
 `.label_missing_codes()`, the `force_integer` columns are cast, and
 `.apply_code_labels()` labels the rest.
 
+**Validation against table 14-10-0287** (September 2026, unadjusted
+estimates, 528 series: Canada and provinces x gender x 15+/15-24/25-54/55+
+x population/employment/full-time/unemployment, 190,080 month cells). The
+microdata (FWEIGHT) reproduce the table to rounding in every cell for
+1976-01..1984-12 and 1986-12..2005-12, so the PUMF weights are the current
+published ones for all eras. The exception is **1985-01..1986-11**:
+population still matches exactly, but microdata unemployment is about 1.2%
+higher (Canada 15+, up to 2.5% in Saskatchewan) and employment 0.1-0.4%
+lower. The gap shrinks from 1986-06 and disappears in 1986-12. The raw codes
+show no coding change, and the Borealis documentation says nothing about
+it. The most likely explanation is that the published series for these months
+carry a later revision or adjustment that the PUMF files do not. It cannot
+be fixed from the microdata.
+
 ## Harmonised timeline (`get_lfs_timeline()`)
 
 `R/lfs_timeline.R` stacks LFS_HIST and LFS into one lazy tbl with a curated
