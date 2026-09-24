@@ -36,6 +36,10 @@ The LFS microdata now span 50 years. The monthly public-use files for 1976–200
 * The SAS `@position` INPUT-card parser now understands the indexed-array shorthand StatCan uses for bootstrap-weight cards (`@28 (BSW1-BSW1000) (1000* 7.2)`), expanding it into one layout row per weight. Bootstrap-weight command files are also now found when they sit outside the survey's SPSS card directory and are not named `layout*` (CHSS ships `Layout_Cards/bsw_i.sas`); SAS cards are preferred over their companion `.sps`, whose column specs are sometimes left implicit.
 * Fixed-width bootstrap-weight files are now read with the decimal point implied by the card's `w.d` informat, matching SAS/SPSS semantics — without this, CHSS replicate weights would have been 100 times too large. The correction is applied before the missing-value range (which documentation states in display units) and only where the raw field carries no explicit `.`.
 
+## Dependencies
+
+* `duckplyr` is no longer a dependency. `curl` and `jsonlite` are new in Imports, for the Borealis API.
+
 ## Bug fixes
 
 * Labelled non-response codes of numeric variables are now set to `NA` even when the command file declares no `MISSING VALUES` for them. Before, only a declared range, or the range derived for `force_numeric` variables, removed them, so values such as GSS Cycle 21 `AGE_DIV_MA1` 999.7 ("Not asked"), Cycle 25 `CHDCARE_*_COST` 9999.97–9999.99 and the Cycle 21 and 26 health utility index `HLTH_UTIL_INDEX` 7/9 ("Not asked", "Don't know"; valid range −0.31 to 1) stayed in as real numbers. Stage 3 now takes every code whose English or French label is a true-missing label and blanks it as a discrete code, so valid values that fall between sentinels are kept. Labels with a qualifier also count ("NOT APPLICABLE(DOES NOT DRIVE)", GSS Cycle 8 `D11`; "Non demandé - aucun enfant dans le ménage", Cycle 24 `AGECHRYC`). Zero labels ("None") and composite labels ("zero income, not applicable") are left as values. Rebuild with `refresh = TRUE`: GSS Cycles 8, 17, 21, 24, 25 and 26.

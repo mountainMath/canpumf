@@ -17,7 +17,7 @@ The main changes:
   labels). See NEWS.md.
 
 `curl` and `jsonlite` are new in Imports. They are used for concurrent paging
-of the Borealis search API.
+of the Borealis search API. `duckplyr` is no longer a dependency.
 
 The package policy is unchanged. All file output goes to
 `getOption("canpumf.cache_path", tempdir())`. The network-facing examples are
