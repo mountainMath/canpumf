@@ -1710,6 +1710,16 @@ pumf_resolve_version <- function(series, version,
   "LFS", NA_character_,
   data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
 
+# LFS_HIST (1976-2005, R/lfs_hist.R) likewise shares one configuration.
+.pumf_lfs_hist_entry <- .make_entry(
+  "LFS_HIST", NA_character_,
+  data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
+
+# Shared entry of a longitudinal series, or NULL.
+.pumf_longitudinal_entry <- function(series) {
+  switch(series, LFS = .pumf_lfs_entry, LFS_HIST = .pumf_lfs_hist_entry, NULL)
+}
+
 #' Look up survey registry configuration
 #'
 #' Returns the configuration entry for a given survey series and version, or
@@ -1721,7 +1731,7 @@ pumf_resolve_version <- function(series, version,
 #' @keywords internal
 pumf_registry_lookup <- function(series, version) {
   base <- .pumf_registry[[paste0(series, "/", version)]]
-  if (is.null(base) && series == "LFS") base <- .pumf_lfs_entry
+  if (is.null(base)) base <- .pumf_longitudinal_entry(series)
   # Inherit config from the newest registered sibling when this exact version
   # isn't registered (e.g. a freshly released year deposited in the cache).
   # Now that recent file_masks use a generic \d{4} year, the inherited config
@@ -2017,8 +2027,8 @@ pumf_registry_entry <- function(layout_mask       = NULL,
 pumf_registry <- function(series, version) {
   version <- pumf_resolve_version(series, version)
   entry   <- .pumf_registry[[paste0(series, "/", version)]]
-  if (is.null(entry) && series == "LFS") {
-    entry <- .pumf_lfs_entry
+  if (is.null(entry) && .is_longitudinal(series)) {
+    entry <- .pumf_longitudinal_entry(series)
     entry$version <- version
   }
   if (is.null(entry)) entry <- .make_entry(series, version)

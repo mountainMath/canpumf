@@ -801,7 +801,7 @@
   if (is.null(prov))
     stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
          call. = FALSE)
-  if (identical(prov$series, "LFS"))
+  if (.is_longitudinal(prov$series))
     return(NULL)
   module <- .pumf_tbl_module(tbl, prov)
   reg    <- pumf_registry_lookup(prov$series, prov$version)

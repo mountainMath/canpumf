@@ -111,8 +111,9 @@ get_pumf_connection <- function(series     = NULL,
   if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
       !identical(refresh, "auto"))
     stop("'refresh' must be FALSE, TRUE, or \"auto\".")
-  if (identical(refresh, "auto") && series != "LFS")
-    stop("refresh = \"auto\" is only valid for LFS.")
+  if (identical(refresh, "auto") && !.is_longitudinal(series))
+    stop("refresh = \"auto\" is only valid for longitudinal series (",
+         paste(.pumf_longitudinal_series, collapse = ", "), ").")
   if (isTRUE(redownload) && identical(refresh, "auto"))
     stop("redownload = TRUE is not compatible with refresh = \"auto\".")
 

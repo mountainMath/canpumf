@@ -9,15 +9,16 @@
 
 # Compute the expected DuckDB file path for a survey version.
 .pumf_db_path <- function(series, version, cache_path) {
-  if (series == "LFS")
-    return(file.path(cache_path, "LFS", "LFS.duckdb"))
+  if (.is_longitudinal(series))
+    return(.long_db_path(.pumf_longitudinal_spec(series), cache_path))
   db_file <- paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
   file.path(cache_path, series, version, db_file)
 }
 
 # Compute the DuckDB table name for a given series / version / lang.
 .pumf_table_name <- function(series, version, lang, module = NULL) {
-  if (series == "LFS") return(paste0("lfs_", lang))
+  if (.is_longitudinal(series))
+    return(.long_table_name(.pumf_longitudinal_spec(series), lang))
   reg <- pumf_registry_lookup(series, version)
   lm  <- reg$layout_mask
   if (!is.null(module)) {

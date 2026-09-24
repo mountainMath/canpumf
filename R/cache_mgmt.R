@@ -50,9 +50,12 @@
   )
 }
 
-# Describe all LFS versions — combining disk state with lfs_versions table.
-.describe_lfs_cache <- function(lfs_dir) {
-  db_path <- file.path(lfs_dir, "LFS.duckdb")
+# Describe all versions of a longitudinal series (LFS, LFS_HIST) — combining
+# disk state with the shared DuckDB's tracking table.
+.describe_lfs_cache <- function(lfs_dir, series = "LFS") {
+  spec    <- .pumf_longitudinal_spec(series)
+  vt      <- spec$versions_table
+  db_path <- file.path(lfs_dir, spec$db_file)
   db_mb   <- if (file.exists(db_path)) file.info(db_path)$size / 1e6 else NA_real_
 
   # Loaded versions from the shared DuckDB tracking table
@@ -63,8 +66,8 @@
       error = function(e) NULL
     )
     if (!is.null(con)) {
-      if (DBI::dbExistsTable(con, "lfs_versions"))
-        loaded <- DBI::dbGetQuery(con, "SELECT version FROM lfs_versions")$version
+      if (DBI::dbExistsTable(con, vt))
+        loaded <- DBI::dbGetQuery(con, paste("SELECT version FROM", vt))$version
       DBI::dbDisconnect(con, shutdown = TRUE)
     }
   }
@@ -91,7 +94,7 @@
       "/metadata(/|$)|\\.duckdb", all_files, ignore.case = TRUE)]
 
     tibble::tibble(
-      series       = "LFS",
+      series       = series,
       version      = v,
       has_raw      = has_zip || has_ext,
       has_metadata = has_metadata,
@@ -156,8 +159,8 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
   for (series in series_dirs) {
     series_dir <- file.path(cache_path, series)
 
-    if (series == "LFS") {
-      lfs_rows <- .describe_lfs_cache(series_dir)
+    if (.is_longitudinal(series)) {
+      lfs_rows <- .describe_lfs_cache(series_dir, series)
       if (nrow(lfs_rows) > 0L) rows[[length(rows) + 1L]] <- lfs_rows
       next
     }
@@ -216,8 +219,8 @@ remove_pumf_cache <- function(series,
                                keep_raw   = TRUE,
                                cache_path = getOption("canpumf.cache_path",
                                                       tempdir())) {
-  if (series == "LFS") {
-    .remove_lfs_cache(version, cache_path, keep_raw)
+  if (.is_longitudinal(series)) {
+    .remove_lfs_cache(version, cache_path, keep_raw, series)
   } else {
     version_dir <- file.path(cache_path, series, version)
     if (!dir.exists(version_dir))
@@ -242,21 +245,24 @@ remove_pumf_cache <- function(series,
   }
 }
 
-.remove_lfs_cache <- function(version, cache_path, keep_raw) {
-  lfs_dir  <- file.path(cache_path, "LFS")
-  db_path  <- file.path(lfs_dir, "LFS.duckdb")
+.remove_lfs_cache <- function(version, cache_path, keep_raw, series = "LFS") {
+  spec     <- .pumf_longitudinal_spec(series)
+  vt       <- spec$versions_table
+  data_tbl <- paste0(spec$table_prefix, c("_eng", "_fra"))
+  lfs_dir  <- file.path(cache_path, series)
+  db_path  <- file.path(lfs_dir, spec$db_file)
   vdir     <- file.path(lfs_dir, version)
   survyear <- .lfs_survyear(version)
   survmnth <- .lfs_survmnth(version)
 
   if (!dir.exists(lfs_dir))
-    stop("No LFS data found in cache at ", cache_path)
+    stop("No ", series, " data found in cache at ", cache_path)
 
   if (file.exists(db_path)) {
     .assert_duckdb_writable(db_path)
     con <- .duckdb_connect_quiet(db_path)
 
-    for (tbl in c("lfs_eng", "lfs_fra")) {
+    for (tbl in data_tbl) {
       if (!DBI::dbExistsTable(con, tbl)) next
       if (is.na(survmnth)) {
         DBI::dbExecute(con, sprintf(
@@ -268,14 +274,17 @@ remove_pumf_cache <- function(series,
       }
     }
 
-    if (DBI::dbExistsTable(con, "lfs_versions"))
-      DBI::dbExecute(con, sprintf(
-        "DELETE FROM lfs_versions WHERE version = '%s'", version))
+    # A year also removes its monthly versions (a series without annual
+    # files records only months).
+    if (DBI::dbExistsTable(con, vt))
+      DBI::dbExecute(con, if (is.na(survmnth))
+        sprintf("DELETE FROM %s WHERE survyear = %d", vt, survyear)
+      else sprintf("DELETE FROM %s WHERE version = '%s'", vt, version))
 
     # Delete the shared DuckDB when ALL data tables are empty, not just when
     # lfs_versions is empty — the two can diverge if data was manipulated
     # outside the normal pipeline.
-    data_tbls <- intersect(c("lfs_eng", "lfs_fra"), DBI::dbListTables(con))
+    data_tbls <- intersect(data_tbl, DBI::dbListTables(con))
     total_rows <- if (length(data_tbls) == 0L) 0L else {
       sum(vapply(data_tbls, function(t)
         DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "%s"', t))$n,
@@ -286,22 +295,29 @@ remove_pumf_cache <- function(series,
     if (total_rows == 0L) {
       unlink(list.files(lfs_dir, pattern = "\\.duckdb",
                          full.names = TRUE, ignore.case = TRUE))
-      message("LFS database removed (no data remaining).")
+      message(series, " database removed (no data remaining).")
     }
   }
 
-  if (dir.exists(vdir)) {
+  # Version directories: the version itself, or the months of a year.
+  vdirs <- if (is.na(survmnth))
+    c(vdir, file.path(lfs_dir, sprintf("%s-%02d", version, 1:12)))
+  else vdir
+  vdirs <- vdirs[dir.exists(vdirs)]
+  if (length(vdirs) > 0L) {
     if (keep_raw) {
-      meta_dir <- file.path(vdir, "metadata")
-      if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
-      message("Removed LFS ", version, " from database. ",
-              "Raw files kept; use get_pumf(\"LFS\", \"", version,
+      for (d in vdirs) {
+        meta_dir <- file.path(d, "metadata")
+        if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
+      }
+      message("Removed ", series, " ", version, " from database. ",
+              "Raw files kept; use get_pumf(\"", series, "\", \"", version,
               "\") to rebuild.")
     } else {
-      unlink(vdir, recursive = TRUE)
-      message("Removed all cached data for LFS ", version, ".")
+      unlink(vdirs, recursive = TRUE)
+      message("Removed all cached data for ", series, " ", version, ".")
     }
   } else {
-    message("Removed LFS ", version, " from database.")
+    message("Removed ", series, " ", version, " from database.")
   }
 }

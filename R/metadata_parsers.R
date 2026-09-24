@@ -1414,6 +1414,139 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
 
 
 # ============================================================
+# ODESI-generated SAS setup file parser
+# ============================================================
+
+#' Parse an ODESI-generated SAS setup file
+#'
+#' The Borealis/ODESI deposits of older StatCan PUMFs (e.g. the monthly Labour
+#' Force Survey 1976-2005, catalogue 71M0001XCB) ship one machine-generated SAS
+#' program per language:
+#'
+#' ```
+#' PROC FORMAT LIBRARY=LIBRARY ;
+#'   Value  V4_F
+#'     1='Employed, at work'
+#'   ;
+#' DATA OUT.x; INFILE 'x.txt' LRECL = 134;
+#'  INPUT
+#'   REC_NUM 1-5  SURVYEAR 6-9 ...  FWEIGHT 131-134 ;
+#'   FORMAT  LFSSTAT V4_F. ;
+#'   LABEL
+#'     LFSSTAT='Respondent Labour Force Status'
+#' ```
+#'
+#' Formats are tied to variables by the `FORMAT var fmt.` statements, so a
+#' French program (same format names, same variables) supplies `label_fr` by
+#' position-independent `(name, val)` matching.
+#'
+#' @param eng_path English SAS program.
+#' @param fra_path Optional French SAS program for the same dataset.
+#' @param encoding Encoding of the programs (ODESI writes Windows-1252).
+#' @return `list(variables, codes, layout)` in the canonical schema. Variables
+#'   with a value format are typed `"character"`, the rest `"numeric"`.
+#' @keywords internal
+parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
+  one <- function(path) {
+    lines <- trimws(.read_cmd_lines(path, encoding))
+    # SAS doubles an embedded quote inside a single-quoted literal
+    unq <- function(x) gsub("''", "'", x, fixed = TRUE)
+
+    # PROC FORMAT value blocks
+    fmt_idx <- grep("^Value\\s+\\S+$", lines, ignore.case = TRUE)
+    vals <- lapply(fmt_idx, function(i) {
+      fmt <- toupper(sub("^Value\\s+", "", lines[i], ignore.case = TRUE))
+      j   <- i + 1L
+      out <- list()
+      while (j <= length(lines) && lines[j] != ";") {
+        m <- regmatches(lines[j], regexec("^(-?[0-9][0-9.]*)='(.*)'$", lines[j]))[[1L]]
+        if (length(m) == 3L)
+          out[[length(out) + 1L]] <- c(m[2L], unq(m[3L]))
+        j <- j + 1L
+      }
+      if (!length(out)) return(NULL)
+      tibble::tibble(fmt = fmt,
+                     val = .code_chr(as.numeric(vapply(out, `[`, "", 1L))),
+                     label = vapply(out, `[`, "", 2L))
+    })
+    vals <- do.call(rbind, vals)
+    if (is.null(vals))
+      vals <- tibble::tibble(fmt = character(), val = character(), label = character())
+
+    # FORMAT var fmt. ;  -> variable/format association
+    fm <- regmatches(lines, regexec("^FORMAT\\s+(\\S+)\\s+(\\S+?)\\.\\s*;$", lines,
+                                    ignore.case = TRUE))
+    fm <- do.call(rbind, lapply(fm[lengths(fm) == 3L], function(m)
+      tibble::tibble(name = toupper(m[2L]), fmt = toupper(m[3L]))))
+
+    # INPUT block: name start-end pairs up to the terminating ";"
+    in_start <- grep("^INPUT$", lines, ignore.case = TRUE)
+    layout <- empty_layout()
+    if (length(in_start)) {
+      in_end <- in_start[1L] - 1L + grep(";\\s*$", lines[in_start[1L]:length(lines)])[1L]
+      txt <- paste(lines[(in_start[1L] + 1L):in_end], collapse = " ")
+      pm  <- regmatches(txt, gregexpr("([A-Za-z_][A-Za-z0-9_]*)\\s+([0-9]+)(-([0-9]+))?", txt))[[1L]]
+      parts <- regmatches(pm, regexec("^(\\S+)\\s+([0-9]+)(-([0-9]+))?$", pm))
+      layout <- tibble::tibble(
+        name  = toupper(vapply(parts, `[`, "", 2L)),
+        start = as.integer(vapply(parts, `[`, "", 3L)),
+        end   = as.integer(vapply(parts, function(p)
+          if (nzchar(p[5L])) p[5L] else p[3L], "")),
+        decimals = NA_integer_)
+    }
+
+    # LABEL block: name='label' lines after "LABEL" up to "RUN;"
+    lab_start <- grep("^LABEL$", lines, ignore.case = TRUE)
+    labs <- tibble::tibble(name = character(), label = character())
+    if (length(lab_start)) {
+      j <- lab_start[1L] + 1L
+      rows <- list()
+      while (j <= length(lines) && !grepl("^RUN;|^;", lines[j], ignore.case = TRUE)) {
+        m <- regmatches(lines[j], regexec("^([A-Za-z_][A-Za-z0-9_]*)='(.*)'$", lines[j]))[[1L]]
+        if (length(m) == 3L) rows[[length(rows) + 1L]] <- c(toupper(m[2L]), unq(m[3L]))
+        j <- j + 1L
+      }
+      if (length(rows))
+        labs <- tibble::tibble(name = vapply(rows, `[`, "", 1L),
+                               label = vapply(rows, `[`, "", 2L))
+    }
+
+    codes <- if (is.null(fm)) NULL else
+      inner_join(fm, vals, by = "fmt", relationship = "many-to-many")
+    list(layout = layout, labels = labs, codes = codes)
+  }
+
+  en <- one(eng_path)
+  fr <- if (!is.null(fra_path)) one(fra_path) else NULL
+
+  names_all <- unique(c(en$layout$name, en$labels$name))
+  coded     <- unique(en$codes$name)
+  variables <- tibble::tibble(
+    name         = names_all,
+    label_en     = en$labels$label[match(names_all, en$labels$name)],
+    label_fr     = if (is.null(fr)) NA_character_ else
+                     fr$labels$label[match(names_all, fr$labels$name)],
+    type         = ifelse(names_all %in% coded, "character", "numeric"),
+    decimals     = ifelse(names_all %in% coded, NA_integer_, 0L),
+    missing_low  = NA_real_,
+    missing_high = NA_real_)
+
+  codes <- if (is.null(en$codes) || !nrow(en$codes)) empty_codes() else {
+    cd <- tibble::tibble(name = en$codes$name, val = en$codes$val,
+                         label_en = en$codes$label, label_fr = NA_character_)
+    if (!is.null(fr$codes) && nrow(fr$codes)) {
+      hit <- match(paste(cd$name, cd$val, sep = "\r"),
+                   paste(fr$codes$name, fr$codes$val, sep = "\r"))
+      cd$label_fr <- fr$codes$label[hit]
+    }
+    cd
+  }
+
+  list(variables = variables, codes = codes, layout = en$layout)
+}
+
+
+# ============================================================
 # SAS reading cards parser
 # ============================================================
 

@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [docs/metadata-parsers.md](docs/metadata-parsers.md) | The nine parsers, sentinel/missing detection, SPSS/SAS/PDF parsing quirks, encodings, mojibake repair |
 | [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md) | User-guide PDF parser, frequency validation, truncation fingerprints, label repair (`R/pdf_repair.R`) |
 | [docs/registry.md](docs/registry.md) | Registry fields and `data_fixups`, sibling inheritance, version aliases (incl. EFT-vs-Borealis Census resolution), download-URL resolution, the Borealis source, **override verification workflow** |
+| [docs/longitudinal.md](docs/longitudinal.md) | Longitudinal series engine and spec (LFS, LFS_HIST): shared DuckDB per series, LFS_HIST Borealis source and canonical dictionary |
 | [docs/multi-module.md](docs/multi-module.md) | Linked-module surveys (GSS 16, GSS Time Use, SHS 2017, SGVP): registry, pipeline, `pumf_module()` |
 | `tests/TEST_COVERAGE.md` | What each test file covers; per-survey coverage matrix |
 
@@ -76,6 +77,10 @@ For multi-module surveys, Stages 2 and 3 run once per module into the same DuckD
 - **FWF decision**: based on the extension of the file actually found and on whether `layout.csv` is present. This handles CHS, which ships both CSV and TXT but whose SPSS DATA LIST also creates a `layout.csv`.
 - **`.sas7bdat` files** (PALS 2001): read with `haven::read_sas()` (`.read_sas_data()`). Character columns keep their raw codes. Numeric columns are rendered back to code strings by `.coerce_coded_to_character()` **after** the data fixups, so a renamed column is matched under its declared name.
 
+### Longitudinal series (`R/longitudinal.R`)
+
+Series whose time slices share (nearly) the same variables are appended to one DuckDB per series by the generic engine `.long_get_pumf(spec, ...)`. Each series supplies a spec (`.pumf_longitudinal_spec()`) with its DB/table names, version validation, `prepare`/`build` steps and label lookup. Code that must treat these series specially tests `.is_longitudinal(series)`, never `series == "LFS"`. The instances are LFS (below) and **LFS_HIST** (1976–2005 monthly LFS from Borealis, `R/lfs_hist.R`, with a canonical bilingual dictionary shipped in `inst/extdata/lfs_hist/`). See [docs/longitudinal.md](docs/longitudinal.md).
+
 ### LFS longitudinal pipeline (`R/lfs_pipeline.R`)
 
 LFS uses a single shared DuckDB at `<cache_path>/LFS/LFS.duckdb` that accumulates every version:
@@ -104,6 +109,9 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
   LFS/
     LFS.duckdb              # one shared database for all LFS versions
     <version>/<original>.zip, metadata/
+  LFS_HIST/
+    LFS_HIST.duckdb         # one shared database for 1976-2005 months
+    YYYY-MM/                # Borealis files, fra/*.sas, borealis_manifest.csv, metadata/
 ```
 
 ### Key files
@@ -116,9 +124,11 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
 - `R/borealis.R`: Borealis Dataverse catalogue, file selection, download, manifest
 - `R/statcan_catalogue.R`: StatCan catalogue scraper and adapter, `.pumf_resolve_collection_row()`
 - `R/pumf_collection.R`: curated `list_canpumf_collection()`, `list_gss_collection()`, `list_available_lfs_pumf_versions()`
-- `R/lfs_pipeline.R`, `R/lfs_helpers.R`: the LFS pipeline and the `add_lfs_*()` helpers
+- `R/longitudinal.R`: the longitudinal engine and spec registry
+- `R/lfs_pipeline.R`, `R/lfs_helpers.R`: the LFS spec, append helpers and the `add_lfs_*()` helpers
+- `R/lfs_hist.R`: the LFS_HIST spec (Borealis download, canonical dictionary)
 - `R/cache_mgmt.R`: `list_pumf_cache()`, `remove_pumf_cache()`
 - `R/pumf.R`: `read_pumf_data()`, `get_pumf_connection()`
 - `R/pumf_documentation.R`: `open_pumf_documentation()`
 - `R/helpers.R`: `robust_unzip()`, import declarations
-- `tools/verify_overrides.R`, `tools/refresh_catalogue_snapshot.R`: dev-only scripts (`.Rbuildignore`d)
+- `tools/verify_overrides.R`, `tools/refresh_catalogue_snapshot.R`, `tools/build_lfs_hist_reference.R`: dev-only scripts (`.Rbuildignore`d)

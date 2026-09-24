@@ -616,7 +616,7 @@ list_borealis_pumf_files <- function(doi) {
 # (the built-in entry, or `registry` when given), else NULL.  get_pumf() uses
 # it so a version loaded with `borealis =` reopens without the argument.
 .borealis_cached_doi <- function(series, version, cache_path, registry = NULL) {
-  if (series == "LFS" || is.null(version) || is.null(cache_path)) return(NULL)
+  if (.is_longitudinal(series) || is.null(version) || is.null(cache_path)) return(NULL)
   mdoi <- .borealis_manifest_doi(file.path(cache_path, series, version))
   if (is.null(mdoi)) return(NULL)
   reg <- registry %||% .pumf_registry[[paste0(series, "/", version)]]

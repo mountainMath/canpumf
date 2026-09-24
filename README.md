@@ -104,6 +104,18 @@ To ensure the local database contains all available LFS versions, use `refresh =
 lfs_all <- get_pumf("LFS", refresh = "auto")
 ```
 
+### Historical LFS (1976–2005)
+
+Statistics Canada posts the LFS PUMF from 2006 onwards. The monthly files for January 1976 to December 2005 are available from the [Borealis Dataverse](https://borealisdata.ca) (ODESI) as series `"LFS_HIST"`. They use the legacy (pre-2017) LFS layout, so they live in their own database rather than being mixed into `"LFS"`.
+
+```r
+lfs_1995_06 <- get_pumf("LFS_HIST", "1995-06")  # one month
+lfs_1995    <- get_pumf("LFS_HIST", "1995")     # all twelve months of 1995
+lfs_hist    <- get_pumf("LFS_HIST", refresh = "auto")  # all 360 months (large)
+```
+
+ODESI labelled the same codes differently in different years ("Unemployed, temporary layoff" vs "Unemploy,temp layoff"). canpumf therefore applies one harmonised bilingual dictionary to every month, so each factor has the same levels across the whole 1976–2005 table. The deposits after 1986 carry weights rebased to a later Census (1987–1995 to 2001, 1996–2000 to 2006, 2001–2005 to 2011), so weighted levels can step at those boundaries.
+
 ## Census data
 
 The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download from Statistics Canada. Years 1986 and earlier are downloaded automatically from Borealis (English labels only). If you have ordered the Statistics Canada EFT bundle for one of those years and placed it in the cache directory, it is used instead; add `"eft"` or `"borealis"` to the version string to pick a source explicitly, e.g. `get_pumf("Census", "1971 individuals CMA borealis")`.
@@ -139,6 +151,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Survey | Series | Verified versions | Direct download |
 |---|---|---|:---:|
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
+| Labour Force Survey, historical | LFS_HIST | monthly files 1976-01 to 2005-12 | ✓ (Borealis) |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
