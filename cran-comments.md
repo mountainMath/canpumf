@@ -45,3 +45,4 @@ copies.
 * local macOS 27 (aarch64-apple-darwin23), R 4.6.0
 * GitHub Actions: macOS (release), Windows (release), Ubuntu (devel, release,
   oldrel-1)
+* win-builder: R-devel (2026-09-21 r90579 ucrt), x86_64-w64-mingw32 (Status OK)
