@@ -505,6 +505,8 @@ pumf_module <- function(tbl, module) {
   series     <- prov$series
   version    <- prov$version
   cache_path <- prov$cache_path
+  if (identical(series, "LFS_TIMELINE"))   # get_lfs_timeline()
+    return(as.data.frame(.lfs_timeline_ref("variables")))
   if (.is_longitudinal(series)) {
     spec    <- .pumf_longitudinal_spec(series)
     db_path <- .long_db_path(spec, cache_path)
@@ -566,7 +568,8 @@ pumf_module <- function(tbl, module) {
 # recently registered.  Falls back to the stored prov$module for tbls whose
 # base table can no longer be recovered (e.g. after a join).
 .pumf_tbl_module <- function(tbl, prov) {
-  if (.is_longitudinal(prov$series)) return(prov$module)
+  if (.is_longitudinal(prov$series) || identical(prov$series, "LFS_TIMELINE"))
+    return(prov$module)
   reg  <- pumf_registry_lookup(prov$series, prov$version)
   mods <- .pumf_entry_modules(reg)
   if (is.null(mods)) return(prov$module)

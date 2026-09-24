@@ -115,11 +115,13 @@ pick <- function(d, key) {
 codes <- pick(codes_long, c("name", "val"))
 vars  <- pick(vars_long, "name")
 
-# The French SAS programs replaced accented characters (and often a neighbour)
-# in every variable label with a literal "?" ("Ann?d'enqu?"); the value labels
-# are intact.  The French SPSS files of the same deposits carry the variable
-# labels intact, so they are taken from the .sav of two reference months (the
-# latest first).  The .sav files (~25 MB each) are cached in work_dir.
+# The French SAS programs damaged the accented characters of every variable
+# label: most became a literal "?" ("Ann?d'enqu?"), some were dropped ("ge du
+# conjoint" for "Âge du conjoint").  The value labels are intact.  The French
+# SPSS files of the same deposits carry the variable labels intact, so every
+# French variable label they have is taken from the .sav of two reference
+# months (the latest first).  The .sav files (~25 MB each) are cached in
+# work_dir.
 sav_months <- c("2005-06", "1995-06")
 sav_labels <- do.call(rbind, lapply(sav_months, function(v) {
   dest <- file.path(work_dir, paste0(v, "_fra.sav"))
@@ -136,7 +138,7 @@ sav_labels <- do.call(rbind, lapply(sav_months, function(v) {
 }))
 sav_labels <- sav_labels[!is.na(sav_labels$label_fr) & !duplicated(sav_labels$name), ]
 bad_fr <- is.na(vars$label_fr) | grepl("?", vars$label_fr, fixed = TRUE)
-hit <- bad_fr & vars$name %in% sav_labels$name
+hit <- vars$name %in% sav_labels$name
 vars$label_fr[hit] <- sav_labels$label_fr[match(vars$name[hit], sav_labels$name)]
 if (any(bad_fr & !hit))
   warning("French variable labels still damaged: ",

@@ -89,8 +89,9 @@ Findings from the conflict review (September 2026):
 
 - **French variable labels** are damaged in every French SAS program:
   accented characters, often together with a neighbour, became a literal
-  `?` ("Ann?d'enqu?"). The value labels are intact. The build takes the
-  French variable labels from the French `.sav` of 2005-06 and 1995-06
+  `?` ("Ann?d'enqu?"), silently lost characters ("ge du conjoint"), or were
+  truncated. The value labels are intact. The build takes every French
+  variable label it can find in the French `.sav` of 2005-06 and 1995-06
   instead.
 - **MARSTAT** is a real recode, not a relabel. Until 1999-10 the *data* carry
   four categories (married or common-law, single, widowed, separated or
@@ -117,6 +118,52 @@ renamed to canonical names, missing codes become `NA` through
 `.label_missing_codes()`, the `force_integer` columns are cast, and
 `.apply_code_labels()` labels the rest.
 
+## Harmonised timeline (`get_lfs_timeline()`)
+
+`R/lfs_timeline.R` stacks LFS_HIST and LFS into one lazy tbl with a curated
+common schema. It never writes to either series database: an in-memory DuckDB
+`ATTACH`es each file `(READ_ONLY)`, builds one `SELECT` per series and joins
+them in the view `lfs_timeline` with `UNION ALL BY NAME`. Other readers of the
+files are not blocked. A file locked by a writer (an import in progress) gives
+an actionable error. Provenance is registered as series `"LFS_TIMELINE"`, which
+`.pumf_read_variables_from_prov()` and `.pumf_tbl_module()` special-case, so
+`label_pumf_columns()` and `pumf_var_labels()` work.
+
+**Reference tables** live in `inst/extdata/lfs_timeline/` and are built by
+`tools/build_lfs_timeline_reference.R` from the LFS_HIST dictionary and every
+cached current-LFS `metadata/codes.csv`:
+
+- `variables.csv` has one row per harmonised variable. It records the source
+  column in each series (`lfs_hist`, `lfs`; `"GENDER|SEX"` means COALESCE), the
+  `type` (factor/numeric/integer/character), `lfs_scale` and `hist_from`.
+- `codes.csv` holds the harmonised codes with English and French labels.
+- `recodes.csv` maps source codes to harmonised codes. `source` is
+  `LFS_HIST`, `LFS_HIST_ERA` (the MARSTAT 4-category era labels) or `LFS`.
+
+**How the SQL is built.** At run time the source codes are joined to the
+series' own labels: the LFS_HIST dictionary and eras, or the loaded LFS
+versions' `codes.csv`. Every column becomes `CASE CAST(col AS VARCHAR) WHEN
+'<source label>' THEN '<harmonised label>' ... END`, cast to an in-memory ENUM
+`lfs_tl_<NAME>` in harmonised code order. Source ENUM levels that are neither
+mapped nor a missing label (`.lfs_timeline_na_labels`: not applicable, valid
+skip, not stated) raise a warning naming each column and level, and become NA.
+
+**Harmonisation choices:**
+
+- Identical code sets (PROV, AGE_12, EDUC←EDUC90, COWMAIN, the job-search
+  variables, etc.) take the current LFS labels.
+- LFSSTAT merges HIST's three unemployed subtypes (codes 3-5) into the
+  current "Unemployed"; HIST 6 becomes "Not in labour force". GENDER_SEX uses HIST
+  SEX and current GENDER, falling back to SEX before 2011.
+- MARSTAT uses 4 categories (married or common-law, single, widowed,
+  separated or divorced), because that is all the data carry until 1999-10.
+- CMA uses Montréal, Toronto, Vancouver and Other. It is NULL before
+  `hist_from` = 1987-01, because earlier files do not identify CMAs.
+- SCHOOLN is non-student / full-time / part-time. AGYOWNK and NAICS_18
+  collapse the finer current codes.
+- The current LFS stores hours in tenths and HRLYEARN in cents (`lfs_scale`
+  0.1 / 0.01). LFS_HIST stores plain units. FWEIGHT becomes FINALWT.
+
 ## Tests
 
 `tests/testthat/test-longitudinal.R`. A synthetic spec (`series = "FAKE"`,
@@ -125,3 +172,7 @@ cache hits that never call `prepare`, month refresh, French labels, status
 message, `refresh = "auto"`. Further tests cover the LFS_HIST validation and
 eras, the shipped reference data, and `parse_sas_odesi()` on an inline ODESI
 fixture. LFS behaviour stays covered by `test-pipeline-lfs.R`.
+
+`tests/testthat/test-lfs-timeline.R` builds tiny LFS_HIST and LFS databases
+in a temp cache and checks the recodes, scaling, read-only attach, the
+unmapped-level warning and the consistency of the reference tables.

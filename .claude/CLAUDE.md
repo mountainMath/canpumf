@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [docs/metadata-parsers.md](docs/metadata-parsers.md) | The nine parsers, sentinel/missing detection, SPSS/SAS/PDF parsing quirks, encodings, mojibake repair |
 | [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md) | User-guide PDF parser, frequency validation, truncation fingerprints, label repair (`R/pdf_repair.R`) |
 | [docs/registry.md](docs/registry.md) | Registry fields and `data_fixups`, sibling inheritance, version aliases (incl. EFT-vs-Borealis Census resolution), download-URL resolution, the Borealis source, **override verification workflow** |
-| [docs/longitudinal.md](docs/longitudinal.md) | Longitudinal series engine and spec (LFS, LFS_HIST): shared DuckDB per series, LFS_HIST Borealis source and canonical dictionary |
+| [docs/longitudinal.md](docs/longitudinal.md) | Longitudinal series engine and spec (LFS, LFS_HIST): shared DuckDB per series, LFS_HIST Borealis source and canonical dictionary, the harmonised `get_lfs_timeline()` |
 | [docs/multi-module.md](docs/multi-module.md) | Linked-module surveys (GSS 16, GSS Time Use, SHS 2017, SGVP): registry, pipeline, `pumf_module()` |
 | `tests/TEST_COVERAGE.md` | What each test file covers; per-survey coverage matrix |
 
@@ -41,6 +41,7 @@ The registry (`R/registry.R`), the test suite, and the **Verified datasets** tab
 - **`pumf_metadata()`**: runs Stages 1+2 and returns `list(variables, codes, layout)`. **`open_pumf_documentation()`**: opens cached PDF/TXT docs.
 - **`get_pumf_connection()`** (exported, in `R/pumf.R`): returns a **read-write** DuckDB connection and is not registered. **`read_pumf_data()`**: covers the case where the user deposits files manually.
 - **Bootstrap weights** (`R/api.R`): `add_bootstrap_weights(tbl, weight_col, ...)` works on DuckDB-backed or in-memory tbls. `remove_bootstrap_weights()` drops the BSW table and its companion view. `bsw_info()` summarises the BSW tables present.
+- **`get_lfs_timeline(lang, sources)`** (`R/lfs_timeline.R`): one lazy tbl over LFS_HIST + LFS with a curated common schema. It opens an in-memory DuckDB, ATTACHes both files `READ_ONLY` and builds a `UNION ALL BY NAME` view. Provenance series `"LFS_TIMELINE"` makes `label_pumf_columns()` work.
 - **Label repair**: `pumf_label_repairs()`, `pumf_freq_validation()` (see [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md)).
 - **Registry and catalogue**: `pumf_registry()`, `list_pumf_registry()`, `pumf_registry_entry()`, `list_canpumf_collection()`, `list_statcan_pumf_catalogue()`, `list_available_lfs_pumf_versions()`.
 - **Borealis**: `get_pumf(..., borealis = <doi or catalogue row>)`, `list_borealis_pumf_catalogue()`, `list_borealis_pumf_files()` (`R/borealis.R`; see [docs/registry.md](docs/registry.md#borealis-dataverse-source)).
@@ -127,8 +128,9 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
 - `R/longitudinal.R`: the longitudinal engine and spec registry
 - `R/lfs_pipeline.R`, `R/lfs_helpers.R`: the LFS spec, append helpers and the `add_lfs_*()` helpers
 - `R/lfs_hist.R`: the LFS_HIST spec (Borealis download, canonical dictionary)
+- `R/lfs_timeline.R`: `get_lfs_timeline()` and its harmonisation tables (`inst/extdata/lfs_timeline/`)
 - `R/cache_mgmt.R`: `list_pumf_cache()`, `remove_pumf_cache()`
 - `R/pumf.R`: `read_pumf_data()`, `get_pumf_connection()`
 - `R/pumf_documentation.R`: `open_pumf_documentation()`
 - `R/helpers.R`: `robust_unzip()`, import declarations
-- `tools/verify_overrides.R`, `tools/refresh_catalogue_snapshot.R`, `tools/build_lfs_hist_reference.R`: dev-only scripts (`.Rbuildignore`d)
+- `tools/verify_overrides.R`, `tools/refresh_catalogue_snapshot.R`, `tools/build_lfs_hist_reference.R`, `tools/build_lfs_timeline_reference.R`: dev-only scripts (`.Rbuildignore`d)

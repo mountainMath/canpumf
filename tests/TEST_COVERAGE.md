@@ -79,6 +79,7 @@ which cached versions are exercised.
 | CPSS | `test-pipeline-cpss.R` | v1 (full, via PDF codebook†); v2–6 (full) | ✓ | — | ✓ | Cache-gated (`skip_if_not(.cpss_extracted(), ...)`); †v1 has no machine-readable codebook — `parse_pdf_codebook()` recovers bilingual labels from the codebook PDF, so Stage 2/3 run when `pdftools` is installed (`skip_if_not_installed("pdftools")`); Stage 1 download tested in `test-pipeline-stage1.R` |
 | LFS | `test-pipeline-lfs.R` | Synthetic (all); real cache if present | ✓\* | — | — | 47 tests; synthetic fixtures cover schema evolution, ENUM types, version filters, fra labels |
 | LFS_HIST | `test-longitudinal.R` | Synthetic engine; shipped reference data | — | — | — | No cache-gated real-data test; the engine is covered by the synthetic spec and the dictionary by the reference-data checks |
+| LFS timeline | `test-lfs-timeline.R` | Synthetic LFS_HIST + LFS databases | — | — | — | `get_lfs_timeline()` recodes, scaling, read-only attach, unmapped-level warning, reference consistency |
 
 \* For CHS, SHS, CIS, and LFS the **W** category is "emits no warnings during
 `pumf_run_pipeline()`" rather than the full `refresh=TRUE` loop used for

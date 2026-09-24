@@ -116,6 +116,30 @@ lfs_hist    <- get_pumf("LFS_HIST", refresh = "auto")  # all 360 months (large)
 
 ODESI labelled the same codes differently in different years ("Unemployed, temporary layoff" vs "Unemploy,temp layoff"). canpumf therefore applies one harmonised bilingual dictionary to every month, so each factor has the same levels across the whole 1976–2005 table. The deposits after 1986 carry weights rebased to a later Census (1987–1995 to 2001, 1996–2000 to 2006, 2001–2005 to 2011), so weighted levels can step at those boundaries.
 
+### One LFS timeline, 1976 onward
+
+`get_lfs_timeline()` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only and loads nothing itself.
+
+```r
+tl <- get_lfs_timeline()
+tl |>
+  dplyr::filter(SURVMNTH == 6L) |>
+  dplyr::summarise(employed = sum(FINALWT[LFSSTAT %in% c("Employed, at work",
+                                                         "Employed, absent from work")]),
+                   .by = SURVYEAR) |>
+  dplyr::collect()
+close_pumf(tl)
+```
+
+Variables with the same codes in both series carry the current LFS labels. A few are recoded to a common scheme:
+- `LFSSTAT`: the three historical unemployment categories are collapsed.
+- `GENDER_SEX`: sex and gender are combined.
+- `MARSTAT`: four categories; the files before November 1999 only have these four.
+- `CMA`: Montréal, Toronto, Vancouver or other, and `NA` before 1987.
+- Also recoded: `SCHOOLN`, `AGYOWNK`, `NAICS_18` (18 industry groups), and `EDUC` (from 1990).
+
+The hours and wage columns are in plain hours and dollars in both series, and the weight is `FINALWT`. Occupation and the historical family and spouse variables are left out; use `get_pumf()` on each series for those.
+
 ## Census data
 
 The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download from Statistics Canada. Years 1986 and earlier are downloaded automatically from Borealis (English labels only). If you have ordered the Statistics Canada EFT bundle for one of those years and placed it in the cache directory, it is used instead; add `"eft"` or `"borealis"` to the version string to pick a source explicitly, e.g. `get_pumf("Census", "1971 individuals CMA borealis")`.

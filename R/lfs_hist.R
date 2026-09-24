@@ -260,8 +260,11 @@
     own <- tryCatch(parse_sas_odesi(sas), error = function(e) NULL)
     if (!is.null(own)) {
       own$codes$name <- .lfs_hist_canonical_names(own$codes$name)
+      # Compared with the era-free dictionary: most 4-category-era MARSTAT
+      # programs still list the six later labels (docs/longitudinal.md).
+      ref  <- .lfs_hist_ref("codes")
       miss <- setdiff(paste(own$codes$name, own$codes$val),
-                      paste(codes$name, codes$val))
+                      paste(ref$name, ref$val))
       if (length(miss) > 0L)
         warning("LFS_HIST ", basename(version_dir), ": ", length(miss),
                 " code(s) of the month's SAS program are not in the canonical ",
