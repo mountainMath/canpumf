@@ -13,7 +13,7 @@ DuckDB without re-downloading."><meta property="og:image" content="https://mount
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.6.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -67,6 +67,7 @@ DuckDB without re-downloading.</p>
 <span>  read_only <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  registry <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  module <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  borealis <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  register_connection <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"canpumf.register_connection"</span>, <span class="cn">TRUE</span><span class="op">)</span>,</span>
 <span>  <span class="va">...</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -102,8 +103,9 @@ first request).</p></dd>
 <dt id="arg-refresh">refresh<a class="anchor" aria-label="anchor" href="#arg-refresh"></a></dt>
 <dd><p>`FALSE` (default) reuses cached data.  `TRUE` clears the
 DuckDB table and metadata and rebuilds from the already-extracted raw
-files (does not re-download).  `"auto"` is accepted for LFS only and
-downloads all available versions not yet in the database.</p></dd>
+files (does not re-download).  `"auto"` is accepted for `"LFS"` and
+`"LFS_HIST"` only and loads all available versions not yet in the
+database.</p></dd>
 
 
 <dt id="arg-redownload">redownload<a class="anchor" aria-label="anchor" href="#arg-redownload"></a></dt>
@@ -140,6 +142,21 @@ shows how to open one.  Use [pumf_module()] to open a sibling module on the
 *same* connection so the two tbls are joinable.  Not supported for LFS.</p></dd>
 
 
+<dt id="arg-borealis">borealis<a class="anchor" aria-label="anchor" href="#arg-borealis"></a></dt>
+<dd><p>Load the data from the [Borealis](https://borealisdata.ca)
+Dataverse instead of Statistics Canada: a dataset DOI (e.g.
+`"doi:10.5683/SP3/LG7WKC"`) or a one-row tibble from
+[list_borealis_pumf_catalogue()]. canpumf downloads the dataset's CSV data
+file, its command files and documentation (see
+[list_borealis_pumf_files()]). Without this argument Borealis is used
+automatically only for versions StatCan does not post, such as the
+1971–1986 Census PUMFs. When `version` names a registered survey, its
+built-in configuration is replaced by auto-detection unless the registry
+entry points at the same DOI; combine with `registry` to supply fixups.
+A version already cached from another source is not replaced unless
+`redownload = TRUE`. Not supported for LFS.</p></dd>
+
+
 <dt id="arg-register-connection">register_connection<a class="anchor" aria-label="anchor" href="#arg-register-connection"></a></dt>
 <dd><p>If `TRUE` (default), the DuckDB connection backing
 the returned tbl may appear in the RStudio Connections pane (subject to
@@ -168,10 +185,15 @@ you can disable it globally with
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>The LFS is treated specially: all versions share a single `LFS.duckdb`
-database.  Pass `version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).
-`refresh = "auto"` downloads every available LFS version that is not yet in
-the database; this is only valid for LFS.</p>
+    <p>The Labour Force Survey is treated specially: all versions share a single
+database, so the full history can be queried as one table.  Pass
+`version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).  `"LFS"` covers
+2006 onwards, from Statistics Canada.  `"LFS_HIST"` covers January 1976 to
+December 2005 in the legacy (pre-2017) layout, from the Borealis Dataverse.
+It is released monthly only, so a `"YYYY"` version loads that year's twelve
+months, and its labels are harmonised across months.
+`refresh = "auto"` loads every available version that is not yet in the
+database; this is only valid for `"LFS"` and `"LFS_HIST"`.</p>
     </div>
     <div class="section level2">
     <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>

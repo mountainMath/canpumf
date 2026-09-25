@@ -35,20 +35,20 @@ direct download.
 
 list_canpumf_collection() |> 
   filter(Acronym=="LFS")
-#> # A tibble: 90 × 5
+#> # A tibble: 93 × 5
 #>    Title               Acronym Version `Survey Number` url                      
 #>    <chr>               <chr>   <chr>   <chr>           <chr>                    
-#>  1 Labour Force Survey LFS     2026-05 3701            https://www150.statcan.g…
-#>  2 Labour Force Survey LFS     2026-04 3701            https://www150.statcan.g…
-#>  3 Labour Force Survey LFS     2026-03 3701            https://www150.statcan.g…
-#>  4 Labour Force Survey LFS     2026-02 3701            https://www150.statcan.g…
-#>  5 Labour Force Survey LFS     2026-01 3701            https://www150.statcan.g…
-#>  6 Labour Force Survey LFS     2025    3701            https://www150.statcan.g…
-#>  7 Labour Force Survey LFS     2024    3701            https://www150.statcan.g…
-#>  8 Labour Force Survey LFS     2023    3701            https://www150.statcan.g…
-#>  9 Labour Force Survey LFS     2022    3701            https://www150.statcan.g…
-#> 10 Labour Force Survey LFS     2021    3701            https://www150.statcan.g…
-#> # ℹ 80 more rows
+#>  1 Labour Force Survey LFS     2026-08 3701            https://www150.statcan.g…
+#>  2 Labour Force Survey LFS     2026-07 3701            https://www150.statcan.g…
+#>  3 Labour Force Survey LFS     2026-06 3701            https://www150.statcan.g…
+#>  4 Labour Force Survey LFS     2026-05 3701            https://www150.statcan.g…
+#>  5 Labour Force Survey LFS     2026-04 3701            https://www150.statcan.g…
+#>  6 Labour Force Survey LFS     2026-03 3701            https://www150.statcan.g…
+#>  7 Labour Force Survey LFS     2026-02 3701            https://www150.statcan.g…
+#>  8 Labour Force Survey LFS     2026-01 3701            https://www150.statcan.g…
+#>  9 Labour Force Survey LFS     2025    3701            https://www150.statcan.g…
+#> 10 Labour Force Survey LFS     2024    3701            https://www150.statcan.g…
+#> # ℹ 83 more rows
 ```
 
 The second one fetches and loads the LFS data. For example, to download
@@ -62,7 +62,7 @@ lfs_2022 |>
   select(1:5) |>
   head(10)
 #> # A query:  ?? x 5
-#> # Database: DuckDB 1.5.4 [root@Darwin 25.5.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]
+#> # Database: DuckDB 1.5.4 [root@Darwin 27.0.0:R 4.6.0//Users/jens/data/pumf.data/LFS/LFS.duckdb]
 #>    REC_NUM SURVYEAR SURVMNTH LFSSTAT                    PROV            
 #>      <int>    <int>    <int> <fct>                      <fct>           
 #>  1       1     2022        1 Not in labour force        Quebec          
@@ -318,4 +318,207 @@ lfs_pumf |>
 ``` r
 
 lfs_pumf |> close_pumf()
+```
+
+## The long timeline, 1976 onward
+
+Statistics Canada posts the LFS PUMF for 2006 onward. The monthly files
+for January 1976 to December 2005 are only publicly available through
+the [Borealis](https://borealisdata.ca) Dataverse (ODESI). They use the
+older, pre-2017 file layout. `canpumf` loads them as a separate series,
+`"LFS_HIST"`, which works just like `"LFS"`: every month you load is
+appended to one shared database.
+
+``` r
+
+lfs_hist_1995_06 <- get_pumf("LFS_HIST", "1995-06")  # one month
+lfs_hist_1995_06 |> 
+  count(LFSSTAT, wt = FWEIGHT) |>
+  collect()
+#> # A tibble: 6 × 2
+#>   LFSSTAT                             n
+#>   <fct>                           <dbl>
+#> 1 Employed, at work            12874136
+#> 2 Employed, absent from work     731588
+#> 3 Unemployed, temporary layoff    81243
+#> 4 Unemployed, job searcher      1240976
+#> 5 Unemployed, future start        42304
+#> 6 Not in labour force           7677684
+```
+
+A year (`"1995"`) loads all twelve months, and `refresh = "auto"` loads
+every month that is not yet in the database. The first full load
+downloads all 360 monthly files and takes a couple of hours. After that
+everything is read from the cache.
+
+``` r
+
+lfs_hist <- get_pumf("LFS_HIST", refresh = "auto")
+```
+
+The two series cannot be stacked as they are. The column sets differ,
+some variables are coded differently, and the current LFS stores hours
+in tenths and wages in cents.
+[`get_lfs_timeline()`](https://mountainmath.github.io/canpumf/reference/get_lfs_timeline.md)
+does that work. It combines whatever has been loaded of `"LFS_HIST"` and
+`"LFS"` into one lazy table with a curated set of common variables, and
+`SOURCE` records which series a row came from. The two databases are
+opened read-only, and nothing is copied or loaded.
+
+By default the timeline uses only what has already been loaded. With
+`refresh = "auto"` it first loads every available month of either series
+that is not yet in the cache. An analysis script that starts with
+`get_lfs_timeline(refresh = "auto")` therefore always picks up the
+latest LFS release. When everything is current this only checks the list
+of available versions.
+
+``` r
+
+lfs_tl <- get_lfs_timeline(refresh = "auto")
+#> LFS timeline: LFS_HIST 1976-01..2005-12 (360 versions); LFS 2006..2026-08 (28 versions).
+pumf_var_labels(lfs_tl)
+#> # A tibble: 57 × 3
+#>    name     label_en                                           label_fr         
+#>    <chr>    <chr>                                              <chr>            
+#>  1 SOURCE   Source series                                      Série source     
+#>  2 SURVYEAR Survey year                                        Année d'enquête  
+#>  3 SURVMNTH Survey month                                       Mois de l'enquête
+#>  4 PROV     Province                                           Province         
+#>  5 AGE_12   Five-year age group of respondent                  L'âge du réponda…
+#>  6 AGE_6    Age in 2 and 3 year groups, 15 to 29               L'âge des person…
+#>  7 EDUC     Highest educational attainment                     Plus haut niveau…
+#>  8 MJH      Single or multiple jobholder                       Personnes ayant …
+#>  9 EVERWORK Identifies if a person has worked in the last year Indique si une p…
+#> 10 FTPTLAST Full- or part-time status of last job              Situation du der…
+#> # ℹ 47 more rows
+```
+
+Variables with identical codes in both series use the current LFS
+labels. The rest are recoded to a common scheme:
+
+- `LFSSTAT` collapses the historical breakdown of unemployment.
+- `GENDER_SEX` combines sex and gender, in the same way as
+  [`add_lfs_GENDER_SEX()`](https://mountainmath.github.io/canpumf/reference/add_lfs_GENDER_SEX.md).
+- `MARSTAT` has four categories, because the files before November 1999
+  have only four.
+- `CMA` distinguishes Montréal, Toronto, Vancouver and the rest, and is
+  `NA` before 1987, when the older files do not identify CMAs.
+- `SCHOOLN`, `AGYOWNK` and the industry groups (`NAICS_18`) are also
+  recoded.
+
+Hours are in hours and wages in dollars throughout, and the weight is
+`FINALWT`. All the usual tools work on the result, including
+[`add_lfs_SURVDATE()`](https://mountainmath.github.io/canpumf/reference/add_lfs_SURVDATE.md)
+and
+[`label_pumf_columns()`](https://mountainmath.github.io/canpumf/reference/label_pumf_columns.md).
+
+To get a long series of the unemployment rate, we again do the heavy
+lifting in the database and only collect the monthly totals.
+
+``` r
+
+lf_monthly <- lfs_tl |>
+  filter(LFSSTAT != "Not in labour force") |>
+  add_lfs_SURVDATE() |>
+  summarise(labour_force = sum(FINALWT),
+            unemployed = sum(FINALWT[LFSSTAT == "Unemployed"], na.rm = TRUE),
+            .by = c(SURVDATE, GENDER_SEX)) |>
+  mutate(rate = unemployed / labour_force) |>
+  collect()
+
+lf_monthly |>
+  ggplot(aes(x = SURVDATE, y = rate, colour = GENDER_SEX)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(method = "loess", span = 0.05, se = FALSE, linewidth = 0.8) +
+  geom_vline(xintercept = as.Date("2006-01-01"), linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Unemployment rate by gender/sex, 1976 onward",
+       subtitle = "Monthly, not seasonally adjusted; dashed line: LFS_HIST to LFS",
+       x = NULL, y = "Unemployment rate", colour = NULL,
+       caption = "StatCan LFS PUMF (1976-2005 via Borealis/ODESI)")
+#> `geom_smooth()` using formula = 'y ~ x'
+```
+
+![](LFS_files/figure-html/unnamed-chunk-18-1.png)
+
+The recessions of the early 1980s and 1990s, 2008-09 and 2020 all show
+up clearly, and the series is continuous across the 2005/2006 seam.
+
+Longer timelines bring out structural change. The participation rate of
+women in their core working years rose from about half to over 80%.
+
+``` r
+
+core_age <- c("25 to 29 years", "30 to 34 years", "35 to 39 years", "40 to 44 years",
+              "45 to 49 years", "50 to 54 years")
+
+participation <- lfs_tl |>
+  filter(AGE_12 %in% core_age) |>
+  summarise(population = sum(FINALWT),
+            labour_force = sum(FINALWT[LFSSTAT != "Not in labour force"], na.rm = TRUE),
+            .by = c(SURVYEAR, GENDER_SEX)) |>
+  mutate(rate = labour_force / population) |>
+  collect()
+
+participation |>
+  ggplot(aes(x = SURVYEAR, y = rate, colour = GENDER_SEX)) +
+  geom_line() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Labour force participation of 25 to 54 year olds",
+       subtitle = "Pooled monthly samples of each year",
+       x = NULL, y = "Participation rate", colour = NULL,
+       caption = "StatCan LFS PUMF (1976-2005 via Borealis/ODESI)")
+```
+
+![](LFS_files/figure-html/unnamed-chunk-19-1.png)
+
+Variables that enter the survey later are `NA` for earlier years, so a
+filter on them restricts the timeline automatically. The three large
+CMAs are identified from 1987, and hourly wages are collected from 1997
+on.
+
+``` r
+
+lfs_tl |>
+  filter(LFSSTAT %in% c("Employed, at work", "Employed, absent from work"),
+         !is.na(HRLYEARN)) |>
+  summarise(wage = sum(HRLYEARN * FINALWT) / sum(FINALWT),
+            .by = c(SURVYEAR, CMA)) |>
+  collect() |>
+  ggplot(aes(x = SURVYEAR, y = wage, colour = CMA)) +
+  geom_line() +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(title = "Average usual hourly wage of employees",
+       subtitle = "Nominal dollars",
+       x = NULL, y = NULL, colour = NULL,
+       caption = "StatCan LFS PUMF (1997-2005 via Borealis/ODESI)")
+```
+
+![](LFS_files/figure-html/unnamed-chunk-20-1.png)
+
+Some caveats apply when working across the full range:
+
+- **Population rebasing.** The weights of each era reflect the
+  population estimates in use when the files were last revised: 1976–86
+  original, 1987–95 rebased to the 2001 Census, 1996–2000 to 2006,
+  2001–05 to 2011, and the current LFS to more recent Censuses. The
+  population series runs smoothly across these boundaries in the
+  public-use files, but population counts from different eras are not
+  strictly comparable. Rates are much less affected than counts.
+- **1985–86.** Estimates computed from `LFS_HIST` match the published
+  table 14-10-0287 to rounding, except for January 1985 to
+  November 1986. For those months the public-use files give about 1.2%
+  more unemployed than the published series.
+- **Variables outside the common schema.** Occupation, the spouse
+  variables and other detail only available in one series are not part
+  of the timeline. Use `get_pumf("LFS_HIST")` or `get_pumf("LFS")` for
+  those.
+
+As before, close the connections when done.
+
+``` r
+
+close_pumf(lfs_tl)
+close_pumf(lfs_hist)
+close_pumf(lfs_hist_1995_06)
 ```

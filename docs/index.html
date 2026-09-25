@@ -28,7 +28,7 @@
 
     <a class="navbar-brand me-2" href="index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.6.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -104,34 +104,87 @@
 <h2 id="basic-usage">Basic usage<a class="anchor" aria-label="anchor" href="#basic-usage"></a>
 </h2>
 <p>Some PUMF data is available from StatCan via direct download and can be accessed directly via <code><a href="reference/get_pumf.html">get_pumf()</a></code>. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so <code><a href="reference/get_pumf.html">get_pumf()</a></code> can find it.</p>
+<p>PUMF data can also be loaded from the <a href="https://borealisdata.ca" class="external-link">Borealis</a> Dataverse, which hosts the ODESI collection of Statistics Canada PUMFs. Statistics Canada stays the primary source; Borealis is used automatically for vintages StatCan does not post (the 1971–1986 Census PUMFs), and any other Borealis PUMF dataset can be loaded by its DOI:</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">cat</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/list_borealis_pumf_catalogue.html">list_borealis_pumf_catalogue</a></span><span class="op">(</span><span class="op">)</span>                 <span class="co"># browse the Borealis PUMF collection</span></span>
+<span><span class="fu"><a href="reference/list_borealis_pumf_files.html">list_borealis_pumf_files</a></span><span class="op">(</span><span class="st">"doi:10.5683/SP3/EZXFNL"</span><span class="op">)</span>   <span class="co"># inspect a dataset's files</span></span>
+<span><span class="va">shs_1997</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"SHS"</span>, <span class="st">"1997"</span>, borealis <span class="op">=</span> <span class="st">"doi:10.5683/SP3/EZXFNL"</span><span class="op">)</span></span></code></pre></div>
+<p>The <code>version</code> names the cache directory, and later calls to <code>get_pumf("SHS", "1997")</code> reopen the Borealis copy. Datasets outside the built-in registry are parsed by auto-detection. If the build warns that a variable’s unmatched values become <code>NA</code>, that variable is usually continuous with only a top-code labelled. Pass <code>registry = pumf_registry_entry(data_fixups = list(force_numeric = c("NUMROOM", "AGEREFP")))</code> together with <code>refresh = TRUE</code> to keep it numeric.</p>
+<p>No account is needed. If the <code>BOREALIS_DATAVERSE_KEY</code> environment variable is set, it is sent to Borealis as the API key, which gives access to restricted files the key’s owner is entitled to.</p>
 <p><code><a href="reference/get_pumf.html">get_pumf()</a></code> downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy <code><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">dplyr::tbl()</a></code> backed by a local DuckDB database. Call <code><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">dplyr::collect()</a></code> to load into memory.</p>
 <p>Column values are labeled automatically (e.g. province codes become factor levels like <code>"British Columbia"</code>). Column <em>names</em> remain as short coded names by default (e.g. <code>PROV</code>, <code>LFSSTAT</code>). To rename columns to human-readable variable labels, pipe through <code><a href="reference/label_pumf_columns.html">label_pumf_columns()</a></code>:</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, <span class="st">"2022"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="reference/label_pumf_columns.html">label_pumf_columns</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <p>When done querying, release the DuckDB connection with <code>close_pumf(tbl)</code>.</p>
 </div>
 <div class="section level2">
+<h2 id="label-repair">Label repair<a class="anchor" aria-label="anchor" href="#label-repair"></a>
+</h2>
+<p>Statistics Canada’s shipped command files routinely carry truncated value and variable labels — hard cuts at 60 characters, dropped leading or interior text. The damage is upstream (SAS, SPSS and Stata versions of the same file agree byte for byte), and it is quiet: the codes and frequencies are correct, only the human-readable label is wrong.</p>
+<p>For surveys whose user guide includes a data-dictionary appendix, <code>canpumf</code> parses that appendix and uses it to repair the labels. Because the appendix prints the frequency of every code, the scrape is first reconciled against the actual microdata: a guide whose counts do not reproduce a tabulation of the data <em>and</em> whose printed field positions do not reproduce the command file’s layout is discarded as the wrong document. A label is then only ever replaced when two things hold — the guide’s text demonstrably extends the command file’s, <strong>and</strong> the command file’s labels show the fingerprint of hard truncation (a spike of labels at a fixed ceiling). Without that second test a guide that prints full question wording where the command file carries a hand-written short label would “repair” perfectly good labels into questions. Two functions expose what happened:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">gss</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"GSS"</span>, <span class="st">"Cycle 16 (2002)"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># per-variable: did the guide's frequencies reconcile with the data?</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="fu"><a href="reference/pumf_freq_validation.html">pumf_freq_validation</a></span><span class="op">(</span><span class="va">gss</span><span class="op">)</span><span class="op">$</span><span class="va">status</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># every divergence found, repaired or not</span></span>
+<span><span class="fu"><a href="reference/pumf_label_repairs.html">pumf_label_repairs</a></span><span class="op">(</span><span class="va">gss</span>, action <span class="op">=</span> <span class="st">"repaired"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="reference/pumf_label_repairs.html">pumf_label_repairs</a></span><span class="op">(</span><span class="va">gss</span>, action <span class="op">=</span> <span class="st">"flagged"</span><span class="op">)</span></span></code></pre></div>
+<p><code>flagged</code> rows are divergences that were recorded but <em>not</em> acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. Nothing is repaired silently. Set <code>options(canpumf.pdf_crosscheck = FALSE)</code> to turn the whole step off.</p>
+</div>
+<div class="section level2">
 <h2 id="lfs-data">LFS data<a class="anchor" aria-label="anchor" href="#lfs-data"></a>
 </h2>
 <p>LFS data is organized by year, except for the current year where it is organized by month. To access data for a specific year:</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_2022</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, <span class="st">"2022"</span><span class="op">)</span></span></code></pre></div>
 <p>This downloads the 2022 LFS PUMF data if needed, parses it, loads labeled data into a shared DuckDB database, and returns a lazy tbl filtered to 2022. To access all LFS data currently in the local database:</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_all_local</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span><span class="op">)</span></span></code></pre></div>
 <p>To ensure the local database contains all available LFS versions, use <code>refresh = "auto"</code>. This checks StatCan for versions not yet in the database and imports them:</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">lfs_all</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS"</span>, refresh <span class="op">=</span> <span class="st">"auto"</span><span class="op">)</span></span></code></pre></div>
+<div class="section level3">
+<h3 id="historical-lfs-19762005">Historical LFS (1976–2005)<a class="anchor" aria-label="anchor" href="#historical-lfs-19762005"></a>
+</h3>
+<p>Statistics Canada posts the LFS PUMF from 2006 onwards. The monthly files for January 1976 to December 2005 are available from the <a href="https://borealisdata.ca" class="external-link">Borealis Dataverse</a> (ODESI) as series <code>"LFS_HIST"</code>. They use the legacy (pre-2017) LFS layout, so they live in their own database rather than being mixed into <code>"LFS"</code>.</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lfs_1995_06</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS_HIST"</span>, <span class="st">"1995-06"</span><span class="op">)</span>  <span class="co"># one month</span></span>
+<span><span class="va">lfs_1995</span>    <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS_HIST"</span>, <span class="st">"1995"</span><span class="op">)</span>     <span class="co"># all twelve months of 1995</span></span>
+<span><span class="va">lfs_hist</span>    <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"LFS_HIST"</span>, refresh <span class="op">=</span> <span class="st">"auto"</span><span class="op">)</span>  <span class="co"># all 360 months (large)</span></span></code></pre></div>
+<p>ODESI labelled the same codes differently in different years (“Unemployed, temporary layoff” vs “Unemploy,temp layoff”). canpumf therefore applies one harmonised bilingual dictionary to every month, so each factor has the same levels across the whole 1976–2005 table. The deposits after 1986 carry weights rebased to a later Census (1987–1995 to 2001, 1996–2000 to 2006, 2001–2005 to 2011), so weighted levels can step at those boundaries.</p>
+</div>
+<div class="section level3">
+<h3 id="one-lfs-timeline-1976-onward">One LFS timeline, 1976 onward<a class="anchor" aria-label="anchor" href="#one-lfs-timeline-1976-onward"></a>
+</h3>
+<p><code><a href="reference/get_lfs_timeline.html">get_lfs_timeline()</a></code> stacks whatever is loaded of <code>"LFS_HIST"</code> and <code>"LFS"</code> into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. <code>get_lfs_timeline(refresh = "auto")</code> first loads any newly released months, so an analysis script built on it stays up to date.</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">tl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_lfs_timeline.html">get_lfs_timeline</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">tl</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu">dplyr</span><span class="fu">::</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">SURVMNTH</span> <span class="op">==</span> <span class="fl">6L</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu">dplyr</span><span class="fu">::</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html" class="external-link">summarise</a></span><span class="op">(</span>employed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">FINALWT</span><span class="op">[</span><span class="va">LFSSTAT</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Employed, at work"</span>,</span>
+<span>                                                         <span class="st">"Employed, absent from work"</span><span class="op">)</span><span class="op">]</span><span class="op">)</span>,</span>
+<span>                   .by <span class="op">=</span> <span class="va">SURVYEAR</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu">dplyr</span><span class="fu">::</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="fu"><a href="reference/close_pumf.html">close_pumf</a></span><span class="op">(</span><span class="va">tl</span><span class="op">)</span></span></code></pre></div>
+<p>Variables with the same codes in both series carry the current LFS labels. A few are recoded to a common scheme: - <code>LFSSTAT</code>: the three historical unemployment categories are collapsed. - <code>GENDER_SEX</code>: sex and gender are combined. - <code>MARSTAT</code>: four categories; the files before November 1999 only have these four. - <code>CMA</code>: Montréal, Toronto, Vancouver or other, and <code>NA</code> before 1987. - Also recoded: <code>SCHOOLN</code>, <code>AGYOWNK</code>, <code>NAICS_18</code> (18 industry groups), and <code>EDUC</code> (from 1990).</p>
+<p>The hours and wage columns are in plain hours and dollars in both series, and the weight is <code>FINALWT</code>. Occupation and the historical family and spouse variables are left out; use <code><a href="reference/get_pumf.html">get_pumf()</a></code> on each series for those.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="census-data">Census data<a class="anchor" aria-label="anchor" href="#census-data"></a>
 </h2>
-<p>The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download; years 1986 and earlier must be ordered through Statistics Canada’s EFT portal and placed in the cache directory.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<p>The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download from Statistics Canada. Years 1986 and earlier are downloaded automatically from Borealis (English labels only). If you have ordered the Statistics Canada EFT bundle for one of those years and placed it in the cache directory, it is used instead; add <code>"eft"</code> or <code>"borealis"</code> to the version string to pick a source explicitly, e.g. <code>get_pumf("Census", "1971 individuals CMA borealis")</code>.</p>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pumf_2021</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>, <span class="st">"2021"</span><span class="op">)</span></span></code></pre></div>
 <p>By default the package loads the <em>individuals</em> file. Available variants by year:</p>
 <table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
 <thead><tr>
 <th>Years</th>
 <th>Variants</th>
@@ -167,7 +220,7 @@
 </tr>
 <tr>
 <td>1986</td>
-<td>individuals, households</td>
+<td>individuals, households, families</td>
 </tr>
 <tr>
 <td>1981</td>
@@ -175,21 +228,21 @@
 </tr>
 <tr>
 <td>1976</td>
-<td>individuals</td>
+<td>individuals, households, families</td>
 </tr>
 <tr>
 <td>1971</td>
-<td>individuals, individuals PR</td>
+<td>individuals, households, families (each as provincial and CMA file)</td>
 </tr>
 </tbody>
 </table>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pumf_h_2016</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/get_pumf.html">get_pumf</a></span><span class="op">(</span><span class="st">"Census"</span>, <span class="st">"2016 (hierarchical)"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="verified-datasets">Verified datasets<a class="anchor" aria-label="anchor" href="#verified-datasets"></a>
 </h2>
-<p>The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked <strong>direct download</strong> can be fetched automatically by <code><a href="reference/get_pumf.html">get_pumf()</a></code>; others must be placed in the cache directory via Statistics Canada’s EFT portal.</p>
+<p>The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked <strong>direct download</strong> can be fetched automatically by <code><a href="reference/get_pumf.html">get_pumf()</a></code> (from Statistics Canada, or from Borealis where marked); others must be placed in the cache directory via Statistics Canada’s EFT portal.</p>
 <table class="table">
 <colgroup>
 <col width="21%">
@@ -211,6 +264,12 @@
 <td align="center">✓</td>
 </tr>
 <tr>
+<td>Labour Force Survey, historical</td>
+<td>LFS_HIST</td>
+<td>monthly files 1976-01 to 2005-12</td>
+<td align="center">✓ (Borealis)</td>
+</tr>
+<tr>
 <td>Census of Population</td>
 <td>Census</td>
 <td>2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families)</td>
@@ -221,6 +280,12 @@
 <td>Census</td>
 <td>1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants)</td>
 <td align="center">—</td>
+</tr>
+<tr>
+<td>Census of Population (Borealis)</td>
+<td>Census</td>
+<td>1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants)</td>
+<td align="center">✓ (Borealis)</td>
 </tr>
 <tr>
 <td>General Social Survey — Caregiving</td>
@@ -286,6 +351,18 @@
 <td>Canadian Housing Survey</td>
 <td>CHS</td>
 <td>2018, 2021, 2022</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Canadian Health Survey on Seniors</td>
+<td>CHSS</td>
+<td>2019-2020</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Participation and Activity Limitation Survey</td>
+<td>PALS</td>
+<td>2001, 2006</td>
 <td align="center">✓</td>
 </tr>
 <tr>

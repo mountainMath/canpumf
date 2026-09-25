@@ -14,6 +14,7 @@ get_pumf(
   read_only = TRUE,
   registry = NULL,
   module = NULL,
+  borealis = NULL,
   register_connection = getOption("canpumf.register_connection", TRUE),
   ...
 )
@@ -36,8 +37,9 @@ first request).}
 
 \item{refresh}{`FALSE` (default) reuses cached data.  `TRUE` clears the
 DuckDB table and metadata and rebuilds from the already-extracted raw
-files (does not re-download).  `"auto"` is accepted for LFS only and
-downloads all available versions not yet in the database.}
+files (does not re-download).  `"auto"` is accepted for `"LFS"` and
+`"LFS_HIST"` only and loads all available versions not yet in the
+database.}
 
 \item{redownload}{If `TRUE`, delete the cached zip and extracted files and
 re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
@@ -64,6 +66,19 @@ return.  `NULL` (default) returns the survey's primary module; for a
 multi-module survey a one-time message then lists the sibling modules and
 shows how to open one.  Use [pumf_module()] to open a sibling module on the
 *same* connection so the two tbls are joinable.  Not supported for LFS.}
+
+\item{borealis}{Load the data from the [Borealis](https://borealisdata.ca)
+Dataverse instead of Statistics Canada: a dataset DOI (e.g.
+`"doi:10.5683/SP3/LG7WKC"`) or a one-row tibble from
+[list_borealis_pumf_catalogue()]. canpumf downloads the dataset's CSV data
+file, its command files and documentation (see
+[list_borealis_pumf_files()]). Without this argument Borealis is used
+automatically only for versions StatCan does not post, such as the
+1971--1986 Census PUMFs. When `version` names a registered survey, its
+built-in configuration is replaced by auto-detection unless the registry
+entry points at the same DOI; combine with `registry` to supply fixups.
+A version already cached from another source is not replaced unless
+`redownload = TRUE`. Not supported for LFS.}
 
 \item{register_connection}{If `TRUE` (default), the DuckDB connection backing
 the returned tbl may appear in the RStudio Connections pane (subject to
@@ -93,10 +108,15 @@ by a DuckDB file in the cache directory.  Subsequent calls reuse the cached
 DuckDB without re-downloading.
 }
 \details{
-The LFS is treated specially: all versions share a single `LFS.duckdb`
-database.  Pass `version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).
-`refresh = "auto"` downloads every available LFS version that is not yet in
-the database; this is only valid for LFS.
+The Labour Force Survey is treated specially: all versions share a single
+database, so the full history can be queried as one table.  Pass
+`version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).  `"LFS"` covers
+2006 onwards, from Statistics Canada.  `"LFS_HIST"` covers January 1976 to
+December 2005 in the legacy (pre-2017) layout, from the Borealis Dataverse.
+It is released monthly only, so a `"YYYY"` version loads that year's twelve
+months, and its labels are harmonised across months.
+`refresh = "auto"` loads every available version that is not yet in the
+database; this is only valid for `"LFS"` and `"LFS_HIST"`.
 }
 \examples{
 \donttest{

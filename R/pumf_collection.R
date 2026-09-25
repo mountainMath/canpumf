@@ -10,7 +10,7 @@ list_census_collection <- function() {
     rvest::read_html(base_url) |> rvest::html_nodes("main div ul li a"),
     error = function(e) NULL
   )
-  if (!is.null(pumf_data)) {
+  if (!is.null(pumf_data) && length(pumf_data) > 0L) {
     tibble::tibble(Title = "Census of population",
            Acronym = "Census",
            Version = pumf_data |> rvest::html_text(),
@@ -22,8 +22,25 @@ list_census_collection <- function() {
       mutate(Version = paste0(.data$Year, " (", tolower(.data$type), ")")) |>
       select(-"Year", -"type")
   } else {
-    .census_collection_fallback()
+    # The 98m0001x index page has moved (404 since 2026); the StatCan catalogue
+    # crawl (persisted or shipped snapshot) still lists every Census download.
+    .census_collection_from_catalogue() %||% .census_collection_fallback()
   }
+}
+
+# Census rows from the StatCan catalogue (98M0001X), or NULL if unavailable.
+.census_collection_from_catalogue <- function(
+    cache_path = getOption("canpumf.cache_path")) {
+  cat <- tryCatch(.statcan_catalogue_cached(cache_path), error = function(e) NULL)
+  if (is.null(cat) || !nrow(cat)) return(NULL)
+  cen <- cat[toupper(cat$catalogue_id) == "98M0001X" &
+               grepl("^\\d{4} \\(", cat$edition) & !is.na(cat$url), , drop = FALSE]
+  if (!nrow(cen)) return(NULL)
+  tibble::tibble(Title = "Census of population",
+                 Acronym = "Census",
+                 Version = cen$edition,
+                 `Survey Number` = "3901",
+                 url = cen$url)
 }
 
 # Hardcoded GSS/SGVP fallback — only the registry-supported surveys so that
@@ -57,10 +74,9 @@ list_census_collection <- function() {
   )
 }
 
-# Hardcoded Census versions used when StatCan is unreachable.
-# URLs are best-effort; they work for 2016/2021 (both use catalog 98m0001x)
-# but may be stale for older years.  If StatCan is unreachable the download
-# would fail regardless, so accuracy of the URL is moot in that scenario.
+# Hardcoded Census versions used when neither the StatCan index page nor the
+# catalogue is available.  Since 2023 StatCan serves every Census PUMF zip from
+# 98m0001x/2023001/.
 .census_collection_fallback <- function() {
   tibble::tibble(
     Title          = "Census of population",
@@ -76,23 +92,23 @@ list_census_collection <- function() {
       "1991 (individuals)", "1991 (households)", "1991 (families)"
     ),
     url = c(
-      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2022001/cen21_ind_98m0001x_part_rec21.zip",
-      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2022001/cen21_hier_98M0001X_rec21_hier.zip",
-      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2017001/cen16_ind_98m0001x_part_rec16.zip",
-      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2017001/cen16_hier_98m0002x_rec16_hier.zip",
-      "https://www150.statcan.gc.ca/n1/pub/99m0001x/2013001/nhs11_ind_99m0001x_part_enm11.zip",
-      "https://www150.statcan.gc.ca/n1/pub/99m0001x/2013001/nhs11_hier_99m0002x_enm11_hier.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0028x/2009001/cen06_ind_95m0028x_part_rec06.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0028x/2009001/cen06_hier_95m0029x_part_rec06.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0016x/2003001/cen01_ind_95m0016x_part_rec01.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0016x/2003001/cen01_hous_95m0020x_mena_rec01.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0016x/2003001/cen01_fam_95m0018x_fam_rec01.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0010x/1999001/cen96_ind_95m0010X_part_rec96_v2.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0010x/1999001/cen96_hous_95m0011x_mena_rec96_v2.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0010x/1999001/cen96_fam_95m0012x_fam_rec96_v2.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0007x/1996001/cen91_ind_95m0007x_ind_rec91.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0007x/1996001/cen91_hous_95m0008X_mena_rec91.zip",
-      "https://www150.statcan.gc.ca/n1/pub/95m0007x/1996001/cen91_fam_95m0009x_fam_rec91.zip"
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_ind_98m0001x_part_rec21.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen21_hier_98M0001X_rec21_hier.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen16_ind_98m0001x_part_rec16.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen16_hier_98m0002x_rec16_hier.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/nhs11_ind_99m0001x_part_enm11.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/nhs11_hier_99m0002x_enm11_hier.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen06_ind_95m0028x_part_rec06.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen06_hier_95m0029x_part_rec06.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen01_ind_95m0016x_part_rec01.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen01_hous_95m0020x_mena_rec01.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen01_fam_95m0018x_fam_rec01.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen96_ind_95m0010X_part_rec96_v2.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen96_hous_95m0011x_mena_rec96_v2.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen96_fam_95m0012x_fam_rec96_v2.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen91_ind_95m0007x_ind_rec91.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen91_hous_95m0008X_mena_rec91.zip",
+      "https://www150.statcan.gc.ca/n1/pub/98m0001x/2023001/cen91_fam_95m0009x_fam_rec91.zip"
     )
   )
 }
@@ -166,8 +182,10 @@ list_gss_collection <- function() {
 #' other series are hard-coded.  Requires an internet connection.
 #'
 #' @return A tibble with columns `Title`, `Acronym`, `Version`,
-#'   `Survey Number`, and `url`.  The `url` column contains the download URL or
-#'   `"(EFT)"` for versions distributed via the Research Data Centre (EFT only).
+#'   `Survey Number`, and `url`.  The `url` column contains the download URL,
+#'   `"(EFT)"` for versions distributed via the Research Data Centre (EFT only),
+#'   or the Borealis dataset page for versions canpumf loads from Borealis
+#'   (see [list_borealis_pumf_catalogue()]).
 #'   Pass `Acronym` and `Version` to [get_pumf()] to download a dataset.
 #'
 #' @seealso [get_pumf()], [list_available_lfs_pumf_versions()]
@@ -189,6 +207,25 @@ list_canpumf_collection <- function(){
                   Version=c("1"),
                   `Survey Number`="5339",
                   url="https://www150.statcan.gc.ca/n1/en/pub/13-25-0007/2022001/CCAHS_ECSAC.zip?st=BPMowORM")
+
+  chss <- tibble(Title = "Canadian Health Survey on Seniors",
+                 Acronym = "CHSS",
+                 Version = c("2019-2020"),
+                 `Survey Number` = "5267",
+                 # TXT, not CSV: the CSV bundle ships the data alone, while the
+                 # TXT bundle also carries the SPSS layout cards (see the
+                 # CHSS/2019-2020 registry entry's download_format).
+                 url = "https://www150.statcan.gc.ca/n1/pub/13-25-0010/2024001/2019-2020_TXT.zip")
+
+  # Both PALS editions hang off the single 2009001 publication page of catalogue
+  # 82M0023X (the 2004001 edition page is gone), so the pair is curated here
+  # rather than left to the crawl, which has no edition token to tell them apart.
+  pals <- tibble(Title = "Participation and Activity Limitation Survey",
+                 Acronym = "PALS",
+                 Version = c("2001", "2006"),
+                 `Survey Number` = "3251",
+                 url = paste0("https://www150.statcan.gc.ca/n1/pub/82m0023x/",
+                              "2009001/PALS_EPLA_", c("2001", "2006"), ".zip"))
 
   cpss <- tibble(Title="Canadian Perspectives Survey Series",
                  Acronym="CPSS",
@@ -295,16 +332,17 @@ list_canpumf_collection <- function(){
             call. = FALSE)
   }
 
-  first_year <- census_download$Version |> str_extract("\\d{4}") |> as.integer() |> min()
+  first_year <- census_download$Version |> str_extract("\\d{4}") |> as.integer()
+  first_year <- if (any(!is.na(first_year))) min(first_year, na.rm = TRUE) else 1991L
   last_eft_year <- first_year - 5
 
   if (nrow(pumf_surveys)>0) {
     result <- pumf_surveys %>%
       left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_all),
                 by="Acronym") %>%
-      bind_rows(chs,cpss,shs)
+      bind_rows(chs,cpss,shs,chss,pals)
   } else {
-    result <- bind_rows(chs,cpss,shs,ccahs) |>
+    result <- bind_rows(chs,cpss,shs,ccahs,chss,pals) |>
       bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
                 its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
                 sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
@@ -324,7 +362,24 @@ list_canpumf_collection <- function(){
                        url="(EFT)"))
   }
   result |>
-    bind_rows(census_download)
+    bind_rows(census_download, .borealis_registry_collection())
+}
+
+# Collection rows for registry entries sourced from Borealis (the 1971-1986
+# Census PUMFs); `url` is the Borealis dataset page.
+.borealis_registry_collection <- function() {
+  keys <- names(.pumf_registry)[vapply(.pumf_registry, function(e)
+    !is.null(e$borealis), logical(1L))]
+  if (length(keys) == 0L) return(NULL)
+  ents <- .pumf_registry[keys]
+  series <- vapply(ents, function(e) e$series, character(1L))
+  tibble(
+    Title           = ifelse(series == "Census", "Census of population", series),
+    Acronym         = series,
+    Version         = vapply(ents, function(e) e$version, character(1L)),
+    `Survey Number` = ifelse(series == "Census", "3901", NA_character_),
+    url             = vapply(ents, function(e)
+      .borealis_dataset_url(.borealis_entry_doi(e)), character(1L)))
 }
 
 

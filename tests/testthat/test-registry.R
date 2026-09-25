@@ -34,7 +34,8 @@ test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
                     "bsw_join_key","bsw_drop_cols","bsw_strata","file_mask",
                     "data_encoding","metadata_encoding","data_fixups",
                     "bundled_eng_sps","bundle_source","bundle_sps_mask","doc_mask",
-                    "modules","primary_module","module_key"),
+                    "download_format","modules","primary_module","module_key",
+                    "borealis"),
                ignore.order = TRUE)
 
   expect_equal(e$series,        "SFS")
@@ -150,23 +151,30 @@ test_that("pumf_resolve_version: Census bare year aliases to individuals", {
                "2021 (individuals)")
   expect_equal(canpumf:::pumf_resolve_version("Census", "2016"),
                "2016 (individuals)")
-  expect_equal(canpumf:::pumf_resolve_version("Census", "1971"),
+  # pre-1991: the EFT bundle key when deposited, else Borealis (test-borealis.R)
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1971 eft"),
                "1971/individuals_prov")
+  expect_equal(canpumf:::pumf_resolve_version("Census", "1971",
+                                              withr::local_tempdir()),
+               "1971 (individuals, provincial)")
 })
 
 test_that("pumf_resolve_version: Census flexible type and CMA keywords", {
+  # Resolve against a cache holding the 1971 and 1986 EFT bundles so the EFT
+  # keys win over their Borealis twins.
+  cache <- withr::local_tempdir()
+  for (y in c("1971", "1986")) {
+    dir.create(file.path(cache, "Census", y), recursive = TRUE)
+    file.create(file.path(cache, "Census", y, paste0(y, "PUMF_FMGD.zip")))
+  }
+  rv <- function(v) canpumf:::pumf_resolve_version("Census", v, cache)
   # CMA shorthand forms
-  expect_equal(canpumf:::pumf_resolve_version("Census", "1971/cma"),
-               "1971/individuals_cma")
-  expect_equal(canpumf:::pumf_resolve_version("Census", "1971/households/cma"),
-               "1971/households_cma")
-  expect_equal(canpumf:::pumf_resolve_version("Census", "1971/families/cma"),
-               "1971/families_cma")
+  expect_equal(rv("1971/cma"),            "1971/individuals_cma")
+  expect_equal(rv("1971/households/cma"), "1971/households_cma")
+  expect_equal(rv("1971/families/cma"),   "1971/families_cma")
   # Natural-language flexible forms
-  expect_equal(canpumf:::pumf_resolve_version("Census", "1971 households CMA"),
-               "1971/households_cma")
-  expect_equal(canpumf:::pumf_resolve_version("Census", "1986 families"),
-               "1986/families")
+  expect_equal(rv("1971 households CMA"), "1971/households_cma")
+  expect_equal(rv("1986 families"),       "1986/families")
   expect_equal(canpumf:::pumf_resolve_version("Census", "2001 households"),
                "2001 (households)")
 })

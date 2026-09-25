@@ -81,6 +81,39 @@ test_that(".spss_parse_missing: handles standard single-value and range declarat
   expect_equal(result$missing_low[result$name == "NEGVAL"],  -99)
 })
 
+test_that(".spss_parse_missing: consecutive discrete values become a range", {
+  # Census 1986 families: "HRSWKM ( 998,999 )/" -- both are missing.  A list
+  # with gaps cannot be one range and keeps its first value.
+  result <- canpumf:::.spss_parse_missing(
+    c("HRSWKM ( 998,999 )/", "COWF ( 0,9 )/", "RES66 (8, 7)"))
+  expect_equal(result$missing_low,  c(998, 0, 7))
+  expect_equal(result$missing_high, c(999, 0, 8))
+})
+
+test_that(".spss_parse_missing: gapped reserved-code lists and empty first slot", {
+  # GSS cycles 8 and 10: "( 96,97,99 )" leaves 98 unused, and "(  ,995 THRU
+  # 999 )" leaves the first slot empty.  Both used to lose codes, so 97/99 or
+  # 9996-9998 stayed in numeric columns as real values.
+  result <- canpumf:::.spss_parse_missing(c(
+    "H89  ( 96,97,99 )/", "A11Y  ( 9996,9997,9999 )/",
+    "DVM9  (  ,995 THRU 999 )/", "COWF ( 0,9 )/"))
+  expect_equal(result$missing_low,  c(96, 9996, 995, 0))
+  expect_equal(result$missing_high, c(99, 9999, 999, 0))
+})
+
+test_that(".spss_parse_missing: several declarations per line", {
+  # Census 1971 on Borealis packs three declarations per line; the old
+  # line-anchored parser kept only the first.
+  result <- canpumf:::.spss_parse_missing(c(
+    "  CMACODE (0)              FAMSIZE (0)              HEADED (0)",
+    "  INCWAGES (0)             SELF (0) .",
+    "  A B (99)"))
+  expect_equal(result$name, c("CMACODE", "FAMSIZE", "HEADED", "INCWAGES",
+                              "SELF", "A", "B"))
+  expect_equal(result$missing_low, c(0, 0, 0, 0, 0, 99, 99))
+  expect_equal(result$missing_high, c(0, 0, 0, 0, 0, 99, 99))
+})
+
 test_that("parse_spss_mono: DATA LIST layout extracted from 2021-style file", {
   m <- canpumf:::parse_spss_mono(fx("simple_en.sps"))
 
@@ -91,6 +124,56 @@ test_that("parse_spss_mono: DATA LIST layout extracted from 2021-style file", {
   agegrp <- m$layout[m$layout$name == "AGEGRP", ]
   expect_equal(agegrp$start, 1L)
   expect_equal(agegrp$end,   2L)
+})
+
+test_that(".spss_parse_data_list: padded implied-decimal parens", {
+  # GSS cycles 8-10 and Census 1981 pad the parentheses: "( 4  )".  The
+  # read-side decimals land in layout$decimals; fields without one are NA.
+  lines <- c("DATA LIST FILE=x", "  RECID 1-5  WGHTFNL 6 - 14 ( 4  )",
+             "  FAMWGT 15-20 (2)  SEX 21", ".")
+  lay <- canpumf:::.spss_parse_data_list(lines, 1L)
+  expect_equal(lay$name, c("RECID", "WGHTFNL", "FAMWGT", "SEX"))
+  expect_equal(lay$decimals, c(NA, 4L, 2L, NA))
+})
+
+test_that("parse_spss_mono: CR-CR-LF line endings and label words on inline headers", {
+  # Borealis' copy of the 1976 Census household file ends every line with
+  # "\r\r\n" and has no section terminators; labels such as
+  # '1 FMLY 2 PARENTS NO OTHERS' must not turn FMLY/PARENTS/NO into variables.
+  sps <- c("DATA LIST FILE=IN RECORDS=1/",
+           "    HHTYPE  1 - 2",
+           "    TENURE  3 - 3",
+           "    HHSTAT  4 - 5",
+           "VARIABLE LABELS",
+           "  HHTYPE  'TYPE OF PRIVATE HOUSEHOLD'",
+           "  TENURE  'TENURE'",
+           "  HHSTAT  'HOUSEHOLD STATUS'",
+           "VALUE LABELS",
+           "    HHTYPE   1  '1 FMLY 2 PARENTS NO OTHERS'",
+           "          2  '1 FMLY 1 PARENT+OTHERS'",
+           "         /",
+           "    TENURE   1  'OWNED'",
+           "          2  'RENTED'",
+           "         /",
+           "    HHSTAT   2  'Person 1''s spouse'",
+           "          3  'Person 1''s son or daughter'",
+           "         /",
+           "MISSING VALUES  TENURE  ( 9 )/")
+  f <- tempfile(fileext = ".sps")
+  on.exit(unlink(f))
+  writeBin(charToRaw(paste0(paste(sps, collapse = "\r\r\n"), "\r\r\n")), f)
+
+  m <- canpumf:::parse_spss_mono(f)
+  expect_setequal(unique(m$codes$name), c("HHTYPE", "TENURE", "HHSTAT"))
+  # SPSS doubled apostrophe inside a single-quoted label
+  expect_equal(m$codes$label_en[m$codes$name == "HHSTAT"],
+               c("Person 1's spouse", "Person 1's son or daughter"))
+  expect_equal(m$codes$label_en[m$codes$name == "HHTYPE"],
+               c("1 FMLY 2 PARENTS NO OTHERS", "1 FMLY 1 PARENT+OTHERS"))
+  expect_equal(m$codes$label_en[m$codes$name == "TENURE"], c("OWNED", "RENTED"))
+  expect_equal(m$variables$label_en[m$variables$name == "HHTYPE"],
+               "TYPE OF PRIVATE HOUSEHOLD")
+  expect_equal(m$layout$name, c("HHTYPE", "TENURE", "HHSTAT"))
 })
 
 test_that("parse_spss_mono: label_fr = NA when no French file", {
@@ -133,6 +216,28 @@ test_that("parse_spss_mono: code absent in French codes gets NA label_fr", {
   expect_equal(wage_fr, "Revenu d emploi total")
 })
 
+# ---- String continuations --------------------------------------------------
+
+# A dropped continuation tail leaves a label cut mid-word, which is exactly the
+# shape of the upstream truncation the PDF cross-check exists to repair -- so a
+# label the command file states in full would be "repaired" from a guide.
+test_that("parse_spss_mono: string continuations joined in every quote/break form", {
+  m   <- canpumf:::parse_spss_mono(fx("continuations.sps"))
+  lab <- function(v) m$variables$label_en[m$variables$name == v]
+
+  expect_equal(lab("V1"), "Single quoted, broken across lines")
+  expect_equal(lab("V2"), "Double quoted, broken across lines")
+  expect_equal(lab("V3"), "Double quoted, joined inline")
+  # Mixed delimiters: the double-quoted fragment carries an apostrophe, so a
+  # shared character class would cut it at the interior quote.
+  expect_equal(lab("V4"), "Mixed delimiters, ending in d'equivalence")
+  # A chain folds one join at a time.
+  expect_equal(lab("V5"), "Three fragments chained")
+
+  v1 <- m$codes[m$codes$name == "V1", ]
+  expect_equal(v1$label_en[v1$val == "1"], "Code label, continued")
+})
+
 # ---- Synthetic 2016-style fixture (double quotes, / on own line) -----------
 
 test_that("parse_spss_mono: 2016-style VALUE LABELS (/ on own line) parsed correctly", {
@@ -155,7 +260,7 @@ test_that("parse_spss_mono: canonical schema returned", {
 
   expect_named(m$variables, c("name","label_en","label_fr","type","decimals","missing_low","missing_high"))
   expect_named(m$codes,     c("name","val","label_en","label_fr"))
-  expect_named(m$layout,    c("name","start","end"))
+  expect_named(m$layout,    c("name","start","end","decimals"))
 })
 
 # ---- Real Census 2016 data (skip if not available) -------------------------

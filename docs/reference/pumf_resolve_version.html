@@ -4,13 +4,13 @@ Any string starting with a four-digit year is parsed flexibly: the file
 type is detected by grepping for "hierarchical", "household", or "famil"
 (defaulting to "individuals"), and CMA vs provincial by grepping for "cma".
 The registry is then probed to find the correct canonical format for that
-year (e.g. `"1971/households_cma"`, `"1986/households"`, or
+year (e.g. `"1971 (households, CMA)"`, `"1986 (families)"`, or
 `"2001 (households)"`).'><meta property="og:description" content='Canonicalises user-supplied version strings for Census of Population.
 Any string starting with a four-digit year is parsed flexibly: the file
 type is detected by grepping for "hierarchical", "household", or "famil"
 (defaulting to "individuals"), and CMA vs provincial by grepping for "cma".
 The registry is then probed to find the correct canonical format for that
-year (e.g. `"1971/households_cma"`, `"1986/households"`, or
+year (e.g. `"1971 (households, CMA)"`, `"1986 (families)"`, or
 `"2001 (households)"`).'><meta property="og:image" content="https://mountainmath.github.io/canpumf/logo.png"></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
@@ -19,7 +19,7 @@ year (e.g. `"1971/households_cma"`, `"1986/households"`, or
 
     <a class="navbar-brand me-2" href="../index.html">canpumf</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.6.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -60,13 +60,17 @@ Any string starting with a four-digit year is parsed flexibly: the file
 type is detected by grepping for "hierarchical", "household", or "famil"
 (defaulting to "individuals"), and CMA vs provincial by grepping for "cma".
 The registry is then probed to find the correct canonical format for that
-year (e.g. `"1971/households_cma"`, `"1986/households"`, or
+year (e.g. `"1971 (households, CMA)"`, `"1986 (families)"`, or
 `"2001 (households)"`).</p>
     </div>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">pumf_resolve_version</span><span class="op">(</span><span class="va">series</span>, <span class="va">version</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">pumf_resolve_version</span><span class="op">(</span></span>
+<span>  <span class="va">series</span>,</span>
+<span>  <span class="va">version</span>,</span>
+<span>  cache_path <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"canpumf.cache_path"</span>, <span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -80,6 +84,10 @@ year (e.g. `"1971/households_cma"`, `"1986/households"`, or
 <dt id="arg-version">version<a class="anchor" aria-label="anchor" href="#arg-version"></a></dt>
 <dd><p>raw version string supplied by the caller, or `NULL`</p></dd>
 
+
+<dt id="arg-cache-path">cache_path<a class="anchor" aria-label="anchor" href="#arg-cache-path"></a></dt>
+<dd><p>cache root, used to detect a deposited EFT bundle</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -87,12 +95,19 @@ year (e.g. `"1971/households_cma"`, `"1986/households"`, or
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>Examples of accepted inputs (case-insensitive keywords):
+    <p>The 1971–1986 vintages exist twice: as StatCan EFT bundles that must be
+deposited by hand (`"1971/individuals_cma"`, `"1986/families"`, ...) and as
+Borealis downloads (`"1971 (individuals, CMA)"`, `"1986 (families)"`, ...).
+A loose request resolves to the EFT key when that year's bundle is present
+in `cache_path`, and to the Borealis key otherwise. Adding `"EFT"` or
+`"Borealis"` to the version string picks one explicitly, and an exact
+registry key is always returned unchanged.</p>
+<p>Examples of accepted inputs (case-insensitive keywords):
 - `"2021"` -&gt; `"2021 (individuals)"`
-- `"1971"` -&gt; `"1971/individuals_prov"`
-- `"1971 CMA"` -&gt; `"1971/individuals_cma"`
-- `"1971 households CMA"` -&gt; `"1971/households_cma"`
-- `"1986 families"` -&gt; `"1986/families"`</p>
+- `"1971"` -&gt; `"1971 (individuals, provincial)"` (or `"1971/individuals_prov"`
+  with the EFT bundle deposited)
+- `"1971 households CMA"` -&gt; `"1971 (households, CMA)"`
+- `"1986 families EFT"` -&gt; `"1986/families"`</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

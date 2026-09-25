@@ -301,3 +301,45 @@ test_that("pumf_parse_metadata: errors when no formats detected", {
   tmp <- withr::local_tempdir()
   expect_error(canpumf:::pumf_parse_metadata(tmp), "No parseable metadata files")
 })
+
+
+# ---- Double-encoded UTF-8 repair ---------------------------------------------
+
+test_that(".fix_mojibake undoes UTF-8 read as CP1252 and re-encoded", {
+  fix <- canpumf:::.fix_mojibake
+  # Census 2021 individuals English .sps: en-dash shipped as "â€“"
+  expect_equal(fix("School attendance â€“ Detailed"),
+               "School attendance – Detailed")
+  expect_equal(fix("cafÃ©"), "café")
+  expect_equal(fix("lâ€™âge"), "l’âge")
+})
+
+test_that(".fix_mojibake leaves genuine accents and mixed text alone", {
+  fix <- canpumf:::.fix_mojibake
+  genuine <- c("Âge", "École à café", "Ã", "plain", NA)
+  expect_identical(fix(genuine), genuine)
+  # A damaged run next to a genuine accent: only the run is repaired.
+  expect_equal(fix("cafÃ© été"), "café été")
+})
+
+test_that(".fix_metadata_mojibake repairs variable and code labels", {
+  meta <- list(
+    variables = make_vars("A", label_en = "x â€“ y",
+                          label_fr = "Âge"),
+    codes     = make_codes("A", "1", label_en = "cafÃ©"),
+    layout    = NULL)
+  out <- canpumf:::.fix_metadata_mojibake(meta)
+  expect_equal(out$variables$label_en, "x – y")
+  expect_equal(out$variables$label_fr, "Âge")
+  expect_equal(out$codes$label_en, "café")
+})
+
+test_that(".fix_label_escapes decodes HTML entities and doubled apostrophes", {
+  fix <- canpumf:::.fix_label_escapes
+  expect_equal(fix(c("Yukon &amp; Northwest Territories", "No chldrn &lt;15, some &gt;14",
+                     "Person 1''s spouse", "Plain", NA)),
+               c("Yukon & Northwest Territories", "No chldrn <15, some >14",
+                 "Person 1's spouse", "Plain", NA))
+  # "&amp;lt;" is decoded once, not twice
+  expect_equal(fix("&amp;lt;"), "&lt;")
+})

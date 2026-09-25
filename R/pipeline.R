@@ -9,15 +9,16 @@
 
 # Compute the expected DuckDB file path for a survey version.
 .pumf_db_path <- function(series, version, cache_path) {
-  if (series == "LFS")
-    return(file.path(cache_path, "LFS", "LFS.duckdb"))
+  if (.is_longitudinal(series))
+    return(.long_db_path(.pumf_longitudinal_spec(series), cache_path))
   db_file <- paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
   file.path(cache_path, series, version, db_file)
 }
 
 # Compute the DuckDB table name for a given series / version / lang.
 .pumf_table_name <- function(series, version, lang, module = NULL) {
-  if (series == "LFS") return(paste0("lfs_", lang))
+  if (.is_longitudinal(series))
+    return(.long_table_name(.pumf_longitudinal_spec(series), lang))
   reg <- pumf_registry_lookup(series, version)
   lm  <- reg$layout_mask
   if (!is.null(module)) {
@@ -218,8 +219,13 @@ pumf_locate_or_download <- function(series,
         )
         src_url <- if (nrow(src_row) > 0L) src_row$url[[1L]] else "(EFT)"
         if (identical(src_url, "(EFT)")) {
+          alt <- .pumf_borealis_alternative(series, version)
           stop(series, " ", version, " is part of a bundled EFT archive.\n",
-               "Deposit the bundle zip in:\n  ", source_dir, call. = FALSE)
+               "Deposit the bundle zip in:\n  ", source_dir,
+               if (!is.null(alt))
+                 paste0("\nOr load the Borealis copy instead: get_pumf(\"",
+                        series, "\", \"", alt, "\")"),
+               call. = FALSE)
         }
         dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
         bzip <- file.path(source_dir, .zip_filename_from_url(src_url))
@@ -239,6 +245,24 @@ pumf_locate_or_download <- function(series,
     return(invisible(version_dir))
   }
   # ---- End bundled-archive branch --------------------------------------------
+
+  # Borealis source.  An explicit get_pumf(borealis =) request always uses it;
+  # a registry DOI is only the fallback when StatCan has no download.  A
+  # directory previously filled from Borealis keeps that source on redownload
+  # (the manifest DOI is read before the wipe).
+  bor          <- reg$borealis
+  if (is.character(bor)) bor <- list(doi = bor)
+  bor_explicit <- isTRUE(bor$explicit)
+  prior_doi    <- .borealis_manifest_doi(version_dir)
+  if (bor_explicit && !redownload && .version_is_extracted(version_dir) &&
+      !identical(prior_doi, .borealis_normalize_doi(bor$doi)))
+    stop(series, " ", version, " is already cached from ",
+         if (is.null(prior_doi)) "Statistics Canada" else prior_doi,
+         " in\n  ", version_dir, "\n",
+         "Pass redownload = TRUE to replace it with ", bor$doi,
+         ", or load the Borealis dataset under a different version name.",
+         call. = FALSE)
+  bor_doi <- if (bor_explicit) bor$doi else prior_doi
 
   # Step 2a: redownload — wipe the entire version directory (zip, extracted
   # content, DuckDB, metadata) so the download/extract cycle starts fresh.
@@ -275,28 +299,44 @@ pumf_locate_or_download <- function(series,
   if (is.null(zip_path) && !is_extracted) {
     # Resolve the download URL: scraped catalogue first for series the crawler
     # covers, otherwise the curated collection (see .pumf_resolve_collection_row).
-    row <- .pumf_resolve_collection_row(series, version)
-    if (nrow(row) == 0L) {
-      stop(series, " version '", version, "' was not found in the canpumf ",
-           "collection. Check available versions with list_canpumf_collection().")
+    # StatCan wins over a registry Borealis DOI; Borealis fills in when StatCan
+    # has no public download (no row, or an EFT-only vintage).
+    url <- NULL
+    if (is.null(bor_doi)) {
+      row <- .pumf_resolve_collection_row(series, version)
+      url <- if (nrow(row) > 0L) row$url[[1L]] else NULL
+      if (!is.null(url) && startsWith(url, BOREALIS_SERVER)) url <- "(EFT)"
+      if (is.null(url) || identical(url, "(EFT)")) {
+        bor_doi <- bor$doi
+        if (is.null(bor_doi) && is.null(url))
+          stop(series, " version '", version, "' was not found in the canpumf ",
+               "collection. Check available versions with ",
+               "list_canpumf_collection(), or load a Borealis copy with ",
+               "get_pumf(..., borealis = <doi>) (see ",
+               "list_borealis_pumf_catalogue()).")
+        if (is.null(bor_doi))
+          stop(series, " ", version, " is distributed via Statistics Canada's ",
+               "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",
+               "Download the zip file manually from the Statistics Canada EFT portal ",
+               "and place it in:\n  ", version_dir)
+      }
     }
-    url <- row$url[[1L]]
-    if (identical(url, "(EFT)")) {
-      stop(series, " ", version, " is distributed via Statistics Canada's ",
-           "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",
-           "Download the zip file manually from the Statistics Canada EFT portal ",
-           "and place it in:\n  ", version_dir)
+    if (!is.null(bor_doi)) {
+      if (bor_explicit) .borealis_warn_statcan_available(bor_doi)
+      .borealis_download_dataset(bor_doi, version_dir, files = bor$files)
+      is_extracted <- TRUE
+    } else {
+      dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
+      zip_name <- .zip_filename_from_url(url)
+      zip_path  <- file.path(version_dir, zip_name)
+      .pumf_warn_cache_path_on_download()
+      message("Downloading ", series, " ", version, " ...")
+      old_timeout <- getOption("timeout")
+      options(timeout = max(600L, old_timeout))
+      on.exit(options(timeout = old_timeout), add = TRUE)
+      .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
+      is_extracted <- FALSE  # need extraction after download
     }
-    dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
-    zip_name <- .zip_filename_from_url(url)
-    zip_path  <- file.path(version_dir, zip_name)
-    .pumf_warn_cache_path_on_download()
-    message("Downloading ", series, " ", version, " ...")
-    old_timeout <- getOption("timeout")
-    options(timeout = max(600L, old_timeout))
-    on.exit(options(timeout = old_timeout), add = TRUE)
-    .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
-    is_extracted <- FALSE  # need extraction after download
   }
 
   # Step 4: extract zip when not yet done.
@@ -359,6 +399,8 @@ pumf_locate_or_download <- function(series,
     "\\.csv$"
   else if (!is.null(file_mask) && grepl("\\.(txt|dat)$", file_mask, ignore.case = TRUE))
     "\\.(txt|dat)$"
+  else if (!is.null(file_mask) && grepl("\\.sas7bdat$", file_mask, ignore.case = TRUE))
+    "\\.sas7bdat$"
   else if (!is.null(file_mask))
     NULL  # unusual extension — search all files, let file_mask select
   else if (prefer_fwf)
@@ -412,6 +454,42 @@ pumf_locate_or_download <- function(series,
   }
 
   candidates[[1L]]
+}
+
+
+# Read a SAS dataset (.sas7bdat) as the survey's data file.
+#
+# StatCan PUMF archives normally ship a flat file plus command files; a few
+# older releases ship the SAS dataset instead (PALS 2001).  Those datasets
+# carry no embedded labels -- SAS keeps value labels in a separate format
+# catalogue that is not distributed -- so all labelling still comes from the
+# command file, exactly as for the flat-file path.
+#
+# SAS character columns already hold the raw codes verbatim (zero-padding
+# intact), and numeric columns arrive native -- .apply_numeric_conversion()
+# skips non-character columns, so they pass through unharmed.  Coded numeric
+# columns are rendered back to code strings later, once any column renames have
+# run (see .coerce_coded_to_character).
+.read_sas_data <- function(data_path) {
+  data <- haven::read_sas(data_path)
+  names(data) <- toupper(names(data))
+  # haven returns labelled/ISO-date classes for some columns; drop the
+  # attributes so downstream type checks see a plain vector.
+  for (col in names(data)) {
+    v <- data[[col]]
+    data[[col]] <- if (is.character(v)) as.character(v) else haven::zap_labels(v)
+  }
+  data
+}
+
+
+# Render numeric columns that carry value labels back to their code strings so
+# .apply_code_labels() (which only touches character columns) can match them.
+# A no-op on the FWF and CSV paths, where every column is already character.
+.coerce_coded_to_character <- function(data, codes) {
+  for (col in intersect(names(data), unique(codes$name)))
+    if (!is.character(data[[col]])) data[[col]] <- .code_chr(data[[col]])
+  data
 }
 
 
@@ -501,6 +579,34 @@ pumf_locate_or_download <- function(series,
       }
     }
   }
+  # Second fallback: the BSW card lives outside the SPSS cards directory and is
+  # not named "layout*" -- e.g. CHSS ships Layout_Cards/bsw_i.sas next to the
+  # per-survey SPSS/ and SAS/ subdirectories.  Search the whole version directory
+  # for a command file whose basename matches bsw_mask.  SAS INPUT cards come
+  # first: their @pos specs are unambiguous, whereas the companion .sps sometimes
+  # states only the first field's columns and leaves the rest implicit.
+  if ((is.null(bsw_parsed) || is.null(bsw_parsed$layout)) &&
+      !is.null(reg$bsw_mask)) {
+    cards <- all_files[grepl(reg$bsw_mask, basename(all_files), ignore.case = TRUE) &
+                         grepl("\\.(sas|sps)$", all_files, ignore.case = TRUE)]
+    cards <- cards[order(!grepl("\\.sas$", cards, ignore.case = TRUE))]
+    for (cf in cards) {
+      lr <- tryCatch(.spss_split_parse_layout(cf, data_encoding),
+                     error = function(e) NULL)
+      if (!is.null(lr) && !is.null(lr$layout) && nrow(lr$layout) > 0L) {
+        lr$layout$name <- toupper(lr$layout$name)
+        vars_df <- lr$formats
+        vars_df$name         <- toupper(vars_df$name)
+        vars_df$type         <- ifelse(vars_df$fmt_type == "A", "character", "numeric")
+        vars_df$missing_low  <- NA_real_
+        vars_df$missing_high <- NA_real_
+        bsw_parsed <- list(layout    = lr$layout,
+                           variables = vars_df[, c("name", "type", "decimals",
+                                                    "missing_low", "missing_high")])
+        break
+      }
+    }
+  }
   if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
     warning("Could not determine BSW column layout for mask '", reg$bsw_mask,
             "'; bootstrap weights will not be joined.")
@@ -521,7 +627,10 @@ pumf_locate_or_download <- function(series,
                else character(0L)
   bsw_vars  <- bsw_parsed$variables[
     !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
-  bsw <- .apply_numeric_conversion(bsw, bsw_vars)
+  # Fixed-width BSW files store weights with the decimal point *implied* by the
+  # card's w.d informat, so the scale correction has to happen inside the numeric
+  # conversion (before the missing-value range, which is stated in display units).
+  bsw <- .apply_numeric_conversion(bsw, bsw_vars, implied_decimals = TRUE)
   for (col in setdiff(names(bsw)[vapply(bsw, is.character, logical(1L))], join_cols))
     bsw[[col]] <- suppressWarnings(as.numeric(bsw[[col]]))
   bsw
@@ -534,7 +643,7 @@ pumf_locate_or_download <- function(series,
 #   force_numeric — character vector of column names to treat as numeric
 #                   even if they have non-sentinel VALUE LABELS (top-coded
 #                   boundary labels like "85 years and over")
-.apply_data_fixups <- function(data, fixups) {
+.apply_data_fixups <- function(data, fixups, known_vars = character(0L)) {
   for (spec in fixups$str_pad) {
     for (col in spec$cols) {
       if (col %in% names(data))
@@ -542,12 +651,36 @@ pumf_locate_or_download <- function(series,
                                          side = spec$side, pad = spec$pad)
     }
   }
-  if (length(fixups$rename) > 0L) {
-    old <- names(fixups$rename)
-    new <- unname(fixups$rename)
+  # [["rename"]], not $rename: `$` partial-matches, so an entry that declares
+  # only rename_regex would otherwise have its patterns applied here as literal
+  # column names.
+  if (length(fixups[["rename"]]) > 0L) {
+    old <- names(fixups[["rename"]])
+    new <- unname(fixups[["rename"]])
     for (i in seq_along(old))
       if (old[[i]] %in% names(data))
         names(data)[names(data) == old[[i]]] <- new[[i]]
+  }
+  # rename_regex: c(pattern = replacement) rewriting *many* column names at
+  # once, for releases whose data file decorates the documented variable names
+  # (e.g. the PALS 2001 SAS dataset prefixes 632 of its 758 columns with "A",
+  # while the command file and the User Guide both use the bare names).  Listing
+  # those one by one in `rename` would be unreadable and unreviewable.
+  #
+  # A rewrite is only applied when it lands on a name the metadata actually
+  # declares and the column's current name is not itself declared -- so a
+  # pattern can never rename a legitimately-named column onto another one, and
+  # a stale pattern silently does nothing rather than corrupting the table.
+  if (length(fixups$rename_regex) > 0L && length(known_vars) > 0L) {
+    for (pat in names(fixups$rename_regex)) {
+      repl      <- fixups$rename_regex[[pat]]
+      candidate <- sub(pat, repl, names(data))
+      apply_it  <- candidate != names(data) &
+                   candidate %in% known_vars &
+                   !(names(data) %in% known_vars) &
+                   !(candidate %in% names(data))
+      names(data)[apply_it] <- candidate[apply_it]
+    }
   }
   if (length(fixups$cols_swap) > 0L) {
     for (v1 in names(fixups$cols_swap)) {
@@ -574,7 +707,11 @@ pumf_locate_or_download <- function(series,
 # NA).  Callers that genuinely need an integer column (e.g. LFS
 # SURVYEAR/SURVMNTH for make_date) cast explicitly.
 # na_values: character vector of raw values that become NA (e.g. c("99999999", "88888888")).
-.apply_numeric_conversion <- function(data, variables, na_values = character(0L)) {
+# missing_codes: named list VAR -> numeric codes that become NA in that column
+#   only, for variables whose sentinels do not form one contiguous range.
+.apply_numeric_conversion <- function(data, variables, na_values = character(0L),
+                                      implied_decimals = FALSE,
+                                      missing_codes = list()) {
   num_vars <- variables[variables$type == "numeric", ]
   for (i in seq_len(nrow(num_vars))) {
     v   <- num_vars[i, ]
@@ -583,15 +720,68 @@ pumf_locate_or_download <- function(series,
 
     raw  <- data[[col]]
     vals <- suppressWarnings(as.numeric(raw))
+    # A SAS `w.d` informat (SPSS `(Fw.d)`) means the field is d digits narrower
+    # than it looks: "   8269" read with 7.2 is 82.69.  Values that already carry
+    # an explicit "." are taken at face value, per the informat's own rule.
+    # Callers enable it only for fixed-width data, passing read-side decimals.
+    if (implied_decimals && !is.na(v$decimals) && v$decimals > 0L) {
+      plain <- !is.na(vals) & !grepl(".", raw, fixed = TRUE)
+      vals[plain] <- vals[plain] / 10^v$decimals
+    }
     if (!is.na(v$missing_low) && !is.na(v$missing_high))
       vals[!is.na(vals) & vals >= v$missing_low & vals <= v$missing_high] <-
         NA_real_
     if (length(na_values) > 0L)
       vals[trimws(raw) %in% na_values] <- NA_real_
+    mc <- missing_codes[[col]]
+    # Rounded, so a code written as 999.7 matches 9997 read with 1 implied
+    # decimal whatever the floating-point route.
+    if (length(mc) > 0L)
+      vals[!is.na(vals) & round(vals, 8) %in% round(as.numeric(mc), 8)] <-
+        NA_real_
 
     data[[col]] <- vals
   }
   data
+}
+
+
+# Of `vars`, those whose every non-empty data value is a labelled code.
+# Values compare numerically ("01" == "1"), and a fixed-width field's value
+# also as read with its layout's implied decimals.  A variable absent from the
+# data or without codes is never returned.
+.fully_labelled_vars <- function(data, codes, vars, na_values = character(0L),
+                                 decimals = NULL) {
+  out <- character(0L)
+  for (v in intersect(vars, intersect(names(data), unique(codes$name)))) {
+    lab <- codes[codes$name == v & !(is.na(codes$label_en) & is.na(codes$label_fr)), ]
+    raw <- trimws(as.character(data[[v]]))
+    raw <- unique(raw[!is.na(raw) & nzchar(raw) & !raw %in% na_values])
+    if (length(raw) == 0L || nrow(lab) == 0L) next
+    if (all(raw %in% trimws(lab$val))) { out <- c(out, v); next }
+    cv <- suppressWarnings(as.numeric(lab$val))
+    rv <- suppressWarnings(as.numeric(raw))
+    if (anyNA(rv)) next
+    dec <- if (!is.null(decimals) && "decimals" %in% names(decimals))
+      decimals$decimals[match(v, decimals$name)] else NA
+    hit <- round(rv, 8) %in% round(cv, 8)
+    if (!is.na(dec) && dec > 0L)
+      hit <- hit | round(rv / 10^dec, 8) %in% round(cv, 8)
+    if (all(hit)) out <- c(out, v)
+  }
+  out
+}
+
+# Numeric code values labelled as true missing (English or French label), per
+# variable.  Returns a named list of numeric vectors.
+.label_missing_codes <- function(codes) {
+  if (is.null(codes) || nrow(codes) == 0L) return(list())
+  is_miss <- function(l) !is.na(l) & grepl(.missing_prefix_pat, trimws(l), perl = TRUE)
+  hit  <- is_miss(codes$label_en) | is_miss(codes$label_fr)
+  vals <- suppressWarnings(as.numeric(codes$val))
+  keep <- hit & !is.na(vals)
+  if (!any(keep)) return(list())
+  lapply(split(vals[keep], codes$name[keep]), unique)
 }
 
 
@@ -754,14 +944,12 @@ pumf_build_duckdb <- function(version_dir,
   result     <- list(db_path = db_path, table_name = table_name)
 
   # Step 3: skip if the table is already built.
-  # Open a temporary connection just for the existence check, then close it so
-  # no lock is held when we return.
-  if (!refresh && file.exists(db_path)) {
-    con_chk <- .duckdb_connect_quiet(db_path, read_only = TRUE)
-    exists  <- DBI::dbExistsTable(con_chk, table_name)
-    DBI::dbDisconnect(con_chk, shutdown = TRUE)
-    if (exists) return(invisible(result))
-  }
+  # .duckdb_table_exists probes with a read-only connection and
+  # shutdown = FALSE, so a tbl the user already holds on this file (e.g. the
+  # eng table while the fra build is requested) shares the in-process instance
+  # undisturbed, and a pure cache hit never touches a write lock.
+  if (!refresh && .duckdb_table_exists(db_path, table_name))
+    return(invisible(result))
 
   # Step 4: read canonical metadata (a per-module subdir for secondary modules)
   meta_dir <- if (is.null(meta_subdir)) file.path(version_dir, "metadata")
@@ -831,7 +1019,11 @@ pumf_build_duckdb <- function(version_dir,
 
   # Step 5: read data file
   data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
-  eff_mask <- if (!is.null(file_mask)) file_mask else reg$file_mask
+  # A Borealis download records its data file in the manifest; ODESI datasets
+  # also carry fixed-width copies and text codebooks that could be mistaken
+  # for it.
+  eff_mask <- file_mask %||% reg$file_mask %||%
+    .borealis_manifest_file_mask(version_dir)
 
   # For bundled-archive versions (version contains "/"), raw data and BSW files
   # live in dirname(version_dir); metadata CSVs and DuckDB stay in version_dir.
@@ -842,14 +1034,22 @@ pumf_build_duckdb <- function(version_dir,
     version_dir
 
   data_path <- .find_pumf_data_file(source_dir, eff_mask, prefer_fwf = !is.null(layout))
+  # A few releases ship no flat file at all, only the SAS dataset the flat file
+  # was built from (e.g. PALS 2001, whose SAS command file even names a
+  # pals2001dat.txt that is not in the archive).  Read those with haven; the
+  # layout is irrelevant since the columns are already delimited.
+  is_sas    <- grepl("\\.sas7bdat$", data_path, ignore.case = TRUE)
   # FWF only when layout exists AND the actual data file is not CSV.
   # Some surveys (e.g. CHS) ship both a CSV and a TXT file; the SPSS DATA LIST
   # section creates a layout.csv, but data must be read from the CSV.
-  is_fwf    <- !is.null(layout) && !grepl("\\.csv$", data_path, ignore.case = TRUE)
-  message("Reading ", if (is_fwf) "fixed-width" else "CSV",
+  is_fwf    <- !is_sas && !is.null(layout) &&
+               !grepl("\\.csv$", data_path, ignore.case = TRUE)
+  message("Reading ", if (is_sas) "SAS" else if (is_fwf) "fixed-width" else "CSV",
           " data from ", basename(data_path), " ...")
 
-  if (is_fwf) {
+  if (is_sas) {
+    data <- .read_sas_data(data_path)
+  } else if (is_fwf) {
     data <- readr::read_fwf(
       data_path,
       col_positions  = readr::fwf_positions(layout$start, layout$end,
@@ -881,7 +1081,12 @@ pumf_build_duckdb <- function(version_dir,
 
   # Apply pre-label data fixups (str_pad, column renames) from registry
   if (!is.null(reg) && length(reg$data_fixups) > 0L)
-    data <- .apply_data_fixups(data, reg$data_fixups)
+    data <- .apply_data_fixups(data, reg$data_fixups,
+                               known_vars = variables$name)
+
+  # Runs after the fixups so a renamed column is matched under the name the
+  # metadata declares, not the one the source file happened to use.
+  if (is_sas) data <- .coerce_coded_to_character(data, codes)
 
   # Step 6: BSW join
   if (!is.null(reg) && !is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key)) {
@@ -922,6 +1127,12 @@ pumf_build_duckdb <- function(version_dir,
       codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
     }
   }
+  # Labelled missing codes, captured before the force_* blocks drop codes: each
+  # numeric code value whose English or French label is a true-missing label
+  # (qualified forms included).  They become discrete missing codes for every
+  # variable that is still numeric after promotion below.
+  label_miss <- .label_missing_codes(codes)
+
   # force_numeric: override type to "numeric" for variables that carry
   # top-coded boundary labels (e.g. "85 years and over") alongside unlabeled
   # data values, preventing the character-type path from NAs-ing valid data.
@@ -931,8 +1142,17 @@ pumf_build_duckdb <- function(version_dir,
   # polluting the continuous data (e.g. GSS 2012 declares no MISSING VALUES,
   # so ages would otherwise contain 998/999).  An existing missing range
   # (from MISSING VALUES or a split-SPSS miss file) takes precedence.
+  #
+  # Labels win: a forced variable whose every non-missing data value has a
+  # label is a category, so the override is ignored for it.  Only unlabelled
+  # values justify numeric.  GSS Cycle 17 once forced 236 fully labelled
+  # variables (SEX, PRV, …) and Cycle 12 its DDAY (Sunday-Saturday), and the
+  # 1971 Census SUBSAMPL is labelled ONE-FIVE except in the household files.
   if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
-    fn <- reg$data_fixups$force_numeric
+    fn <- setdiff(reg$data_fixups$force_numeric,
+                  .fully_labelled_vars(data, codes, reg$data_fixups$force_numeric,
+                                       na_values = na_vals,
+                                       decimals  = if (is_fwf) layout else NULL))
     variables$type[variables$name %in% fn] <- "numeric"
     for (v in intersect(fn, unique(codes$name))) {
       i <- which(variables$name == v)
@@ -970,6 +1190,20 @@ pumf_build_duckdb <- function(version_dir,
     }
   }
 
+  # missing_codes: discrete per-variable missing codes, for variables whose
+  # sentinels sit on both sides of the valid data (PALS 2006 AUDE_Q02 declares
+  # -5/-6/-7 and 998/999 around hours worked 1-97, so the [-7, 999] range a
+  # single min/max pair yields would NA the whole column).  The discrete set
+  # replaces any range derived or parsed for the variable.
+  miss_codes <- if (is.null(reg)) list() else reg$data_fixups$missing_codes %||% list()
+  for (v in names(miss_codes)) {
+    i <- which(variables$name == v)
+    if (length(i) == 1L) {
+      variables$missing_low[i]  <- NA_real_
+      variables$missing_high[i] <- NA_real_
+    }
+  }
+
   # Promote numeric → character for variables that have non-sentinel codes
   # (e.g. binary indicators 0=Yes/1=No from a PDF dictionary where the data
   # format file did not use an (A) annotation). Mirrors the inverse of
@@ -987,7 +1221,29 @@ pumf_build_duckdb <- function(version_dir,
       variables$type[variables$name %in% promote_to_char] <- "character"
   }
 
-  data <- .apply_numeric_conversion(data, variables, na_values = na_vals)
+  # Labelled non-response codes of numeric variables become NA even when
+  # MISSING VALUES does not declare them (GSS Cycle 21 AGE_DIV_MA1 999.7 "Not
+  # asked", Cycle 8 D11 996 "NOT APPLICABLE(DOES NOT DRIVE)").  Discrete codes,
+  # not a range, since a span over the sentinels could cover valid values (the
+  # Cycle 21 HLTH_UTIL_INDEX has 7/9 "Not asked"/"Don't know" and a -0.3 to 1
+  # scale, and PALS 2006 AUDE_Q02 has sentinels on both sides of its data).
+  # They add to any parsed or derived range.
+  for (v in intersect(names(label_miss),
+                      variables$name[variables$type == "numeric"]))
+    miss_codes[[v]] <- union(as.numeric(miss_codes[[v]]), label_miss[[v]])
+
+  # A fixed-width field declared with implied decimals (DATA LIST "( 4 )", SAS
+  # w.d) is divided on read, as SPSS/SAS would.  Only the layout's read-side
+  # decimals count: variables$decimals also takes display FORMATS, which do not
+  # change the stored value.  GSS cycles 8-9 weights were 10^4 too large before.
+  conv_vars <- variables
+  if (is_fwf) {
+    lay_dec <- if ("decimals" %in% names(layout)) layout$decimals else NA_integer_
+    conv_vars$decimals <- lay_dec[match(variables$name, layout$name)]
+  }
+  data <- .apply_numeric_conversion(data, conv_vars, na_values = na_vals,
+                                    implied_decimals = is_fwf,
+                                    missing_codes = miss_codes)
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
 
   # Step 9: write to DuckDB
@@ -1137,7 +1393,8 @@ pumf_run_pipeline <- function(series,
     pumf_parse_metadata(version_dir,
                          layout_mask       = reg$layout_mask,
                          metadata_encoding = reg$metadata_encoding,
-                         refresh           = eff_refresh)
+                         refresh           = eff_refresh,
+                         file_mask         = reg$file_mask)
     result <- pumf_build_duckdb(version_dir, series, version,
                                  lang        = lang,
                                  layout_mask = reg$layout_mask,
@@ -1149,7 +1406,8 @@ pumf_run_pipeline <- function(series,
                            layout_mask       = m$layout_mask,
                            metadata_encoding = reg$metadata_encoding,
                            refresh           = eff_refresh,
-                           meta_subdir       = m$meta_subdir)
+                           meta_subdir       = m$meta_subdir,
+                           file_mask         = m$file_mask)
       r <- pumf_build_duckdb(version_dir, series, version,
                               lang         = lang,
                               layout_mask  = m$layout_mask,

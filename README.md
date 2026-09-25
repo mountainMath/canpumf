@@ -42,6 +42,18 @@ options("canpumf.register_connection" = TRUE)
 
 Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.
 
+PUMF data can also be loaded from the [Borealis](https://borealisdata.ca) Dataverse, which hosts the ODESI collection of Statistics Canada PUMFs. Statistics Canada stays the primary source; Borealis is used automatically for vintages StatCan does not post (the 1971–1986 Census PUMFs), and any other Borealis PUMF dataset can be loaded by its DOI:
+
+```r
+cat <- list_borealis_pumf_catalogue()                 # browse the Borealis PUMF collection
+list_borealis_pumf_files("doi:10.5683/SP3/EZXFNL")   # inspect a dataset's files
+shs_1997 <- get_pumf("SHS", "1997", borealis = "doi:10.5683/SP3/EZXFNL")
+```
+
+The `version` names the cache directory, and later calls to `get_pumf("SHS", "1997")` reopen the Borealis copy. Datasets outside the built-in registry are parsed by auto-detection. If the build warns that a variable's unmatched values become `NA`, that variable is usually continuous with only a top-code labelled. Pass `registry = pumf_registry_entry(data_fixups = list(force_numeric = c("NUMROOM", "AGEREFP")))` together with `refresh = TRUE` to keep it numeric.
+
+No account is needed. If the `BOREALIS_DATAVERSE_KEY` environment variable is set, it is sent to Borealis as the API key, which gives access to restricted files the key's owner is entitled to.
+
 `get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
 
 Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
@@ -52,6 +64,25 @@ tbl <- get_pumf("LFS", "2022") |>
 ```
 
 When done querying, release the DuckDB connection with `close_pumf(tbl)`.
+
+## Label repair
+
+Statistics Canada's shipped command files routinely carry truncated value and variable labels — hard cuts at 60 characters, dropped leading or interior text. The damage is upstream (SAS, SPSS and Stata versions of the same file agree byte for byte), and it is quiet: the codes and frequencies are correct, only the human-readable label is wrong.
+
+For surveys whose user guide includes a data-dictionary appendix, `canpumf` parses that appendix and uses it to repair the labels. Because the appendix prints the frequency of every code, the scrape is first reconciled against the actual microdata: a guide whose counts do not reproduce a tabulation of the data *and* whose printed field positions do not reproduce the command file's layout is discarded as the wrong document. A label is then only ever replaced when two things hold — the guide's text demonstrably extends the command file's, **and** the command file's labels show the fingerprint of hard truncation (a spike of labels at a fixed ceiling). Without that second test a guide that prints full question wording where the command file carries a hand-written short label would "repair" perfectly good labels into questions. Two functions expose what happened:
+
+```r
+gss <- get_pumf("GSS", "Cycle 16 (2002)")
+
+# per-variable: did the guide's frequencies reconcile with the data?
+table(pumf_freq_validation(gss)$status)
+
+# every divergence found, repaired or not
+pumf_label_repairs(gss, action = "repaired")
+pumf_label_repairs(gss, action = "flagged")
+```
+
+`flagged` rows are divergences that were recorded but *not* acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. Nothing is repaired silently. Set `options(canpumf.pdf_crosscheck = FALSE)` to turn the whole step off.
 
 ## LFS data
 
@@ -73,9 +104,45 @@ To ensure the local database contains all available LFS versions, use `refresh =
 lfs_all <- get_pumf("LFS", refresh = "auto")
 ```
 
+### Historical LFS (1976–2005)
+
+Statistics Canada posts the LFS PUMF from 2006 onwards. The monthly files for January 1976 to December 2005 are available from the [Borealis Dataverse](https://borealisdata.ca) (ODESI) as series `"LFS_HIST"`. They use the legacy (pre-2017) LFS layout, so they live in their own database rather than being mixed into `"LFS"`.
+
+```r
+lfs_1995_06 <- get_pumf("LFS_HIST", "1995-06")  # one month
+lfs_1995    <- get_pumf("LFS_HIST", "1995")     # all twelve months of 1995
+lfs_hist    <- get_pumf("LFS_HIST", refresh = "auto")  # all 360 months (large)
+```
+
+ODESI labelled the same codes differently in different years ("Unemployed, temporary layoff" vs "Unemploy,temp layoff"). canpumf therefore applies one harmonised bilingual dictionary to every month, so each factor has the same levels across the whole 1976–2005 table. The deposits after 1986 carry weights rebased to a later Census (1987–1995 to 2001, 1996–2000 to 2006, 2001–2005 to 2011), so weighted levels can step at those boundaries.
+
+### One LFS timeline, 1976 onward
+
+`get_lfs_timeline()` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. `get_lfs_timeline(refresh = "auto")` first loads any newly released months, so an analysis script built on it stays up to date.
+
+```r
+tl <- get_lfs_timeline()
+tl |>
+  dplyr::filter(SURVMNTH == 6L) |>
+  dplyr::summarise(employed = sum(FINALWT[LFSSTAT %in% c("Employed, at work",
+                                                         "Employed, absent from work")]),
+                   .by = SURVYEAR) |>
+  dplyr::collect()
+close_pumf(tl)
+```
+
+Variables with the same codes in both series carry the current LFS labels. A few are recoded to a common scheme:
+- `LFSSTAT`: the three historical unemployment categories are collapsed.
+- `GENDER_SEX`: sex and gender are combined.
+- `MARSTAT`: four categories; the files before November 1999 only have these four.
+- `CMA`: Montréal, Toronto, Vancouver or other, and `NA` before 1987.
+- Also recoded: `SCHOOLN`, `AGYOWNK`, `NAICS_18` (18 industry groups), and `EDUC` (from 1990).
+
+The hours and wage columns are in plain hours and dollars in both series, and the weight is `FINALWT`. Occupation and the historical family and spouse variables are left out; use `get_pumf()` on each series for those.
+
 ## Census data
 
-The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download; years 1986 and earlier must be ordered through Statistics Canada's EFT portal and placed in the cache directory.
+The canpumf package supports Census PUMF from 1971 through 2021. All releases from 1991 onward are available via direct download from Statistics Canada. Years 1986 and earlier are downloaded automatically from Borealis (English labels only). If you have ordered the Statistics Canada EFT bundle for one of those years and placed it in the cache directory, it is used instead; add `"eft"` or `"borealis"` to the version string to pick a source explicitly, e.g. `get_pumf("Census", "1971 individuals CMA borealis")`.
 
 ```r
 pumf_2021 <- get_pumf("Census", "2021")
@@ -92,10 +159,10 @@ By default the package loads the *individuals* file. Available variants by year:
 | 2001 | individuals, households, families |
 | 1996 | individuals, households, families |
 | 1991 | individuals, households, families |
-| 1986 | individuals, households |
+| 1986 | individuals, households, families |
 | 1981 | individuals, households |
-| 1976 | individuals |
-| 1971 | individuals, individuals PR |
+| 1976 | individuals, households, families |
+| 1971 | individuals, households, families (each as provincial and CMA file) |
 
 ```r
 pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
@@ -103,13 +170,15 @@ pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 
 ## Verified datasets
 
-The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked **direct download** can be fetched automatically by `get_pumf()`; others must be placed in the cache directory via Statistics Canada's EFT portal.
+The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or warnings. Versions marked **direct download** can be fetched automatically by `get_pumf()` (from Statistics Canada, or from Borealis where marked); others must be placed in the cache directory via Statistics Canada's EFT portal.
 
 | Survey | Series | Verified versions | Direct download |
 |---|---|---|:---:|
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
+| Labour Force Survey, historical | LFS_HIST | monthly files 1976-01 to 2005-12 | ✓ (Borealis) |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
+| Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
 | General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
 | General Social Survey — Aging and Social Support | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
 | General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |
@@ -121,6 +190,8 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Canadian COVID-19 Antibody and Health Survey | CCAHS | 1 | ✓ |
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
+| Canadian Health Survey on Seniors | CHSS | 2019-2020 | ✓ |
+| Participation and Activity Limitation Survey | PALS | 2001, 2006 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
 | Canadian Income Survey | CIS | 2017–2022 | ✓ |

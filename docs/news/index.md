@@ -1,5 +1,452 @@
 # Changelog
 
+## canpumf 0.6.0
+
+### Historical Labour Force Survey and a 1976-onward LFS timeline
+
+The LFS microdata now span 50 years. The monthly public-use files for
+1976–2005, which Statistics Canada does not post for download, are
+loaded from Borealis and can be stacked with the current LFS in one
+harmonised table.
+
+- New series `"LFS_HIST"` loads the monthly LFS PUMFs for January 1976
+  to December 2005 from Borealis (ODESI), in the legacy pre-2017 layout:
+  `get_pumf("LFS_HIST", "1995-06")` loads one month, and
+  `get_pumf("LFS_HIST", "1995")` loads all twelve months of a year. Like
+  `"LFS"`, every loaded month is appended to one shared database
+  (`LFS_HIST/LFS_HIST.duckdb`), so the whole period can be queried as
+  one table. `refresh = "auto"` loads every month not yet present.
+  French labels come from the French ODESI deposits.
+- ODESI labelled the same codes differently from era to era
+  (“Unemployed, temporary layoff” / “Unemploy,temp layoff”). Loaded
+  month by month, that would give one factor level per spelling.
+  LFS_HIST therefore ships one harmonised bilingual dictionary, built
+  from the SAS setup files of all 718 monthly deposits
+  (`tools/build_lfs_hist_reference.R`). Each code gets its most recent
+  wording, and codes whose meaning changed are curated by hand. Each
+  month is still checked against its own setup file when it is loaded.
+- New
+  [`get_lfs_timeline()`](https://mountainmath.github.io/canpumf/reference/get_lfs_timeline.md)
+  returns one lazy table spanning `"LFS_HIST"` and `"LFS"`, 1976 onward,
+  with a curated common schema. Variables with identical codes carry the
+  current labels. `LFSSTAT`, `MARSTAT`, `CMA`, `SCHOOLN`, `AGYOWNK`, the
+  industry groups (`NAICS_18`), education (1990 onward) and sex/gender
+  are recoded to common categories. Hours and wages are in plain units,
+  and the weight is `FINALWT`. The two databases stay separate and are
+  attached read-only, so the timeline never takes or waits for a write
+  lock. The mappings ship in `inst/extdata/lfs_timeline/`
+  (`tools/build_lfs_timeline_reference.R`). `refresh = "auto"` first
+  brings both series up to date, so an analysis script that calls
+  `get_lfs_timeline(refresh = "auto")` always picks up newly released
+  LFS months.
+- The LFS vignette has a new section on the long timeline: loading
+  `"LFS_HIST"`, 50 years of unemployment and participation rates by
+  gender, wages by CMA, and caveats for working across eras.
+- The LFS database engine is now a general framework for *longitudinal*
+  series (time slices sharing nearly the same variables, appended to one
+  database per series). LFS and LFS_HIST are its two instances.
+  [`label_pumf_columns()`](https://mountainmath.github.io/canpumf/reference/label_pumf_columns.md),
+  [`pumf_metadata()`](https://mountainmath.github.io/canpumf/reference/pumf_metadata.md),
+  [`list_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/list_pumf_cache.md),
+  [`remove_pumf_cache()`](https://mountainmath.github.io/canpumf/reference/remove_pumf_cache.md)
+  and
+  [`open_pumf_documentation()`](https://mountainmath.github.io/canpumf/reference/open_pumf_documentation.md)
+  handle both series. LFS behaviour is unchanged.
+- The import was validated against Statistics Canada table 14-10-0287.
+  For all 360 months the weighted population matches the published
+  unadjusted estimates exactly, by province, gender and age group.
+  Employment and unemployment match to rounding, except for January 1985
+  to November 1986: there the published series appears to carry a
+  revision the public-use files lack, and microdata unemployment runs
+  about 1.2% above the published figure
+  ([\#23](https://github.com/mountainMath/canpumf/issues/23)). The same
+  issue documents the problems found in the Borealis/ODESI metadata and
+  how LFS_HIST works around them.
+
+### New features
+
+- **PUMF data can now be loaded from the
+  [Borealis](https://borealisdata.ca) Dataverse**, which hosts the ODESI
+  collection of Statistics Canada PUMFs. Statistics Canada stays the
+  primary source. The 1971, 1976, 1981 and 1986 Census PUMFs, which
+  StatCan distributes only by EFT, are now downloaded from Borealis
+  automatically — `get_pumf("Census", "1971")` works out of the box. A
+  deposited EFT bundle is still preferred when present; add `"eft"` or
+  `"borealis"` to the version to choose explicitly. The Borealis copies
+  carry English labels only. For 1971 they are also more accurate than
+  the EFT text files, whose negative household incomes use a sign
+  overpunch the fixed-width reader does not decode.
+
+- Any other Borealis PUMF dataset can be loaded with
+  `get_pumf(series, version, borealis = "doi:...")`. New
+  [`list_borealis_pumf_catalogue()`](https://mountainmath.github.io/canpumf/reference/list_borealis_pumf_catalogue.md)
+  browses the collection (cached, and persisted to the cache directory)
+  and
+  [`list_borealis_pumf_files()`](https://mountainmath.github.io/canpumf/reference/list_borealis_pumf_files.md)
+  lists a dataset’s files. The catalogue’s `statcan` column marks
+  datasets that Statistics Canada also posts for direct download,
+  together with the matching StatCan title. Prefer StatCan’s copy for
+  these, since the Borealis re-deposits can carry transcription errors.
+  `get_pumf(borealis =)` warns when asked for such a dataset. Setting
+  `BOREALIS_DATAVERSE_KEY` gives access to restricted files.
+
+- Registry entries accept a `borealis` field (`list(doi =, files =)`),
+  also via
+  [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md).
+
+- **Truncated labels are now repaired from the survey’s user guide.**
+  Statistics Canada’s shipped command files routinely carry damaged
+  value and variable labels — hard cuts at 60 characters, dropped
+  leading text, dropped interior text. The damage is upstream of the
+  flavour-specific renderers (the SAS, SPSS and Stata copies of a file
+  agree byte for byte), and it is quiet: codes and frequencies are
+  correct, only the human-readable label is wrong. A ninth metadata
+  parser,
+  [`parse_pdf_freq_codebook()`](https://mountainmath.github.io/canpumf/reference/parse_pdf_freq_codebook.md),
+  reads the data-dictionary appendix of a PUMF user guide (GSS cycles,
+  SGVP, PALS, SFS, Time Use), which carries the full text.
+
+- Trusting a PDF scrape over a machine-readable command file would
+  normally be a bad trade. What makes it a good one here is that this
+  appendix prints the **frequency of every code**, so the parse is
+  reconciled against the actual data file before any of it is believed,
+  and a label is replaced only where the guide’s text *demonstrably
+  extends* the command file’s — a strict superstring, or a subsequence
+  sharing a long anchor (`"Single-ded house"` →
+  `"Single-detached house"`). For GSS Cycle 16 this repairs 2,865 labels
+  across the four modules with no variable contradicting the data.
+
+- A repair additionally requires evidence that the label it replaces was
+  *damaged*. Some guides print the full question wording where the
+  command file carries a hand-written short label (“How many hours do
+  you work per week” against “How many hours do you (does ….) usually
+  work per week?”); these are different fields, not a truncation, and
+  the abbreviation is often a subsequence of the question, so the
+  text-shape test alone would rewrite good labels into questions. A hard
+  cut leaves a spike of labels at a fixed ceiling — GSS Cycle 16 has
+  1,665 of 1,860 variable labels at 59–60 characters against 42 in the
+  six lengths below — while a hand-abbreviated set thins out towards its
+  longest entry. Labels are only repaired where that ceiling exists and
+  the label sits at it; everything else is flagged.
+
+- Dropped *leading* text leaves a short label rather than one at a
+  ceiling, so it carries its own signature: what survives is a strict
+  suffix of the guide’s text (“relative in a family farm or business?”,
+  “les réserves indiennes)”). Two things that are not damage produce the
+  same shape — a guide that prefixes an editorial note onto a label the
+  command file has in full (SGVP 2007’s “Grouped variable: Age group”),
+  and a guide leaking its own field header into the text (“Longueur : 2
+  Age du répondant …”). Both are rejected by looking at the *dropped*
+  text rather than at what survived: StatCan writes these as “Key:
+  value”, while text lost to truncation is running prose. That
+  distinction is what lets the mid-list case be repaired — GSS Cycle
+  16’s value label “Co-worker of respondent and Other relatives)”, which
+  is really the tail of “Other (Do not include organizations here)
+  (Includes …)” and reads as a category about co-workers, starts with a
+  capital exactly as an intact label would. Together these take SGVP
+  from 35 repairs to 1 and PALS 2006 from 245 to 100, while GSS Cycle 16
+  keeps 2,860 of 2,865.
+
+- The guide is also checked as a *document* before any of it is used,
+  against two independent channels: whether its printed counts reproduce
+  a tabulation of the data, and whether its printed field positions
+  reproduce the command file’s layout. A guide failing both is the wrong
+  document and is discarded whole. A release shipping both its original
+  and revised user guide (PALS 2006) is disambiguated the same way — the
+  two describe different field positions, and only the layout tells them
+  apart. Where the positions agree but the counts do not, the guide’s
+  frequencies were simply tabulated on another base (PALS 2006 computes
+  its over the disability sub-population) and are treated as absent
+  rather than as contradiction.
+
+- Nothing is repaired silently. New `pumf_label_repairs(tbl)` returns
+  every divergence found — repaired, filled, or merely flagged — with
+  both texts, the reason, and the variable’s validation status; new
+  `pumf_freq_validation(tbl)` reports per variable whether the guide’s
+  frequencies reconciled. Substantive disagreements (where the guide and
+  the command file say different things rather than one being a
+  truncation of the other) are always flagged rather than applied. Set
+  `options(canpumf.pdf_crosscheck = FALSE)` to skip the step.
+
+- The guide’s frequency tables are read off the number column nearest
+  the `FREQ` header word rather than by walking right from it. The
+  columns are right-aligned but `pdftools` reconstructs them with a few
+  characters of drift, so walking out stopped at a thousands comma
+  (reading `9,520` as `9`) and never reached a value printed further
+  right than its neighbours (reading a bare `0` as absent). A code row’s
+  label is also now optional, so a 0–10 scale that labels only its
+  endpoints keeps the counts for the nine bare codes in between.
+  Together these take the GSS Cycle 26 guide from 4 contradicted
+  variables to none across all 610.
+
+- Codes the guide documents but the command file never declared are
+  reported, never injected — that stays a registry `codes_supplement`
+  decision. The report covers only variables the command file treats as
+  categorical: where it declares no codes the variable is continuous,
+  and the guide’s zero-value rows (“No hours”, “None”, “Aucun don”)
+  label a valid numeric zero rather than a code the command file forgot.
+
+- The **Canadian Health Survey on Seniors** (CHSS, 2019-2020) is now
+  supported and directly downloadable: `get_pumf("CHSS", "2019-2020")`.
+  The survey ships 1000 bootstrap replicate weights, joined onto the
+  main table like the other BSW surveys.
+
+- The **Participation and Activity Limitation Survey** (PALS, 2001
+  and 2006) is now supported and directly downloadable:
+  `get_pumf("PALS", "2001")`. Both editions ship one archive holding a
+  complete English and French copy of the release; the French command
+  file is paired automatically and supplies the French labels.
+
+- PALS 2001 ships no flat data file — only the SAS dataset the flat file
+  would have been built from — so Stage 3 now reads `.sas7bdat` data
+  with haven when that is the file the registry selects. Its coded
+  numeric columns are rendered back to their code strings so the usual
+  label mapping applies unchanged.
+
+- The SAS command-file parser now understands quoted character codes in
+  `PROC FORMAT` (`"01" = "..."`, as SAS datasets with character columns
+  require) and the French phrasing of StatCan’s variable/format
+  association comment (`/* $FMT s'applique à: VAR1 VAR2 */`).
+
+- New `data_fixups` field `rename_regex` rewrites many column names at
+  once (`c("^A" = "")`), for releases whose data file decorates the
+  documented variable names wholesale — the PALS 2001 SAS dataset ships
+  StatCan’s *collection* names, which prefix 632 of its 758 columns with
+  an “A”. A rewrite is applied only where it lands on a name the
+  metadata declares and the current name is not itself declared, so it
+  cannot collide with a correctly-named column.
+
+- New `data_fixups` field `missing_codes` blanks a discrete set of
+  per-variable missing codes, for variables whose sentinels do not form
+  one contiguous range and which a single `missing_low`/`missing_high`
+  pair therefore cannot express. PALS 2006 `AUDE_Q02` (hours usually
+  worked) declares −5/−6/−7 below and 998/999 above the valid 1–97
+  hours, so the derived range would have blanked the whole column.
+
+- New registry field `download_format` pins which format bundle to fetch
+  when Statistics Canada offers the same edition as several downloads
+  (CSV / SAS / TXT). It is needed when only one bundle carries the
+  command files the metadata parsers depend on — the CHSS CSV zip ships
+  the data alone, while the TXT zip additionally carries the SPSS layout
+  cards. The field is also accepted by
+  [`pumf_registry_entry()`](https://mountainmath.github.io/canpumf/reference/pumf_registry_entry.md)
+  for user-supplied entries.
+
+- The SAS `@position` INPUT-card parser now understands the
+  indexed-array shorthand StatCan uses for bootstrap-weight cards
+  (`@28 (BSW1-BSW1000) (1000* 7.2)`), expanding it into one layout row
+  per weight. Bootstrap-weight command files are also now found when
+  they sit outside the survey’s SPSS card directory and are not named
+  `layout*` (CHSS ships `Layout_Cards/bsw_i.sas`); SAS cards are
+  preferred over their companion `.sps`, whose column specs are
+  sometimes left implicit.
+
+- Fixed-width bootstrap-weight files are now read with the decimal point
+  implied by the card’s `w.d` informat, matching SAS/SPSS semantics —
+  without this, CHSS replicate weights would have been 100 times too
+  large. The correction is applied before the missing-value range (which
+  documentation states in display units) and only where the raw field
+  carries no explicit `.`.
+
+### Dependencies
+
+- `duckplyr` is no longer a dependency. `curl` and `jsonlite` are new in
+  Imports, for the Borealis API.
+
+### Bug fixes
+
+- Labelled non-response codes of numeric variables are now set to `NA`
+  even when the command file declares no `MISSING VALUES` for them.
+  Before, only a declared range, or the range derived for
+  `force_numeric` variables, removed them, so values such as GSS Cycle
+  21 `AGE_DIV_MA1` 999.7 (“Not asked”), Cycle 25 `CHDCARE_*_COST`
+  9999.97–9999.99 and the Cycle 21 and 26 health utility index
+  `HLTH_UTIL_INDEX` 7/9 (“Not asked”, “Don’t know”; valid range −0.31
+  to 1) stayed in as real numbers. Stage 3 now takes every code whose
+  English or French label is a true-missing label and blanks it as a
+  discrete code, so valid values that fall between sentinels are kept.
+  Labels with a qualifier also count (“NOT APPLICABLE(DOES NOT DRIVE)”,
+  GSS Cycle 8 `D11`; “Non demandé - aucun enfant dans le ménage”, Cycle
+  24 `AGECHRYC`). Zero labels (“None”) and composite labels (“zero
+  income, not applicable”) are left as values. Rebuild with
+  `refresh = TRUE`: GSS Cycles 8, 17, 21, 24, 25 and 26.
+
+- GSS Cycle 17 (2003) no longer forces 236 categorical variables to
+  numeric. Its `force_numeric` list covered almost every labelled
+  variable, so `SEX`, `PRV`, `YRARRI`, `EDU5`, the Likert items and the
+  rest arrived as bare numbers instead of labelled factors. Only the six
+  count/age variables with a top-code label (`AGECHRYC`, `OMA_Q110`,
+  `MAR_Q161`, `WKWEHR`, `WKWEHOHR`, `MAR_Q315`) are still forced.
+
+- `force_numeric` can no longer turn a fully labelled variable into
+  numbers. Labels are strong evidence of a category, so the only
+  legitimate use of the override is a count, age or amount variable
+  whose data is mostly unlabelled, with labels only on a top code or on
+  sentinels. Stage 3 now ignores the override for any variable whose
+  every data value is labelled. Besides Cycle 17, this restores GSS
+  Cycle 12 `DDAY` (Sunday–Saturday), GSS Cycle 24 `TIMECR`/`TIMENS`
+  (“Zero Yes codes”…) and 1971 Census `SUBSAMPL` in the individual and
+  family files (ONE–FIVE) as factors. The dead Cycle 12 and 24 entries
+  were removed from the registry. Rebuild with `refresh = TRUE`: GSS
+  Cycles 12 and 24, and the 1971 Census individual and family files.
+
+- Fixed-width main data files are now also read with the decimals their
+  command file implies — a `DATA LIST` `( 4 )` or SAS `w.d` informat —
+  where the raw field carries no explicit `.`. The older cards pad the
+  parentheses (`WGHTFNL 6 - 14 ( 4 )`), which the parser did not
+  recognise, so the weights of GSS Cycle 8 (1993) and Cycle 9 (1994)
+  were 10,000 times too large and the 1981 Census households `FAMWGT`
+  (EFT copy) 100 times too large. Display `FORMATS` decimals do not
+  change the stored value and are not applied. Layout decimals are
+  recorded in a new optional `decimals` column of `layout.csv`; caches
+  written before it read as having none.
+
+- GSS Cycle 10 (1995) and Cycle 15 (2001) read their Main data file with
+  the Child file’s layout, so every column past the first few was
+  misaligned. Both now select the Main command files (`layout_mask`),
+  and their `force_numeric` overrides were redone for the Main-file
+  variables.
+
+- SPSS `MISSING VALUES` lists of reserved codes with a gap
+  (`( 96,97,99 )`, `( 9996,9997,9999 )`) are read as the full band, and
+  an empty first slot (`( ,995 THRU 999 )`) no longer drops the lower
+  bound. GSS Cycles 8 and 10 kept codes such as 97/99 “Not
+  applicable/Not stated” as real values in numeric columns.
+
+- SPSS `MISSING VALUES` statements declaring several variables on one
+  line (`INCWAGES (0) SELF (0) .`) now record every declaration, not
+  just the first, and a list of consecutive integers (`998,999`, `8, 7`)
+  is read as the full range rather than its first value. The range
+  change only affects variables typed numeric, and only by widening
+  sentinel ranges already declared as missing (e.g. 1991/1996 Census
+  `AGEF` 98 “Not available” alongside 99).
+
+- Command files with `\r\r\n` line endings, doubled apostrophes
+  (`'Person 1''s son'`), HTML entities in labels (`Yukon &amp; NWT`) and
+  value labels on the variable-header line (`HHTYPE 1 "1 FMLY …"`) are
+  now parsed correctly. These affected the older Census command files;
+  rebuild those with `refresh = TRUE` to pick up the corrected labels.
+
+- Census downloads resolve again after Statistics Canada moved its
+  Census PUMF index page. The emptied scrape was not recognised as a
+  failure, so
+  [`list_canpumf_collection()`](https://mountainmath.github.io/canpumf/reference/list_canpumf_collection.md)
+  lost its 1991–2021 Census rows and warned
+  `no non-missing arguments to min`. The Census list now falls back to
+  the StatCan catalogue (every edition now lives under
+  `98m0001x/2023001/`), and the hard-coded last-resort URLs point there
+  too.
+
+- [`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
+  no longer takes a write lock on a pure cache hit
+  ([\#18](https://github.com/mountainMath/canpumf/issues/18)). The
+  non-LFS read path routed through
+  [`get_pumf_connection()`](https://mountainmath.github.io/canpumf/reference/get_pumf_connection.md),
+  which always opened the DuckDB read-write before the tbl was reopened
+  read-only — so reading an already-built survey from a second R process
+  (typically a notebook render racing the interactive session that still
+  held connections open) failed with a “Conflicting lock is held” error
+  even though concurrent read-only access is perfectly legal. A write
+  connection now exists only inside the Stage-3 builder while a build or
+  refresh actually writes, and is closed there; everything handed to the
+  user is read-only unless `read_only = FALSE` is requested. The
+  already-built check likewise no longer shuts down the shared
+  in-process DuckDB instance, so requesting e.g. the French table while
+  the English tbl is open leaves the open tbl undisturbed.
+
+- [`add_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/add_bootstrap_weights.md)
+  and
+  [`remove_bootstrap_weights()`](https://mountainmath.github.io/canpumf/reference/remove_bootstrap_weights.md)
+  — the genuine write paths — now diagnose lock conflicts up front with
+  an actionable message saying what holds the file and to release it
+  with
+  [`close_pumf()`](https://mountainmath.github.io/canpumf/reference/close_pumf.md),
+  instead of surfacing duckdb’s raw lock/read-only error from the first
+  write ([\#18](https://github.com/mountainMath/canpumf/issues/18)).
+
+- SPSS string continuations (`'text' + 'more'`, which StatCan uses to
+  keep a long label inside the file’s line width) are now joined in all
+  four combinations of quote character and line break. Only the
+  single-quoted, line-broken form was handled, so the tail of a
+  continued label was dropped and what survived was cut mid-word —
+  Census 2021 `SSGRAD` arrived as “Scolarité : Diplôme d’études
+  secondaires ou attestation d’éq”, indistinguishable from the upstream
+  truncation the new user-guide cross-check exists to repair. Census
+  2021 alone ships all three of the unhandled forms (70 labels in the
+  French individuals file).
+
+- A user-guide variable printed **without** a frequency table no longer
+  swallows the rest of the document as its label. The label is the free
+  text between the block header and the table, so where there is no
+  table the extraction ran to the end of the guide: GSS Cycle 24’s
+  `WTSBS_001` (bootstrap weight
+  [\#1](https://github.com/mountainMath/canpumf/issues/1)) came out as
+  78,014 characters of appendix and table of contents, which the repair
+  pass then wrote over a sound command-file label. The label now also
+  ends at the block’s own closing rule or its
+  `Coverage:`/`Source:`/`Format:` lines. Only tableless blocks are
+  affected — across the cached guides this changes 3 labels in GSS Cycle
+  24, 2 in SGVP 2007 (including a 19,385-character `WTPP`), 1 in PALS
+  2006 and none at all in GSS Cycle 16.
+
+- A guide row whose label reaches into the number column is now read. A
+  long label pushes the frequency past the `FREQ` anchor and sends the
+  weighted count to the next line, so the row got no frequency at all
+  and the orphaned weighted count was appended to the label (GSS Cycle
+  24’s Episode guide, `SACT1` code 15:
+  `"Domestic work (meal prep and cleanup, cleaning, laundry) 4,255"`
+  with `"6,759,111"` alone below it). A single whitespace-preceded
+  number starting at or after the anchor is now taken as the frequency,
+  and a continuation line that is nothing but a number is no longer
+  treated as label text. Where the label is printed flush against its
+  counts (`"…cassette tapes or records3,4417,790,477"`) the two counts
+  cannot be separated, so the frequency stays unknown — but the digits
+  are cut off the label rather than left in it.
+
+- An unreadable frequency no longer aborts metadata parsing. Comparing
+  counts against it made [`all()`](https://rdrr.io/r/base/all.html)
+  return `NA` and the `if` that followed errored, taking the whole Stage
+  2 run down; the block is now reported `unchecked`, which withholds
+  nothing, since repairs are barred only by an outright `mismatch`. The
+  cross-check runs only on a fresh parse, so this surfaced only when
+  re-parsing a cached survey.
+
+- SHS 2017 and 2019 command files are read as UTF-8 (2021 and 2023 are
+  not), so the CP1252 default turned every accented French label into
+  mojibake — 671 labels across the four files, e.g. “Poids d’enquête”
+  arriving as “Poids dâ€™enquÃªte”.
+
+- Census 2021 individuals variable labels no longer show “â€“” in place
+  of an en-dash
+  ([\#22](https://github.com/mountainMath/canpumf/issues/22)). The
+  English command files are valid UTF-8 but were themselves written with
+  the dash double-encoded, which no `metadata_encoding` can undo, so 10
+  labels such as `School attendance â€“ Detailed` came through garbled.
+  Stage 2 now repairs double-encoded UTF-8 in the merged metadata. The
+  repair only replaces a character sequence that decodes to valid UTF-8,
+  so genuine accents are left alone. Rebuild with `refresh = TRUE`.
+
+- The French “valid skip” sentinel label (`Enchaînement valide`) is now
+  recognised. The alternative had been added as a bare stem inside an
+  anchored pattern, so it only ever matched a label that was literally
+  `Enchaîn` — a French build could therefore keep a continuous variable
+  categorical (and blank its real values) where the English build read
+  it correctly.
+
+- Sentinel labels containing accented characters are now matched. The
+  label patterns relied on `\w`, which PCRE restricts to ASCII even on
+  UTF-8 input, so a French label ended at its first accent:
+  `Aucune séparation avant le divorce ou l'annulation` failed where the
+  English `No separation prior to divorce or annulment` matched,
+  classifying the variable numeric in `eng` but categorical in `fra`
+  (GSS Cycle 21 `AGE_SEP_MA3`/`AGE_SEP_MA4`). An elided article
+  (`l'annulation`) and a trailing sentence period present in only one
+  language (GSS Cycle 24) split the two builds the same way. Accented
+  capitals in shouted labels (`NON DÉCLARÉ`) now fold correctly too.
+  Across every cached survey this changes the classification of 35
+  variables, all of them in GSS, and all now identical in both
+  languages.
+
 ## canpumf 0.5.2
 
 CRAN release: 2026-07-03

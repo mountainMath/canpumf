@@ -44,6 +44,18 @@
   "1971/families_prov",   "1971/families_cma"
 )
 
+# The same vintages from Borealis (ODESI CSV + English .sps, one dataset per
+# file type); verified against the EFT builds above.
+.census_borealis <- c(
+  "1986 (individuals)", "1986 (households)", "1986 (families)",
+  "1981 (individuals)", "1981 (households)",
+  "1976 (individuals)", "1976 (households)", "1976 (families)",
+  "1971 (individuals, provincial)", "1971 (individuals, CMA)",
+  "1971 (households, provincial)", "1971 (households, CMA)",
+  "1971 (families, provincial)",   "1971 (families, CMA)"
+)
+.census_verified <- c(.census_verified, .census_borealis)
+
 # Census versions where codes_supplement injects manually: map version ->
 # expected warning regex.  Any warning NOT matching this pattern is unexpected.
 .census_supplement_warnings <- list(
@@ -59,11 +71,15 @@
   # 1971: codes_supplement injects missing value-0 labels for TYPE66/TYPE71 (CMA
   # individuals) and CMACODE (provincial families).
   "1971/individuals_cma" = "absent from command files",
-  "1971/families_prov"   = "absent from command files"
+  "1971/families_prov"   = "absent from command files",
+  "1971 (individuals, CMA)"      = "absent from command files",
+  "1971 (families, provincial)"  = "absent from command files"
 )
 
+# The tests using this assume the 1991+ schema (a PR variable, bilingual
+# labels), so the 1971-1986 EFT/Borealis vintages are never picked.
 .census_any_version <- function() {
-  for (v in .census_verified) {
+  for (v in .census_verified[as.integer(substr(.census_verified, 1L, 4L)) >= 1991L]) {
     if (.census_extracted(v)) return(v)
   }
   NULL
@@ -100,7 +116,7 @@ test_that("Census 2021: metadata uses UTF-8 encoding correctly", {
               "Census 2021 (individuals) not in cache")
 
   canpumf:::pumf_parse_metadata(.census_vdir("2021 (individuals)"),
-                                 metadata_encoding = "UTF-8")
+                                 metadata_encoding = "UTF-8", refresh = TRUE)
 
   meta <- canpumf:::read_metadata(
     file.path(.census_vdir("2021 (individuals)"), "metadata"))
@@ -109,9 +125,16 @@ test_that("Census 2021: metadata uses UTF-8 encoding correctly", {
   if (length(fr_labels) > 0L) {
     expect_true(any(grepl("[éèêëàâîïôùûüç]", fr_labels)),
       label = "French labels should contain accented characters")
-    expect_false(any(grepl("Ã", fr_labels)),
-      label = "French labels must not contain mojibake 'Ã'")
   }
+
+  # The English .sps itself ships double-encoded en-dashes ("â€“", 10 variable
+  # labels incl. ATTSCH); .fix_metadata_mojibake() must undo them.
+  all_labels <- stats::na.omit(c(meta$variables$label_en, meta$variables$label_fr,
+                                 meta$codes$label_en, meta$codes$label_fr))
+  expect_false(any(grepl("Ã|â€", all_labels)),
+    label = "labels must not contain mojibake")
+  expect_equal(meta$variables$label_en[meta$variables$name == "ATTSCH"],
+               "Education: School attendance \u2013 Detailed")
 })
 
 test_that("Census 2011 (individuals): variable labels present from SAS parser", {
@@ -182,14 +205,15 @@ test_that("Census 2001 (families): registry codes_supplement for MODEF", {
 # reliable bilingual anchor.
 #
 # Notes on older files:
-# - 1986/families, 1976/households, 1976/families: no French labels at all
-#   (English-only SPSS); both fr_vars and French codes checks are skipped.
+# - 1986/families, 1976/households, 1976/families and every Borealis version:
+#   no French labels (English-only SPSS); the French checks are skipped.
 # - Pre-1986 files use ALL CAPS labels, so province checks use ignore.case=TRUE.
 # - Some 1971/1981 households files have "COLUMBIE" (typo) rather than
 #   "COLOMBIE", so the pattern "Col[ou]mbie" covers both spellings.
 .census_no_fr_labels <- c(
   "1986/families",
-  "1976/households", "1976/families"
+  "1976/households", "1976/families",
+  .census_borealis
 )
 
 for (.v in .census_verified) {
@@ -374,6 +398,7 @@ for (.v in .census_verified) {
   local({
     ver <- .v
     test_that(paste0("Census ", ver, ": eng/fra bilingual parity"), {
+      skip_if(ver %in% .census_borealis, "Borealis copy is English-only")
       skip_if_not(.census_extracted(ver),
                   paste("Census", ver, "not extracted in cache"))
       skip_if_not(.census_metadata_exists(ver),

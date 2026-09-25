@@ -75,7 +75,8 @@ formats the one highest in `prefer` is kept (CSV/flat-text first).
 \examples{
 \donttest{
 # Quick look at the first 5 surveys
-head(list_statcan_pumf_catalogue(max_surveys = 5))
+tryCatch(head(list_statcan_pumf_catalogue(max_surveys = 5)),
+         error = function(e) message(conditionMessage(e)))
 }
 }
 \seealso{

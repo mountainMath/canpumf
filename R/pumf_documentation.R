@@ -88,12 +88,18 @@ open_pumf_documentation <- function(series          = NULL,
   stopifnot(lang %in% c("eng", "fra"))
   if (is.null(series)) stop("'series' must be specified.")
 
-  # --- LFS with no version: find most recently downloaded ----------------------
-  if (series == "LFS" && is.null(version)) {
-    version <- .pumf_lfs_latest_cached(cache_path)
+  # --- Longitudinal series: most recently downloaded slice --------------------
+  # With no version, the latest slice in the cache; LFS_HIST keeps months
+  # only, so a year resolves to its latest cached month.
+  if (.is_longitudinal(series) &&
+      (is.null(version) ||
+       !dir.exists(file.path(cache_path, series, version)))) {
+    requested <- version
+    version <- .pumf_lfs_latest_cached(cache_path, series, prefix = requested)
     if (is.null(version)) {
-      message("No LFS data has been downloaded yet. ",
-              "Use get_pumf(\"LFS\", \"<version>\") to download first.")
+      message("No ", series, " data has been downloaded yet",
+              if (!is.null(requested)) paste0(" for ", requested), ". ",
+              "Use get_pumf(\"", series, "\", \"<version>\") to download first.")
       return(invisible(NULL))
     }
   }
@@ -192,13 +198,15 @@ open_pumf_documentation <- function(series          = NULL,
 }
 
 
-# Find the most recently downloaded LFS version in the cache.
-.pumf_lfs_latest_cached <- function(cache_path) {
-  lfs_dir <- file.path(cache_path, "LFS")
+# Find the most recently downloaded version of a longitudinal series in the
+# cache, optionally among those starting with `prefix` (a year).
+.pumf_lfs_latest_cached <- function(cache_path, series = "LFS", prefix = NULL) {
+  lfs_dir <- file.path(cache_path, series)
   if (!dir.exists(lfs_dir)) return(NULL)
   subdirs <- list.dirs(lfs_dir, recursive = FALSE, full.names = FALSE)
   # Keep only version-like names: "YYYY" or "YYYY-MM"
   versions <- subdirs[grepl("^\\d{4}(-\\d{2})?$", subdirs)]
+  if (!is.null(prefix)) versions <- versions[startsWith(versions, prefix)]
   if (length(versions) == 0L) return(NULL)
   # Only those that actually have extracted content
   versions <- versions[sapply(versions, function(v) {
@@ -334,9 +342,18 @@ open_pumf_documentation <- function(series          = NULL,
     ))
   }
 
-  if (length(fx$rename) > 0L) {
-    pairs <- paste0(names(fx$rename), "\u2192", fx$rename)
+  # [["rename"]]: `$` would partial-match rename_regex on entries that declare
+  # only the regex form.
+  if (length(fx[["rename"]]) > 0L) {
+    pairs <- paste0(names(fx[["rename"]]), "\u2192", fx[["rename"]])
     lines <- c(lines, paste0("  Renamed columns: ", paste(pairs, collapse = ", "), "."))
+  }
+
+  if (length(fx$rename_regex) > 0L) {
+    pairs <- paste0(names(fx$rename_regex), "\u2192", fx$rename_regex)
+    lines <- c(lines, paste0(
+      "  Column names rewritten by pattern: ", paste(pairs, collapse = ", "),
+      " (applied only where the result is a documented variable name)."))
   }
 
   if (length(fx$codes_supplement) > 0L)

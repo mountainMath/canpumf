@@ -19,7 +19,8 @@ mk_meta <- function(with_french = TRUE, with_layout = TRUE) {
       label_fr = fr_codes
     ),
     layout = if (with_layout)
-      tibble::tibble(name = c("LFSSTAT", "AGE", "PROV"), start = c(1L, 2L, 4L), end = c(1L, 3L, 5L))
+      tibble::tibble(name = c("LFSSTAT", "AGE", "PROV"), start = c(1L, 2L, 4L), end = c(1L, 3L, 5L),
+                     decimals = c(NA, 1L, NA))
     else
       NULL
   )

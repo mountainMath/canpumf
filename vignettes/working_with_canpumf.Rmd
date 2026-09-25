@@ -47,6 +47,35 @@ chs_pumf |>
 
 Applying column labels can make selecting columns more tedious, but can also avoid downstream errors in the analysis.
 
+## Label repair
+
+The labels that come out of StatCan's command files are frequently **truncated** — cut at a fixed width, or missing their leading text. Where the survey's user guide ships a data-dictionary appendix, `canpumf` parses it and repairs the labels automatically, so most of the time there is nothing to do. Because that appendix prints the frequency of every code, the scrape is first reconciled against the actual microdata, and a label is only ever replaced when the guide's text demonstrably extends the command file's *and* the command file shows the fingerprint of truncation. Nothing is repaired silently:
+
+```{r}
+# what the cross-check concluded about this survey's data
+table(pumf_freq_validation(chs_pumf)$status)
+
+# every divergence found, repaired or not
+pumf_label_repairs(chs_pumf) |> head()
+```
+
+Both return zero rows here — the CHS ships no user-guide appendix, so there is nothing to cross-check against. Surveys that do carry one, such as GSS Cycle 16, look very different:
+
+```{r eval=FALSE}
+gss <- get_pumf("GSS", "Cycle 16 (2002)")
+
+pumf_label_repairs(gss, action = "repaired") |>
+  select(name, label_command_file, label_pdf)
+#> # A tibble: 1,679 x 3
+#>   name      label_command_file                                            label_pdf
+#>   ACMPRYR_C "During the past 12 months, was your spouse's/partner's main"  "During the past 12 months, was your spouse's/partner's main activity working at a paid job or business, looking for paid work, going to school, caring for children, household work, retired or something else?"
+#>   ...
+```
+
+The command file cut that one at 60 characters, mid-phrase — which is the shape the ceiling test looks for.
+
+`action = "flagged"` gives the divergences that were recorded but deliberately *not* acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. The whole step needs the `pdftools` package and can be turned off with `options(canpumf.pdf_crosscheck = FALSE)`.
+
 ## Forced moves
 We take a simple look at the share of current renters that were forced to move on their most recent move, keyed by when the most recent move occurred. To estimate risk of being forced to move we look at all current renters that did not move in the five years prior to the CHS, or those that moved in the prior five years and were renters in their old accommodation, as a base and ask what share of these were forced to move in a given timeframe.
 

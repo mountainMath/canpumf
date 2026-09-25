@@ -337,8 +337,9 @@ official documentation and recorded** in
 `tests/testthat/override_verification.csv`. The
 `test-override-verification.R` test fails if an override is missing from
 the ledger or marked `pending`/`mismatch`. The workflow for confirming
-overrides against the PDF codebook is described in the package’s
-`CLAUDE.md` and driven by `tools/verify_overrides.R`.
+overrides against the PDF codebook is driven by
+`tools/verify_overrides.R`, which documents each step in its own header
+comments.
 
 ------------------------------------------------------------------------
 

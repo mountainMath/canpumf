@@ -468,3 +468,66 @@ test_that(".assert_duckdb_writable: clear error when read-only connection is ope
   )
   close_pumf(tbl)
 })
+
+# ---- read path never takes a write lock (issue #18) -------------------------
+
+test_that("get_pumf: cache hit succeeds when the DuckDB file is not writable", {
+  skip_on_os("windows")
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  tbl1 <- get_pumf("FAKE", "2099", cache_path = tmp)
+  close_pumf(tbl1)
+
+  # A write-protected file stands in for "someone else holds the write lock"
+  # (the notebook-render scenario: the render process must be able to read
+  # while the interactive session's connections are open).  Any attempt to
+  # open read-write fails on this file, so a cache hit only passes if the
+  # whole read path stays read-only.
+  db <- file.path(tmp, "FAKE", "2099", "FAKE_2099.duckdb")
+  Sys.chmod(db, "0444")
+  on.exit(Sys.chmod(db, "0644"), add = TRUE)
+
+  tbl2 <- get_pumf("FAKE", "2099", cache_path = tmp)
+  on.exit(close_pumf(tbl2), add = TRUE)
+  expect_equal(nrow(dplyr::collect(tbl2)), 3L)
+})
+
+test_that("get_pumf: default connection refuses writes", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  tbl <- get_pumf("FAKE", "2099", cache_path = tmp)
+  on.exit(close_pumf(tbl))
+  expect_error(
+    DBI::dbExecute(tbl$src$con, "CREATE TABLE should_fail (x INTEGER)"),
+    regexp = "read[ _-]only"
+  )
+})
+
+test_that("get_pumf: cache hit leaves an already-open tbl on the same file valid", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  tbl1 <- get_pumf("FAKE", "2099", cache_path = tmp)
+  tbl2 <- get_pumf("FAKE", "2099", cache_path = tmp)
+  on.exit({ close_pumf(tbl2); close_pumf(tbl1) }, add = TRUE)
+
+  expect_equal(nrow(dplyr::collect(tbl1)), 3L)
+  expect_equal(nrow(dplyr::collect(tbl2)), 3L)
+})
+
+test_that("add_bootstrap_weights: clear error when another tbl holds the file", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  tbl   <- get_pumf("FAKE", "2099", cache_path = tmp)
+  other <- get_pumf("FAKE", "2099", cache_path = tmp)
+  on.exit(close_pumf(other), add = TRUE)
+
+  expect_error(
+    suppressWarnings(suppressMessages(
+      add_bootstrap_weights(tbl, weight_col = "WEIGHT", n_replicates = 4L))),
+    regexp = "held open by a read-only connection|locked by an open connection"
+  )
+})

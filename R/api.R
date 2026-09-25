@@ -99,10 +99,15 @@
 #' by a DuckDB file in the cache directory.  Subsequent calls reuse the cached
 #' DuckDB without re-downloading.
 #'
-#' The LFS is treated specially: all versions share a single `LFS.duckdb`
-#' database.  Pass `version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).
-#' `refresh = "auto"` downloads every available LFS version that is not yet in
-#' the database; this is only valid for LFS.
+#' The Labour Force Survey is treated specially: all versions share a single
+#' database, so the full history can be queried as one table.  Pass
+#' `version = "YYYY"` (annual) or `"YYYY-MM"` (monthly).  `"LFS"` covers
+#' 2006 onwards, from Statistics Canada.  `"LFS_HIST"` covers January 1976 to
+#' December 2005 in the legacy (pre-2017) layout, from the Borealis Dataverse.
+#' It is released monthly only, so a `"YYYY"` version loads that year's twelve
+#' months, and its labels are harmonised across months.
+#' `refresh = "auto"` loads every available version that is not yet in the
+#' database; this is only valid for `"LFS"` and `"LFS_HIST"`.
 #'
 #' @param series Survey series acronym, e.g. `"SFS"`, `"CHS"`, `"LFS"`,
 #'   `"Census"`, `"CPSS"`.  See [list_canpumf_collection()] for all supported
@@ -117,8 +122,9 @@
 #'   `.Rprofile` with `options(canpumf.cache_path = "<path>")`.
 #' @param refresh `FALSE` (default) reuses cached data.  `TRUE` clears the
 #'   DuckDB table and metadata and rebuilds from the already-extracted raw
-#'   files (does not re-download).  `"auto"` is accepted for LFS only and
-#'   downloads all available versions not yet in the database.
+#'   files (does not re-download).  `"auto"` is accepted for `"LFS"` and
+#'   `"LFS_HIST"` only and loads all available versions not yet in the
+#'   database.
 #' @param redownload If `TRUE`, delete the cached zip and extracted files and
 #'   re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
 #'   Not valid with `refresh = "auto"`.
@@ -134,6 +140,18 @@
 #'   passed (a message is emitted in that case).  Not supported for LFS.  For a
 #'   survey not in [list_canpumf_collection()], deposit the raw files under
 #'   `<cache_path>/<series>/<version>/` first (there is no download URL).
+#' @param borealis Load the data from the [Borealis](https://borealisdata.ca)
+#'   Dataverse instead of Statistics Canada: a dataset DOI (e.g.
+#'   `"doi:10.5683/SP3/LG7WKC"`) or a one-row tibble from
+#'   [list_borealis_pumf_catalogue()]. canpumf downloads the dataset's CSV data
+#'   file, its command files and documentation (see
+#'   [list_borealis_pumf_files()]). Without this argument Borealis is used
+#'   automatically only for versions StatCan does not post, such as the
+#'   1971--1986 Census PUMFs. When `version` names a registered survey, its
+#'   built-in configuration is replaced by auto-detection unless the registry
+#'   entry points at the same DOI; combine with `registry` to supply fixups.
+#'   A version already cached from another source is not replaced unless
+#'   `redownload = TRUE`. Not supported for LFS.
 #' @param module For multi-module surveys (several linked files in one DuckDB,
 #'   e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,
 #'   `CG6` and `CR` files join on `RECID`), selects which module table to
@@ -194,6 +212,7 @@ get_pumf <- function(series     = NULL,
                      read_only  = TRUE,
                      registry   = NULL,
                      module     = NULL,
+                     borealis   = NULL,
                      register_connection =
                        getOption("canpumf.register_connection", TRUE),
                      ...) {
@@ -205,30 +224,54 @@ get_pumf <- function(series     = NULL,
 
   if (is.null(series))
     stop("'series' must be specified (e.g. get_pumf(\"SFS\", \"2019\")).")
-  version <- pumf_resolve_version(series, version)
+  version <- pumf_resolve_version(series, version, cache_path)
   stopifnot(lang %in% c("eng", "fra"))
 
-  if (!is.null(module) && series == "LFS")
-    stop("'module' is not supported for LFS, which has a single shared table.",
+  if (!is.null(module) && .is_longitudinal(series))
+    stop("'module' is not supported for ", series,
+         ", which has a single shared table.",
          call. = FALSE)
 
   if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
       !identical(refresh, "auto"))
     stop("'refresh' must be FALSE, TRUE, or \"auto\".")
-  if (identical(refresh, "auto") && series != "LFS")
-    stop("refresh = \"auto\" is only valid for LFS. ",
-         "Use refresh = TRUE to rebuild a specific non-LFS survey version.")
+  if (identical(refresh, "auto") && !.is_longitudinal(series))
+    stop("refresh = \"auto\" is only valid for longitudinal series (",
+         paste(.pumf_longitudinal_series, collapse = ", "), "). ",
+         "Use refresh = TRUE to rebuild a specific survey version.")
   if (isTRUE(redownload) && identical(refresh, "auto"))
     stop("redownload = TRUE is not compatible with refresh = \"auto\". ",
-         "Call lfs_get_pumf() per version instead.")
+         "Call get_pumf() per version instead.")
 
   if (!is.null(registry)) {
     if (!inherits(registry, "pumf_registry_entry"))
       stop("'registry' must be created by pumf_registry_entry() or ",
            "pumf_registry().", call. = FALSE)
-    if (series == "LFS")
-      stop("'registry' overrides are not supported for LFS, which uses a ",
-           "dedicated pipeline.", call. = FALSE)
+    if (.is_longitudinal(series))
+      stop("'registry' overrides are not supported for ", series,
+           ", which uses the longitudinal pipeline.", call. = FALSE)
+  }
+
+  # get_pumf(borealis = ) becomes a registry override carrying an explicit
+  # Borealis source (see pumf_locate_or_download()).
+  user_registry <- registry
+  # A version previously loaded with `borealis =` keeps its Borealis source:
+  # its files and build do not match the built-in (StatCan) configuration, so
+  # reopening it without the argument re-applies the recorded DOI.
+  # redownload = TRUE discards the Borealis files and returns to the default.
+  if (is.null(borealis) && !isTRUE(redownload))
+    borealis <- .borealis_cached_doi(series, version, cache_path, registry)
+  if (!is.null(borealis)) {
+    if (.is_longitudinal(series))
+      stop("'borealis' is not supported for ", series, ".", call. = FALSE)
+    if (is.null(version))
+      stop("'version' must be specified with 'borealis'; it names the cache ",
+           "directory for the dataset.", call. = FALSE)
+    doi <- .borealis_doi_arg(borealis)
+    if (is.null(registry))
+      registry <- structure(list(), class = "pumf_registry_entry")
+    registry$borealis <- list(doi = doi, files = registry$borealis$files,
+                              explicit = TRUE)
   }
 
   # Optionally keep the DuckDB connection out of the RStudio Connections pane.
@@ -245,7 +288,7 @@ get_pumf <- function(series     = NULL,
   }
 
   # Resolve single-version non-LFS series so table_name and db_path are known.
-  if (series != "LFS" && is.null(version)) {
+  if (!.is_longitudinal(series) && is.null(version)) {
     collection <- list_canpumf_collection()
     rows <- filter(collection, .data$Acronym == series)
     if (nrow(rows) == 0L)
@@ -268,7 +311,7 @@ get_pumf <- function(series     = NULL,
     on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
     eff_rebuild <- isTRUE(refresh) || identical(refresh, "auto") ||
       isTRUE(redownload)
-    if (!eff_rebuild &&
+    if (!eff_rebuild && !is.null(user_registry) &&
         .duckdb_table_exists(.pumf_db_path(series, version, cache_path),
                              .pumf_table_name(series, version, lang)))
       message("A built table for ", series, " ", version, " [", lang,
@@ -282,17 +325,18 @@ get_pumf <- function(series     = NULL,
   # which tries to acquire a write lock even when no write is needed -- that
   # fails when a read-only connection from a previous get_pumf("LFS", ...) call
   # is still open.
-  if (series == "LFS") {
+  if (.is_longitudinal(series)) {
     # Degrade gracefully when Statistics Canada is unreachable (see the non-LFS
     # branch / get_pumf_connection): informative message + NULL, not an error.
     tbl <- tryCatch(
       suppressMessages(
-        lfs_get_pumf(version    = version,
-                     lang       = lang,
-                     cache_path = cache_path,
-                     refresh    = refresh,
-                     redownload = redownload,
-                     read_only  = read_only)
+        .long_get_pumf(.pumf_longitudinal_spec(series),
+                       version    = version,
+                       lang       = lang,
+                       cache_path = cache_path,
+                       refresh    = refresh,
+                       redownload = redownload,
+                       read_only  = read_only)
       ),
       canpumf_network_error = function(e) {
         message(conditionMessage(e)); NULL
@@ -309,29 +353,40 @@ get_pumf <- function(series     = NULL,
     return(tbl)
   }
 
-  # Ensure the DB is built and get a temporary read-write connection.
-  con <- suppressMessages(
-    get_pumf_connection(series     = series,
-                        version    = version,
+  # Ensure the DB is built and open it in the requested mode directly.  A write
+  # connection exists only inside pumf_build_duckdb() while a build/refresh
+  # actually writes, and is closed there; on a cache hit every connection is
+  # read-only end to end.  Routing through get_pumf_connection() instead would
+  # request read_only = FALSE even for pure reads, taking a write lock that
+  # conflicts with concurrent read-only sessions (e.g. rendering a notebook
+  # while the interactive session still holds tbls open) — the same reason the
+  # LFS branch above calls lfs_get_pumf() directly.
+  pipe_tbl <- tryCatch(
+    suppressMessages(
+      pumf_run_pipeline(series, version,
                         lang       = lang,
                         cache_path = cache_path,
                         refresh    = refresh,
-                        redownload = redownload)
-  )
-  if (is.null(con)) return(invisible(NULL))
+                        redownload = redownload,
+                        read_only  = read_only)
+    ),
+    canpumf_network_error = function(e) {
+      message(conditionMessage(e)); NULL
+    })
+  if (is.null(pipe_tbl)) return(invisible(NULL))
 
-  # Select the language table from the connection.  For multi-module surveys
-  # (e.g. GSS cycle 16) `module` selects which linked table to return; all
-  # modules share one DuckDB file and are joinable on RECID.  `.pumf_table_name`
-  # validates the module name against the registry.
+  # Select the language table.  For multi-module surveys (e.g. GSS cycle 16)
+  # `module` selects which linked table to return; all modules share one DuckDB
+  # file and are joinable on the module key.  The pipeline returns the primary
+  # module's tbl; a sibling module is opened on the same connection.
+  # `.pumf_table_name` validates the module name against the registry.
   table_name <- .pumf_table_name(series, version, lang, module)
   db_path    <- .pumf_db_path(series, version, cache_path)
 
-  if (read_only) {
-    # Re-open as read-only so callers cannot accidentally mutate the DB.
-    DBI::dbDisconnect(con, shutdown = TRUE)
-    tbl <- pumf_open_duckdb(db_path, table_name, read_only = TRUE)
+  if (is.null(module)) {
+    tbl <- pipe_tbl
   } else {
+    con <- pipe_tbl$src$con
     if (!DBI::dbExistsTable(con, table_name)) {
       DBI::dbDisconnect(con, shutdown = TRUE)
       stop("Table '", table_name, "' not found in ", db_path, ".")
@@ -450,40 +505,34 @@ pumf_module <- function(tbl, module) {
   series     <- prov$series
   version    <- prov$version
   cache_path <- prov$cache_path
-  if (series == "LFS") {
-    db_path <- file.path(cache_path, "LFS", "LFS.duckdb")
+  if (identical(series, "LFS_TIMELINE"))   # get_lfs_timeline()
+    return(as.data.frame(.lfs_timeline_ref("variables")))
+  if (.is_longitudinal(series)) {
+    spec    <- .pumf_longitudinal_spec(series)
+    db_path <- .long_db_path(spec, cache_path)
+    vt      <- spec$versions_table
     if (!file.exists(db_path))
-      stop("LFS database not found at '", db_path, "'.", call. = FALSE)
+      stop(series, " database not found at '", db_path, "'.", call. = FALSE)
     # Reuse the registered connection to avoid opening a second DuckDB instance.
     # Opening a new connection and disconnecting with shutdown=TRUE would
     # invalidate the existing tbl connection for the same file.
+    read_versions <- function(con) {
+      if (DBI::dbExistsTable(con, vt))
+        DBI::dbGetQuery(con, sprintf(
+          "SELECT version FROM %s ORDER BY survyear, survmnth", vt))$version
+      else character(0L)
+    }
     existing_con <- prov$con
     if (!is.null(existing_con) && DBI::dbIsValid(existing_con)) {
-      all_versions <- if (DBI::dbExistsTable(existing_con, "lfs_versions"))
-        DBI::dbGetQuery(
-          existing_con,
-          "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
-      else character(0L)
+      all_versions <- read_versions(existing_con)
     } else {
       con_tmp <- .duckdb_connect_quiet(db_path, read_only = TRUE)
-      all_versions <- if (DBI::dbExistsTable(con_tmp, "lfs_versions"))
-        DBI::dbGetQuery(
-          con_tmp,
-          "SELECT version FROM lfs_versions ORDER BY survyear, survmnth")$version
-      else character(0L)
+      all_versions <- read_versions(con_tmp)
       DBI::dbDisconnect(con_tmp, shutdown = TRUE)
     }
     if (length(all_versions) == 0L)
-      stop("No LFS versions found in the database.", call. = FALSE)
-    all_vars <- purrr::map(all_versions, function(v) {
-      md <- file.path(cache_path, "LFS", v, "metadata")
-      if (!dir.exists(md)) return(NULL)
-      tryCatch(read_metadata(md)$variables, error = function(e) NULL)
-    })
-    all_vars  <- do.call(rbind, all_vars[!vapply(all_vars, is.null, logical(1L))])
-    if (is.null(all_vars) || nrow(all_vars) == 0L)
-      stop("No LFS metadata found in any version directory.", call. = FALSE)
-    all_vars[!duplicated(all_vars$name, fromLast = TRUE), , drop = FALSE]
+      stop("No ", series, " versions found in the database.", call. = FALSE)
+    spec$variables(cache_path, all_versions)
   } else {
     # Multi-module surveys keep each secondary module's metadata in a
     # metadata/<module>/ subdir; the primary module uses metadata/.
@@ -519,7 +568,8 @@ pumf_module <- function(tbl, module) {
 # recently registered.  Falls back to the stored prov$module for tbls whose
 # base table can no longer be recovered (e.g. after a join).
 .pumf_tbl_module <- function(tbl, prov) {
-  if (identical(prov$series, "LFS")) return(prov$module)
+  if (.is_longitudinal(prov$series) || identical(prov$series, "LFS_TIMELINE"))
+    return(prov$module)
   reg  <- pumf_registry_lookup(prov$series, prov$version)
   mods <- .pumf_entry_modules(reg)
   if (is.null(mods)) return(prov$module)
@@ -939,7 +989,7 @@ add_bootstrap_weights <- function(tbl,
     NULL
   } else {
     strata_cols %||% reg$bsw_strata %||%
-      if (series == "LFS") c("SURVYEAR", "SURVMNTH") else NULL
+      if (.is_longitudinal(series)) c("SURVYEAR", "SURVMNTH") else NULL
   }
   if (!is.null(eff_strata)) {
     avail_cols <- DBI::dbListFields(con, table_name)
@@ -1193,6 +1243,10 @@ add_bootstrap_weights <- function(tbl,
     DBI::dbDisconnect(con, shutdown = TRUE)
 
   # --- Write BSW table and VIEW to DuckDB ------------------------------------
+  # Diagnose lock conflicts up front (another process, or another tbl still
+  # open on this file) with an actionable message instead of duckdb's raw
+  # lock/read-only error surfacing from the first write below.
+  .assert_duckdb_writable(db_path)
   rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
   on.exit(
     if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
@@ -1587,6 +1641,8 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
      envir = .pumf_con_registry, inherits = FALSE)
   if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
 
+  # Same up-front lock diagnosis as add_bootstrap_weights().
+  .assert_duckdb_writable(db_path)
   rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
   on.exit(
     if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
@@ -1677,18 +1733,30 @@ pumf_metadata <- function(series,
                            refresh    = FALSE,
                            redownload = FALSE,
                            registry   = NULL) {
-  version     <- pumf_resolve_version(series, version)
+  version     <- pumf_resolve_version(series, version, cache_path)
   if (!is.null(registry)) {
     if (!inherits(registry, "pumf_registry_entry"))
       stop("'registry' must be created by pumf_registry_entry() or ",
            "pumf_registry().", call. = FALSE)
-    if (series == "LFS")
-      stop("'registry' overrides are not supported for LFS.", call. = FALSE)
+    if (.is_longitudinal(series))
+      stop("'registry' overrides are not supported for ", series, ".",
+           call. = FALSE)
     .pumf_registry_override_set(series, version, registry)
     on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
   }
   reg         <- pumf_registry_lookup(series, version)
   eff_refresh <- refresh || redownload
+  if (.is_longitudinal(series)) {
+    version_dir <- tryCatch(
+      .pumf_longitudinal_spec(series)$prepare(version, cache_path = cache_path,
+                                              refresh = eff_refresh,
+                                              redownload = redownload),
+      canpumf_network_error = function(e) {
+        message(conditionMessage(e)); NULL
+      })
+    if (is.null(version_dir)) return(invisible(NULL))
+    return(read_metadata(file.path(version_dir, "metadata")))
+  }
   # Degrade gracefully when Statistics Canada is unreachable: message + NULL
   # rather than a hard error (consistent with get_pumf()).
   version_dir <- tryCatch(

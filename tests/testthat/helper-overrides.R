@@ -8,8 +8,10 @@
 #   na_values          — one row per sentinel value (variable = "")
 #   cols_swap          — one row per swapped pair (variable = lhs, value = rhs)
 #   rename             — one row per renamed pair (variable = old, value = new)
+#   rename_regex       — one row per pattern (variable = pattern, value = replacement)
 #   codes_supplement   — one row per supplemented (variable, val) pair
 #   missing_supplement — one row per variable (value = "lo-hi" range)
+#   missing_codes      — one row per (variable, code) pair
 #   labels_supplement  — one row per variable (value = supplied label_en)
 enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
   rows <- list()
@@ -34,14 +36,24 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
       for (i in seq_along(fx$cols_swap))
         add(series, version, "cols_swap",
             names(fx$cols_swap)[i], unname(fx$cols_swap[i]))
-    if (!is.null(fx$rename))
-      for (i in seq_along(fx$rename))
+    # [["rename"]], not $rename: `$` partial-matches, so an entry declaring only
+    # rename_regex would be enumerated under both types.
+    if (!is.null(fx[["rename"]]))
+      for (i in seq_along(fx[["rename"]]))
         add(series, version, "rename",
-            names(fx$rename)[i], unname(fx$rename[i]))
+            names(fx[["rename"]])[i], unname(fx[["rename"]][i]))
+    if (!is.null(fx$rename_regex))
+      for (i in seq_along(fx$rename_regex))
+        add(series, version, "rename_regex",
+            names(fx$rename_regex)[i], unname(fx$rename_regex[i]))
     if (!is.null(fx$missing_supplement))
       for (nm in names(fx$missing_supplement))
         add(series, version, "missing_supplement", nm,
             paste(fx$missing_supplement[[nm]], collapse = "-"))
+    if (!is.null(fx$missing_codes))
+      for (nm in names(fx$missing_codes))
+        for (val in fx$missing_codes[[nm]])
+          add(series, version, "missing_codes", nm, as.character(val))
     if (!is.null(fx$codes_supplement))
       for (nm in names(fx$codes_supplement)) {
         df <- fx$codes_supplement[[nm]]
