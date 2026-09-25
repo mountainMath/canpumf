@@ -10,7 +10,7 @@ directly.
 
 ``` r
 
-install.packages(canpumf)
+install.packages("canpumf")
 ```
 
 Alternatively the current development version of canpumf from
@@ -277,8 +277,10 @@ pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 ## Verified datasets
 
 The following datasets have been end-to-end tested (metadata parsed,
-data imported, DuckDB built) without errors or warnings. Versions marked
-**direct download** can be fetched automatically by
+data imported, DuckDB built) without errors or unexpected warnings.
+Known, benign warnings (e.g. no French translation for the 2021 Census
+individuals file) are documented in `tests/TEST_COVERAGE.md`. Versions
+marked **direct download** can be fetched automatically by
 [`get_pumf()`](https://mountainmath.github.io/canpumf/reference/get_pumf.md)
 (from Statistics Canada, or from Borealis where marked); others must be
 placed in the cache directory via Statistics Canada’s EFT portal.
@@ -286,12 +288,12 @@ placed in the cache directory via Statistics Canada’s EFT portal.
 | Survey | Series | Verified versions | Direct download |
 |----|----|----|:--:|
 | Labour Force Survey | LFS | annual and monthly files | ✓ |
-| Labour Force Survey, historical | LFS_HIST | monthly files 1976-01 to 2005-12 | ✓ (Borealis) |
+| Labour Force Survey, historical | LFS_HIST | monthly files 1976-01 to 2005-12 (validated against StatCan table 14-10-0287) | ✓ (Borealis) |
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
 | General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
-| General Social Survey — Aging and Social Support | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
+| General Social Survey — Caregiving (Aging and Social Support) | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
 | General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |
 | General Social Survey — Family | GSS | Cycle 10 (1995), Cycle 15 (2001), Cycle 25 (2011), Cycle 31 (2017) | ✓ |
 | General Social Survey — Social Identity | GSS | Cycle 17 (2003), Cycle 27 (2013), Cycle 35 (2020) | ✓ |
@@ -344,7 +346,7 @@ on CRAN and on [Github](https://github.com/mountainMath/cancensus).
 If you wish to cite the `canpumf` package in your work:
 
 von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R.
-v0.5.2. DOI 10.32614/CRAN.package.canpumf
+v0.6.0. DOI 10.32614/CRAN.package.canpumf
 
 A BibTeX entry for LaTeX users is
 
@@ -353,7 +355,7 @@ A BibTeX entry for LaTeX users is
         title = {canpumf: Import StatCan PUMF data into R},
         year = {2026},
         doi = {10.32614/CRAN.package.canpumf},
-        note = {R package version 0.5.2},
+        note = {R package version 0.6.0},
         url = {https://mountainmath.github.io/canpumf/},
       }
 

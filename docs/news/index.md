@@ -2,6 +2,8 @@
 
 ## canpumf 0.6.0
 
+CRAN release: 2026-09-25
+
 ### Historical Labour Force Survey and a 1976-onward LFS timeline
 
 The LFS microdata now span 50 years. The monthly public-use files for
