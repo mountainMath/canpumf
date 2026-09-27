@@ -709,10 +709,16 @@ pumf_locate_or_download <- function(series,
 # na_values: character vector of raw values that become NA (e.g. c("99999999", "88888888")).
 # missing_codes: named list VAR -> numeric codes that become NA in that column
 #   only, for variables whose sentinels do not form one contiguous range.
+# The sentinel values each rule blanks are returned in the "pumf_sentinels"
+# attribute of the result: a named list VAR -> numeric vector of nrow(data),
+# holding the code where a value became NA and NA elsewhere.  Stage 3 stores
+# them in the companion table (.sentinel_companion()).  Only variables in
+# which a rule fired are listed.
 .apply_numeric_conversion <- function(data, variables, na_values = character(0L),
                                       implied_decimals = FALSE,
                                       missing_codes = list()) {
-  num_vars <- variables[variables$type == "numeric", ]
+  num_vars  <- variables[variables$type == "numeric", ]
+  sentinels <- list()
   for (i in seq_len(nrow(num_vars))) {
     v   <- num_vars[i, ]
     col <- v$name
@@ -728,6 +734,7 @@ pumf_locate_or_download <- function(series,
       plain <- !is.na(vals) & !grepl(".", raw, fixed = TRUE)
       vals[plain] <- vals[plain] / 10^v$decimals
     }
+    vals0 <- vals
     if (!is.na(v$missing_low) && !is.na(v$missing_high))
       vals[!is.na(vals) & vals >= v$missing_low & vals <= v$missing_high] <-
         NA_real_
@@ -740,8 +747,15 @@ pumf_locate_or_download <- function(series,
       vals[!is.na(vals) & round(vals, 8) %in% round(as.numeric(mc), 8)] <-
         NA_real_
 
+    hit <- !is.na(vals0) & is.na(vals)
+    if (any(hit)) {
+      s <- rep(NA_real_, length(vals))
+      s[hit] <- vals0[hit]
+      sentinels[[col]] <- s
+    }
     data[[col]] <- vals
   }
+  attr(data, "pumf_sentinels") <- sentinels
   data
 }
 
@@ -772,6 +786,79 @@ pumf_locate_or_download <- function(series,
   out
 }
 
+# Companion table name for a data table ("eng" -> "pumf_sentinels_eng").
+.sentinel_table_name <- function(table_name) paste0("pumf_sentinels_", table_name)
+
+# Build the sentinel companion tibble from the "pumf_sentinels" attributes
+# collected in Stage 3: pumf_row_id plus one numeric column per variable in
+# which a sentinel was blanked, keeping only the rows where at least one
+# column is non-NA.  With no sentinels the result has the key column only.
+.sentinel_companion <- function(sentinels, n) {
+  out <- tibble::tibble(pumf_row_id = seq_len(n))
+  if (length(sentinels) == 0L) return(out[0L, , drop = FALSE])
+  sent <- tibble::as_tibble(sentinels)
+  keep <- rowSums(!is.na(sent)) > 0L
+  dplyr::bind_cols(out[keep, , drop = FALSE], sent[keep, , drop = FALSE])
+}
+
+# A sentinel code as the string the metadata spells it ("9999999", not
+# "1e+07"; "99.99" for a field read with implied decimals).
+.sentinel_key <- function(x)
+  vapply(x, function(v) format(v, scientific = FALSE, drop0trailing = TRUE),
+         character(1L))
+
+# The label of one sentinel code of one variable, in this order: the code's
+# label in codes.csv (the command file labelled it), the registry's
+# sentinel_labels for that variable, the registry's sentinel_labels for the
+# code across all variables, and finally the code itself as a string.
+# codes_var: the codes.csv rows of this variable; label_col: label_en/label_fr.
+.sentinel_label_one <- function(col, v, codes_var, label_col, sentinel_labels) {
+  pick <- function(lab) {
+    if (is.null(lab)) return(NULL)
+    l <- if (!is.null(names(lab)) && label_col %in% names(lab)) lab[[label_col]]
+         else if (!is.null(names(lab)) && "label_en" %in% names(lab)) lab[["label_en"]]
+         else lab[[1L]]
+    if (is.na(l) || !nzchar(l)) NULL else l
+  }
+  if (nrow(codes_var) > 0L) {
+    hit <- which(suppressWarnings(as.numeric(codes_var$val)) == v)
+    if (length(hit) > 0L) {
+      l <- codes_var[[label_col]][hit[1L]]
+      if (is.na(l) || !nzchar(l)) l <- codes_var$label_en[hit[1L]]
+      if (!is.na(l) && nzchar(l)) return(l)
+    }
+  }
+  key <- .sentinel_key(v)
+  pick(sentinel_labels[[col]][[key]]) %||%
+    pick(sentinel_labels[[key]]) %||%
+    key
+}
+
+# Turn every code column of the companion into a factor whose levels are the
+# codes' labels, in code order.  Written to DuckDB the factor becomes an ENUM,
+# so a count() of a sentinel column reads "Not available" / "Not applicable"
+# instead of 888888 / 999999.  Two codes with the same label share a level.
+# codes: the merged codes tibble; sentinel_labels: the registry data_fixups
+# field (see registry.R).
+.label_sentinel_companion <- function(sent, codes, label_col,
+                                      sentinel_labels = list()) {
+  cols <- setdiff(names(sent), "pumf_row_id")
+  if (length(cols) == 0L || nrow(sent) == 0L) return(sent)
+  if (is.null(codes)) codes <- tibble::tibble(name = character(), val = character(),
+                                              label_en = character(), label_fr = character())
+  if (!label_col %in% names(codes)) codes[[label_col]] <- NA_character_
+  for (col in cols) {
+    x    <- sent[[col]]
+    vals <- sort(unique(x[!is.na(x)]))
+    codes_var <- codes[codes$name == col, , drop = FALSE]
+    labs <- vapply(vals, function(v)
+      .sentinel_label_one(col, v, codes_var, label_col, sentinel_labels),
+      character(1L))
+    sent[[col]] <- factor(labs[match(x, vals)], levels = unique(labs))
+  }
+  sent
+}
+
 # Numeric code values labelled as true missing (English or French label), per
 # variable.  Returns a named list of numeric vectors.
 .label_missing_codes <- function(codes) {
@@ -791,13 +878,25 @@ pumf_locate_or_download <- function(series,
 # (registry-declared missing markers, e.g. SAS-style ".") become NA silently.
 # Factor levels are the complete ordered set from codes, not just those seen in
 # the data; this is the contract from test-factor-enum.R.
+# Values blanked by na_values in a labelled column are returned in the
+# "pumf_sentinels" attribute, as .apply_numeric_conversion() does for numeric
+# columns (numeric where the raw value parses as a number, else NA).
 .apply_code_labels <- function(data, codes, label_col, na_values = character(0L)) {
   char_cols  <- names(data)[vapply(data, is.character, logical(1L))]
   coded_cols <- intersect(char_cols, unique(codes$name))
+  sentinels  <- list()
 
   if (length(na_values) > 0L)
-    for (col in coded_cols)
-      data[[col]][trimws(data[[col]]) %in% na_values] <- NA_character_
+    for (col in coded_cols) {
+      raw <- trimws(data[[col]])
+      hit <- !is.na(raw) & raw %in% na_values
+      if (any(hit)) {
+        s <- rep(NA_real_, length(raw))
+        s[hit] <- suppressWarnings(as.numeric(raw[hit]))
+        sentinels[[col]] <- s
+        data[[col]][hit] <- NA_character_
+      }
+    }
 
   for (col in coded_cols) {
     col_codes <- codes[codes$name == col, ]
@@ -837,6 +936,7 @@ pumf_locate_or_download <- function(series,
 
     data[[col]] <- factor(lookup[raw_vals], levels = lvls)
   }
+  attr(data, "pumf_sentinels") <- sentinels
   data
 }
 
@@ -1244,7 +1344,22 @@ pumf_build_duckdb <- function(version_dir,
   data <- .apply_numeric_conversion(data, conv_vars, na_values = na_vals,
                                     implied_decimals = is_fwf,
                                     missing_codes = miss_codes)
+  sentinels <- attr(data, "pumf_sentinels") %||% list()
+  attr(data, "pumf_sentinels") <- NULL
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
+  sentinels <- c(sentinels, attr(data, "pumf_sentinels") %||% list())
+  attr(data, "pumf_sentinels") <- NULL
+
+  # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
+  # order) links the main table to its companion tables: the sentinel table
+  # written below and the bootstrap-weight tables of add_bootstrap_weights().
+  data <- dplyr::bind_cols(
+    tibble::tibble(pumf_row_id = seq_len(nrow(data))),
+    data[setdiff(names(data), "pumf_row_id")])
+  sent_table <- .sentinel_table_name(table_name)
+  sent_labels <- if (is.null(reg)) list() else reg$data_fixups$sentinel_labels %||% list()
+  sent_df    <- .label_sentinel_companion(
+    .sentinel_companion(sentinels, nrow(data)), codes, label_col, sent_labels)
 
   # Step 9: write to DuckDB
   .assert_duckdb_writable(db_path)
@@ -1253,6 +1368,21 @@ pumf_build_duckdb <- function(version_dir,
     DBI::dbRemoveTable(con, table_name)
   message("Writing DuckDB table '", table_name, "' ...")
   DBI::dbWriteTable(con, table_name, data)
+  DBI::dbExecute(con, sprintf(
+    'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', table_name))
+  # The sentinel companion: one row per record in which at least one value
+  # was a sentinel, one ENUM column per such variable holding the sentinel's
+  # label.  It is always written, so an empty table means "no sentinels", and
+  # a missing one means a cache built before 0.6.1.
+  DBI::dbWriteTable(con, sent_table, sent_df, overwrite = TRUE)
+  DBI::dbExecute(con, sprintf(
+    'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', sent_table))
+  sent_factor <- names(sent_df)[vapply(sent_df, is.factor, logical(1L))]
+  if (length(sent_factor) > 0L)
+    .ensure_enum_columns(
+      con, sent_table,
+      stats::setNames(lapply(sent_factor, function(c) levels(sent_df[[c]])),
+                      sent_factor))
 
   # Step 8: verify / enforce ENUM on factor columns
   factor_cols <- names(data)[vapply(data, is.factor, logical(1L))]

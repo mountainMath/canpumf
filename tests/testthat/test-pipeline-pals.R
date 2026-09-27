@@ -115,7 +115,7 @@ test_that("PALS 2001: SAS dataset is read and the collection prefix stripped", {
 
   cols <- colnames(tbl)
   expect_equal(dplyr::pull(dplyr::collect(dplyr::count(tbl))), 76260)
-  expect_length(cols, 758L)
+  expect_length(cols, 759L)   # 758 variables + pumf_row_id
 
   # Documented names, not the AB../AC.. collection names the dataset ships.
   expect_true(all(c("B1", "C28AA", "D8A") %in% cols))

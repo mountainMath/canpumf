@@ -113,9 +113,11 @@ the BSW columns -- so apply them manually to the returned tbl if needed.
 main table to the BSW table.  If `id_col` is `NULL` (the default):
   * The survey registry `bsw_join_key` is used when available (e.g.
     `"PEFAMID"` for SFS 2016-2023) -- no table modification needed.
-  * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
-    survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
-    fills the values is O(n).
+  * Otherwise the `pumf_row_id` column that every table built by canpumf
+    0.6.1 or later carries (see [pumf_sentinels()]) is used.
+  * A table built by an earlier version gets a `pumf_row_id` column
+    (DuckDB `rowid`) added.  The `ALTER TABLE ADD COLUMN` is O(1); the
+    `UPDATE` that fills the values is O(n).
 }
 \examples{
 \donttest{

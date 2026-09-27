@@ -11,7 +11,9 @@
 #   rename_regex       — one row per pattern (variable = pattern, value = replacement)
 #   codes_supplement   — one row per supplemented (variable, val) pair
 #   missing_supplement — one row per variable (value = "lo-hi" range)
-#   missing_codes      — one row per (variable, code) pair
+#   missing_codes      — one row per (variable, code) pair; an empty vector
+#                        (the variable has no missing code, the parsed range is
+#                        cleared) gives one row with value = ""
 #   labels_supplement  — one row per variable (value = supplied label_en)
 enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
   rows <- list()
@@ -51,15 +53,29 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
         add(series, version, "missing_supplement", nm,
             paste(fx$missing_supplement[[nm]], collapse = "-"))
     if (!is.null(fx$missing_codes))
-      for (nm in names(fx$missing_codes))
-        for (val in fx$missing_codes[[nm]])
+      for (nm in names(fx$missing_codes)) {
+        vals <- fx$missing_codes[[nm]]
+        # numeric(0) is itself a claim: the variable has no missing code and
+        # its parsed range is cleared (Census 1981 HHINC, whose declared 0 is
+        # the codebook's "ZERO", a value).
+        if (length(vals) == 0L) add(series, version, "missing_codes", nm, "")
+        for (val in vals)
           add(series, version, "missing_codes", nm, as.character(val))
+      }
     if (!is.null(fx$codes_supplement))
       for (nm in names(fx$codes_supplement)) {
         df <- fx$codes_supplement[[nm]]
         for (j in seq_len(nrow(df)))
           add(series, version, "codes_supplement", nm, df$val[j])
       }
+    # sentinel_labels: only the per-variable form is a claim about one
+    # variable's codes.  The code-keyed form ("9999999" = ...) is the survey-wide
+    # convention already recorded under the na_values rows for the same codes.
+    if (!is.null(fx$sentinel_labels))
+      for (nm in names(fx$sentinel_labels))
+        if (!grepl("^[0-9.-]+$", nm))
+          for (code in names(fx$sentinel_labels[[nm]]))
+            add(series, version, "sentinel_labels", nm, code)
     if (!is.null(fx$labels_supplement))
       for (nm in names(fx$labels_supplement))
         add(series, version, "labels_supplement", nm,

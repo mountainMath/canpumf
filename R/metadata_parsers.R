@@ -489,6 +489,26 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     }
   }
 
+  # ---- Undeclared trailing-underscore VALUE LABELS names ----
+  # Census 2011 (individuals, English) heads 13 VALUE LABELS blocks with a
+  # decorated name ("MOB1_", "PKID0_1_", "NOC11_") that no DATA LIST or
+  # VARIABLE LABELS statement declares; the French copy spells them correctly.
+  # Left alone, the codes attach to nothing, the variable is typed numeric and
+  # its French labels are lost too (the bilingual join is keyed on the English
+  # rows).  Rename a block to its undecorated name when that name is declared
+  # and the decorated one is not, so a genuine variable ending in "_" is never
+  # touched.
+  declared <- unique(c(variable_labels$name, if (!is.null(layout)) layout$name))
+  if (length(declared) > 0L && nrow(codes) > 0L) {
+    stripped <- sub("_+$", "", codes$name)
+    fix <- stripped != codes$name & stripped %in% declared &
+      !codes$name %in% declared
+    if (any(fix)) {
+      codes$name[fix] <- stripped[fix]
+      codes <- codes[!duplicated(paste(codes$name, codes$val)), ]
+    }
+  }
+
   # ---- Combine into variables tibble ----
   # Variables whose value labels are ALL sentinel labels (Not applicable, Valid
   # skip, etc.) are continuous numerics with a missing-value range, not

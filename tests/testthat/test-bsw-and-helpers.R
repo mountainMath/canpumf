@@ -349,6 +349,23 @@ test_that("add_bootstrap_weights (DuckDB): overwrite=TRUE regenerates from scrat
   expect_false(isTRUE(all.equal(.bsw_read(s)[, -1L], before[, -1L])))
 })
 
+test_that("add_bootstrap_weights (DuckDB): uses a pre-existing pumf_row_id as the key", {
+  df <- data.frame(pumf_row_id = 1:6, ID = 101:106, wt = c(1, 2, 3, 4, 5, 6))
+  s  <- .bsw_db(df)
+  t  <- .bsw_open(s)
+  out <- add_bootstrap_weights(t, weight_col = "wt", n_replicates = 3L, seed = 1L)
+  expect_length(grep("^CPBSW", colnames(out)), 3L)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  bsw <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_bsw_wt" ORDER BY 1')
+  # keyed by the 1-based column, not a 0-based rowid, and the main table is
+  # left as written (no second key column added)
+  expect_equal(names(bsw)[1L], "pumf_row_id")
+  expect_equal(bsw$pumf_row_id, 1:6)
+  expect_equal(sum(DBI::dbListFields(con, s$tname) == "pumf_row_id"), 1L)
+  close_pumf(out)
+})
+
 test_that("bsw_info: reports BSW tables after add_bootstrap_weights", {
   tmp <- withr::local_tempdir()
   .make_bsw_dir(tmp)

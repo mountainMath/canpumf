@@ -40,6 +40,8 @@ The registry (`R/registry.R`), the test suite, and the **Verified datasets** tab
 - **`close_pumf(x)`**: `x` is a lazy tbl (closes `x$src$con`) or a DuckDB connection (detected via `inherits(x, "DBIConnection")`). Registry cleanup is guarded with `exists()`, because `get_pumf_connection()` never registers. Only needed before writing to the same file from another tbl.
 - **`pumf_metadata()`**: runs Stages 1+2 and returns `list(variables, codes, layout)`. **`open_pumf_documentation()`**: opens cached PDF/TXT docs.
 - **`get_pumf_connection()`** (exported, in `R/pumf.R`): returns a **read-write** DuckDB connection and is not registered. **`read_pumf_data()`**: covers the case where the user deposits files manually.
+- **`pumf_sentinels(tbl, join = FALSE)`** (`R/api.R`): returns the sentinel companion table `pumf_sentinels_<table>` (one row per record with a sentinel, one ENUM column per affected variable holding the sentinel's label, `NA` where the main table has a value), or with `join = TRUE` the tbl left-joined on `pumf_row_id` with `_sentinel` suffixes. Errors for longitudinal series and for caches built before 0.6.1. Labels resolve in `.label_sentinel_companion()`: codes.csv label, then registry `sentinel_labels` (per variable, then per code), then the digits.
+- **`pumf_row_id`**: every Stage 3 table starts with this permanent BIGINT key (1-based record order). It is the join key for the sentinel companion and for bootstrap weights when the registry has no `bsw_join_key`.
 - **Bootstrap weights** (`R/api.R`): `add_bootstrap_weights(tbl, weight_col, ...)` works on DuckDB-backed or in-memory tbls. `remove_bootstrap_weights()` drops the BSW table and its companion view. `bsw_info()` summarises the BSW tables present.
 - **`get_lfs_timeline(lang, sources)`** (`R/lfs_timeline.R`): one lazy tbl over LFS_HIST + LFS with a curated common schema. It opens an in-memory DuckDB, ATTACHes both files `READ_ONLY` and builds a `UNION ALL BY NAME` view. Provenance series `"LFS_TIMELINE"` makes `label_pumf_columns()` work.
 - **Label repair**: `pumf_label_repairs()`, `pumf_freq_validation()` (see [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md)).
@@ -67,7 +69,7 @@ The registry (`R/registry.R`), the test suite, and the **Verified datasets** tab
 
 1. **`pumf_locate_or_download(series, version, cache_path, refresh)`**: ensures `<cache_path>/<series>/<version>/` exists with its extracted content. It resolves the download URL via `.pumf_resolve_collection_row()` (see [docs/registry.md](docs/registry.md#download-url-resolution-stage-1)).
 2. **`pumf_parse_metadata(version_dir, layout_mask, metadata_encoding, refresh)`**: detects and parses every metadata format, merges the results into the canonical CSVs in `<version_dir>/metadata/`, then runs the PDF cross-check.
-3. **`pumf_build_duckdb(version_dir, series, version, lang, layout_mask, file_mask, refresh)`**: reads the data file, joins the BSW weights, applies the fixups, numeric conversion and code labels, and writes `<version_dir>/<series>_<version>.duckdb`. It returns paths; `pumf_open_duckdb()` gives a lazy tbl.
+3. **`pumf_build_duckdb(version_dir, series, version, lang, layout_mask, file_mask, refresh)`**: reads the data file, joins the BSW weights, applies the fixups, numeric conversion and code labels, prepends `pumf_row_id`, and writes `<version_dir>/<series>_<version>.duckdb` plus the `pumf_sentinels_<table>` companion. `.apply_numeric_conversion()` and `.apply_code_labels()` return the values they blanked in a `pumf_sentinels` attribute; `.sentinel_companion()` and `.label_sentinel_companion()` turn them into the companion. It returns paths; `pumf_open_duckdb()` gives a lazy tbl.
 
 For multi-module surveys, Stages 2 and 3 run once per module into the same DuckDB file ([docs/multi-module.md](docs/multi-module.md)).
 
@@ -101,7 +103,7 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
   borealis_catalogue.rds    # persisted Borealis catalogue
   <series>/<version>/
     <original>.zip          # retained (Borealis: loose files + borealis_manifest.csv)
-    <series>_<version>.duckdb
+    <series>_<version>.duckdb   # tables eng/fra (+ pumf_sentinels_eng/fra companions, pumf_bsw_* weights)
     metadata/
       variables.csv, codes.csv
       layout.csv            # fixed-width data only

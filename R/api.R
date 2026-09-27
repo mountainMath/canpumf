@@ -815,9 +815,11 @@ close_pumf <- function(x) {
 #' main table to the BSW table.  If `id_col` is `NULL` (the default):
 #'   * The survey registry `bsw_join_key` is used when available (e.g.
 #'     `"PEFAMID"` for SFS 2016-2023) -- no table modification needed.
-#'   * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
-#'     survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
-#'     fills the values is O(n).
+#'   * Otherwise the `pumf_row_id` column that every table built by canpumf
+#'     0.6.1 or later carries (see [pumf_sentinels()]) is used.
+#'   * A table built by an earlier version gets a `pumf_row_id` column
+#'     (DuckDB `rowid`) added.  The `ALTER TABLE ADD COLUMN` is O(1); the
+#'     `UPDATE` that fills the values is O(n).
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()], **or** an
 #'   in-memory `data.frame` / `tibble`.
@@ -977,10 +979,15 @@ add_bootstrap_weights <- function(tbl,
   view_name  <- paste0(table_name, "_", sub("^pumf_", "", bsw_table))
 
   # --- Determine row-identifier column (needed for all paths) ---------------
+  # Registry key first; otherwise the permanent pumf_row_id that Stage 3 has
+  # written since 0.6.1.  Only a table built before that (or a synthetic one)
+  # falls through to the rowid-derived column added on the write path below.
   reg <- pumf_registry_lookup(series, version)
   if (is.null(id_col)) {
     if (!is.null(reg$bsw_join_key) && length(reg$bsw_join_key) == 1L)
       id_col <- reg$bsw_join_key
+    else if ("pumf_row_id" %in% DBI::dbListFields(con, table_name))
+      id_col <- "pumf_row_id"
   }
 
   # --- Resolve effective strata: explicit > registry > LFS default > none ---
@@ -1781,4 +1788,85 @@ pumf_metadata <- function(series,
                        metadata_encoding = reg$metadata_encoding,
                        refresh           = eff_refresh)
   read_metadata(file.path(version_dir, "metadata"))
+}
+
+
+# ---- pumf_sentinels -----------------------------------------------------
+
+#' Sentinel codes behind the NA values of a PUMF table
+#'
+#' Statistics Canada codes "not applicable", "not available", "not stated"
+#' and similar non-responses in numeric variables as sentinel values (Census
+#' income `9999999` / `8888888`, GSS `996`-`999`, ...).  [get_pumf()] converts
+#' them to `NA` so that sums and means are right, which loses the distinction
+#' between the reasons.  Every table built by canpumf 0.6.1 or later therefore
+#' carries a companion table with the raw sentinel codes, linked to the main
+#' table by the permanent `pumf_row_id` column (the record's 1-based position
+#' in the data file).  `pumf_sentinels()` returns that companion, or the main
+#' table joined with it.
+#'
+#' The companion has one row per record in which at least one value was a
+#' sentinel, and one column per variable in which a sentinel occurred, named
+#' as in the main table.  A cell holds the raw code (a `DOUBLE`) where the
+#' main table has `NA` for that reason, and `NA` where the main table has a
+#' value.  What each code means is documented in the survey's user guide and,
+#' where the command files label it, in `pumf_metadata()$codes`.  Values the
+#' data file could not parse as numbers, and unlabelled values of a
+#' categorical variable, are not sentinels and are not recorded.
+#'
+#' The companion covers the sentinel rules Stage 3 applies: declared
+#' `MISSING VALUES` ranges, labelled missing codes, and the registry's
+#' `na_values` / `missing_codes` fixups (see `vignette("pipeline")`).  It is
+#' not available for the longitudinal series (`"LFS"`, `"LFS_HIST"`), whose
+#' shared databases are appended month by month.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
+#' @param join If `TRUE`, return `tbl` left-joined with the companion on
+#'   `pumf_row_id`; the sentinel columns are suffixed `_sentinel`
+#'   (`INCTAX_sentinel`).  Apply it before [label_pumf_columns()], or the
+#'   suffixed columns keep their coded names.
+#'
+#' @return A lazy `dplyr::tbl()` on the same connection as `tbl`: the sentinel
+#'   companion (columns `pumf_row_id` plus one per affected variable), or with
+#'   `join = TRUE` the input joined with it.  An error is raised for a table
+#'   built by canpumf before 0.6.1; rebuild it with `refresh = TRUE`.
+#'
+#' @examples
+#' \dontrun{
+#' census <- get_pumf("Census", "2011 (individuals)")
+#' sent   <- pumf_sentinels(census)
+#' # how many NA incomes are "not available" (8s) vs "not applicable" (9s)?
+#' sent |> dplyr::count(TOTINC) |> dplyr::collect()
+#'
+#' # keep the reason next to the value
+#' census |>
+#'   pumf_sentinels(join = TRUE) |>
+#'   dplyr::filter(is.na(TOTINC)) |>
+#'   dplyr::count(TOTINC_sentinel)
+#' }
+#' @export
+pumf_sentinels <- function(tbl, join = FALSE) {
+  if (!inherits(tbl, "tbl_sql"))
+    stop("'tbl' must be a lazy tbl returned by get_pumf().", call. = FALSE)
+  prov <- .pumf_lookup_con(tbl$src$con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  if (.is_longitudinal(prov$series))
+    stop("pumf_sentinels() is not available for the longitudinal series (",
+         prov$series, ").", call. = FALSE)
+  table_name <- .pumf_table_name(prov$series, prov$version, prov$lang %||% "eng",
+                                 prov$module)
+  sent_table <- .sentinel_table_name(table_name)
+  con <- tbl$src$con
+  if (!DBI::dbExistsTable(con, sent_table))
+    stop("No sentinel table for ", prov$series, " ", prov$version,
+         ": the database was built by an earlier canpumf version. ",
+         "Rebuild it with get_pumf(..., refresh = TRUE).", call. = FALSE)
+  sent <- dplyr::tbl(con, sent_table)
+  if (!join) return(sent)
+  if (!"pumf_row_id" %in% colnames(tbl))
+    stop("'tbl' has no pumf_row_id column to join on; pass the tbl before ",
+         "select() drops it.", call. = FALSE)
+  dplyr::left_join(tbl, sent, by = "pumf_row_id", suffix = c("", "_sentinel"))
 }

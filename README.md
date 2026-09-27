@@ -38,6 +38,13 @@ On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connect
 options("canpumf.register_connection" = TRUE)
 ```
 
+Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its companion tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a companion table: `pumf_sentinels(tbl)` returns it, with one labelled column per affected variable, and `pumf_sentinels(tbl, join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns.
+
+```r
+census <- get_pumf("Census", "2011 (individuals)")
+pumf_sentinels(census) |> count(TOTINC)    # "Not available" vs "Not applicable"
+```
+
 ## Basic usage
 
 Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.

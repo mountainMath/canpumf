@@ -29,7 +29,17 @@
 #               variables whose sentinels do not form a single contiguous range
 #               (PALS 2006 AUDE_Q02: -5/-6/-7 and 998/999 straddle hours 1-97,
 #               so the derived [-7, 999] range would NA the whole column).
-#               Replaces any range derived or parsed for that variable.
+#               Replaces any range derived or parsed for that variable.  An
+#               empty vector (HHINC = numeric(0)) clears the range and declares
+#               no code: the variable's declared "missing" value is a value
+#               (Census 1981 income "ZERO" 0).
+#   sentinel_labels: labels for sentinel codes the source metadata does not
+#               label, shown in the sentinel companion table (pumf_sentinels()).
+#               A named list keyed by code string ("9999999" = c(label_en=,
+#               label_fr=)), applying to every variable, or by variable name
+#               (HRSWK = list("0" = c(label_en=))) for one variable.  The
+#               command file's own label for the code always wins; an unlabelled
+#               code is shown as its digits.  Changes no data value.
 #   labels_supplement: named list c(VAR = c(label_en=, label_fr=)) supplying
 #               variable labels the source metadata leaves blank (e.g. a weight
 #               variable with an empty Concept line in the PDF codebook).  Fills
@@ -188,8 +198,107 @@
 # categorical), 2010 and earlier use different names (e.g. DH1GHHSZ) that are
 # fully labeled categoricals needing no fixup.
 
-.census_fixup_8 <- list(na_values = c("99999999", "88888888"))
-.census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
+# Census convention, stated in every user guide: a dollar field of all 9s is
+# "Not applicable" and all 8s is "Not available".  The command files declare
+# none of these, so the companion table's labels come from here (sized 2-8
+# digits so that the missing_codes below and the na_values share one list).
+.census_sentinel_labels <- c(
+  stats::setNames(
+    rep(list(c(label_en = "Not applicable", label_fr = "Sans objet")), 7L),
+    strrep("9", 2:8)),
+  stats::setNames(
+    rep(list(c(label_en = "Not available", label_fr = "Non disponible")), 7L),
+    strrep("8", 2:8)))
+.census_fixup_8 <- list(na_values = c("99999999", "88888888"),
+                        sentinel_labels = .census_sentinel_labels)
+.census_fixup_7 <- list(na_values = c("9999999",  "8888888"),
+                        sentinel_labels = .census_sentinel_labels)
+
+# Census 2006/2011: sentinels narrower than the 7-char income fields.  The
+# SPSS command files declare no MISSING VALUES and label none of these, so the
+# 7-digit na_values guard above leaves them in place (issue #24).  The user
+# guides document each one, sized to its field: "Not applicable" (all 9s) and
+# "Not available" (all 8s) for the 6-, 5-, 4- and 3-char dollar amounts, and
+# the 2006 individuals' hours (999 = not applicable, under 15 years) and weeks
+# worked (99).  2006 FCOND has no code list in its guide, but is reported for
+# condominium owners only and carries 999/888 exactly where the 2011 guide
+# documents them.  Each (variable, code) pair has a row in
+# tests/testthat/override_verification.csv pointing at the guide page.
+.census_2006_ind_missing <- list(
+  GROSRT = c(8888, 9999), OMP = c(8888, 9999),
+  HRSWRK = 999, WKSWRK = 99
+)
+.census_2006_hier_missing <- list(
+  GROSRT = c(8888, 9999), OMP = c(8888, 9999), FCOND = c(888, 999)
+)
+.census_2011_ind_missing <- c(
+  lapply(stats::setNames(nm = c("INCTAX", "INVST", "OTINC", "RETIR", "SEMPI",
+                                "TOTINC_AT")),
+         function(v) c(888888, 999999)),
+  lapply(stats::setNames(nm = c("CHDBN", "CHLDC", "CQPPB", "EICBN", "GOVTI",
+                                "GTRFS", "OASGI")),
+         function(v) c(88888, 99999)),
+  list(GROSRT = c(8888, 9999), OMP = c(8888, 9999))
+)
+.census_2011_hier_missing <- list(
+  EFDIMBM = 888888,
+  INCTAX = c(888888, 999999), TOTINC_AT = c(888888, 999999),
+  GTRFS = c(88888, 99999),
+  FCOND = c(888, 999),
+  GROSRT = c(8888, 9999), OMP = c(8888, 9999)
+)
+
+# Census 1981: the numeric variables whose codes the codebooks flag M, and
+# what happens to each (every codebook line is cited in the override ledger).
+#  * "NOT APPLICABLE" (hours 999, weeks 99, incomes 999999 / 99999, ages 0 in
+#    the individuals file and 99 in the household file) is a non-response: NA,
+#    labelled in the sentinel companion.
+#  * "ZERO", "ZERO HOURS", "ZERO WEEKS" (the 0 of every income and hours/weeks
+#    variable) is flagged M and declared missing in the SPSS files
+#    ("TOTINC ( 0,999999 )", "HHINC ( 0 )") because it is excluded from the
+#    codebook means, but a zero income or zero hours is a value.  It stays 0:
+#    the missing_codes below replace the parsed [0, 0] range with the NOT
+#    APPLICABLE code alone, or with no code at all (numeric(0)) where the ZERO
+#    code is the only one declared.
+# (.spss_parse_missing() keeps only the first value of a two-value list, so
+# without the override the 0 was blanked and the 999 survived as hours.)
+# The data files code the income NOT APPLICABLE (persons under 15 and
+# institutional residents; family members a census family does not have) as
+# 0, not as the codebook's 999999 / 99999, in the EFT fixed-width files as in
+# the Borealis CSVs.  Those codes never occur, so the income variables carry 0
+# for both "zero" and "not applicable" and have no sentinels.  The EFT and
+# Borealis command files declare the same lists.
+.census_1981_ind_na <- c(
+  HRSWK = 999, WKSWK = 99,
+  TOTINC = 999999, WAGES = 999999, SELFEMP = 999999, INVST = 999999,
+  OASGI = 99999, FAMAL = 99999, UICBN = 99999, GOVTI = 99999, RETIR = 99999,
+  AGEHMLP = 0, AGEWFLP = 0, AGEHHM = 0
+)
+.census_1981_hhld_na <- c(
+  HRSWKHMP = 999, HRSWKWFP = 999, WKSWKHMP = 99, WKSWKWFP = 99,
+  AGEHMLP = 99, AGEWFLP = 99,
+  CFHTOTIN = 999999, CFWTOTIN = 999999, CFLTOTIN = 999999,
+  CFHWAGES = 999999, CFHSEINC = 999999, CFWWAGES = 999999, CFWSEINC = 999999,
+  CFLWAGES = 999999, CFLSEINC = 999999
+)
+# Household-file incomes whose only declared missing value is the ZERO code.
+.census_1981_hhld_zero <- c("HHINC", "CFINC", "CFWAGES", "CFSELFEM", "CFINVST",
+                            "CFGOVTI", "CFRETIR")
+.census_1981_fixups <- function(na, zero_only = character(0L)) {
+  list(
+    missing_codes = c(
+      as.list(na),
+      stats::setNames(rep(list(numeric(0L)), length(zero_only)), zero_only)),
+    # The codebook's wording, in its upper case like the rest of the 1981
+    # labels.  English only, as is the 1981 release.
+    sentinel_labels = lapply(as.list(na), function(code)
+      stats::setNames(list(c(label_en = "NOT APPLICABLE")),
+                      format(code, scientific = FALSE)))
+  )
+}
+.census_1981_ind_fixups  <- .census_1981_fixups(.census_1981_ind_na)
+.census_1981_hhld_fixups <- .census_1981_fixups(.census_1981_hhld_na,
+                                                .census_1981_hhld_zero)
 
 # 1971: SUBSAMPL is a sub-sample index, 1-5 for individuals/families and 0 for
 # households.  The household files hold only the unlabelled 0, so it is forced
@@ -1207,24 +1316,30 @@
     data_fixups = .census_fixup_8),
 
   # 2011 NHS: fixed-width .dat, 7-char income fields
+  # 2011/2006: narrower dollar, hours and weeks fields carry their own
+  # sentinels (see .census_20xx_*_missing above).
   "Census/2011 (individuals)" = .make_entry("Census", "2011 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7,
+                    list(missing_codes = .census_2011_ind_missing))),
 
   "Census/2011 (hierarchical)" = .make_entry("Census", "2011 (hierarchical)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7,
+                    list(missing_codes = .census_2011_hier_missing))),
 
   # 2006: fixed-width .dat, 7-char income fields
   "Census/2006 (individuals)" = .make_entry("Census", "2006 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7,
+                    list(missing_codes = .census_2006_ind_missing))),
 
   # MORGH code 8 is absent from the SPSS labels; the PDF user guide documents
   # it as "Not available" / "Non disponible" (freq 9,353).
   "Census/2006 (hierarchical)" = .make_entry("Census", "2006 (hierarchical)",
     file_mask   = "\\.dat",
     data_fixups = c(.census_fixup_7, list(
+      missing_codes    = .census_2006_hier_missing,
       codes_supplement = list(
         MORGH = data.frame(val = "8", label_en = "Not available",
                            label_fr = "Non disponible", stringsAsFactors = FALSE)
@@ -1360,7 +1475,7 @@
   "Census/1981/individuals" = .make_entry("Census", "1981/individuals",
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
-    data_fixups     = list(
+    data_fixups     = c(list(
       # In the PDF record layout the mnemonics use FA*=father/husband and
       # MA*=mother/wife (e.g. WKACTFA at 162-163 is the husband's 10-code work
       # activity; WKACTMA at 164-165 the wife's 12-code FT/PT scheme).  The SPS
@@ -1372,12 +1487,13 @@
       # schemes: SPS MAOCC81 carries the husband's 0-17 occupation codes that
       # the PDF documents at positions 158-159).  Note: as a result canpumf's
       # WKACTMA/FAOCC81/FALFACT etc. are the PDF's WKACTFA/MAOCC81/MALFACT.
-      cols_swap = c(WKACTMA = "WKACTFA", FAOCC81 = "MAOCC81", FALFACT = "MALFACT")
-    )),
+      cols_swap = c(WKACTMA = "WKACTFA", FAOCC81 = "MAOCC81", FALFACT = "MALFACT")),
+      .census_1981_ind_fixups)),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",
     bundle_sps_mask = "hhmdf81",
-    file_mask       = "^HHMDF81\\.DAT$"),
+    file_mask       = "^HHMDF81\\.DAT$",
+    data_fixups     = .census_1981_hhld_fixups),
 
   "Census/1976/individuals" = .make_entry("Census", "1976/individuals",
     bundle_sps_mask = "indiv76",
@@ -1466,11 +1582,15 @@
       "WAGEH", "WAGEW", "SELFH", "SELFW", "INVSTH", "INVSTW",
       "OMPC", "MPPITC", "GROSRTC", "RENTC", "VALUEC"
     ))),
+  # 1981: two-value MISSING VALUES lists (0 and 999/99) and zero incomes, see
+  # .census_1981_*_na and .census_1981_hhld_zero.
   "Census/1981 (individuals)" = .make_entry("Census", "1981 (individuals)",
-    borealis = list(doi = "doi:10.5683/SP3/XHTFC8")),
+    borealis    = list(doi = "doi:10.5683/SP3/XHTFC8"),
+    data_fixups = .census_1981_ind_fixups),
   # One combined "Households and Family File", as in the EFT bundle.
   "Census/1981 (households)" = .make_entry("Census", "1981 (households)",
-    borealis = list(doi = "doi:10.5683/SP3/WECYST")),
+    borealis    = list(doi = "doi:10.5683/SP3/WECYST"),
+    data_fixups = .census_1981_hhld_fixups),
   "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
     borealis = list(doi = "doi:10.5683/SP3/ZX0MPJ")),
   "Census/1976 (households)" = .make_entry("Census", "1976 (households)",
@@ -1945,7 +2065,8 @@ pumf_registry_keys <- function() {
 #'   declared, so it can never collide with a correctly-named column.
 #'   `missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
 #'   values, for variables whose sentinels do not form one contiguous range (and
-#'   which a single `missing_low`/`missing_high` pair therefore cannot express).
+#'   which a single `missing_low`/`missing_high` pair therefore cannot express);
+#'   an empty vector keeps every value of the variable.
 #' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
 #'   bundled-archive and documentation options.
 #' @param download_format Format bundle to download when Statistics Canada

@@ -255,6 +255,23 @@ test_that("parse_spss_mono: 2016-style VARIABLE LABELS (double quotes, no indent
   expect_equal(m$variables$label_en[m$variables$name == "WAGE"],   "Total employment income")
 })
 
+test_that("parse_spss_mono: undeclared trailing-underscore VALUE LABELS names attach to the declared variable", {
+  # Census 2011 (individuals, English) heads 13 VALUE LABELS blocks with
+  # "MOB1_", "PKID0_1_", ... while DATA LIST and VARIABLE LABELS declare MOB1,
+  # PKID0_1.  The codes must land on the declared names; a variable whose name
+  # genuinely ends in "_" (FLAG_) is declared and must not be touched.
+  m <- canpumf:::parse_spss_mono(fx("trailing_underscore_en.sps"))
+
+  expect_false(any(c("MOB1_", "PKID0_1_") %in% m$codes$name))
+  expect_setequal(m$codes$val[m$codes$name == "MOB1"],    c("1", "2", "8", "9"))
+  expect_setequal(m$codes$val[m$codes$name == "PKID0_1"], c("0", "1", "8", "9"))
+  expect_equal(m$codes$label_en[m$codes$name == "MOB1" & m$codes$val == "8"],
+               "Not available")
+  expect_setequal(m$codes$val[m$codes$name == "FLAG_"], c("0", "1"))
+  expect_setequal(m$codes$val[m$codes$name == "SEX"],   c("1", "2"))
+  expect_setequal(m$variables$name, c("MOB1", "PKID0_1", "FLAG_", "SEX"))
+})
+
 test_that("parse_spss_mono: canonical schema returned", {
   m <- canpumf:::parse_spss_mono(fx("simple_en.sps"))
 

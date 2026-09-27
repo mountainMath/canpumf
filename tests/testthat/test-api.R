@@ -531,3 +531,82 @@ test_that("add_bootstrap_weights: clear error when another tbl holds the file", 
     regexp = "held open by a read-only connection|locked by an open connection"
   )
 })
+
+
+# ---- pumf_sentinels ----------------------------------------------------------
+
+# A DuckDB with a labelled main table and its sentinel companion, registered
+# with provenance as get_pumf() would.
+.sentinel_db <- function(with_companion = TRUE, env = parent.frame()) {
+  cache <- withr::local_tempdir(.local_envir = env)
+  s <- list(cache = cache, series = "SENT", version = "2099", lang = "eng")
+  s$db_path <- .pumf_db_path(s$series, s$version, cache)
+  dir.create(dirname(s$db_path), recursive = TRUE, showWarnings = FALSE)
+  s$tname <- .pumf_table_name(s$series, s$version, s$lang)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path)
+  DBI::dbWriteTable(con, s$tname,
+    data.frame(pumf_row_id = 1:4, INC = c(10, NA, NA, 40), HRS = c(NA, 2, 3, 4)))
+  if (with_companion)
+    DBI::dbWriteTable(con, .sentinel_table_name(s$tname),
+      data.frame(pumf_row_id = c(1L, 2L, 3L),
+                 INC = factor(c(NA, "Not available", "Not applicable")),
+                 HRS = factor(c("Not applicable", NA, NA))))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path, read_only = TRUE)
+  .pumf_register_con(con, s$series, s$version, cache, s$lang)
+  dplyr::tbl(con, s$tname)
+}
+
+test_that("pumf_sentinels: returns the companion table on the same connection", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  sent <- pumf_sentinels(t)
+  expect_s3_class(sent, "tbl_sql")
+  expect_identical(sent$src$con, t$src$con)
+  d <- dplyr::collect(dplyr::arrange(sent, pumf_row_id))
+  expect_equal(d$pumf_row_id, c(1, 2, 3))
+  expect_equal(as.character(d$INC), c(NA, "Not available", "Not applicable"))
+})
+
+test_that("pumf_sentinels: join = TRUE suffixes the sentinel columns", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  j <- dplyr::collect(dplyr::arrange(pumf_sentinels(t, join = TRUE), pumf_row_id))
+  expect_true(all(c("INC", "INC_sentinel", "HRS", "HRS_sentinel") %in% names(j)))
+  expect_equal(nrow(j), 4L)
+  expect_equal(j$INC, c(10, NA, NA, 40))
+  expect_equal(as.character(j$INC_sentinel),
+               c(NA, "Not available", "Not applicable", NA))
+  # composes with dplyr verbs applied first
+  f <- t |> dplyr::filter(is.na(INC)) |> pumf_sentinels(join = TRUE) |>
+    dplyr::count(INC_sentinel) |> dplyr::collect()
+  expect_equal(nrow(f), 2L)
+})
+
+test_that("pumf_sentinels: join = TRUE needs pumf_row_id in the tbl", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  expect_error(pumf_sentinels(dplyr::select(t, INC), join = TRUE), "pumf_row_id")
+})
+
+test_that("pumf_sentinels: errors on a table built without a companion", {
+  t <- .sentinel_db(with_companion = FALSE)
+  on.exit(close_pumf(t))
+  expect_error(pumf_sentinels(t), "refresh = TRUE")
+})
+
+test_that("pumf_sentinels: errors on a data.frame or a tbl without provenance", {
+  expect_error(pumf_sentinels(data.frame(x = 1)), "lazy tbl")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, "t", data.frame(X = 1L))
+  expect_error(pumf_sentinels(dplyr::tbl(con, "t")), "provenance")
+})
+
+test_that("pumf_sentinels: refuses the longitudinal series", {
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, "lfs_eng", data.frame(X = 1L))
+  .pumf_register_con(con, "LFS", "2024-01", tempdir(), "eng")
+  expect_error(pumf_sentinels(dplyr::tbl(con, "lfs_eng")), "longitudinal")
+})

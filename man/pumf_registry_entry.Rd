@@ -52,7 +52,8 @@ it lands on a name the metadata declares and the current name is not itself
 declared, so it can never collide with a correctly-named column.
 `missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
 values, for variables whose sentinels do not form one contiguous range (and
-which a single `missing_low`/`missing_high` pair therefore cannot express).}
+which a single `missing_low`/`missing_high` pair therefore cannot express);
+an empty vector keeps every value of the variable.}
 
 \item{bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask}{Advanced
 bundled-archive and documentation options.}

@@ -648,3 +648,134 @@ test_that("pumf_run_pipeline: metadata_encoding passed from registry", {
     formals(canpumf:::pumf_parse_metadata)[["metadata_encoding"]]
   )
 })
+
+
+# ---- sentinel companion ------------------------------------------------------
+
+test_that(".apply_numeric_conversion: records the blanked sentinels per column", {
+  vars <- tibble::tibble(
+    name = c("INC", "HRS"), type = "numeric", decimals = NA_integer_,
+    missing_low = c(NA_real_, 998), missing_high = c(NA_real_, 999))
+  data <- tibble::tibble(INC = c("100", "9999999", "8888888", "200"),
+                         HRS = c("40", "999", "998", "12"))
+  out  <- canpumf:::.apply_numeric_conversion(data, vars,
+                                              na_values = c("9999999", "8888888"))
+  sent <- attr(out, "pumf_sentinels")
+  expect_named(sent, c("INC", "HRS"))
+  expect_equal(sent$INC, c(NA, 9999999, 8888888, NA))
+  expect_equal(sent$HRS, c(NA, 999, 998, NA))
+  expect_equal(out$INC, c(100, NA, NA, 200))
+})
+
+test_that(".apply_numeric_conversion: a column without sentinels is not recorded", {
+  vars <- tibble::tibble(name = "X", type = "numeric", decimals = NA_integer_,
+                         missing_low = NA_real_, missing_high = NA_real_)
+  out  <- canpumf:::.apply_numeric_conversion(tibble::tibble(X = c("1", "2")), vars)
+  expect_length(attr(out, "pumf_sentinels"), 0L)
+})
+
+test_that(".apply_numeric_conversion: an unparseable value is not a sentinel", {
+  vars <- tibble::tibble(name = "X", type = "numeric", decimals = NA_integer_,
+                         missing_low = NA_real_, missing_high = NA_real_)
+  out  <- suppressWarnings(canpumf:::.apply_numeric_conversion(
+    tibble::tibble(X = c("1", "abc", "")), vars))
+  expect_length(attr(out, "pumf_sentinels"), 0L)
+})
+
+test_that(".apply_code_labels: records na_values blanked in labelled columns", {
+  codes <- tibble::tibble(name = "PROV", val = c("10", "35"),
+                          label_en = c("NL", "ON"), label_fr = c("TN", "ON"))
+  data  <- tibble::tibble(PROV = c("10", "99", "35"))
+  out   <- canpumf:::.apply_code_labels(data, codes, "label_en", na_values = "99")
+  expect_equal(attr(out, "pumf_sentinels")$PROV, c(NA, 99, NA))
+  expect_equal(as.character(out$PROV), c("NL", NA, "ON"))
+})
+
+test_that(".sentinel_companion: keeps only rows with a sentinel", {
+  sent <- list(A = c(NA, 9, NA, 9), B = c(8, NA, NA, 9))
+  out  <- canpumf:::.sentinel_companion(sent, 4L)
+  expect_equal(out$pumf_row_id, c(1L, 2L, 4L))
+  expect_equal(out$A, c(NA, 9, 9))
+  expect_equal(out$B, c(8, NA, 9))
+  empty <- canpumf:::.sentinel_companion(list(), 4L)
+  expect_equal(nrow(empty), 0L)
+  expect_named(empty, "pumf_row_id")
+})
+
+test_that(".label_sentinel_companion: codes.csv label wins, then registry, then digits", {
+  sent  <- tibble::tibble(pumf_row_id = 1:4,
+                          INC = c(9999999, 8888888, NA, 77),
+                          HRS = c(NA, 999, 0, NA))
+  codes <- tibble::tibble(name = "HRS", val = "999",
+                          label_en = "Not applicable", label_fr = "Sans objet")
+  labs  <- list("9999999" = c(label_en = "Not applicable", label_fr = "Sans objet"),
+                "8888888" = c(label_en = "Not available"),
+                HRS = list("0" = c(label_en = "Zero hours")))
+  en <- canpumf:::.label_sentinel_companion(sent, codes, "label_en", labs)
+  expect_true(is.factor(en$INC))
+  expect_equal(as.character(en$INC),
+               c("Not applicable", "Not available", NA, "77"))
+  expect_equal(levels(en$INC), c("77", "Not available", "Not applicable"))
+  expect_equal(as.character(en$HRS), c(NA, "Not applicable", "Zero hours", NA))
+  fr <- canpumf:::.label_sentinel_companion(sent, codes, "label_fr", labs)
+  # label_fr where given, label_en as the fallback
+  expect_equal(as.character(fr$INC), c("Sans objet", "Not available", NA, "77"))
+  expect_equal(as.character(fr$HRS), c(NA, "Sans objet", "Zero hours", NA))
+})
+
+test_that(".label_sentinel_companion: same label for two codes gives one level", {
+  sent  <- tibble::tibble(pumf_row_id = 1:2, X = c(99, 999))
+  labs  <- list("99" = c(label_en = "NA"), "999" = c(label_en = "NA"))
+  out   <- canpumf:::.label_sentinel_companion(sent, NULL, "label_en", labs)
+  expect_equal(levels(out$X), "NA")
+  expect_equal(as.character(out$X), c("NA", "NA"))
+})
+
+test_that("pumf_build_duckdb: writes pumf_row_id and the sentinel companion as ENUM", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  meta <- file.path(vdir, "metadata")
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "INC"), label_en = c("Province", "Income"),
+    label_fr = c("Province", "Revenu"), type = c("character", "numeric"),
+    decimals = NA_integer_, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(PROV = c("10", "35", "10"),
+                                  INC  = c("100", "9999999", "8888888")),
+                   file.path(vdir, "survey.csv"))
+  fx <- list(na_values = c("9999999", "8888888"),
+             sentinel_labels = list(
+               "9999999" = c(label_en = "Not applicable", label_fr = "Sans objet")))
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                   data_fixups = fx, refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  main <- DBI::dbGetQuery(con, 'SELECT * FROM "eng" ORDER BY pumf_row_id')
+  expect_equal(names(main)[1L], "pumf_row_id")
+  expect_equal(main$pumf_row_id, c(1, 2, 3))
+  expect_equal(main$INC, c(100, NA, NA))
+  types <- DBI::dbGetQuery(con, "PRAGMA table_info('eng')")
+  expect_equal(types$type[types$name == "pumf_row_id"], "BIGINT")
+
+  expect_true(DBI::dbExistsTable(con, "pumf_sentinels_eng"))
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_equal(names(sent), c("pumf_row_id", "INC"))
+  expect_equal(sent$pumf_row_id, c(2, 3))
+  # labelled through sentinel_labels, or the digits when unlabelled
+  expect_equal(as.character(sent$INC), c("Not applicable", "8888888"))
+  stypes <- DBI::dbGetQuery(con, "PRAGMA table_info('pumf_sentinels_eng')")
+  expect_match(stypes$type[stypes$name == "INC"], "^ENUM")
+  expect_equal(stypes$type[stypes$name == "pumf_row_id"], "BIGINT")
+})
+
+test_that("pumf_build_duckdb: a survey without sentinels gets an empty companion", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng", refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng"')
+  expect_equal(nrow(sent), 0L)
+  expect_named(sent, "pumf_row_id")
+})
