@@ -409,6 +409,28 @@ test_that("remove_bootstrap_weights: removes BSW and returns clean tbl", {
   expect_message(bsw_info(cleaned), regexp = "No bootstrap")
 })
 
+test_that("remove_bootstrap_weights: keeps the permanent pumf_row_id of a stamped table", {
+  tmp <- withr::local_tempdir()
+  .make_bsw_dir(tmp)
+  tbl    <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
+  result <- add_bootstrap_weights(tbl, weight_col = "WEIGHT",
+                                  n_replicates = 4L, seed = 5L)
+  cleaned <- remove_bootstrap_weights(result)
+  on.exit(close_pumf(cleaned))
+  expect_true("pumf_row_id" %in% colnames(cleaned))
+})
+
+test_that("remove_bootstrap_weights: drops the pumf_row_id it added to a pre-0.6.1 table", {
+  df <- data.frame(ID = 101:106, wt = c(1, 2, 3, 4, 5, 6))
+  s  <- .bsw_db(df)                       # no stamp, no pumf_row_id
+  t  <- .bsw_open(s)
+  out <- add_bootstrap_weights(t, weight_col = "wt", n_replicates = 3L, seed = 1L)
+  expect_true("pumf_row_id" %in% colnames(out))
+  cleaned <- remove_bootstrap_weights(out)
+  on.exit(close_pumf(cleaned))
+  expect_false("pumf_row_id" %in% colnames(cleaned))
+})
+
 test_that("remove_bootstrap_weights: errors on data.frame input", {
   expect_error(remove_bootstrap_weights(data.frame(x = 1)),
                regexp = "DuckDB-backed")

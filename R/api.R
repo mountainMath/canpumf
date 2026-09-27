@@ -178,8 +178,14 @@
 #'   Returns `invisible(NULL)` with an informative message if the data must be
 #'   downloaded but Statistics Canada is unreachable.
 #'
+#'   A database built by canpumf before 0.6.1 carries no build stamp, no
+#'   `pumf_row_id` key and no sentinel companion.  `get_pumf()` says so once
+#'   per session when it opens one; rebuild with `refresh = TRUE`, or silence
+#'   the message with `options(canpumf.stale_cache_message = FALSE)`.
+#'   [list_pumf_cache()] reports the building version of every database.
+#'
 #' @seealso [label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
-#'   [close_pumf()], [list_canpumf_collection()]
+#'   [close_pumf()], [list_canpumf_collection()], [list_pumf_cache()]
 #'
 #' @examples
 #' \donttest{
@@ -398,11 +404,44 @@ get_pumf <- function(series     = NULL,
   # connection's stable C++ pointer address.
   .pumf_register_con(tbl$src$con, series, version, cache_path, lang, module)
 
+  # Say once per session when the table predates the build stamp (canpumf
+  # < 0.6.1) and so lacks pumf_row_id and the sentinel companion.
+  .pumf_check_build_stamp(tbl$src$con, series, version, lang, table_name, db_path)
+
   # When the user loaded the survey's primary module (module = NULL) and the
   # survey is multi-module, list the sibling modules and show how to open one.
   if (is.null(module)) .pumf_announce_modules(series, version)
 
   tbl
+}
+
+# Tracks which database tables have already been reported as built by an
+# earlier canpumf, so get_pumf() says it once per session.
+.pumf_stale_announced <- new.env(parent = emptyenv())
+
+# On a cache hit, a table built by canpumf < 0.6.1 has no row in
+# `pumf_build_info` (and no pumf_row_id key, no sentinel companion).  Its
+# values are still those the building version produced, so this is a message
+# and not a warning, shown once per session and table, and silenced with
+# options(canpumf.stale_cache_message = FALSE).  Returns TRUE when it spoke.
+.pumf_check_build_stamp <- function(con, series, version, lang, table_name,
+                                    db_path) {
+  if (!isTRUE(getOption("canpumf.stale_cache_message", TRUE)))
+    return(invisible(FALSE))
+  key <- paste(db_path, table_name, sep = "::")
+  if (!is.null(.pumf_stale_announced[[key]])) return(invisible(FALSE))
+  info <- tryCatch(.read_build_info(con, table_name), error = function(e) NULL)
+  if (!is.null(info)) return(invisible(FALSE))
+  .pumf_stale_announced[[key]] <- TRUE
+  message(sprintf(paste0(
+    "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
+    "and no sentinel companion, so pumf_sentinels() is not available, and its ",
+    "values are those of the version that built it (see NEWS for fixes since). ",
+    "Rebuild with get_pumf(\"%s\", \"%s\", refresh = TRUE); list_pumf_cache() ",
+    "shows the canpumf version behind every database (column 'built_with'). ",
+    "options(canpumf.stale_cache_message = FALSE) silences this message."),
+    series, version, lang, series, version))
+  invisible(TRUE)
 }
 
 # Tracks which (series/version) multi-module hints have been announced this
@@ -1573,9 +1612,10 @@ bsw_info <- function(tbl) {
 #'
 #' Drops the bootstrap weight table(s) created by [add_bootstrap_weights()]
 #' and their companion VIEWs from the DuckDB file.  When all BSW tables have
-#' been removed and the main survey table has a `pumf_row_id` column (added
-#' automatically by [add_bootstrap_weights()] when no natural key was
-#' available), that column is also dropped.
+#' been removed from a table built by canpumf before 0.6.1, the `pumf_row_id`
+#' column that [add_bootstrap_weights()] added to it as a join key is also
+#' dropped.  A table built by 0.6.1 or later keeps its `pumf_row_id`: there it
+#' is the permanent record key, written by the build itself.
 #'
 #' Like [add_bootstrap_weights()], this function requires brief exclusive
 #' write access: the read-only connection backing `tbl` is shut down, the
@@ -1666,11 +1706,14 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
     DBI::dbExecute(rw_con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
   }
 
-  # When no BSW tables remain, also remove pumf_row_id from the main table --
-  # it was added only to serve as a BSW join key.
+  # When no BSW tables remain, also remove pumf_row_id from the main table
+  # when add_bootstrap_weights() added it as a join key to a table built
+  # before 0.6.1.  A table Stage 3 stamped carries pumf_row_id permanently
+  # (it keys the sentinel companion too), so it is left alone.
   remaining_bsw <- DBI::dbListTables(rw_con)
   remaining_bsw <- remaining_bsw[grepl("^pumf_bsw", remaining_bsw)]
   if (length(remaining_bsw) == 0L &&
+      is.null(.read_build_info(rw_con, table_name)) &&
       "pumf_row_id" %in% DBI::dbListFields(rw_con, table_name)) {
     message("Removing 'pumf_row_id' column from '", table_name, "'...")
     DBI::dbExecute(rw_con,

@@ -11,8 +11,27 @@
     has_metadata = logical(),
     has_duckdb   = logical(),
     raw_mb       = double(),
-    duckdb_mb    = double()
+    duckdb_mb    = double(),
+    built_with   = character()
   )
+}
+
+# The canpumf version(s) that built the tables of one DuckDB file, read from
+# its `pumf_build_info` stamp: one string ("0.6.1", or "0.6.1, 0.6.2" when
+# tables were built by different versions), or NA when the file has no stamp
+# (built before 0.6.1) or cannot be opened (e.g. locked by a writer).  The
+# connection is read-only and released without shutting the instance down, so
+# a tbl the user holds open on the same file is unaffected.
+.duckdb_built_with <- function(db_path) {
+  if (!file.exists(db_path)) return(NA_character_)
+  con <- tryCatch(.duckdb_connect_quiet(db_path, read_only = TRUE),
+                  error = function(e) NULL)
+  if (is.null(con)) return(NA_character_)
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE))
+  info <- tryCatch(.read_build_info(con), error = function(e) NULL)
+  if (is.null(info)) return(NA_character_)
+  v <- unique(info$canpumf_version)
+  paste(v[order(package_version(v))], collapse = ", ")
 }
 
 # Size in MB of all files under path matching the (optional) include pattern,
@@ -46,7 +65,8 @@
     has_metadata = has_metadata,
     has_duckdb   = has_duckdb,
     raw_mb       = .path_size_mb(raw_files),
-    duckdb_mb    = if (has_duckdb) file.info(db_file)$size / 1e6 else NA_real_
+    duckdb_mb    = if (has_duckdb) file.info(db_file)$size / 1e6 else NA_real_,
+    built_with   = if (has_duckdb) .duckdb_built_with(db_file) else NA_character_
   )
 }
 
@@ -101,7 +121,10 @@
       has_duckdb   = v %in% loaded,
       raw_mb       = .path_size_mb(raw_files),
       # Shared DuckDB: same file backs all versions; show total size in every row.
-      duckdb_mb    = db_mb
+      duckdb_mb    = db_mb,
+      # The longitudinal databases track their versions in their own table
+      # and carry no per-table build stamp.
+      built_with   = NA_character_
     )
   })
 
@@ -134,6 +157,13 @@
 #'     \item{`raw_mb`}{Disk size of raw files in MB (excluding metadata and DuckDB).}
 #'     \item{`duckdb_mb`}{Disk size of the DuckDB file in MB.  For LFS this is
 #'       the total shared `LFS.duckdb` size, repeated for each version row.}
+#'     \item{`built_with`}{The canpumf version that built the DuckDB tables,
+#'       from the build stamp Stage 3 writes since 0.6.1.  `NA` when there is
+#'       no DuckDB, when it was built before 0.6.1 (no stamp: no `pumf_row_id`
+#'       key and no sentinel companion, so `pumf_sentinels()` needs a rebuild
+#'       with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
+#'       and when the file is locked by a writer.  Tables built by different
+#'       versions are listed together, oldest first.}
 #'   }
 #'   Returns a zero-row tibble with the same column structure if the cache
 #'   directory does not exist or is empty.

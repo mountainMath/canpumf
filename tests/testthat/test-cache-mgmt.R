@@ -8,7 +8,8 @@ test_that("list_pumf_cache: empty cache returns empty tibble", {
   expect_s3_class(result, "data.frame")
   expect_equal(nrow(result), 0L)
   expect_named(result, c("series","version","has_raw","has_metadata",
-                          "has_duckdb","raw_mb","duckdb_mb"), ignore.order = TRUE)
+                          "has_duckdb","raw_mb","duckdb_mb","built_with"),
+               ignore.order = TRUE)
 })
 
 test_that("list_pumf_cache: nonexistent cache_path returns empty tibble", {
@@ -72,6 +73,26 @@ test_that("list_pumf_cache: has_duckdb TRUE after get_pumf builds it", {
   row <- result[result$series == "FAKE" & result$version == "2099", ]
   expect_true(row$has_duckdb)
   expect_true(row$duckdb_mb > 0)
+  expect_equal(row$built_with, as.character(utils::packageVersion("canpumf")))
+})
+
+test_that("list_pumf_cache: built_with is NA for a DuckDB without a build stamp", {
+  tmp  <- withr::local_tempdir()
+  vdir <- file.path(tmp, "OLD", "2001")
+  dir.create(vdir, recursive = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = file.path(vdir, "OLD_2001.duckdb"))
+  DBI::dbWriteTable(con, "eng", data.frame(X = 1:3))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  result <- list_pumf_cache(cache_path = tmp)
+  expect_true(result$has_duckdb)
+  expect_true(is.na(result$built_with))
+  # and lists every building version when tables differ, oldest first
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = file.path(vdir, "OLD_2001.duckdb"))
+  DBI::dbWriteTable(con, "pumf_build_info", data.frame(
+    table = c("eng", "fra"), canpumf_version = c("0.10.0", "0.6.1"),
+    duckdb_version = "1.0.0", built = "2026-09-26 00:00:00"))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  expect_equal(list_pumf_cache(cache_path = tmp)$built_with, "0.6.1, 0.10.0")
 })
 
 # ---- remove_pumf_cache: non-LFS ---------------------------------------------

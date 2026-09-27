@@ -47,7 +47,8 @@ The registry (`R/registry.R`), the test suite, and the **Verified datasets** tab
 - **Label repair**: `pumf_label_repairs()`, `pumf_freq_validation()` (see [docs/pdf-crosscheck.md](docs/pdf-crosscheck.md)).
 - **Registry and catalogue**: `pumf_registry()`, `list_pumf_registry()`, `pumf_registry_entry()`, `list_canpumf_collection()`, `list_statcan_pumf_catalogue()`, `list_available_lfs_pumf_versions()`.
 - **Borealis**: `get_pumf(..., borealis = <doi or catalogue row>)`, `list_borealis_pumf_catalogue()`, `list_borealis_pumf_files()` (`R/borealis.R`; see [docs/registry.md](docs/registry.md#borealis-dataverse-source)).
-- **Cache**: `list_pumf_cache()`, `remove_pumf_cache()`. **LFS helpers**: `add_lfs_SURVDATE()`, `add_lfs_GENDER_SEX()`.
+- **Cache**: `list_pumf_cache()` (column `built_with` from the build stamp), `remove_pumf_cache()`. **LFS helpers**: `add_lfs_SURVDATE()`, `add_lfs_GENDER_SEX()`.
+- **Build stamp** (`R/pipeline.R`): Stage 3 writes `pumf_build_info` (one row per table: `canpumf_version`, `duckdb_version`, `built`) via `.write_build_info()`; `.read_build_info(con, table)` reads it. A table without a row predates 0.6.1 (no `pumf_row_id`, no companion). `get_pumf()` reports that once per session and table through `.pumf_check_build_stamp()` (a `message()`, silenced by `options(canpumf.stale_cache_message = FALSE)`), and `remove_bootstrap_weights()` drops `pumf_row_id` only from an unstamped table. Longitudinal series are not stamped.
 
 ### Connection provenance registry (`R/api.R`)
 
@@ -103,7 +104,7 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
   borealis_catalogue.rds    # persisted Borealis catalogue
   <series>/<version>/
     <original>.zip          # retained (Borealis: loose files + borealis_manifest.csv)
-    <series>_<version>.duckdb   # tables eng/fra (+ pumf_sentinels_eng/fra companions, pumf_bsw_* weights)
+    <series>_<version>.duckdb   # tables eng/fra (+ pumf_sentinels_eng/fra companions, pumf_bsw_* weights, pumf_build_info stamp)
     metadata/
       variables.csv, codes.csv
       layout.csv            # fixed-width data only

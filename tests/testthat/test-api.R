@@ -610,3 +610,90 @@ test_that("pumf_sentinels: refuses the longitudinal series", {
   .pumf_register_con(con, "LFS", "2024-01", tempdir(), "eng")
   expect_error(pumf_sentinels(dplyr::tbl(con, "lfs_eng")), "longitudinal")
 })
+
+
+# ---- build stamp: tables built before 0.6.1 ---------------------------------
+
+# A table with no pumf_build_info row is one built before 0.6.1.  get_pumf()
+# says so once per session and table, through .pumf_check_build_stamp().
+test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped one", {
+  t <- .sentinel_db(with_companion = FALSE)   # written without a stamp
+  on.exit(close_pumf(t), add = TRUE)
+  con <- t$src$con
+  args <- list(con, "SENT", "2099", "eng", "eng", "/tmp/stamp-a.duckdb")
+  msg <- NULL
+  withCallingHandlers(
+    spoke <- do.call(.pumf_check_build_stamp, args),
+    message = function(m) { msg <<- conditionMessage(m); invokeRestart("muffleMessage") })
+  expect_true(spoke)
+  expect_match(msg, "SENT 2099 \\[eng\\] was built by canpumf before 0.6.1")
+  expect_match(msg, "refresh = TRUE.*list_pumf_cache\\(\\).*canpumf.stale_cache_message")
+  # the second time the same table is opened it is silent
+  expect_silent(again <- do.call(.pumf_check_build_stamp, args))
+  expect_false(again)
+  # another table of another database speaks again
+  expect_message(.pumf_check_build_stamp(con, "SENT", "2099", "fra", "fra",
+                                         "/tmp/stamp-b.duckdb"),
+                 "SENT 2099 \\[fra\\]")
+  # a stamped table is silent
+  db3 <- file.path(withr::local_tempdir(), "stamped.duckdb")
+  wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3)
+  DBI::dbWriteTable(wcon, "eng", data.frame(pumf_row_id = 1:2, X = 1:2))
+  .write_build_info(wcon, "eng")
+  DBI::dbDisconnect(wcon, shutdown = TRUE)
+  rcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(rcon, shutdown = TRUE), add = TRUE)
+  expect_silent(res <- .pumf_check_build_stamp(rcon, "S", "v", "eng", "eng", db3))
+  expect_false(res)
+})
+
+test_that(".pumf_check_build_stamp: options(canpumf.stale_cache_message = FALSE) silences it", {
+  withr::local_options(canpumf.stale_cache_message = FALSE)
+  t <- .sentinel_db(with_companion = FALSE)
+  on.exit(close_pumf(t), add = TRUE)   # add = TRUE keeps withr's option restore
+  expect_silent(res <- .pumf_check_build_stamp(t$src$con, "SENT", "2099", "eng",
+                                               "eng", "/tmp/stamp-c.duckdb"))
+  expect_false(res)
+})
+
+# A minimal FAKE/2099 version directory get_pumf() can build without network.
+.stamp_version_dir <- function(tmp) {
+  vdir <- file.path(tmp, "FAKE", "2099")
+  meta_dir <- file.path(vdir, "metadata")
+  dir.create(meta_dir, recursive = TRUE)
+  readr::write_csv(tibble::tibble(
+    name = "X", label_en = "V", label_fr = "V", type = "character",
+    decimals = NA_integer_, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta_dir, "variables.csv"))
+  readr::write_csv(tibble::tibble(name = character(), val = character(),
+                                  label_en = character(), label_fr = character()),
+                   file.path(meta_dir, "codes.csv"))
+  readr::write_csv(tibble::tibble(X = c("a", "b")), file.path(vdir, "data.csv"))
+  readr::write_csv(tibble::tibble(
+    Field_Champ = c("X", NA_character_), Variable_Variable = c("X", "a"),
+    EnglishLabel_EtiquetteAnglais = c("Var", "Label a"),
+    FrenchLabel_EtiquetteFrancais = c("Var", "Etiq a")),
+    file.path(vdir, "codebook.csv"))
+  writeLines("", file.path(vdir, "sentinel.txt"))
+  vdir
+}
+
+test_that("get_pumf: a freshly built table is silent, one without a stamp is announced once", {
+  tmp <- withr::local_tempdir()
+  .stamp_version_dir(tmp)
+  expect_no_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
+                    message = "before 0.6.1")
+  db_path <- DBI::dbGetInfo(t$src$con)$dbname
+  close_pumf(t)
+
+  # strip the stamp: the table now looks like a pre-0.6.1 build
+  wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  DBI::dbRemoveTable(wcon, "pumf_build_info")
+  DBI::dbDisconnect(wcon, shutdown = TRUE)
+  expect_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
+                 "FAKE 2099 \\[eng\\] was built by canpumf before 0.6.1")
+  close_pumf(t)
+  expect_no_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
+                    message = "before 0.6.1")
+  close_pumf(t)
+})

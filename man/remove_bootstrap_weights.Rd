@@ -21,9 +21,10 @@ A lazy `dplyr::tbl()` backed by the original physical survey table
 \description{
 Drops the bootstrap weight table(s) created by [add_bootstrap_weights()]
 and their companion VIEWs from the DuckDB file.  When all BSW tables have
-been removed and the main survey table has a `pumf_row_id` column (added
-automatically by [add_bootstrap_weights()] when no natural key was
-available), that column is also dropped.
+been removed from a table built by canpumf before 0.6.1, the `pumf_row_id`
+column that [add_bootstrap_weights()] added to it as a join key is also
+dropped.  A table built by 0.6.1 or later keeps its `pumf_row_id`: there it
+is the permanent record key, written by the build itself.
 }
 \details{
 Like [add_bootstrap_weights()], this function requires brief exclusive

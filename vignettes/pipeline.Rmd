@@ -659,6 +659,12 @@ companion is always written, so an empty one means "no sentinels", and a
 missing one means the cache predates canpumf 0.6.1.  `pumf_sentinels(tbl)`
 returns it, and `pumf_sentinels(tbl, join = TRUE)` joins it onto the data.
 
+Stage 3 finally stamps the table: `pumf_build_info` records, per table, the
+canpumf and duckdb versions that built it and when.  `list_pumf_cache()`
+shows the stamp in its `built_with` column, and `get_pumf()` says once per
+session when it opens a table that has none (a build from before 0.6.1),
+pointing to `refresh = TRUE`.
+
 ### Code labels → factors
 
 `apply_code_labels()` maps raw character values to R factors using

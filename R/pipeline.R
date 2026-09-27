@@ -789,6 +789,47 @@ pumf_locate_or_download <- function(series,
 # Companion table name for a data table ("eng" -> "pumf_sentinels_eng").
 .sentinel_table_name <- function(table_name) paste0("pumf_sentinels_", table_name)
 
+# ---- Build stamp -------------------------------------------------------------
+#
+# Stage 3 records, per table it writes, which canpumf version built it and
+# when, in the small table `pumf_build_info` (columns `table`,
+# `canpumf_version`, `duckdb_version`, `built`).  A table without a row there
+# was built before the stamp existed (canpumf < 0.6.1), and so also lacks the
+# pumf_row_id key and the sentinel companion.  get_pumf() says so once per
+# session (.pumf_check_build_stamp()), and list_pumf_cache() reports the
+# version in its `built_with` column.  The longitudinal series keep their own
+# `*_versions` tables and are not stamped.
+.build_info_table <- "pumf_build_info"
+
+.write_build_info <- function(con, table_name) {
+  info <- data.frame(
+    table           = table_name,
+    canpumf_version = as.character(utils::packageVersion("canpumf")),
+    duckdb_version  = as.character(utils::packageVersion("duckdb")),
+    built           = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    stringsAsFactors = FALSE)
+  if (DBI::dbExistsTable(con, .build_info_table)) {
+    DBI::dbExecute(con, sprintf(
+      'DELETE FROM "%s" WHERE "table" = ?', .build_info_table),
+      params = list(table_name))
+    DBI::dbAppendTable(con, .build_info_table, info)
+  } else {
+    DBI::dbWriteTable(con, .build_info_table, info)
+  }
+  invisible(info)
+}
+
+# The build stamp of one table (a one-row data.frame), or NULL when the
+# database has no stamp for it.
+.read_build_info <- function(con, table_name = NULL) {
+  if (!isTRUE(tryCatch(DBI::dbExistsTable(con, .build_info_table),
+                       error = function(e) FALSE)))
+    return(NULL)
+  info <- DBI::dbReadTable(con, .build_info_table)
+  if (!is.null(table_name)) info <- info[info$table == table_name, , drop = FALSE]
+  if (nrow(info) == 0L) NULL else info
+}
+
 # Build the sentinel companion tibble from the "pumf_sentinels" attributes
 # collected in Stage 3: pumf_row_id plus one numeric column per variable in
 # which a sentinel was blanked, keeping only the rows where at least one
@@ -1383,6 +1424,8 @@ pumf_build_duckdb <- function(version_dir,
       con, sent_table,
       stats::setNames(lapply(sent_factor, function(c) levels(sent_df[[c]])),
                       sent_factor))
+  # The build stamp: which canpumf built this table, and when.
+  .write_build_info(con, table_name)
 
   # Step 8: verify / enforce ENUM on factor columns
   factor_cols <- names(data)[vapply(data, is.factor, logical(1L))]

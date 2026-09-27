@@ -767,6 +767,29 @@ test_that("pumf_build_duckdb: writes pumf_row_id and the sentinel companion as E
   stypes <- DBI::dbGetQuery(con, "PRAGMA table_info('pumf_sentinels_eng')")
   expect_match(stypes$type[stypes$name == "INC"], "^ENUM")
   expect_equal(stypes$type[stypes$name == "pumf_row_id"], "BIGINT")
+
+  # the build stamp names the table, the canpumf version and the build time
+  info <- canpumf:::.read_build_info(con, "eng")
+  expect_equal(nrow(info), 1L)
+  expect_equal(info$canpumf_version, as.character(utils::packageVersion("canpumf")))
+  expect_match(info$built, "^[0-9]{4}-[0-9]{2}-[0-9]{2} ")
+  expect_null(canpumf:::.read_build_info(con, "fra"))
+})
+
+test_that("pumf_build_duckdb: a rebuild replaces the table's build stamp", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng", refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path)
+  DBI::dbExecute(con, "UPDATE pumf_build_info SET canpumf_version = '0.0.1'")
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng", refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  info <- DBI::dbReadTable(con, "pumf_build_info")
+  expect_equal(nrow(info), 1L)
+  expect_equal(info$table, "eng")
+  expect_equal(info$canpumf_version, as.character(utils::packageVersion("canpumf")))
 })
 
 test_that("pumf_build_duckdb: a survey without sentinels gets an empty companion", {
