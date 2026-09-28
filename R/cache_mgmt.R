@@ -253,14 +253,18 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #'
 #' @examples
 #' \donttest{
+#' # Drop the French tables of a bilingual build and shrink the file:
+#' fra <- get_pumf("SFS", "2019", lang = "fra")   # NULL if StatCan is unreachable
+#' if (!is.null(fra)) {
+#'   close_pumf(fra)
+#'   remove_pumf_cache("SFS", "2019", lang = "fra")
+#' }
+#'
 #' # Remove only DuckDB and metadata, keep raw files for quick rebuild:
 #' remove_pumf_cache("SFS", "2019")
 #'
 #' # Remove everything including raw files:
 #' remove_pumf_cache("SFS", "2019", keep_raw = FALSE)
-#'
-#' # Drop the French tables of a bilingual build and shrink the file:
-#' remove_pumf_cache("SFS", "2019", lang = "fra")
 #' }
 #' @export
 remove_pumf_cache <- function(series,
