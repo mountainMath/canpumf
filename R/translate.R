@@ -497,7 +497,7 @@ pumf_translate <- function(x, to = c("fra", "eng"), dict = NULL,
       by_col <- split(miss$from, miss$column)
       detail <- vapply(names(by_col), function(cn) {
         v <- by_col[[cn]]
-        paste0(cn, ": ", paste(shQuote(utils::head(v, 4L)), collapse = ", "),
+        paste0(cn, ": ", paste(encodeString(utils::head(v, 4L), quote = "'"), collapse = ", "),
                if (length(v) > 4L) paste0(" ... (", length(v), ")"))
       }, character(1L))
       warning("pumf_translate(): ", nrow(miss), " label(s) in ",
