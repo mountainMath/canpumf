@@ -70,11 +70,25 @@
   )
   if (inherits(con, "error")) {
     msg <- conditionMessage(con)
-    if (grepl("lock|conflict|in use|block", msg, ignore.case = TRUE))
+    if (grepl("lock|conflict|in use|block|used by another process|already open",
+              msg, ignore.case = TRUE))
       stop("'", basename(db_path), "' is locked by an open connection.\n",
            "Close it first with close_pumf(tbl) and then retry.",
            call. = FALSE)
     stop(con)
+  }
+
+  # Case (b) is visible on the driver: duckdb's per-file driver registry
+  # hands back the existing instance whatever read_only was asked for, so a
+  # read_only driver here is the user's open tbl.  Checking the slot avoids
+  # the probe, whose failing statement would otherwise hold the file open
+  # until garbage collection (on Windows that blocks the next writer).
+  if (isTRUE(tryCatch(con@driver@read_only, error = function(e) FALSE))) {
+    DBI::dbDisconnect(con, shutdown = FALSE)
+    stop("'", basename(db_path), "' is held open by a read-only connection ",
+         "(e.g. a tbl from get_pumf()).\n",
+         "Close it first with close_pumf(tbl) and then retry.",
+         call. = FALSE)
   }
 
   write_err <- tryCatch({
