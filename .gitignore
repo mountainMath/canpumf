@@ -14,3 +14,6 @@ CRAN-SUBMISSION
 # R CMD build / check artifacts
 *.tar.gz
 *.Rcheck/
+# testthat problem snapshots
+tests/testthat/_problems/
+tests/testthat/testthat-problems.rds

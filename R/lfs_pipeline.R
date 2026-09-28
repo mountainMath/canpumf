@@ -462,7 +462,8 @@
     },
     build          = function(version_dir, label_col, version)
       .lfs_build_version(version_dir, label_col),
-    variables      = .lfs_merged_variables)
+    variables      = .lfs_merged_variables,
+    codes          = .lfs_merged_codes)
 }
 
 # Variable labels across every loaded LFS version, most recent winning: the

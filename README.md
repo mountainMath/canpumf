@@ -63,7 +63,7 @@ No account is needed. If the `BOREALIS_DATAVERSE_KEY` environment variable is se
 
 `get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
 
-Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
+Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). When several codes of one variable carry the same label and at least two of them occur in the data, every one of them gets its code appended (`"Other (3)"`, `"Other (6)"`), so no two codes share a level. Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
 
 ```r
 tbl <- get_pumf("LFS", "2022") |>
@@ -71,6 +71,20 @@ tbl <- get_pumf("LFS", "2022") |>
 ```
 
 When done querying, release the DuckDB connection with `close_pumf(tbl)`.
+
+### Reporting in the other language
+
+An analysis is usually carried out in one language, but results are sometimes needed in both. Every survey's metadata is bilingual, so a finished result can be relabelled without a second build. `pumf_dictionary()` returns the variable and value labels in both languages, and `pumf_translate()` applies them to a collected data frame: factor levels, values of survey variables and labelled column names are translated, everything else is left alone.
+
+```r
+sfs <- get_pumf("SFS", "2019")
+res <- sfs |>
+  count(PREGION, wt = PWEIGHT) |>
+  collect()
+pumf_translate(res, "fra", dict = sfs)     # "Atlantique", "Québec", ...
+```
+
+Levels the analysis introduced (`fct_collapse()`, a `case_when()` recode) are kept and reported once. Add their translations with `custom = c(West = "Ouest")`, or as a data frame with `label_en` and `label_fr` columns.
 
 ## Label repair
 

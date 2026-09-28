@@ -362,6 +362,12 @@ open_pumf_documentation <- function(series          = NULL,
       paste(names(fx$codes_supplement), collapse = ", "), "."
     ))
 
+  if (length(fx$codes_override) > 0L)
+    lines <- c(lines, paste0(
+      "  Code labels replaced from the user guide for: ",
+      paste(names(fx$codes_override), collapse = ", "), "."
+    ))
+
   if (length(reg$missing_supplement) > 0L)
     lines <- c(lines, paste0(
       "  Missing-range overrides applied to: ",

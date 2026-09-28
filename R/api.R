@@ -431,17 +431,35 @@ get_pumf <- function(series     = NULL,
   key <- paste(db_path, table_name, sep = "::")
   if (!is.null(.pumf_stale_announced[[key]])) return(invisible(FALSE))
   info <- tryCatch(.read_build_info(con, table_name), error = function(e) NULL)
-  if (!is.null(info)) return(invisible(FALSE))
-  .pumf_stale_announced[[key]] <- TRUE
-  message(sprintf(paste0(
-    "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
-    "and no sentinel companion, so pumf_sentinels() is not available, and its ",
-    "values are those of the version that built it (see NEWS for fixes since). ",
+  rebuild <- sprintf(paste0(
     "Rebuild with get_pumf(\"%s\", \"%s\", refresh = TRUE); list_pumf_cache() ",
     "shows the canpumf version behind every database (column 'built_with'). ",
     "options(canpumf.stale_cache_message = FALSE) silences this message."),
-    series, version, lang, series, version))
-  invisible(TRUE)
+    series, version)
+  if (is.null(info)) {
+    .pumf_stale_announced[[key]] <- TRUE
+    message(sprintf(paste0(
+      "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
+      "and no sentinel companion, so pumf_sentinels() is not available; codes ",
+      "that share a label are merged into one level; and its values are those ",
+      "of the version that built it (see NEWS for fixes since). "),
+      series, version, lang), rebuild)
+    return(invisible(TRUE))
+  }
+  # A stamped table whose metadata has no codes_applied.csv was built by a
+  # 0.6.1 development version before value labels were made unique on the
+  # data: pumf_dictionary() then describes labels the table may not show.
+  applied <- .pumf_codes_applied_path(file.path(dirname(db_path), "metadata"))
+  if (!file.exists(applied)) {
+    .pumf_stale_announced[[key]] <- TRUE
+    message(sprintf(paste0(
+      "%s %s [%s] was built by a canpumf 0.6.1 development version before ",
+      "value labels were made unique: codes sharing a label may be merged, ",
+      "and pumf_dictionary() may not match the table's levels. "),
+      series, version, lang), rebuild)
+    return(invisible(TRUE))
+  }
+  invisible(FALSE)
 }
 
 # Tracks which (series/version) multi-module hints have been announced this
@@ -547,31 +565,8 @@ pumf_module <- function(tbl, module) {
   if (identical(series, "LFS_TIMELINE"))   # get_lfs_timeline()
     return(as.data.frame(.lfs_timeline_ref("variables")))
   if (.is_longitudinal(series)) {
-    spec    <- .pumf_longitudinal_spec(series)
-    db_path <- .long_db_path(spec, cache_path)
-    vt      <- spec$versions_table
-    if (!file.exists(db_path))
-      stop(series, " database not found at '", db_path, "'.", call. = FALSE)
-    # Reuse the registered connection to avoid opening a second DuckDB instance.
-    # Opening a new connection and disconnecting with shutdown=TRUE would
-    # invalidate the existing tbl connection for the same file.
-    read_versions <- function(con) {
-      if (DBI::dbExistsTable(con, vt))
-        DBI::dbGetQuery(con, sprintf(
-          "SELECT version FROM %s ORDER BY survyear, survmnth", vt))$version
-      else character(0L)
-    }
-    existing_con <- prov$con
-    if (!is.null(existing_con) && DBI::dbIsValid(existing_con)) {
-      all_versions <- read_versions(existing_con)
-    } else {
-      con_tmp <- .duckdb_connect_quiet(db_path, read_only = TRUE)
-      all_versions <- read_versions(con_tmp)
-      DBI::dbDisconnect(con_tmp, shutdown = TRUE)
-    }
-    if (length(all_versions) == 0L)
-      stop("No ", series, " versions found in the database.", call. = FALSE)
-    spec$variables(cache_path, all_versions)
+    spec <- .pumf_longitudinal_spec(series)
+    spec$variables(cache_path, .long_versions_from_prov(prov))
   } else {
     # Multi-module surveys keep each secondary module's metadata in a
     # metadata/<module>/ subdir; the primary module uses metadata/.
@@ -674,32 +669,21 @@ label_pumf_columns <- function(tbl) {
   label_col <- if (lang == "eng") "label_en" else "label_fr"
   variables <- .pumf_read_variables(tbl)
 
-  var_labels <- variables[!is.na(variables[[label_col]]),
-                           c("name", label_col), drop = FALSE]
-  names(var_labels)[2L] <- "label"
-
-  # Disambiguate duplicate labels by appending (NAME)
-  dups <- var_labels$label[duplicated(var_labels$label)]
-  if (length(dups) > 0L) {
-    is_dup <- var_labels$label %in% dups
-    var_labels$label[is_dup] <-
-      paste0(var_labels$label[is_dup], " (", var_labels$name[is_dup], ")")
-  }
+  var_labels <- .pumf_var_label_map(variables, label_col)
 
   # Only rename columns present in the tbl
   tbl_cols   <- colnames(tbl)
   var_labels <- var_labels[var_labels$name %in% tbl_cols, , drop = FALSE]
 
   # Inject labels for derived LFS helper columns that are not in the metadata.
-  derived <- c(SURVDATE   = "Survey date",
-               GENDER_SEX = "Gender/sex of respondent")
-  present_derived <- derived[names(derived) %in% tbl_cols]
-  if (length(present_derived) > 0L) {
-    extra <- data.frame(name  = names(present_derived),
-                        label = unname(present_derived),
-                        stringsAsFactors = FALSE)
-    var_labels <- rbind(var_labels, extra)
-  }
+  derived <- .lfs_derived_var_labels
+  derived <- derived[derived$name %in% tbl_cols &
+                       !derived$name %in% var_labels$name, , drop = FALSE]
+  if (nrow(derived) > 0L)
+    var_labels <- rbind(var_labels,
+                        data.frame(name  = derived$name,
+                                   label = derived[[label_col]],
+                                   stringsAsFactors = FALSE))
 
   if (nrow(var_labels) == 0L) return(tbl)
 

@@ -45,16 +45,21 @@
 # label_fr, source ("LFS_HIST", "LFS_HIST_ERA" or "LFS").
 .lfs_timeline_source_codes <- function(series, cache_path, versions) {
   strip0 <- function(x) as.character(as.integer(x))
+  # Labels carry the code suffix the build appends where several codes of a
+  # variable share a label (.pumf_unique_code_labels()), so that they match
+  # the ENUM levels of the source tables.
+  cols <- c("name", "val", "label_en", "label_fr")
   if (series == "LFS_HIST") {
-    h <- .lfs_hist_ref("codes")[, c("name", "val", "label_en", "label_fr")]
-    e <- .lfs_hist_code_eras()[, c("name", "val", "label_en", "label_fr")]
+    h <- .pumf_unique_code_labels(.lfs_hist_ref("codes")[, cols])
+    e <- .pumf_unique_code_labels(.lfs_hist_code_eras()[, cols])
     out <- rbind(cbind(h, source = "LFS_HIST"), cbind(e, source = "LFS_HIST_ERA"))
   } else {
     out <- lapply(versions, function(v) {
       f <- file.path(cache_path, series, v, "metadata", "codes.csv")
       if (!file.exists(f)) return(NULL)
-      readr::read_csv(f, col_types = readr::cols(.default = "c"), na = "",
-                      progress = FALSE)[, c("name", "val", "label_en", "label_fr")]
+      .pumf_unique_code_labels(
+        readr::read_csv(f, col_types = readr::cols(.default = "c"), na = "",
+                        progress = FALSE)[, cols])
     })
     out <- do.call(rbind, out)
     if (is.null(out))

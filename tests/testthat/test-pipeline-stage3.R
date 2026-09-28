@@ -723,12 +723,165 @@ test_that(".label_sentinel_companion: codes.csv label wins, then registry, then 
   expect_equal(as.character(fr$HRS), c(NA, "Sans objet", "Zero hours", NA))
 })
 
-test_that(".label_sentinel_companion: same label for two codes gives one level", {
+test_that(".label_sentinel_companion: same label for two codes keeps them apart", {
   sent  <- tibble::tibble(pumf_row_id = 1:2, X = c(99, 999))
   labs  <- list("99" = c(label_en = "NA"), "999" = c(label_en = "NA"))
   out   <- canpumf:::.label_sentinel_companion(sent, NULL, "label_en", labs)
-  expect_equal(levels(out$X), "NA")
-  expect_equal(as.character(out$X), c("NA", "NA"))
+  expect_equal(levels(out$X), c("NA (99)", "NA (999)"))
+  expect_equal(as.character(out$X), c("NA (99)", "NA (999)"))
+})
+
+# ---- unique value labels ------------------------------------------------------
+
+test_that(".pumf_dedupe_labels: suffixes every member of a group, leaves the rest", {
+  f <- canpumf:::.pumf_dedupe_labels
+  expect_equal(f(c("A", "Other", "B", "Other", NA), c("1", "3", "5", "6", "9")),
+               c("A", "Other (3)", "B", "Other (6)", NA))
+  expect_equal(f(c("A", "B"), c("1", "2")), c("A", "B"))
+  expect_equal(f(c(NA_character_, NA), c("1", "2")), c(NA_character_, NA))
+  expect_equal(f(character(0), character(0)), character(0))
+  # the same code listed twice ("01" and "1") is one code, not a duplicate
+  expect_equal(f(c("Yes", "Yes", "No"), c("01", "1", "2"), key = c("1", "1", "2")),
+               c("Yes", "Yes", "No"))
+  # only present codes count: one "Other" in the data leaves the label alone,
+  # two suffix the whole group (the absent member included)
+  expect_equal(f(c("A", "Other", "Other", "Other"), c("1", "3", "6", "7"),
+                 present = c(TRUE, TRUE, FALSE, FALSE)),
+               c("A", "Other", "Other", "Other"))
+  expect_equal(f(c("A", "Other", "Other", "Other"), c("1", "3", "6", "7"),
+                 present = c(TRUE, TRUE, FALSE, TRUE)),
+               c("A", "Other (3)", "Other (6)", "Other (7)"))
+})
+
+test_that(".pumf_codes_present: normalised codes that occur, na_values excluded", {
+  codes <- tibble::tibble(name = c("H", "H", "S", "S", "N"), val = c("01", "3", "a", "b", "1"),
+                          label_en = "x", label_fr = NA)
+  d <- tibble::tibble(H = c("1", "01", "3", NA, "99"), S = c("a", "a", "c", NA, NA),
+                      N = c(1, 2, 3, 4, 5))
+  p <- canpumf:::.pumf_codes_present(d, codes, na_values = "99")
+  expect_equal(sort(p$H), c("1", "3"))
+  expect_equal(sort(p$S), c("a", "c"))
+  expect_null(p$N)   # numeric columns are not coded columns
+  expect_equal(canpumf:::.pumf_codes_present(d, NULL), list())
+})
+
+test_that(".pumf_unique_code_labels: per variable and per language", {
+  codes <- tibble::tibble(
+    name     = c("H", "H", "H", "H", "Q", "Q", "P", "P"),
+    val      = c("1", "3", "6", "9", "7", "8", "01", "1"),
+    label_en = c("English", "Other", "Other", "Not stated", "Don't know", "Don't know", "Yes", "Yes"),
+    label_fr = c("Anglais", "Autre", "Autre", NA, "Ne sais pas", "Ne sait pas", "Oui", NA))
+  out <- canpumf:::.pumf_unique_code_labels(codes)
+  h <- out[out$name == "H", ]
+  expect_equal(h$label_en, c("English", "Other (3)", "Other (6)", "Not stated"))
+  expect_equal(h$label_fr, c("Anglais", "Autre (3)", "Autre (6)", "Not stated"))
+  # English collides, French does not: only English is suffixed
+  q <- out[out$name == "Q", ]
+  expect_equal(q$label_en, c("Don't know (7)", "Don't know (8)"))
+  expect_equal(q$label_fr, c("Ne sais pas", "Ne sait pas"))
+  # "01" and "1" are one code: the first listing is kept, unsuffixed
+  p <- out[out$name == "P", ]
+  expect_equal(nrow(p), 1L)
+  expect_equal(p$label_en, "Yes")
+  expect_identical(canpumf:::.pumf_unique_code_labels(NULL), NULL)
+  expect_equal(nrow(canpumf:::.pumf_unique_code_labels(codes[0, ])), 0L)
+  # with a present list, a group is suffixed only where two of its codes occur
+  out <- canpumf:::.pumf_unique_code_labels(codes, present = list(H = c("1", "3"), Q = c("7", "8")))
+  expect_equal(out$label_en[out$name == "H"], c("English", "Other", "Other", "Not stated"))
+  expect_equal(out$label_en[out$name == "Q"], c("Don't know (7)", "Don't know (8)"))
+  # a variable absent from the list has no present code: labels as documented,
+  # French still filled from English
+  out <- canpumf:::.pumf_unique_code_labels(codes, present = list())
+  expect_equal(out$label_en[out$name == "H"], c("English", "Other", "Other", "Not stated"))
+  expect_equal(out$label_fr[out$name == "H"], c("Anglais", "Autre", "Autre", "Not stated"))
+})
+
+test_that(".pumf_apply_code_fixups: codes_supplement appends, codes_override replaces", {
+  codes <- tibble::tibble(name = c("HHMOTG", "HHMOTG", "HHMOTG", "X"),
+                          val = c("1", "3", "6", "1"),
+                          label_en = c("English", "Other", "Other", "x"),
+                          label_fr = c("Anglais", "Autre", "Autre", NA))
+  fx <- list(
+    codes_supplement = list(X = data.frame(val = "9", label_en = "Not stated",
+                                           label_fr = "Non d\u00e9clar\u00e9")),
+    codes_override   = list(HHMOTG = data.frame(
+      val = c("03", "6", "7"),
+      label_en = c("Other single responses", "Other multiple responses", "New"),
+      label_fr = c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples", "Nouveau"))))
+  out <- canpumf:::.pumf_apply_code_fixups(codes, fx)
+  h <- out[out$name == "HHMOTG", ]
+  # "03" matches the declared "3"; 7 is appended
+  expect_equal(h$val, c("1", "3", "6", "7"))
+  expect_equal(h$label_en, c("English", "Other single responses", "Other multiple responses", "New"))
+  expect_equal(h$label_fr[2:3], c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples"))
+  x <- out[out$name == "X", ]
+  expect_equal(x$val, c("1", "9"))
+  expect_equal(x$label_en, c("x", "Not stated"))
+  expect_identical(canpumf:::.pumf_apply_code_fixups(codes, NULL), codes)
+  expect_identical(canpumf:::.pumf_apply_code_fixups(codes, list()), codes)
+})
+
+test_that("codes_applied.csv round-trips through the read/write helpers", {
+  tmp   <- withr::local_tempdir()
+  codes <- tibble::tibble(name = "H", val = c("3", "6"),
+                          label_en = c("Other (3)", "Other (6)"),
+                          label_fr = c("Autre (3)", "Autre (6)"))
+  expect_null(canpumf:::.read_codes_applied(tmp))
+  canpumf:::.write_codes_applied(codes, tmp)
+  back <- canpumf:::.read_codes_applied(tmp)
+  expect_equal(back, as.data.frame(codes))
+})
+
+test_that(".apply_code_labels: codes sharing a label become distinct levels", {
+  codes <- tibble::tibble(
+    name = "HHMOTG", val = c("1", "3", "6"),
+    label_en = c("English", "Other", "Other"),
+    label_fr = c("Anglais", "Autre", "Autre"))
+  d   <- tibble::tibble(HHMOTG = c("3", "6", "1", "6"))
+  out <- canpumf:::.apply_code_labels(d, codes, "label_en")
+  expect_equal(levels(out$HHMOTG), c("English", "Other (3)", "Other (6)"))
+  expect_equal(as.character(out$HHMOTG), c("Other (3)", "Other (6)", "English", "Other (6)"))
+  out_fr <- canpumf:::.apply_code_labels(d, codes, "label_fr")
+  expect_equal(levels(out_fr$HHMOTG), c("Anglais", "Autre (3)", "Autre (6)"))
+})
+
+test_that(".apply_code_labels: a shared label whose other codes never occur is left alone", {
+  # CHS PITM_05: 5 and 8 both "Do not know", only 8 in the data
+  codes <- tibble::tibble(
+    name = "PITM_05", val = c("1", "5", "8"),
+    label_en = c("Yes", "Do not know", "Do not know"),
+    label_fr = c("Oui", "Ne sait pas", "Ne sait pas"))
+  d   <- tibble::tibble(PITM_05 = c("1", "8", "8"))
+  out <- canpumf:::.apply_code_labels(d, codes, "label_en")
+  expect_equal(levels(out$PITM_05), c("Yes", "Do not know"))
+  expect_equal(as.character(out$PITM_05), c("Yes", "Do not know", "Do not know"))
+  # a zero-padded data value is the same code as its unpadded listing
+  d2  <- tibble::tibble(PITM_05 = c("05", "8"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d2, codes, "label_en")$PITM_05),
+               c("Yes", "Do not know (5)", "Do not know (8)"))
+})
+
+test_that(".apply_code_labels: an English-only collision leaves French unsuffixed", {
+  codes <- tibble::tibble(
+    name = "Q", val = c("1", "7", "8"),
+    label_en = c("Yes", "Don't know", "Don't know"),
+    label_fr = c("Oui", "Ne sais pas", "Refus"))
+  d <- tibble::tibble(Q = c("7", "8", "1"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d, codes, "label_en")$Q),
+               c("Yes", "Don't know (7)", "Don't know (8)"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d, codes, "label_fr")$Q),
+               c("Oui", "Ne sais pas", "Refus"))
+})
+
+test_that(".apply_code_labels: a French label missing on one of two same-English codes", {
+  # fr falls back to en for code 8 only, which then collides with nothing in French
+  codes <- tibble::tibble(
+    name = "Q", val = c("7", "8"),
+    label_en = c("Don't know", "Don't know"),
+    label_fr = c("Ne sait pas", NA))
+  d <- tibble::tibble(Q = c("7", "8"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d, codes, "label_fr")$Q),
+               c("Ne sait pas", "Don't know"))
 })
 
 test_that("pumf_build_duckdb: writes pumf_row_id and the sentinel companion as ENUM", {

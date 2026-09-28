@@ -7,6 +7,8 @@ Nine parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
 - `codes.csv`: one row per code value (name, val, label_en, label_fr)
 - `layout.csv`: one row per fixed-width column (name, start, end). Absent for CSV-format data.
 
+Stage 3 adds `codes_applied.csv` next to them: `codes.csv` after the registry's `codes_supplement`/`codes_override` rows, the French fallback and the code suffix for labels several present codes share (see `R/pipeline.R`, "Unique value labels"). It is not parser output; `pumf_dictionary()` reads it.
+
 Several parsers can fire for the same survey (e.g. split-SPSS for layout/codes and SAS cards for BSW weights). `merge_metadata()` consolidates the results. `pumf_parse_metadata()` then runs `.fix_metadata_mojibake()` and finally the PDF cross-check.
 
 ## Parsers, in detection priority order (highest first)

@@ -176,46 +176,6 @@ test_that(".pumf_announce_modules: lists sibling modules once per survey", {
 
 # ---- get_pumf end-to-end (uses synthetic fixture) ---------------------------
 
-make_e2e_version_dir <- function(tmp, series = "FAKE", version = "2099") {
-  vdir     <- file.path(tmp, series, version)
-  meta_dir <- file.path(vdir, "metadata")
-  dir.create(meta_dir, recursive = TRUE)
-
-  vars  <- tibble::tibble(
-    name = c("PROV","WEIGHT"),
-    label_en = c("Province","Survey weight"),
-    label_fr = c("Province","Poids"),
-    type = c("character","numeric"),
-    decimals = c(NA_integer_, 0L),
-    missing_low = c(NA_real_, 9999L),
-    missing_high = c(NA_real_, 9999L)
-  )
-  codes <- tibble::tibble(
-    name = c("PROV","PROV"),
-    val  = c("10","35"),
-    label_en = c("Newfoundland","Ontario"),
-    label_fr = c("Terre-Neuve","Ontario")
-  )
-  readr::write_csv(vars,  file.path(meta_dir, "variables.csv"))
-  readr::write_csv(codes, file.path(meta_dir, "codes.csv"))
-  readr::write_csv(
-    tibble::tibble(PROV=c("10","35","10"), WEIGHT=c("100","200","9999")),
-    file.path(vdir, "survey.csv")
-  )
-  # Minimal codebook so pumf_parse_metadata can re-parse on refresh=TRUE
-  readr::write_csv(
-    tibble::tibble(
-      Field_Champ               = c("PROV", NA, NA, "WEIGHT"),
-      Variable_Variable         = c("PROV", "10", "35", "WEIGHT"),
-      EnglishLabel_EtiquetteAnglais = c("Province","Newfoundland","Ontario","Survey weight"),
-      FrenchLabel_EtiquetteFrancais = c("Province","Terre-Neuve","Ontario","Poids")
-    ),
-    file.path(vdir, "codebook.csv")
-  )
-  writeLines("", file.path(vdir, "sentinel.txt"))
-  vdir
-}
-
 test_that("get_pumf_connection: returns a DBI connection with table list message", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
@@ -627,6 +587,7 @@ test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped o
     message = function(m) { msg <<- conditionMessage(m); invokeRestart("muffleMessage") })
   expect_true(spoke)
   expect_match(msg, "SENT 2099 \\[eng\\] was built by canpumf before 0.6.1")
+  expect_match(msg, "codes that share a label are merged")
   expect_match(msg, "refresh = TRUE.*list_pumf_cache\\(\\).*canpumf.stale_cache_message")
   # the second time the same table is opened it is silent
   expect_silent(again <- do.call(.pumf_check_build_stamp, args))
@@ -635,15 +596,26 @@ test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped o
   expect_message(.pumf_check_build_stamp(con, "SENT", "2099", "fra", "fra",
                                          "/tmp/stamp-b.duckdb"),
                  "SENT 2099 \\[fra\\]")
-  # a stamped table is silent
-  db3 <- file.path(withr::local_tempdir(), "stamped.duckdb")
+  # a stamped table without metadata/codes_applied.csv was built by a 0.6.1
+  # development version before value labels were made unique: it speaks once
+  vdir <- withr::local_tempdir()
+  db3  <- file.path(vdir, "stamped.duckdb")
   wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3)
-  DBI::dbWriteTable(wcon, "eng", data.frame(pumf_row_id = 1:2, X = 1:2))
-  .write_build_info(wcon, "eng")
+  for (tab in c("eng", "fra")) {
+    DBI::dbWriteTable(wcon, tab, data.frame(pumf_row_id = 1:2, X = 1:2))
+    .write_build_info(wcon, tab)
+  }
   DBI::dbDisconnect(wcon, shutdown = TRUE)
   rcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3, read_only = TRUE)
   on.exit(DBI::dbDisconnect(rcon, shutdown = TRUE), add = TRUE)
-  expect_silent(res <- .pumf_check_build_stamp(rcon, "S", "v", "eng", "eng", db3))
+  expect_message(res <- .pumf_check_build_stamp(rcon, "S", "v", "eng", "eng", db3),
+                 "S v \\[eng\\] was built by a canpumf 0.6.1 development version.*refresh = TRUE")
+  expect_true(res)
+  # a stamped table with the side-car is silent (a fresh key: another table)
+  dir.create(file.path(vdir, "metadata"))
+  .write_codes_applied(data.frame(name = "X", val = "1", label_en = "a", label_fr = "a"),
+                       file.path(vdir, "metadata"))
+  expect_silent(res <- .pumf_check_build_stamp(rcon, "S", "v", "fra", "fra", db3))
   expect_false(res)
 })
 

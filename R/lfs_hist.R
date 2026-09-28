@@ -341,5 +341,6 @@
     available      = .lfs_hist_all_versions,
     prepare        = .lfs_hist_prepare,
     build          = .lfs_hist_build,
-    variables      = function(cache_path, versions) .lfs_hist_variables())
+    variables      = function(cache_path, versions) .lfs_hist_variables(),
+    codes          = .lfs_hist_all_codes)
 }

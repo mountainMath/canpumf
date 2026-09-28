@@ -328,6 +328,18 @@
   "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
 )
 
+# Census 1986 household file: both command files (EFT hhld86_eng.sps and the
+# ODESI pumf86h.sps) label HHMOTG 3 and 6 "Other".  The user guide
+# (cen86_gid_pumf_hhldhsg.pdf, field 48) lists 3 under "Single responses" and
+# 6 under "Multiple responses", and the spouse variable SPMOTG spells the same
+# two categories out as "Other single responses" / "Other multiple responses".
+# The French is the standard Census wording (reponses uniques / multiples).
+.census_1986_hhmotg <- list(HHMOTG = data.frame(
+  val      = c("3", "6"),
+  label_en = c("Other single responses", "Other multiple responses"),
+  label_fr = c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples"),
+  stringsAsFactors = FALSE))
+
 # GSS cycle 16 (2002) per-module force_numeric: count/age/date variables whose
 # SPSS value-label blocks declare only boundary/sentinel codes (e.g. a top-code
 # and a "Not stated") alongside otherwise-continuous numeric data.  Derived from
@@ -1464,7 +1476,8 @@
     bundle_sps_mask = "hhld86",
     file_mask       = "^HHLD86\\.DAT$",
     doc_mask        = "Household|[Mm][e\u00e9]nages|hhldhsg",
-    data_fixups     = list(force_numeric = .census_1986_numeric_hhld)),
+    data_fixups     = list(force_numeric  = .census_1986_numeric_hhld,
+                           codes_override = .census_1986_hhmotg)),
 
   "Census/1986/families" = .make_entry("Census", "1986/families",
     bundle_sps_mask = "fam",
@@ -1571,7 +1584,8 @@
     data_fixups = list(force_numeric = .census_1986_numeric_ind)),
   "Census/1986 (households)" = .make_entry("Census", "1986 (households)",
     borealis    = list(doi = "doi:10.5683/SP3/FSJJFR"),
-    data_fixups = list(force_numeric = .census_1986_numeric_hhld)),
+    data_fixups = list(force_numeric  = .census_1986_numeric_hhld,
+                       codes_override = .census_1986_hhmotg)),
   # The EFT family .sps has no value labels on these, so they are numeric
   # there already; ODESI's adds boundary labels ("85 yrs or more").
   "Census/1986 (families)" = .make_entry("Census", "1986 (families)",
@@ -1963,8 +1977,8 @@ pumf_registry_keys <- function() {
 .pumf_fixup_fields <- c(
   "str_pad", "rename", "rename_regex", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
-  "codes_supplement", "missing_supplement", "missing_codes",
-  "labels_supplement")
+  "codes_supplement", "codes_override", "missing_supplement", "missing_codes",
+  "labels_supplement", "sentinel_labels")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.

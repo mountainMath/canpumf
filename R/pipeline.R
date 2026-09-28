@@ -878,7 +878,8 @@ pumf_locate_or_download <- function(series,
 # Turn every code column of the companion into a factor whose levels are the
 # codes' labels, in code order.  Written to DuckDB the factor becomes an ENUM,
 # so a count() of a sentinel column reads "Not available" / "Not applicable"
-# instead of 888888 / 999999.  Two codes with the same label share a level.
+# instead of 888888 / 999999.  Two codes with the same label are kept apart
+# by the code suffix, as in the main table.
 # codes: the merged codes tibble; sentinel_labels: the registry data_fixups
 # field (see registry.R).
 .label_sentinel_companion <- function(sent, codes, label_col,
@@ -888,6 +889,9 @@ pumf_locate_or_download <- function(series,
   if (is.null(codes)) codes <- tibble::tibble(name = character(), val = character(),
                                               label_en = character(), label_fr = character())
   if (!label_col %in% names(codes)) codes[[label_col]] <- NA_character_
+  # French fallback and one row per code; no suffix yet -- the companion
+  # holds only the sentinel values that occur, deduped below.
+  codes <- .pumf_unique_code_labels(codes, present = list())
   for (col in cols) {
     x    <- sent[[col]]
     vals <- sort(unique(x[!is.na(x)]))
@@ -895,6 +899,9 @@ pumf_locate_or_download <- function(series,
     labs <- vapply(vals, function(v)
       .sentinel_label_one(col, v, codes_var, label_col, sentinel_labels),
       character(1L))
+    # Two sentinel codes with one label (registry "NA" for 99 and 999) stay
+    # apart, as in the main table.
+    labs <- .pumf_dedupe_labels(labs, .sentinel_key(vals))
     sent[[col]] <- factor(labs[match(x, vals)], levels = unique(labs))
   }
   sent
@@ -913,6 +920,164 @@ pumf_locate_or_download <- function(series,
 }
 
 
+# ---- Unique value labels ------------------------------------------------------
+#
+# Statistics Canada's command files give several codes of one variable the same
+# label more often than one would hope: genuinely shared categories (Census
+# 1986 HHMOTG "Other" on 3 and 6, ITS "South Shore" on two region codes, CHSS
+# with two "Don't know" codes), scale midpoints printed as "|", "???" or "..."
+# placeholders across a whole code range, and truncated labels that collide.
+# A factor built from such labels would merge categories the survey keeps
+# apart, and the code would be lost.  When at least two of the codes sharing a
+# label occur in the data, every member of the group gets the code appended:
+# "Other (3)", "Other (6)".  All members are suffixed (not only the later ones)
+# so the result is symmetric, the same rule label_pumf_columns() uses for
+# column names.  A label whose other codes never occur stays as documented
+# (CHS PITM_05 declares 5 and 8 both "Do not know", and only 8 appears), so
+# the suffix shows up only where the data need it.
+
+# labels: the labels of one variable; vals: the codes as documented (used for
+# the suffix); key: the identity of each code (defaults to vals; the caller
+# passes normalised codes so "01" and "1" are one code, not two); present:
+# which codes occur in the data (default: all of them, the document-based
+# rule).  A group is suffixed when at least two of its present codes differ.
+.pumf_dedupe_labels <- function(labels, vals, key = vals,
+                                present = rep(TRUE, length(labels))) {
+  ok <- !is.na(labels) & nzchar(labels) & present
+  if (!any(ok)) return(labels)
+  n_codes <- tapply(key[ok], labels[ok], function(k) length(unique(k)))
+  dup <- !is.na(labels) & labels %in% names(n_codes)[n_codes > 1L]
+  labels[dup] <- paste0(labels[dup], " (", vals[dup], ")")
+  labels
+}
+
+# Codes of one variable compared as integers when every code is integer-like
+# ("01" == "1"), otherwise verbatim -- the rule .apply_code_labels() applies
+# to the data values.
+.pumf_code_key <- function(vals) {
+  if (length(vals) > 0L && all(grepl("^-?[0-9]+$", vals)))
+    as.character(as.integer(vals))
+  else
+    vals
+}
+
+# The codes (as .pumf_code_key() keys) of each coded variable that occur in
+# the character data, a named list by variable.  na_values are not counted.
+.pumf_codes_present <- function(data, codes, na_values = character(0L)) {
+  out <- list()
+  if (is.null(codes) || nrow(codes) == 0L) return(out)
+  for (col in intersect(unique(codes$name), names(data))) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    raw <- unique(x[!is.na(x)])
+    if (length(na_values) > 0L) raw <- raw[!trimws(raw) %in% na_values]
+    vals <- as.character(codes$val[codes$name == col])
+    if (length(vals) > 0L && all(grepl("^-?[0-9]+$", vals))) {
+      num <- suppressWarnings(as.integer(raw))
+      raw <- ifelse(!is.na(num), as.character(num), raw)
+    }
+    out[[col]] <- unique(raw)
+  }
+  out
+}
+
+# The codes tibble (name, val, label_en, label_fr) with unique labels within
+# each variable and language.  A missing French label is first filled from the
+# English one, as the build does, so the French uniqueness is judged on what
+# the French table will show; a code documented in neither language stays NA.
+# Exact repeats of one code (the same (name, val) listed twice) are reduced to
+# the first listing, which is the one the label lookup would have used anyway.
+# present: the .pumf_codes_present() list; NULL treats every code as present
+# (the document-based rule), and a variable absent from a non-NULL list has
+# no present code, so its labels are left as documented.
+.pumf_unique_code_labels <- function(codes, present = NULL) {
+  if (is.null(codes) || nrow(codes) == 0L) return(codes)
+  codes$val <- as.character(codes$val)
+  na_fr <- is.na(codes$label_fr)
+  codes$label_fr[na_fr] <- codes$label_en[na_fr]
+  keys  <- unsplit(lapply(split(codes$val, codes$name), .pumf_code_key),
+                   codes$name)
+  keep  <- !duplicated(paste(codes$name, keys))
+  codes <- codes[keep, , drop = FALSE]
+  keys  <- keys[keep]
+  by_var <- split(seq_len(nrow(codes)), codes$name)
+  pres <- unsplit(lapply(names(by_var), function(v) {
+    k <- keys[by_var[[v]]]
+    if (is.null(present)) rep(TRUE, length(k)) else k %in% present[[v]]
+  }), codes$name)
+  for (lc in intersect(c("label_en", "label_fr"), names(codes))) {
+    codes[[lc]] <- unsplit(
+      Map(.pumf_dedupe_labels,
+          split(codes[[lc]], codes$name), split(codes$val, codes$name),
+          split(keys, codes$name), split(pres, codes$name)),
+      codes$name)
+  }
+  codes
+}
+
+# The value labels as the table shows them: the codes after the registry's
+# code fixups, the French fallback and the code suffix decided on the data.
+# Stage 3 writes them to metadata/codes_applied.csv, which pumf_dictionary()
+# reads, so the dictionary and the ENUM levels agree by construction.
+.pumf_codes_applied_path <- function(meta_dir) file.path(meta_dir, "codes_applied.csv")
+.write_codes_applied <- function(codes, meta_dir) {
+  cols <- c("name", "val", "label_en", "label_fr")
+  readr::write_csv(as.data.frame(codes)[, cols], .pumf_codes_applied_path(meta_dir),
+                   na = "")
+}
+.read_codes_applied <- function(meta_dir) {
+  f <- .pumf_codes_applied_path(meta_dir)
+  if (!file.exists(f)) return(NULL)
+  as.data.frame(readr::read_csv(f, col_types = readr::cols(.default = "c"),
+                                na = "", progress = FALSE))
+}
+
+
+# Apply the registry's code-row fixups to a codes tibble (name, val, label_en,
+# label_fr).  Both are keyed by variable name and hold a data frame of
+# (val, label_en, label_fr):
+#   codes_supplement -- rows appended for codes the command file omits,
+#   codes_override   -- rows that replace the command file's label for a code
+#                       it declares (Census 1986 HHMOTG labels 3 and 6 both
+#                       "Other"; the user guide has "Other single responses" /
+#                       "Other multiple responses").  A code the file does not
+#                       declare is appended.
+# Codes match as strings after trimming and, when both sides are integers, by
+# value ("01" == "1").  Stage 3 and .pumf_dictionary_from_prov() both call this
+# so the dictionary describes what the table shows.
+.pumf_apply_code_fixups <- function(codes, fx) {
+  if (is.null(fx)) return(codes)
+  cols <- c("name", "val", "label_en", "label_fr")
+  if (length(fx$codes_supplement) > 0L) {
+    for (vname in names(fx$codes_supplement)) {
+      extra <- fx$codes_supplement[[vname]]
+      extra$name <- vname
+      codes <- bind_rows(codes, extra[, cols])
+    }
+  }
+  if (length(fx$codes_override) > 0L) {
+    key <- function(v) {
+      v <- trimws(as.character(v))
+      n <- suppressWarnings(as.integer(v))
+      ifelse(!is.na(n) & grepl("^-?[0-9]+$", v), as.character(n), v)
+    }
+    for (vname in names(fx$codes_override)) {
+      repl <- fx$codes_override[[vname]]
+      repl$name <- vname
+      repl <- repl[, cols]
+      hit  <- which(codes$name == vname)
+      m    <- match(key(repl$val), key(codes$val[hit]))
+      have <- !is.na(m)
+      if (any(have)) {
+        codes$label_en[hit[m[have]]] <- repl$label_en[have]
+        codes$label_fr[hit[m[have]]] <- repl$label_fr[have]
+      }
+      if (any(!have)) codes <- bind_rows(codes, repl[!have, , drop = FALSE])
+    }
+  }
+  codes
+}
+
 # Map raw character values → factor labels using codes metadata.
 # label_col is "label_en" or "label_fr".
 # Unmatched raw values become NA (warned).  Raw values listed in na_values
@@ -923,6 +1088,10 @@ pumf_locate_or_download <- function(series,
 # "pumf_sentinels" attribute, as .apply_numeric_conversion() does for numeric
 # columns (numeric where the raw value parses as a number, else NA).
 .apply_code_labels <- function(data, codes, label_col, na_values = character(0L)) {
+  # Codes sharing a label are told apart by the code suffix where the data
+  # hold at least two of them (.pumf_unique_code_labels()).
+  codes      <- .pumf_unique_code_labels(
+                  codes, .pumf_codes_present(data, codes, na_values))
   char_cols  <- names(data)[vapply(data, is.character, logical(1L))]
   coded_cols <- intersect(char_cols, unique(codes$name))
   sentinels  <- list()
@@ -1259,15 +1428,10 @@ pumf_build_duckdb <- function(version_dir,
   if (length(dup_forced) > 0L)
     stop("Variable(s) listed in more than one force_* type override: ",
          paste(dup_forced, collapse = ", "), call. = FALSE)
-  # codes_supplement: per-variable extra rows to inject before label mapping.
-  # Used for codes that appear in data but are absent from the command files.
-  if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {
-    for (vname in names(reg$data_fixups$codes_supplement)) {
-      extra <- reg$data_fixups$codes_supplement[[vname]]
-      extra$name <- vname
-      codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
-    }
-  }
+  # codes_supplement / codes_override: registry code rows injected before
+  # label mapping (shared with pumf_dictionary(), so both see the same codes).
+  codes <- .pumf_apply_code_fixups(codes, reg$data_fixups)
+  codes_full <- codes
   # Labelled missing codes, captured before the force_* blocks drop codes: each
   # numeric code value whose English or French label is a true-missing label
   # (qualified forms included).  They become discrete missing codes for every
@@ -1382,6 +1546,11 @@ pumf_build_duckdb <- function(version_dir,
     lay_dec <- if ("decimals" %in% names(layout)) layout$decimals else NA_integer_
     conv_vars$decimals <- lay_dec[match(variables$name, layout$name)]
   }
+  # Which documented codes occur, for every variable with codes (the data are
+  # still character here): the code suffix that .apply_code_labels() adds to
+  # shared labels depends on it, and metadata/codes_applied.csv records the
+  # resulting labels for pumf_dictionary().
+  present_all <- .pumf_codes_present(data, codes_full, na_vals)
   data <- .apply_numeric_conversion(data, conv_vars, na_values = na_vals,
                                     implied_decimals = is_fwf,
                                     missing_codes = miss_codes)
@@ -1390,6 +1559,7 @@ pumf_build_duckdb <- function(version_dir,
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
   sentinels <- c(sentinels, attr(data, "pumf_sentinels") %||% list())
   attr(data, "pumf_sentinels") <- NULL
+  .write_codes_applied(.pumf_unique_code_labels(codes_full, present_all), meta_dir)
 
   # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
   # order) links the main table to its companion tables: the sentinel table

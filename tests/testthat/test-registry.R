@@ -89,6 +89,18 @@ test_that("pumf_registry_lookup: Census/2021 (individuals) has RELIGION_DER rena
   expect_equal(unname(e$data_fixups$rename), "RELIG")
 })
 
+test_that("pumf_registry_lookup: both Census 1986 household entries carry the HHMOTG override", {
+  for (v in c("1986/households", "1986 (households)")) {
+    reg <- pumf_registry_lookup("Census", v)
+    ov  <- reg$data_fixups$codes_override
+    expect_named(ov, "HHMOTG", info = v)
+    expect_equal(ov$HHMOTG$val, c("3", "6"), info = v)
+    expect_equal(ov$HHMOTG$label_en,
+                 c("Other single responses", "Other multiple responses"), info = v)
+  }
+  expect_true("codes_override" %in% canpumf:::.pumf_fixup_fields)
+})
+
 test_that("pumf_registry_lookup: Census fixed-width versions have .dat file_mask", {
   fwf_versions <- c("2016 (individuals)", "2011 (individuals)",
                     "2006 (individuals)", "2001 (individuals)",

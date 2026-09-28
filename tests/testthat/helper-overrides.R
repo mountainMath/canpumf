@@ -10,6 +10,7 @@
 #   rename             — one row per renamed pair (variable = old, value = new)
 #   rename_regex       — one row per pattern (variable = pattern, value = replacement)
 #   codes_supplement   — one row per supplemented (variable, val) pair
+#   codes_override     — one row per overridden (variable, val) pair
 #   missing_supplement — one row per variable (value = "lo-hi" range)
 #   missing_codes      — one row per (variable, code) pair; an empty vector
 #                        (the variable has no missing code, the parsed range is
@@ -67,6 +68,12 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
         df <- fx$codes_supplement[[nm]]
         for (j in seq_len(nrow(df)))
           add(series, version, "codes_supplement", nm, df$val[j])
+      }
+    if (!is.null(fx$codes_override))
+      for (nm in names(fx$codes_override)) {
+        df <- fx$codes_override[[nm]]
+        for (j in seq_len(nrow(df)))
+          add(series, version, "codes_override", nm, df$val[j])
       }
     # sentinel_labels: only the per-variable form is a claim about one
     # variable's codes.  The code-keyed form ("9999999" = ...) is the survey-wide
