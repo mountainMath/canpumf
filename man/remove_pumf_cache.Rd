@@ -2,13 +2,14 @@
 % Please edit documentation in R/cache_mgmt.R
 \name{remove_pumf_cache}
 \alias{remove_pumf_cache}
-\title{Remove a PUMF version from the local cache}
+\title{Remove a PUMF version, or one of its languages, from the local cache}
 \usage{
 remove_pumf_cache(
   series,
   version,
   keep_raw = TRUE,
-  cache_path = getOption("canpumf.cache_path", tempdir())
+  cache_path = getOption("canpumf.cache_path", tempdir()),
+  lang = NULL
 )
 }
 \arguments{
@@ -22,19 +23,36 @@ everything including raw files.}
 
 \item{cache_path}{Root cache directory.  Defaults to
 `getOption("canpumf.cache_path", tempdir())`.}
+
+\item{lang}{`NULL` (default) removes the version.  `"eng"` or `"fra"`
+removes only that language's tables from the DuckDB and compacts the
+file.}
 }
 \value{
 Invisibly `NULL`.
 }
 \description{
 Deletes the DuckDB table (and optionally the raw zip and extracted files)
-for one cached PUMF version.
+for one cached PUMF version, or with `lang` only the tables of one
+language.
 }
 \details{
 With the default `keep_raw = TRUE`, only the DuckDB and parsed `metadata/`
 are removed; the raw zip and extracted data are left intact so that
 [get_pumf()] can rebuild without re-downloading.  Set `keep_raw = FALSE`
 to delete everything, freeing the full disk space.
+
+A survey built in both languages holds an `eng` and a `fra` table (each
+with its sentinel companion and bootstrap-weight views) in one DuckDB
+file.  `lang = "fra"` drops the French tables and keeps everything else:
+the English tables, the shared bootstrap-weight tables, the metadata and
+the raw files.  DuckDB does not return the space of a dropped table to the
+file system on its own, so the database is then compacted by copying it to
+a fresh file, which takes about as long as reading the remaining tables
+once.  When no table remains, the file is deleted instead.  The database
+must not be open: close tbls with [close_pumf()] first.  `keep_raw` is
+ignored with `lang`, and the longitudinal series (`"LFS"`, `"LFS_HIST"`)
+do not support it.
 
 For LFS surveys the DuckDB is shared across all versions.  Removing one
 version deletes only that version's rows from the shared `LFS.duckdb`; if
@@ -47,6 +65,9 @@ remove_pumf_cache("SFS", "2019")
 
 # Remove everything including raw files:
 remove_pumf_cache("SFS", "2019", keep_raw = FALSE)
+
+# Drop the French tables of a bilingual build and shrink the file:
+remove_pumf_cache("SFS", "2019", lang = "fra")
 }
 }
 \seealso{

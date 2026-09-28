@@ -23,6 +23,10 @@
 
 * **New `data_fixups` field `codes_override`** replaces the label of a code the command file declares, where the user guide says otherwise. First use: Census 1986 households `HHMOTG` (mother tongue of the household maintainer), whose codes 3 and 6 are both "Other" in the SPSS file; the guide lists 3 under *Single responses* and 6 under *Multiple responses*, and the spouse variable `SPMOTG` spells the same categories out, so they are now "Other single responses" / "Other multiple responses" (French "Autres réponses uniques" / "Autres réponses multiples"). Like every manual override it has rows in `tests/testthat/override_verification.csv`.
 
+## Cache
+
+* **`remove_pumf_cache()` gained a `lang` argument** that drops one language from a bilingual build and gives the space back. `remove_pumf_cache("SFS", "2019", lang = "fra")` drops the French table, its sentinel companion, its bootstrap-weight views and its build-stamp row, keeps the English tables, the shared bootstrap-weight tables, the metadata and the raw files, and then compacts the DuckDB file by copying what remains into a fresh file, since DuckDB does not truncate a file when a table is dropped. Dropping the last language deletes the file. It needs the write lock, so open tbls have to be closed first; the longitudinal series are not supported.
+
 ## Census fixes (#24)
 
 * **Census 2011 (individuals): 13 variables were left unlabelled** (`MOB1`, `PR1`, `CIP2000`, `NOC11`, `PKID0_1`, `PKID25`, ...). The English SPSS command file heads their `VALUE LABELS` blocks with a decorated name (`MOB1_`), which no `DATA LIST` declares, and the English-keyed bilingual join then lost the correctly-spelled French labels too. The mono SPSS parser now attaches such a block to the declared variable when stripping the trailing underscores lands on one that has no block of its own. A variable whose name genuinely ends in `_` is untouched.
