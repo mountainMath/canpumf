@@ -544,6 +544,33 @@ test_that("pumf_build_duckdb: labelled missing codes of numeric variables become
   expect_equal(res$AGE, c(45.3, NA, NA, 7.1))
   expect_equal(res$IDX, c(0.973, NA, 1, NA))
   expect_equal(res$HRS, c(0, NA, 12, 12))
+
+  # The companion names the sentinels of the force_numeric variable by their
+  # documented labels, although force_numeric removed IDX's rows from the code
+  # table before labelling (it once fell back to the digits "7" and "9").
+  con <- DBI::dbConnect(duckdb::duckdb(),
+                        dbdir = file.path(vdir, "FAKE_2099.duckdb"), read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_equal(sent$pumf_row_id, c(2, 3, 4))
+  expect_equal(as.character(sent$IDX), c("NOT STATED - PATH UNKNOWN", NA, "Don't know"))
+  expect_equal(as.character(sent$AGE), c("Not asked", "Not stated", NA))
+  expect_equal(as.character(sent$HRS), c("Not stated", NA, NA))
+
+  # codes_applied.csv records how each code was applied: the labelled values
+  # that stay numbers ("value": IDX 1 "Full health", HRS 0 "None") against the
+  # sentinels, and pumf_topcodes() lists the former.
+  ca <- canpumf:::.read_codes_applied(meta)
+  expect_equal(ca$applied_as[ca$name == "AGE"], c("sentinel", "sentinel"))
+  expect_equal(ca$applied_as[ca$name == "IDX"], c("value", "sentinel", "sentinel"))
+  expect_equal(ca$applied_as[ca$name == "HRS"], c("value", "sentinel"))
+  tc <- pumf_topcodes("FAKE", "2099", cache_path = tmp)
+  expect_s3_class(tc, "tbl_df")
+  expect_equal(names(tc), c("name", "val", "label_en", "label_fr"))
+  expect_equal(tc$name, c("HRS", "IDX"))
+  expect_equal(tc$val, c(0, 1))
+  expect_equal(tc$label_en, c("None", "Full health"))
+  expect_equal(tc$label_fr, c("Aucun", "Pleine sant\u00e9"))
 })
 
 test_that("pumf_build_duckdb: force_numeric is ignored when every value is labelled", {

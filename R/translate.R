@@ -118,6 +118,54 @@
   unique(rbind(h, e))
 }
 
+# The registry entry, module and metadata directory of a non-longitudinal
+# provenance record (series, version, cache_path, module).
+.pumf_prov_meta <- function(prov) {
+  series   <- prov$series
+  reg      <- pumf_registry_lookup(series, prov$version)
+  mods     <- .pumf_entry_modules(reg)
+  mod      <- if (!is.null(prov$module) && !is.null(mods)) mods[[prov$module]]
+  subdir   <- mod$meta_subdir
+  meta_dir <- if (is.null(subdir))
+    file.path(prov$cache_path, series, prov$version, "metadata")
+  else
+    file.path(prov$cache_path, series, prov$version, "metadata", subdir)
+  if (!dir.exists(meta_dir))
+    stop("Metadata directory not found: '", meta_dir, "'. ",
+         "Run get_pumf(\"", series, "\", \"", prov$version, "\") first.",
+         call. = FALSE)
+  list(reg = reg, mod = mod, meta_dir = meta_dir,
+       fix = if (!is.null(mod)) mod$data_fixups else reg$data_fixups)
+}
+
+# The provenance record behind the (x, version, module, cache_path) arguments
+# shared by pumf_dictionary() and pumf_topcodes(): a get_pumf() tbl carries
+# its own; a series name needs the version (except the longitudinal series).
+.pumf_prov_from_arg <- function(x, version, module, cache_path) {
+  if (is.character(x)) {
+    if (length(x) != 1L)
+      stop("'x' must be a single series name or a get_pumf() tbl.",
+           call. = FALSE)
+    series <- x
+    if (identical(series, "LFS_TIMELINE"))
+      return(list(series = series, version = NA_character_,
+                  cache_path = cache_path, module = NULL))
+    if (!.is_longitudinal(series) && is.null(version))
+      stop("'version' is required when 'x' is a series name.", call. = FALSE)
+    return(list(series = series, version = version, cache_path = cache_path,
+                module = module))
+  }
+  if (!inherits(x, "tbl_lazy"))
+    stop("'x' must be a lazy tbl from get_pumf() or a series name.",
+         call. = FALSE)
+  prov <- .pumf_lookup_con(x$src$con)
+  if (is.null(prov))
+    stop("'x' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  prov$module <- .pumf_tbl_module(x, prov)
+  prov
+}
+
 # variables + codes (both languages) for a provenance record, module-aware.
 .pumf_dictionary_from_prov <- function(prov) {
   series <- prov$series
@@ -135,21 +183,12 @@
     codes     <- as.data.frame(spec$codes(prov$cache_path, versions))
     sent      <- NULL
   } else {
-    reg      <- pumf_registry_lookup(series, prov$version)
-    mods     <- .pumf_entry_modules(reg)
-    mod      <- if (!is.null(prov$module) && !is.null(mods)) mods[[prov$module]]
-    subdir   <- mod$meta_subdir
-    meta_dir <- if (is.null(subdir))
-      file.path(prov$cache_path, series, prov$version, "metadata")
-    else
-      file.path(prov$cache_path, series, prov$version, "metadata", subdir)
-    if (!dir.exists(meta_dir))
-      stop("Metadata directory not found: '", meta_dir, "'. ",
-           "Run get_pumf(\"", series, "\", \"", prov$version, "\") first.",
-           call. = FALSE)
+    pm       <- .pumf_prov_meta(prov)
+    reg      <- pm$reg
+    meta_dir <- pm$meta_dir
+    fix      <- pm$fix
     meta      <- read_metadata(meta_dir)
     variables <- as.data.frame(.pumf_apply_labels_supplement(meta$variables, reg))
-    fix       <- if (!is.null(mod)) mod$data_fixups else reg$data_fixups
     # The value labels as Stage 3 applied them (registry code rows, French
     # fallback, the code suffix where the data hold several codes of one
     # label).  A cache built before 0.6.1 has no codes_applied.csv; its
@@ -232,31 +271,67 @@
 pumf_dictionary <- function(x, version = NULL, module = NULL,
                             cache_path = getOption("canpumf.cache_path",
                                                    tempdir())) {
-  if (is.character(x)) {
-    if (length(x) != 1L)
-      stop("'x' must be a single series name or a get_pumf() tbl.",
-           call. = FALSE)
-    series <- x
-    if (identical(series, "LFS_TIMELINE")) {
-      prov <- list(series = series, version = NA_character_,
-                   cache_path = cache_path, module = NULL)
-    } else {
-      if (!.is_longitudinal(series) && is.null(version))
-        stop("'version' is required when 'x' is a series name.", call. = FALSE)
-      prov <- list(series = series, version = version, cache_path = cache_path,
-                   module = module)
-    }
-    return(.pumf_dictionary_from_prov(prov))
-  }
-  if (!inherits(x, "tbl_lazy"))
-    stop("'x' must be a lazy tbl from get_pumf() or a series name.",
-         call. = FALSE)
-  prov <- .pumf_lookup_con(x$src$con)
-  if (is.null(prov))
-    stop("'x' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-  prov$module <- .pumf_tbl_module(x, prov)
-  .pumf_dictionary_from_prov(prov)
+  .pumf_dictionary_from_prov(.pumf_prov_from_arg(x, version, module, cache_path))
+}
+
+
+#' Labelled values that stay numeric: top codes and other boundary labels
+#'
+#' Some count, age and amount variables carry a label on one or two of their
+#' values only: the top code ("75 and more" on hours worked, "85 years and
+#' over" on age), sometimes a bottom code or a labelled zero ("None").
+#' canpumf keeps such a variable numeric, so that its unlabelled values are
+#' not lost, and drops the label from the table: a 75 is a plain 75 although
+#' it stands for 75 or more.  `pumf_topcodes()` lists these values, so that a
+#' mean or a range can be read with the ceiling in mind.
+#'
+#' Sentinel codes of the same variables ("Not stated", "Don't know") are not
+#' listed: they become `NA` in the table and are reported, with their labels,
+#' by [pumf_sentinels()].  The list is read from `metadata/codes_applied.csv`,
+#' which the build writes; a database built by an earlier canpumf version has
+#' to be rebuilt with `get_pumf(..., refresh = TRUE)` first.  The longitudinal
+#' series (`"LFS"`, `"LFS_HIST"`) have no such variables and are not
+#' supported.
+#'
+#' @inheritParams pumf_dictionary
+#'
+#' @return A tibble with columns `name`, `val` (the numeric value as the table
+#'   holds it), `label_en` and `label_fr`, one row per labelled value the
+#'   table keeps as a number, sorted by variable and value.  Zero rows when
+#'   the survey has none.
+#'
+#' @seealso [pumf_dictionary()] for every documented code, [pumf_sentinels()]
+#'   for the codes that became `NA`.
+#' @examples
+#' \donttest{
+#' gss <- get_pumf("GSS", "Cycle 17 (2003)")
+#' if (!is.null(gss)) {
+#'   pumf_topcodes(gss)          # WKWEHR 75 "75 and more", ...
+#'   close_pumf(gss)
+#' }
+#' }
+#' @export
+pumf_topcodes <- function(x, version = NULL, module = NULL,
+                          cache_path = getOption("canpumf.cache_path",
+                                                 tempdir())) {
+  prov <- .pumf_prov_from_arg(x, version, module, cache_path)
+  if (.is_longitudinal(prov$series) || identical(prov$series, "LFS_TIMELINE"))
+    stop("pumf_topcodes() is not available for the longitudinal series (",
+         prov$series, ").", call. = FALSE)
+  pm    <- .pumf_prov_meta(prov)
+  codes <- .read_codes_applied(pm$meta_dir)
+  if (is.null(codes) || !"applied_as" %in% names(codes))
+    stop(prov$series, " ", prov$version, " was built by a canpumf version ",
+         "that did not record how it applied the value labels. Rebuild it ",
+         "with get_pumf(\"", prov$series, "\", \"", prov$version,
+         "\", refresh = TRUE).", call. = FALSE)
+  keep <- !is.na(codes$applied_as) & codes$applied_as == "value"
+  out  <- codes[keep, c("name", "val", "label_en", "label_fr"), drop = FALSE]
+  out$name <- toupper(out$name)
+  out$val  <- suppressWarnings(as.numeric(out$val))
+  out  <- out[order(out$name, out$val), , drop = FALSE]
+  rownames(out) <- NULL
+  tibble::as_tibble(out)
 }
 
 

@@ -1021,9 +1021,49 @@ pumf_locate_or_download <- function(series,
 # reads, so the dictionary and the ENUM levels agree by construction.
 .pumf_codes_applied_path <- function(meta_dir) file.path(meta_dir, "codes_applied.csv")
 .write_codes_applied <- function(codes, meta_dir) {
-  cols <- c("name", "val", "label_en", "label_fr")
+  cols <- intersect(c("name", "val", "label_en", "label_fr", "applied_as"),
+                    names(codes))
   readr::write_csv(as.data.frame(codes)[, cols], .pumf_codes_applied_path(meta_dir),
                    na = "")
+}
+
+# How Stage 3 applied each documented code, the applied_as column of
+# codes_applied.csv:
+#   "level"    the code is a level of the variable's factor (ENUM) column;
+#   "value"    the variable is numeric and the code stays a number in the
+#              table: a top code ("75 and more"), a bottom code or another
+#              boundary label ("None" on 0).  pumf_topcodes() lists these;
+#   "sentinel" the code becomes NA in the table and is labelled in the
+#              sentinel companion.
+# NA for a variable the table does not hold, or a code that is not a number
+# on a numeric column.  A numeric column's codes go through the same
+# .apply_numeric_conversion() as the data (without implied decimals: the
+# documented codes are already in their decimal form), so the two agree.
+.pumf_codes_applied_as <- function(codes, data, conv_vars, na_values,
+                                   missing_codes) {
+  out <- rep(NA_character_, nrow(codes))
+  for (v in unique(codes$name)) {
+    if (!v %in% names(data)) next
+    idx  <- which(codes$name == v)
+    vals <- trimws(as.character(codes$val[idx]))
+    col  <- data[[v]]
+    if (is.factor(col)) {
+      out[idx] <- ifelse(vals %in% na_values, "sentinel", "level")
+    } else if (is.numeric(col)) {
+      cv <- conv_vars[conv_vars$name == v, , drop = FALSE]
+      if (nrow(cv) != 1L) next
+      cv$type <- "numeric"
+      probe <- data.frame(vals, stringsAsFactors = FALSE)
+      names(probe) <- v
+      kept <- .apply_numeric_conversion(probe, cv, na_values = na_values,
+                                        implied_decimals = FALSE,
+                                        missing_codes = missing_codes)[[v]]
+      isnum <- !is.na(suppressWarnings(as.numeric(vals)))
+      out[idx] <- ifelse(!isnum, NA_character_,
+                         ifelse(is.na(kept), "sentinel", "value"))
+    }
+  }
+  out
 }
 .read_codes_applied <- function(meta_dir) {
   f <- .pumf_codes_applied_path(meta_dir)
@@ -1559,7 +1599,10 @@ pumf_build_duckdb <- function(version_dir,
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
   sentinels <- c(sentinels, attr(data, "pumf_sentinels") %||% list())
   attr(data, "pumf_sentinels") <- NULL
-  .write_codes_applied(.pumf_unique_code_labels(codes_full, present_all), meta_dir)
+  applied <- as.data.frame(.pumf_unique_code_labels(codes_full, present_all))
+  applied$applied_as <- .pumf_codes_applied_as(applied, data, conv_vars, na_vals,
+                                               miss_codes)
+  .write_codes_applied(applied, meta_dir)
 
   # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
   # order) links the main table to its companion tables: the sentinel table
@@ -1569,8 +1612,11 @@ pumf_build_duckdb <- function(version_dir,
     data[setdiff(names(data), "pumf_row_id")])
   sent_table <- .sentinel_table_name(table_name)
   sent_labels <- if (is.null(reg)) list() else reg$data_fixups$sentinel_labels %||% list()
+  # codes_full: the force_* blocks above removed the rows of the variables
+  # they made numeric, but their labelled sentinels ("Not stated" on a
+  # top-coded hours variable) still name the companion's levels.
   sent_df    <- .label_sentinel_companion(
-    .sentinel_companion(sentinels, nrow(data)), codes, label_col, sent_labels)
+    .sentinel_companion(sentinels, nrow(data)), codes_full, label_col, sent_labels)
 
   # Step 9: write to DuckDB
   .assert_duckdb_writable(db_path)

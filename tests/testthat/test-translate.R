@@ -316,3 +316,32 @@ test_that("pumf_translate: a shared label is left alone when only one of its cod
   d2 <- pumf_dictionary("FAKE", "2099", cache_path = tmp)
   expect_equal(d2, d)
 })
+
+
+# ---- pumf_topcodes ----------------------------------------------------------
+
+test_that("pumf_topcodes: a factor variable's codes are levels, not top codes", {
+  tmp <- withr::local_tempdir()
+  tbl <- .fake_tbl(tmp)
+  on.exit(close_pumf(tbl))
+  ca <- canpumf:::.read_codes_applied(file.path(tmp, "FAKE", "2099", "metadata"))
+  expect_equal(ca$applied_as[ca$name == "PROV"], c("level", "level"))
+  tc <- pumf_topcodes(tbl)
+  expect_equal(nrow(tc), 0L)
+  expect_equal(names(tc), c("name", "val", "label_en", "label_fr"))
+  expect_equal(tc, pumf_topcodes("FAKE", "2099", cache_path = tmp))
+  expect_error(pumf_topcodes("FAKE", cache_path = tmp), "version")
+  expect_error(pumf_topcodes("LFS", cache_path = tmp), "longitudinal")
+})
+
+test_that("pumf_topcodes: asks for a rebuild when the side-car predates it", {
+  tmp <- withr::local_tempdir()
+  tbl <- .fake_tbl(tmp)
+  on.exit(close_pumf(tbl))
+  f  <- file.path(tmp, "FAKE", "2099", "metadata", "codes_applied.csv")
+  ca <- readr::read_csv(f, col_types = readr::cols(.default = "c"))
+  readr::write_csv(ca[, c("name", "val", "label_en", "label_fr")], f)
+  expect_error(pumf_topcodes(tbl), "refresh = TRUE")
+  file.remove(f)
+  expect_error(pumf_topcodes(tbl), "refresh = TRUE")
+})
