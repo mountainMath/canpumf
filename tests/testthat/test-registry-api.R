@@ -201,3 +201,10 @@ test_that("pumf_metadata(registry=): 'already parsed' message; never from get_pu
   on.exit(try(close_pumf(tbl), silent = TRUE), add = TRUE)
   expect_false(any(grepl("already parsed", msgs2)))
 })
+
+test_that("pumf_registry_entry: layout_file names the card whose layout the data follow", {
+  e <- pumf_registry_entry(layout_file = "^survey_i\\.SAS$")
+  expect_equal(names(e), "layout_file")
+  expect_equal(e$layout_file, "^survey_i\\.SAS$")
+  expect_error(pumf_registry_entry(layout_file = c("a", "b")), regexp = "single string")
+})

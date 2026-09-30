@@ -642,6 +642,88 @@ for (.v in names(.gss_timeuse_modules)) {
   })
 }
 
+# Cycle 36 (2022) Episode: StatCan's SPSS DATA LIST and SAS INPUT card
+# disagree on the record layout and only the SAS card matches the data (#29).
+# The registry therefore takes the Episode layout from the SAS card
+# (`layout_file`).  Every count below is the codebook's
+# (TU_2022_Episode_PUMF.pdf), and the misaligned SPSS positions reproduce none.
+test_that("GSS Cycle 36 (2022) Episode: the SAS-card layout reproduces the codebook", {
+  ver  <- "Cycle 36 (2022)"
+  vdir <- .gss_vdir(ver)
+  skip_if_not(canpumf:::.version_is_extracted(vdir),
+              paste("GSS", ver, "not extracted in cache"))
+  reg <- canpumf:::pumf_registry_lookup("GSS", ver)
+  m   <- canpumf:::.pumf_entry_modules(reg)$Episode
+  expect_identical(m$layout_file, "^TU_ET_2022_Episode_i\\.SAS$")
+  # read at the right columns every value of these is a documented code
+  expect_null(m$data_fixups$force_numeric)
+
+  warns <- character(0L)
+  expect_message(
+    withCallingHandlers(
+      canpumf:::pumf_parse_metadata(vdir,
+                                     layout_mask       = m$layout_mask,
+                                     metadata_encoding = reg$metadata_encoding,
+                                     refresh           = TRUE,
+                                     meta_subdir       = m$meta_subdir,
+                                     file_mask         = m$file_mask,
+                                     layout_file       = m$layout_file),
+      warning = function(w) {
+        warns <<- c(warns, conditionMessage(w)); invokeRestart("muffleWarning")
+      }),
+    "INSTANCE more than once")
+  expect_length(warns, 0L)
+
+  lay <- canpumf:::read_metadata(file.path(vdir, "metadata", "Episode"))$layout
+  expect_equal(sum(lay$name == "INSTANCE"), 1L)
+  expect_false("TUI_D81" %in% lay$name)          # documented, not on the file
+  expect_equal(max(lay$end), 5071L)              # the SAS card's LRECL
+  w1 <- lay[lay$name == "WEPI_001", ]
+  expect_equal(c(w1$start, w1$end, w1$decimals), c(72L, 81L, 4L))
+
+  tmp <- tempfile(fileext = ".duckdb")
+  r <- suppressWarnings(canpumf:::pumf_build_duckdb(
+    vdir, "GSS", ver, lang = "eng",
+    layout_mask = m$layout_mask, file_mask = m$file_mask,
+    db_path = tmp, refresh = TRUE,
+    meta_subdir = m$meta_subdir, data_fixups = m$data_fixups))
+  tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+  on.exit({ DBI::dbDisconnect(tbl$src$con, shutdown = TRUE); unlink(tmp) })
+
+  expect_false("TUI_D81" %in% colnames(tbl))
+  expect_equal(sum(colnames(tbl) == "INSTANCE"), 1L)
+  d <- dplyr::collect(dplyr::select(
+    tbl, WGHT_EPI, WEPI_001, WEPI_500, DURATION, STARTMIN, ENDMIN,
+    LOCATION, ACTIVITY, TUI_01, TUI_03, DUR_03, TUI_06A, TUI_07, TUI_15))
+  expect_equal(nrow(d), 168078L)
+
+  # the episode weight and its replicates are read at the right columns
+  expect_true(is.numeric(d$WEPI_001) && is.numeric(d$WEPI_500))
+  expect_equal(sum(d$WGHT_EPI), 424462604, tolerance = 1e-6)
+  expect_equal(sum(d$WEPI_001) / sum(d$WGHT_EPI), 1, tolerance = 0.01)
+  # duration is the difference of the clock minutes in every record
+  expect_true(all(d$DURATION == d$ENDMIN - d$STARTMIN))
+
+  # the detailed-code variables are fully labelled factors
+  for (v in c("LOCATION", "ACTIVITY", "TUI_01", "TUI_03")) {
+    expect_true(is.factor(d[[v]]), info = v)
+    expect_false(anyNA(d[[v]]), info = v)
+  }
+  expect_equal(sum(d$LOCATION == "At home or on property"), 121465L)   # 3300
+  expect_equal(sum(d$ACTIVITY == "Sleeping"), 27313L)                  # 0100
+  expect_equal(sum(d$TUI_01 == "Essential sleep (night or day)"), 23137L) # 0101
+  expect_equal(sum(d$TUI_03 == "Preparing meals"), 3021L)              # 4100
+  expect_equal(as.integer(table(d$DUR_03)[c("Almost no time",
+    "About half the time as the specific activity", "Not stated")]),
+    c(9558L, 19534L, 1987L))
+  expect_equal(as.integer(table(d$TUI_06A)[c("Yes", "No", "Not stated")]),
+               c(84722L, 71996L, 11360L))
+  expect_equal(as.integer(table(d$TUI_07)[c("Yes", "No", "Valid skip")]),
+               c(49537L, 104171L, 5260L))
+  expect_equal(as.integer(table(d$TUI_15)[c("1 - Very unpleasant", "5 - Very pleasant")]),
+               c(1943L, 60769L))
+})
+
 # Labelled non-response codes of numeric variables become NA without a
 # MISSING VALUES declaration, and fully labelled variables stay factors even
 # when force_numeric lists them (Cycle 17 once listed 236, Cycle 12 DDAY).

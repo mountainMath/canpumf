@@ -7,6 +7,7 @@ Back to [CLAUDE.md](../CLAUDE.md). Code: `R/registry.R` (entries, lookup, aliase
 `pumf_registry_lookup(series, version)` returns the per-survey configuration. Entries are built with `.make_entry()`. The user-facing counterparts are `pumf_registry()` (inspect an entry), `list_pumf_registry()` (overview) and `pumf_registry_entry()` (build a custom entry and pass it as `get_pumf(..., registry =)`).
 
 - `layout_mask`: disambiguates SPSS/SAS files for split-file surveys. It also becomes part of the DuckDB table name.
+- `layout_file`: a regex naming the one command file whose `DATA LIST` / SAS `INPUT` statement is the record layout, for a release whose reading cards disagree (GSS Cycle 36 (2022) Episode, #29: the SPSS card, revised by StatCan to match the codebook's printed positions, orders the variables differently from the SAS card, and only the SAS card reads the file). `pumf_parse_metadata()` resolves it with `.pumf_layout_from_file()` (matched case-insensitively against basenames under the version directory, `metadata/` excluded, exactly one match required) and passes the result as `merge_metadata(layout_override =)`, which replaces the layout of the highest-priority parser before promotion, the layout-mismatch warning and the PDF cross-check. A name declared twice keeps its first field (the Cycle 36 card reads `INSTANCE` at 7-9 and again at 37-39). Per module for multi-module surveys; a secondary module never inherits the entry-level value. It is a manual override and needs a ledger row (type `layout_file`).
 - `bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`, `bsw_strata`: how the bootstrap weights are joined.
 - `file_mask`: selects the data file. Its extension decides CSV vs FWF (see "Data file detection" in CLAUDE.md).
 - `data_encoding`, `metadata_encoding`: encoding overrides. The known exceptions are listed in [metadata-parsers.md](metadata-parsers.md#encoding).
@@ -39,6 +40,10 @@ Called before every lookup to turn the user's version string into the canonical 
 - **GSS**: canonical keys are `"Cycle N (YYYY)"`. `.pumf_gss_alias()` generates `Cycle N`, bare `N`, bare `YYYY` and `Cycle N YYYY` for each canonical key. It layers on `.pumf_gss_theme_aliases`, which holds theme names and the historical registry keys (`"Family 2017"`, `"Aging and Social Support 2002"`, `"Education 2007"`). Matching is case-insensitive after stripping punctuation, splitting `cycle16` → `cycle 16`, and collapsing whitespace. SGVP is a separate series with plain-year keys.
 - **CPSS / CCAHS**: `.pumf_cycle_alias()` maps `Series N`/`Cycle N`/`CPSS N` → bare `N`. The keys are cycle numbers, because reference years collide. A bare year is deliberately **not** a CPSS alias.
 - **Census**: any string starting with a four-digit year is parsed flexibly. The file type comes from grepping for `hierarchical`/`household`/`famil`, and CMA vs provincial from `cma`. For 1971–1986 two keys exist per file: the EFT key (`"1971/individuals_cma"`, `"1986/families"`) and the Borealis key (`"1971 (individuals, CMA)"`, `"1986 (families)"`). The keyword `eft` or `borealis` in the version string forces one. Otherwise the EFT key wins only when `.census_eft_bundle_present()` finds the bundle (zip, extracted raw files, or an existing EFT build) under `<cache_path>/Census/<year>/`; with no bundle the Borealis key is returned. So `pumf_resolve_version()` takes `cache_path`, and tests of bare "1971" resolution must use a temp cache.
+
+## Bundle extraction (Stage 1)
+
+`.extract_inner_zips()` unpacks zips nested inside the downloaded bundle at any depth (CIUS 2018: `Data.zip` > `RAW.zip` > the data file), repeating until a pass finds no archive it has not visited. Each archive is visited once per call: an archive whose entry names carry accents (CIUS 2020 `Data_Données.zip`) never matches its extracted files by name on macOS, so a loop keyed on "all entries exist" would extract it forever.
 
 ## Download URL resolution (Stage 1)
 
@@ -77,7 +82,7 @@ The Borealis Census copies are English-only (ODESI `.sps`). Their overrides diff
 
 ## Override verification workflow
 
-**Every manual registry override must be checked against the survey's official documentation and recorded in the ledger `tests/testthat/override_verification.csv`.** The documentation is the PDF codebook or user guide, or the SPS command file when that is authoritative. `test-override-verification.R` enumerates all overrides via `tests/testthat/helper-overrides.R`. It fails when:
+**Every manual registry override must be checked against the survey's official documentation and recorded in the ledger `tests/testthat/override_verification.csv`.** That includes every `data_fixups` claim and the `layout_file` field (variable = module id, value = the pattern), whose evidence is the data reconciled against the codebook's frequency tables. Storage overrides (`force_character`/`force_integer`/`force_bigint`) are enumerated one row per variable, like `force_numeric`; the evidence for a `force_character` is the codebook's declared type or an identifier's leading zeros (CIUS 2005). The documentation is the PDF codebook or user guide, or the SPS command file when that is authoritative. `test-override-verification.R` enumerates all overrides via `tests/testthat/helper-overrides.R`. It fails when:
 - an override has no ledger row,
 - a row has status `pending`/`mismatch`, or
 - a row is stale (its override was removed).

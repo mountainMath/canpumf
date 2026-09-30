@@ -286,3 +286,20 @@ if (identical(Sys.getenv("CANPUMF_REGEN_FIXTURES"), "1") && dir.exists(shs2019_d
   canpumf:::write_metadata(m, testthat::test_path("..", "fixtures", "shs2019"))
   message("shs2019 golden fixtures written")
 }
+
+test_that(".sas_at_fields reads the w.d informat ahead of a trailing comment", {
+  # GSS Cycle 36 cards end every field with a "/* from - to */" comment, which
+  # used to hide the decimals from the end-of-line informat match (#29).
+  lines <- c("INPUT",
+             "    @         1     PUMFID          6.  /*      1 -      6 */",
+             "    @        10     WGHT_EPI       10.4 /*     10 -     19 */",
+             "    @        20     FLAG           $1.  /*     20 -     20 */",
+             "    ;")
+  f <- canpumf:::.sas_at_fields(lines)
+
+  expect_equal(f$name,     c("PUMFID", "WGHT_EPI", "FLAG"))
+  expect_equal(f$start,    c(1L, 10L, 20L))
+  expect_equal(f$end,      c(6L, 19L, 20L))
+  expect_equal(f$fmt_type, c("F", "F", "A"))
+  expect_equal(f$decimals, c(NA_integer_, 4L, NA_integer_))
+})

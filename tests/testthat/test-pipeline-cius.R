@@ -163,3 +163,121 @@ test_that("CIUS 2022: English and French builds have the same structure", {
   fra  <- .collect_pumf_table(r_fr$db_path, r_fr$table_name)
   expect_pumf_bilingual_parity(eng, fra, label = "CIUS 2022")
 })
+
+# ---- Earlier releases: 2005, 2007, 2009, 2018, 2020 ------------------------
+#
+# Every bundle names its data file differently and ships it beside other
+# .txt files, so each release has a registry entry with a file_mask.
+# 2005-2009 are monolithic SPSS cards (English cius*.sps / 2009-eng.sps,
+# French ecui*.sps / 2009-fra.sps): 2007 and 2009 declare "PUMFID (A)" in the
+# DATA LIST, which the parser now honours; 2005 declares it numeric, so the
+# registry keeps it text with force_character.  2018 and 2020 are split card
+# sets inside nested zips (Data.zip > RAW.zip; Data_Données.zip) and declare
+# PUMFID numeric with a label, hence force_character there too.  The expected
+# counts are the record count and weighted total printed on every frequency
+# table of the English codebook.
+
+.cius_expected <- list(
+  "2005" = list(n = 30466L, weight = "WTPP", total = 24699297,
+                mask = "CIUS2005_PUMF.txt", other = "readcius2005.txt",
+                force = TRUE),
+  "2007" = list(n = 26588L, weight = "WTPP", total = 26272171,
+                mask = "cius2007dat.txt", other = "readcius2007.txt",
+                force = FALSE),
+  "2009" = list(n = 23178L, weight = "WTPP", total = 27051048,
+                mask = "cius-ecui2009data.txt", other = "readcius2009.txt",
+                force = FALSE),
+  "2018" = list(n = 13810L, weight = "WTPM", total = 30995823,
+                mask = "CIUS2018PUMF.txt", other = "CIUS2018PUMF_label.txt",
+                force = TRUE),
+  "2020" = list(n = 17409L, weight = "WTPG", total = 31635259,
+                mask = "CIUS2020_PUMF.txt", other = "CIUS2020_PUMF_label.txt",
+                force = TRUE))
+
+test_that("CIUS 2005-2020: registry entries select the data file and keep PUMFID text", {
+  for (v in names(.cius_expected)) {
+    e   <- .cius_expected[[v]]
+    reg <- canpumf:::pumf_registry_lookup("CIUS", v)
+    expect_match(e$mask, reg$file_mask, info = v)
+    expect_no_match(e$other, reg$file_mask, info = v)
+    if (e$force)
+      expect_equal(reg$data_fixups$force_character, "PUMFID", info = v)
+    else
+      expect_null(reg$data_fixups$force_character, info = v)
+  }
+})
+
+for (.v in names(.cius_expected)) local({
+  v <- .v
+  e <- .cius_expected[[v]]
+  vdir <- file.path(getOption("canpumf.cache_path", ""), "CIUS", v)
+
+  test_that(sprintf("CIUS %s: builds without warnings, matches the codebook, PUMFID is text", v), {
+    skip_if_not(canpumf:::.version_is_extracted(vdir),
+                sprintf("CIUS %s not extracted in cache", v))
+
+    reg   <- canpumf:::pumf_registry_lookup("CIUS", v)
+    tmp   <- tempfile(fileext = ".duckdb")
+    on.exit(unlink(tmp), add = TRUE)
+    warns <- character(0L)
+    r <- withCallingHandlers(
+      {
+        canpumf:::pumf_parse_metadata(vdir,
+                                       metadata_encoding = reg$metadata_encoding,
+                                       refresh           = TRUE)
+        canpumf:::pumf_build_duckdb(vdir, "CIUS", v, lang = "eng",
+                                     file_mask = reg$file_mask,
+                                     db_path = tmp, refresh = TRUE)
+      },
+      warning = function(w) {
+        warns <<- c(warns, conditionMessage(w))
+        invokeRestart("muffleWarning")
+      })
+    expect_identical(warns, character(0L),
+                     label = sprintf("CIUS %s: should have no warnings", v))
+
+    tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
+    on.exit(DBI::dbDisconnect(tbl$src$con, shutdown = TRUE), add = TRUE)
+
+    types <- DBI::dbGetQuery(tbl$src$con, sprintf(
+      "SELECT column_name, data_type FROM information_schema.columns
+        WHERE table_name = '%s' AND column_name IN ('PUMFID', '%s')",
+      r$table_name, e$weight))
+    expect_equal(types$data_type[types$column_name == "PUMFID"], "VARCHAR")
+    expect_equal(types$data_type[types$column_name == e$weight], "DOUBLE")
+
+    d <- dplyr::collect(dplyr::summarise(
+      tbl, n = dplyr::n(), wt = sum(.data[[e$weight]], na.rm = TRUE)))
+    expect_equal(d$n, e$n)
+    expect_equal(d$wt, e$total, tolerance = 1e-6)
+
+    # the identifier keeps its raw digits (2005-2009 zero-pad it)
+    ids <- dplyr::pull(dplyr::collect(dplyr::select(head(tbl, 3), PUMFID)))
+    expect_type(ids, "character")
+    if (v %in% c("2005", "2007", "2009")) expect_equal(ids[1], "00001")
+
+    # the codes reached the ENUM levels: every release has a province
+    prov <- grep("^PROV", colnames(tbl), value = TRUE)[1]
+    lv <- levels(dplyr::collect(head(tbl, 1))[[prov]])
+    expect_true("Ontario" %in% lv, info = v)
+  })
+
+  test_that(sprintf("CIUS %s: English and French builds have the same structure", v), {
+    skip_if_not(canpumf:::.version_is_extracted(vdir),
+                sprintf("CIUS %s not extracted in cache", v))
+    skip_if_not(file.exists(file.path(vdir, "metadata", "variables.csv")),
+                sprintf("CIUS %s metadata not parsed", v))
+    reg <- canpumf:::pumf_registry_lookup("CIUS", v)
+    tmp <- tempfile(fileext = ".duckdb")
+    on.exit(unlink(tmp), add = TRUE)
+    build <- function(lang)
+      canpumf:::pumf_build_duckdb(vdir, "CIUS", v, lang = lang,
+                                   file_mask = reg$file_mask,
+                                   db_path = tmp, refresh = TRUE)
+    r_en <- suppressWarnings(build("eng"))
+    r_fr <- suppressWarnings(build("fra"))
+    eng  <- .collect_pumf_table(r_en$db_path, r_en$table_name)
+    fra  <- .collect_pumf_table(r_fr$db_path, r_fr$table_name)
+    expect_pumf_bilingual_parity(eng, fra, label = paste("CIUS", v))
+  })
+})

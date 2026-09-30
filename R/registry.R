@@ -48,6 +48,7 @@
 .make_entry <- function(series,
                         version,
                         layout_mask       = NULL,
+                        layout_file       = NULL,
                         bsw_mask          = NULL,
                         bsw_file_mask     = NULL,
                         bsw_join_key      = NULL,
@@ -70,7 +71,7 @@
   # share a respondent key (RECID) and must be linked for analysis because the
   # survey weight lives only in the primary file.  `modules` is a named list
   # keyed by module id; each element is list(layout_mask=, file_mask=,
-  # data_fixups=).  Every module becomes its own table in the one DuckDB file so
+  # data_fixups=, and optionally layout_file= and the bsw_* fields).  Every module becomes its own table in the one DuckDB file so
   # callers can join them (see pumf_module()).  The primary module supplies the
   # top-level layout_mask/file_mask/data_fixups (and BSW config) so all default
   # code paths (table name, single-table build) return it unchanged.
@@ -84,6 +85,7 @@
       stop("primary_module '", primary_module, "' not found in modules for ",
            series, "/", version)
     if (is.null(layout_mask))      layout_mask <- pm$layout_mask
+    if (is.null(layout_file))      layout_file <- pm$layout_file
     if (is.null(file_mask))        file_mask   <- pm$file_mask
     if (length(data_fixups) == 0L) data_fixups <- pm$data_fixups %||% list()
     # Bootstrap-weight config can live per-module (e.g. SHS Interview and Diary
@@ -100,6 +102,7 @@
     series            = series,
     version           = version,
     layout_mask       = layout_mask,
+    layout_file       = layout_file,
     bsw_mask          = bsw_mask,
     bsw_file_mask     = bsw_file_mask,
     bsw_join_key      = bsw_join_key,
@@ -143,8 +146,8 @@
 }
 
 # Return the uniform module table for a registry entry as a named list keyed by
-# module id, each element list(layout_mask, file_mask, data_fixups, is_primary,
-# meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
+# module id, each element list(layout_mask, layout_file, file_mask, data_fixups,
+# is_primary, meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
 # unset), so callers can branch on is.null() to keep the legacy path untouched.
 # The primary module's metadata stays in `metadata/` (meta_subdir = NULL) for
 # backward compatibility; secondary modules use `metadata/<id>/`.
@@ -157,6 +160,7 @@
     list(
       id            = id,
       layout_mask   = m$layout_mask,
+      layout_file   = m$layout_file,
       file_mask     = m$file_mask,
       data_fixups   = m$data_fixups %||% list(),
       bsw_mask      = m$bsw_mask,
@@ -919,20 +923,22 @@
     file_mask   = "C9micro\\.dat",
     data_fixups = list(force_numeric = c("DVD7", "DVEXREAG", "L11"))),
 
-  # ---- Time Use --------------------------------------------------------------
-  # Time Use cycles ship a respondent-level Main file and a much larger Episode
-  # file (one row per activity episode), each with its own command files; they
-  # share the respondent key PUMFID (Main weight WGHT_PER, Episode weight
-  # WGHT_EPI).  Modelled as two linked tables in one DuckDB (Main primary): use
-  # module="Episode" / pumf_module(tbl, "Episode") and join on PUMFID.
+  # Time Use 2022 (cycle 36): split-SPSS command files; Main + Episode datasets
+  # joined on PUMFID (Main weight WGHT_PER, Episode weight WGHT_EPI).  The 500
+  # WEPI_* episode bootstrap weights are unlabeled (expected).
   #
-  # Time Use 2022: split-SPSS; layout_mask "_Main_"/"_Episode_" disambiguate the
-  # per-module SPS files.  Episode force_numeric covers the detailed-code
-  # variables (ACTIVITY/LOCATION/TUI_01/TUI_03) whose value labels enumerate
-  # only the aggregate groups plus 9996-9999 sentinels while the data carries
-  # the full detailed numeric codes; force_numeric keeps the raw code and turns
-  # the sentinels into NA.  The 500 WEPI_* episode bootstrap weights are
-  # unlabeled (expected).
+  # The Episode reading cards disagree (#29): the SPSS DATA LIST (revised by
+  # StatCan in March 2025 to match the codebook's printed positions) orders the
+  # variables differently from the SAS INPUT card, and only the SAS card reads
+  # the 5071-byte records -- under it DURATION == ENDMIN - STARTMIN in every
+  # record and every codebook frequency is reproduced; under the SPSS
+  # positions neither holds.  layout_file therefore takes the Episode layout
+  # from the SAS card.  The card declares INSTANCE twice (7-9 and 37-39,
+  # identical in every record; the second is dropped), and TUI_D81, which the
+  # SPSS card and codebook document at column 32, is not on the file.  The
+  # misaligned layout once made ACTIVITY/LOCATION/TUI_01/TUI_03 look
+  # unlabelled (force_numeric); read at the right columns every value is a
+  # documented code, so they are plain factors.
   "GSS/Cycle 36 (2022)" = .make_entry("GSS", "Cycle 36 (2022)",
     modules = list(
       Main = list(
@@ -940,9 +946,8 @@
         file_mask   = "Main-Principal_PUMF\\.txt"),
       Episode = list(
         layout_mask = "_Episode_",
-        file_mask   = "Episode_PUMF\\.txt",
-        data_fixups = list(force_numeric = c(
-          "ACTIVITY", "LOCATION", "TUI_01", "TUI_03")))),
+        layout_file = "^TU_ET_2022_Episode_i\\.SAS$",
+        file_mask   = "Episode_PUMF\\.txt")),
     module_key = "PUMFID"),
 
   # Time Use 2015 (cycle 29): monolithic SPSS; Main + Episode datasets joined on
@@ -1097,6 +1102,33 @@
     data_fixups = list(labels_supplement = list(
       WTPG = c(label_en = "Survey weight (person level)",
                label_fr = "Poids d'enqu\u00eate (niveau des personnes)")))),
+  # The earlier releases each need their own file_mask: every bundle names
+  # the data file differently and ships it beside other .txt files (readme
+  # notes, GTAB label files).  2005-2009 are monolithic SPSS cards (English
+  # cius*.sps / 2009-eng.sps, French ecui*.sps / 2009-fra.sps); 2018 is a
+  # split card set (CIUS2018PUMF_i/vare/varf/vale/valf/miss.sps) inside
+  # Data.zip > RAW.zip, with the 1000 bootstrap weights WRPM1-WRPM1000 in the
+  # data file.  PUMFID: 2007 and 2009 declare it "(A)" in the DATA LIST, so
+  # it is text by the card; 2005 and 2018 declare it numeric although the
+  # codebook lists it as the record identifier (zero-padded in 2005), so
+  # force_character keeps it text like every other release (ledger rows).
+  "CIUS/2005" = .make_entry("CIUS", "2005",
+    file_mask   = "CIUS2005_PUMF\\.txt$",
+    data_fixups = list(force_character = "PUMFID")),
+  "CIUS/2007" = .make_entry("CIUS", "2007",
+    file_mask   = "cius2007dat\\.txt$"),
+  "CIUS/2009" = .make_entry("CIUS", "2009",
+    file_mask   = "cius-ecui2009data\\.txt$"),
+  "CIUS/2018" = .make_entry("CIUS", "2018",
+    file_mask   = "CIUS2018PUMF\\.txt$",
+    data_fixups = list(force_character = "PUMFID")),
+  # 2020: Data_Donn\u00e9es.zip (inside 2020.zip) holds CIUS2020_PUMF.txt, a
+  # cius2020_pumf.sas7bdat twin, split SPSS cards and a GTAB
+  # CIUS2020_PUMF_label.txt; the mask picks the fixed-width file.  PUMFID is
+  # declared numeric with a variable label, hence force_character as above.
+  "CIUS/2020" = .make_entry("CIUS", "2020",
+    file_mask   = "CIUS2020_PUMF\\.txt$",
+    data_fixups = list(force_character = "PUMFID")),
 
   # ---- PALS: Participation and Activity Limitation Survey -------------------
   # Both editions ship one archive laid out as PUMF/ENG/ and PUMF/FR/, each
@@ -1984,7 +2016,7 @@ pumf_registry_keys <- function() {
 # Known registry-entry fields (everything .make_entry() accepts except the
 # series/version key, which is supplied to get_pumf() separately).
 .pumf_registry_fields <- c(
-  "layout_mask", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
+  "layout_mask", "layout_file", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
   "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
   "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
   "doc_mask", "download_format", "borealis")
@@ -2001,7 +2033,8 @@ pumf_registry_keys <- function() {
 .validate_registry_entry <- function(x) {
   is_str  <- function(v) is.character(v) && length(v) == 1L && !is.na(v)
   is_chr  <- function(v) is.character(v)
-  single_string_fields <- c("layout_mask", "bsw_mask", "bsw_file_mask",
+  single_string_fields <- c("layout_mask", "layout_file", "bsw_mask",
+                            "bsw_file_mask",
                             "bsw_join_key", "file_mask", "data_encoding",
                             "metadata_encoding", "bundled_eng_sps",
                             "bundle_source", "bundle_sps_mask", "doc_mask",
@@ -2074,6 +2107,14 @@ pumf_registry_keys <- function() {
 #'
 #' @param layout_mask SPSS/SAS command-file disambiguator for split-file
 #'   surveys; also becomes part of the DuckDB table name when set.
+#' @param layout_file Regex (matched against file names anywhere under the
+#'   version directory, case-insensitively) naming the one command file whose
+#'   `DATA LIST` / SAS `INPUT` statement is the record layout of the data
+#'   file. Only needed when a release ships reading cards that disagree about
+#'   the layout: the layout parsed from this file replaces whatever the other
+#'   command files declare (GSS Cycle 36 (2022) Episode, whose SPSS card does
+#'   not read the file its SAS card reads). A name the file declares twice
+#'   keeps its first field.
 #' @param bsw_mask,bsw_file_mask,bsw_join_key,bsw_drop_cols,bsw_strata Bootstrap
 #'   weight join configuration.
 #' @param file_mask Regex selecting the data file (its extension also decides
@@ -2127,6 +2168,7 @@ pumf_registry_keys <- function() {
 #' }
 #' @export
 pumf_registry_entry <- function(layout_mask       = NULL,
+                                layout_file       = NULL,
                                 bsw_mask          = NULL,
                                 bsw_file_mask     = NULL,
                                 bsw_join_key      = NULL,

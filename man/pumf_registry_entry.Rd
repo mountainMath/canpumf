@@ -6,6 +6,7 @@
 \usage{
 pumf_registry_entry(
   layout_mask = NULL,
+  layout_file = NULL,
   bsw_mask = NULL,
   bsw_file_mask = NULL,
   bsw_join_key = NULL,
@@ -27,6 +28,15 @@ pumf_registry_entry(
 \arguments{
 \item{layout_mask}{SPSS/SAS command-file disambiguator for split-file
 surveys; also becomes part of the DuckDB table name when set.}
+
+\item{layout_file}{Regex (matched against file names anywhere under the
+version directory, case-insensitively) naming the one command file whose
+`DATA LIST` / SAS `INPUT` statement is the record layout of the data
+file. Only needed when a release ships reading cards that disagree about
+the layout: the layout parsed from this file replaces whatever the other
+command files declare (GSS Cycle 36 (2022) Episode, whose SPSS card does
+not read the file its SAS card reads). A name the file declares twice
+keeps its first field.}
 
 \item{bsw_mask, bsw_file_mask, bsw_join_key, bsw_drop_cols, bsw_strata}{Bootstrap
 weight join configuration.}

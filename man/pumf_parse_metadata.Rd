@@ -10,7 +10,8 @@ pumf_parse_metadata(
   metadata_encoding = NULL,
   refresh = FALSE,
   meta_subdir = NULL,
-  file_mask = NULL
+  file_mask = NULL,
+  layout_file = NULL
 )
 }
 \arguments{
@@ -22,6 +23,11 @@ through to \code{\link{parse_spss_split}} and
 \code{\link{parse_sas_cards}}.}
 
 \item{refresh}{If \code{TRUE}, re-parse even if cached metadata exists.}
+
+\item{layout_file}{Optional regex naming the one command file whose reading
+card is the record layout (see \code{\link{pumf_registry_entry}}); its
+layout replaces the one the parsers merged. Defaults to the registry
+entry's for the primary module.}
 }
 \value{
 \code{metadata_dir} path invisibly.

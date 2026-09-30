@@ -16,14 +16,14 @@ Some surveys ship several linked files that share a respondent key and have to b
 
 ## Registry
 
-- `.make_entry(modules = list(MAIN = ..., CG4 = ...), module_key = ...)`. Each module has its own `layout_mask`, `file_mask`, `data_fixups` and BSW config (`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`, `bsw_strata`).
+- `.make_entry(modules = list(MAIN = ..., CG4 = ...), module_key = ...)`. Each module has its own `layout_mask`, `file_mask`, `data_fixups`, optional `layout_file` (the command file whose reading card is the module's record layout when the shipped cards disagree; GSS Cycle 36 Episode, see [registry.md](registry.md#registry-entries)) and BSW config (`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`, `bsw_strata`).
 - One module is `primary`. Its config is copied to the entry's top level, so the single-table code paths, `.read_bsw_data(reg)` and the override ledger all see it.
-- `.pumf_entry_modules(reg)` returns the per-module config: `list(id, layout_mask, file_mask, data_fixups, bsw_*, is_primary, meta_subdir)`. The primary module's `meta_subdir` is `NULL`, so it uses `metadata/`. Secondary modules use `metadata/<id>/`.
+- `.pumf_entry_modules(reg)` returns the per-module config: `list(id, layout_mask, layout_file, file_mask, data_fixups, bsw_*, is_primary, meta_subdir)`. The primary module's `meta_subdir` is `NULL`, so it uses `metadata/`. Secondary modules use `metadata/<id>/`.
 - `.pumf_module_key(reg)` returns the shared key, which is recorded once per entry.
 
 ## Pipeline
 
-`pumf_run_pipeline()` loops over the modules, running Stage 2 (`pumf_parse_metadata(..., layout_mask, meta_subdir)`) and Stage 3 (`pumf_build_duckdb(..., layout_mask, file_mask, meta_subdir, data_fixups, bsw_override)`) for each. All tables land in the one DuckDB file, and the primary module's tbl is returned.
+`pumf_run_pipeline()` loops over the modules, running Stage 2 (`pumf_parse_metadata(..., layout_mask, meta_subdir, file_mask, layout_file)`) and Stage 3 (`pumf_build_duckdb(..., layout_mask, file_mask, meta_subdir, data_fixups, bsw_override)`) for each. All tables land in the one DuckDB file, and the primary module's tbl is returned.
 
 Each module joins its **own** bootstrap weights through `bsw_override`, so the Interview replicate weights are not mis-joined onto Diary. An override whose fields are all `NULL` means "this module has no BSW". Table names come from `.pumf_table_name(series, version, lang, module)` (`<lang>_<layout_mask>`), so each module gets a distinct table.
 

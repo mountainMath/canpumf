@@ -16,6 +16,11 @@
 #                        (the variable has no missing code, the parsed range is
 #                        cleared) gives one row with value = ""
 #   labels_supplement  — one row per variable (value = supplied label_en)
+#   force_character / force_integer / force_bigint
+#                      — one row per variable (storage type kept or overridden)
+#   layout_file        — one row per entry or module that names its record
+#                        layout's command file (variable = module id, "" for a
+#                        single-table survey; value = the pattern)
 enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
   rows <- list()
   add <- function(series, version, type, variable = "", value = "") {
@@ -33,6 +38,12 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
     if (length(fx) == 0L) return(invisible())
     for (v in fx$force_numeric)
       add(series, version, "force_numeric", v)
+    for (v in fx$force_character)
+      add(series, version, "force_character", v)
+    for (v in fx$force_integer)
+      add(series, version, "force_integer", v)
+    for (v in fx$force_bigint)
+      add(series, version, "force_bigint", v)
     for (val in fx$na_values)
       add(series, version, "na_values", "", val)
     if (!is.null(fx$cols_swap))
@@ -99,6 +110,13 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
             else entry$primary_module
       for (id in setdiff(names(entry$modules), pm))
         add_fixups(entry$series, entry$version, entry$modules[[id]]$data_fixups)
+      # layout_file is per module; the entry level only mirrors the primary's.
+      for (id in names(entry$modules))
+        if (!is.null(entry$modules[[id]]$layout_file))
+          add(entry$series, entry$version, "layout_file", id,
+              entry$modules[[id]]$layout_file)
+    } else if (!is.null(entry$layout_file)) {
+      add(entry$series, entry$version, "layout_file", "", entry$layout_file)
     }
   }
   do.call(rbind, rows)

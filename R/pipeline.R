@@ -365,29 +365,41 @@ pumf_locate_or_download <- function(series,
   invisible(version_dir)
 }
 
-# Extract any second-level zips found under `dir` (used by 1996 Census bundles
+# Extract any nested zips found under `dir` (used by 1996 Census bundles
 # and re-used for the bundle_source path in bundled-archive versions).
+# Extraction repeats while a pass exposes zips not seen before, so zips inside
+# zips are handled at any depth (CIUS 2018/2020: Data.zip holds RAW.zip holds
+# the data).  Each zip is visited once per call: the "already extracted" probe
+# below compares the zip's entry names with the files on disk, and for an
+# archive with accented entry names (CIUS 2020 "Data_Donn\u00e9es.zip") the
+# two spellings can differ, so re-probing would extract it again every pass.
 .extract_inner_zips <- function(dir) {
-  inner_zips <- list.files(dir, pattern = "\\.zip$",
-                            ignore.case = TRUE, recursive = TRUE,
-                            full.names = TRUE)
-  # Exclude top-level zips (only nested ones are inner zips).  Compare
-  # normalized paths: on Windows `dir` can carry backslashes from tempdir()
-  # while list.files() returns forward slashes, so a raw dirname() != dir test
-  # wrongly keeps a top-level zip and tries to re-extract it.
   dir_n <- normalizePath(dir, winslash = "/", mustWork = FALSE)
-  inner_zips <- inner_zips[
-    normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
-  for (iz in inner_zips) {
-    target_dir <- dirname(iz)
-    contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
-                            error = function(e) character(0L))
-    already_done <- length(contents) > 0L &&
-      all(file.exists(file.path(target_dir, contents)))
-    if (!already_done) {
-      message("Extracting inner zip ", basename(iz), " ...")
-      .unzip_impl(iz, target_dir)
+  seen  <- character(0L)
+  repeat {
+    inner_zips <- list.files(dir, pattern = "\\.zip$",
+                              ignore.case = TRUE, recursive = TRUE,
+                              full.names = TRUE)
+    # Exclude top-level zips (only nested ones are inner zips).  Compare
+    # normalized paths: on Windows `dir` can carry backslashes from tempdir()
+    # while list.files() returns forward slashes, so a raw dirname() != dir test
+    # wrongly keeps a top-level zip and tries to re-extract it.
+    inner_zips <- inner_zips[
+      normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
+    inner_zips <- setdiff(inner_zips, seen)
+    if (length(inner_zips) == 0L) break
+    for (iz in inner_zips) {
+      target_dir <- dirname(iz)
+      contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
+                              error = function(e) character(0L))
+      already_done <- length(contents) > 0L &&
+        all(file.exists(file.path(target_dir, contents)))
+      if (!already_done) {
+        message("Extracting inner zip ", basename(iz), " ...")
+        .unzip_impl(iz, target_dir)
+      }
     }
+    seen <- c(seen, inner_zips)
   }
   invisible(NULL)
 }
@@ -1827,7 +1839,8 @@ pumf_run_pipeline <- function(series,
                            metadata_encoding = reg$metadata_encoding,
                            refresh           = eff_refresh,
                            meta_subdir       = m$meta_subdir,
-                           file_mask         = m$file_mask)
+                           file_mask         = m$file_mask,
+                           layout_file       = m$layout_file)
       r <- pumf_build_duckdb(version_dir, series, version,
                               lang         = lang,
                               layout_mask  = m$layout_mask,

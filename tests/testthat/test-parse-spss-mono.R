@@ -367,3 +367,64 @@ if (identical(Sys.getenv("CANPUMF_REGEN_FIXTURES"), "1") && file.exists(census20
   canpumf:::write_metadata(m, testthat::test_path("..", "fixtures", "census2021"))
   message("census2021 golden fixtures written")
 }
+
+# ---- DATA LIST "(A)" strings and mixed-case keywords (CIUS 2007/2009) -------
+
+test_that(".spss_parse_data_list: records (A) declarations in the dl_char attribute", {
+  lines <- c("DATA LIST FILE=MICRO1",
+             "/PUMFID     00001 - 00005  (A)",
+             "WTPP       00006 - 00017  (4)",
+             "PROV       00018 - 00019",
+             "POSTAL     00020 - 00025  (a6)", ".")
+  lay <- canpumf:::.spss_parse_data_list(lines, 1L)
+  expect_equal(lay$name, c("PUMFID", "WTPP", "PROV", "POSTAL"))
+  expect_equal(lay$start, c(1L, 6L, 18L, 20L))
+  expect_equal(lay$decimals, c(NA, 4L, NA, NA))
+  expect_equal(attr(lay, "dl_char"), c("PUMFID", "POSTAL"))
+})
+
+test_that("parse_spss_mono: a DATA LIST (A) variable stays character without a FORMATS section", {
+  # CIUS 2007/2009 declare "PUMFID (A)" in the DATA LIST and have no FORMATS
+  # section; 2009 also heads its missing block "Missing Values".  The
+  # identifier must be typed character and the mixed-case block still read.
+  sps <- withr::local_tempfile(fileext = ".sps")
+  writeLines(c(
+    "FILE HANDLE MICRO1 /NAME = 'x.txt' /recform=fixed /lrecl=22.",
+    "DATA LIST FILE=MICRO1",
+    "/PUMFID     00001 - 00005  (A)",
+    "WTPP       00006 - 00017  (4)",
+    "PROV       00018 - 00019",
+    "G_CEDUC    00020 - 00020",
+    "EC_Q03     00021 - 00022",
+    ".",
+    "VARIABLE LABELS",
+    "PUMFID   \"PUMF ID number\"",
+    "WTPP     \"Survey weight\"",
+    "PROV     \"Province\"",
+    "G_CEDUC  \"Education\"",
+    "EC_Q03   \"Number of purchases\"",
+    ".",
+    "VALUE LABELS",
+    "PROV",
+    "  10  \"Newfoundland and Labrador\"",
+    "  11  \"Prince Edward Island\"",
+    "/G_CEDUC",
+    "  1  \"High school or less\"",
+    "  6  \"Valid skip\"",
+    "  9  \"Not stated\"",
+    ".",
+    "Missing Values",
+    "G_CEDUC  EC_Q03",
+    "   (6)",
+    "."), sps)
+  m <- canpumf:::parse_spss_mono(sps)
+  v <- m$variables
+  expect_equal(v$type[v$name == "PUMFID"],  "character")
+  expect_equal(v$type[v$name == "WTPP"],    "numeric")
+  expect_equal(unname(v$decimals[v$name == "WTPP"]), 4L)
+  expect_equal(v$type[v$name == "PROV"],    "character")
+  expect_equal(v$type[v$name == "EC_Q03"],  "numeric")
+  expect_equal(v$missing_low[v$name == "G_CEDUC"], 6)
+  expect_equal(v$missing_high[v$name == "EC_Q03"], 6)
+  expect_true(is.na(v$missing_low[v$name == "PROV"]))
+})
