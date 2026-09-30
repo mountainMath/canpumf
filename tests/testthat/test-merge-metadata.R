@@ -183,6 +183,61 @@ test_that("merge_metadata: warns when layout names not in variable table", {
   )
 })
 
+# ---- Layout-only numeric columns --------------------------------------------
+
+test_that("merge_metadata: layout-only columns read with decimals become numeric variables", {
+  a <- make_parsed("A")
+  b <- make_parsed("B", with_layout = TRUE)
+  # WTPG and WRPG1 are declared by the DATA LIST alone, with implied decimals
+  # (CIUS 2022); PUMFID is declared without decimals
+  b$layout <- tibble::tibble(name = c("B", "PUMFID", "WTPG", "WRPG1"),
+                             start = 1:4, end = 1:4,
+                             decimals = c(NA, NA, 9L, 9L))
+
+  m <- expect_warning(
+    canpumf:::merge_metadata(list(spss_split = a, cpss_csv = b)),
+    "Variables in layout but not in variable labels: PUMFID$")
+  v <- m$variables
+  expect_setequal(v$name, c("A", "B", "WTPG", "WRPG1"))
+  w <- v[v$name %in% c("WTPG", "WRPG1"), ]
+  expect_true(all(w$type == "numeric"))
+  expect_true(all(is.na(w$label_en) & is.na(w$label_fr)))
+  expect_equal(w$decimals, c(9L, 9L))
+  expect_false("PUMFID" %in% v$name)
+  expect_equal(names(v), c("name", "label_en", "label_fr", "type", "decimals",
+                           "missing_low", "missing_high"))
+})
+
+test_that("merge_metadata: a single source also has its layout-only columns promoted", {
+  a <- make_parsed("A", with_layout = TRUE)
+  a$layout <- tibble::tibble(name = c("A", "ID", "WT"), start = 1:3, end = 1:3,
+                             decimals = c(NA, 0L, 2L))
+  m <- expect_no_warning(canpumf:::merge_metadata(list(spss_split = a)))
+  expect_equal(m$variables$name, c("A", "WT"))
+  expect_equal(m$variables$type[m$variables$name == "WT"], "numeric")
+  # a layout without a decimals column promotes nothing
+  a$layout$decimals <- NULL
+  m <- canpumf:::merge_metadata(list(spss_split = a))
+  expect_equal(m$variables$name, "A")
+})
+
+test_that(".layout_promoted_vars: names the promoted rows only", {
+  v <- make_vars(c("A", "WT", "ID"), label_en = c("a", NA, NA))
+  v$type[v$name == "WT"] <- "numeric"
+  lay <- tibble::tibble(name = c("A", "WT", "ID"), start = 1:3, end = 1:3,
+                        decimals = c(NA, 2L, NA))
+  expect_equal(canpumf:::.layout_promoted_vars(v, lay), "WT")
+  expect_equal(canpumf:::.layout_promoted_vars(v, NULL), character(0L))
+})
+
+test_that("check_bilingual_coverage ignores unlabelled promoted columns", {
+  v <- make_vars(c("A", "B", "C", "D"), label_fr = c("a", "b", "c", "d"))
+  wt <- make_vars(paste0("W", 1:8), label_en = rep(NA_character_, 8L))
+  wt$type <- "numeric"
+  meta <- list(variables = rbind(v, wt), codes = canpumf:::empty_codes(), layout = NULL)
+  expect_no_warning(canpumf:::check_bilingual_coverage(meta))
+})
+
 
 # ---- Canonical output schema ------------------------------------------
 

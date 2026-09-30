@@ -355,7 +355,7 @@
 # Giving/Volunteering surveys now live under the GSS (GSSP) umbrella, so no
 # separate SGVP entry is needed.
 .statcan_supported_series <- c("GSS", "SHS", "SFS", "CPSS", "CIS", "CHS",
-                               "ITS", "CCAHS", "CHSS")
+                               "ITS", "CCAHS", "CHSS", "CIUS")
 
 # Drop crawl rows whose format contradicts the registry's `download_format` for
 # that (Acronym, Version).  Rows for surveys/versions with no such override, and

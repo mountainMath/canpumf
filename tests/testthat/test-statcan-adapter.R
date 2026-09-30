@@ -141,6 +141,16 @@ test_that("adapter filters to supported series", {
                   c("GSS", "SHS", "SFS", "CPSS", "CCAHS"))
 })
 
+test_that("adapter resolves CIUS 2022 from the shipped catalogue snapshot", {
+  expect_true("CIUS" %in% canpumf:::.statcan_supported_series)
+  snap <- system.file("extdata", "pumf_catalogue.rds", package = "canpumf")
+  skip_if(snap == "", "no shipped catalogue snapshot")
+  out <- canpumf:::.statcan_catalogue_to_collection(readRDS(snap)$data)
+  row <- out[out$Acronym == "CIUS" & out$Version == "2022", ]
+  expect_equal(nrow(row), 1L)
+  expect_match(row$url, "\\.zip$")
+})
+
 test_that("adapter disambiguates colliding GSS years and drops phantom rows", {
   out <- canpumf:::.statcan_catalogue_to_collection(.fake_cat())
   gss <- out[out$Acronym == "GSS", ]

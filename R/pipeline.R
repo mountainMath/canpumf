@@ -1367,7 +1367,8 @@ pumf_build_duckdb <- function(version_dir,
       if (length(v) > 5L) paste0(" ... and ", length(v) - 5L, " more."))
     na_fr    <- is.na(variables$label_fr)
     fallback <- variables$name[na_fr & !is.na(variables$label_en)]
-    neither  <- variables$name[na_fr &  is.na(variables$label_en)]
+    neither  <- setdiff(variables$name[na_fr & is.na(variables$label_en)],
+                        .layout_promoted_vars(variables, layout))
     if (length(fallback) > 0L)
       warning("lang='fra': ", length(fallback),
               " variable(s) have no French label; using label_en for: ",
@@ -1508,6 +1509,22 @@ pumf_build_duckdb <- function(version_dir,
   # variables (SEX, PRV, …) and Cycle 12 its DDAY (Sunday-Saturday), and the
   # 1971 Census SUBSAMPL is labelled ONE-FIVE except in the household files.
   if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
+    # A forced name the metadata does not declare but the data carry (a
+    # layout-only column in a hand-written pumf_registry_entry()) gets an
+    # unlabelled numeric row, with the layout's implied decimals when the
+    # data are fixed-width, so that the override is not silently a no-op.
+    absent <- setdiff(intersect(reg$data_fixups$force_numeric, names(data)),
+                      variables$name)
+    if (length(absent) > 0L) {
+      dec <- if (is_fwf && "decimals" %in% names(layout))
+        suppressWarnings(as.integer(layout$decimals))[match(absent, layout$name)]
+      else rep(NA_integer_, length(absent))
+      variables <- dplyr::bind_rows(variables, tibble::tibble(
+        name = absent, label_en = NA_character_, label_fr = NA_character_,
+        type = "numeric", decimals = dec,
+        missing_low = NA_real_, missing_high = NA_real_))
+      variables <- .pumf_apply_labels_supplement(variables, reg)
+    }
     fn <- setdiff(reg$data_fixups$force_numeric,
                   .fully_labelled_vars(data, codes, reg$data_fixups$force_numeric,
                                        na_values = na_vals,

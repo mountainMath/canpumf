@@ -1082,6 +1082,22 @@
     # variable would be read as categorical and every real count dropped.
     data_fixups     = list(force_numeric = "ALWDVWKY")),
 
+  # ---- CIUS: Canadian Internet Use Survey -----------------------------------
+  # One zip (2022.zip) holding the fixed-width CIUS_PUMF.txt, split SPSS
+  # command files (vare/varf/vale/valf/miss/i) and a GTAB "CIUS_PUMF_label.txt"
+  # that the data-file search would otherwise also match, hence file_mask.
+  # The person weight WTPG and the 1000 bootstrap weights WRPG1-WRPG1000 sit
+  # in the data file and are declared by the DATA LIST alone (implied
+  # decimals, no label), so .promote_layout_numeric() types them; the user
+  # guide's wording supplies WTPG's label.  PUMFID is layout-only without
+  # decimals and stays character.  The PDF codebook's "Length:" field defeats
+  # the frequency-codebook detection, so there is no PDF cross-check (#28).
+  "CIUS/2022" = .make_entry("CIUS", "2022",
+    file_mask   = "CIUS_PUMF\\.txt$",
+    data_fixups = list(labels_supplement = list(
+      WTPG = c(label_en = "Survey weight (person level)",
+               label_fr = "Poids d'enqu\u00eate (niveau des personnes)")))),
+
   # ---- PALS: Participation and Activity Limitation Survey -------------------
   # Both editions ship one archive laid out as PUMF/ENG/ and PUMF/FR/, each
   # holding a complete copy of the release in that language.  The data files

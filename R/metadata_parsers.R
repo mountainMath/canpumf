@@ -285,10 +285,14 @@ select_labels <- function(metadata, lang = "eng") {
 #' @return \code{NULL} invisibly.
 #' @keywords internal
 check_bilingual_coverage <- function(metadata, threshold = 0.2) {
-  n <- nrow(metadata$variables)
+  # Only labelled variables count: a layout-only numeric column promoted by
+  # .promote_layout_numeric() (replicate weights) has no label to translate.
+  v <- metadata$variables
+  v <- v[!is.na(v$label_en) | !is.na(v$label_fr), , drop = FALSE]
+  n <- nrow(v)
   if (n == 0) return(invisible(NULL))
 
-  n_missing <- sum(is.na(metadata$variables$label_fr))
+  n_missing <- sum(is.na(v$label_fr))
   frac      <- n_missing / n
 
   # Only warn when French is partially available -- complete absence is expected
@@ -2287,6 +2291,49 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
 }
 
 
+# ---- Layout-only numeric columns --------------------------------------------
+#
+# A DATA LIST or SAS INPUT card sometimes declares columns that no VARIABLE
+# LABELS / VALUE LABELS statement mentions: the CIUS 2022 person weight WTPG
+# and its replicate weights WRPG1-WRPG1000, the GSS/SGVP WTBS_002-WTBS_500
+# beside a labelled WTBS_001.  Without a variables row Stage 3 left them as
+# text (no numeric conversion, no implied decimals).  A column the layout
+# reads with implied decimals is a measure by declaration, so it becomes an
+# unlabelled numeric variable.  A layout-only column *without* decimals (the
+# CIUS PUMFID, GSS Cycle 13 FILLER) is left out of the variable table and
+# stays character: an identifier keeps its leading zeros and joins exactly.
+.promote_layout_numeric <- function(variables, layout) {
+  if (is.null(variables)) variables <- empty_variables()
+  if (is.null(layout) || nrow(layout) == 0L || !"decimals" %in% names(layout))
+    return(variables)
+  dec  <- suppressWarnings(as.integer(layout$decimals))
+  up   <- toupper(layout$name)
+  cand <- !is.na(dec) & dec > 0L & !up %in% toupper(variables$name) &
+          !duplicated(up)
+  if (!any(cand)) return(variables)
+  add <- tibble::tibble(name         = layout$name[cand],
+                        label_en     = NA_character_,
+                        label_fr     = NA_character_,
+                        type         = "numeric",
+                        decimals     = dec[cand],
+                        missing_low  = NA_real_,
+                        missing_high = NA_real_)
+  out <- dplyr::bind_rows(variables, add)
+  out[, union(names(variables), names(add))]
+}
+
+# The promoted rows, as Stage 3 sees them: numeric, unlabelled in both
+# languages, and read with implied decimals.  They are not "variables the
+# source documents in neither language", so the lang='fra' warning skips them.
+.layout_promoted_vars <- function(variables, layout) {
+  if (is.null(layout) || !"decimals" %in% names(layout)) return(character(0L))
+  dec <- suppressWarnings(as.integer(layout$decimals))[
+    match(toupper(variables$name), toupper(layout$name))]
+  variables$name[variables$type == "numeric" &
+                 is.na(variables$label_en) & is.na(variables$label_fr) &
+                 !is.na(dec) & dec > 0L]
+}
+
 #' Merge metadata from multiple parser outputs
 #'
 #' Sources are applied in priority order: \code{spss_mono} > \code{spss_split}
@@ -2301,7 +2348,11 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
 #' @keywords internal
 merge_metadata <- function(parsed_list) {
   if (length(parsed_list) == 0L) stop("No parsed metadata to merge.")
-  if (length(parsed_list) == 1L) return(parsed_list[[1L]])
+  if (length(parsed_list) == 1L) {
+    p <- parsed_list[[1L]]
+    p$variables <- .promote_layout_numeric(p$variables, p$layout)
+    return(p)
+  }
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
                       "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict",
@@ -2399,6 +2450,10 @@ merge_metadata <- function(parsed_list) {
   for (p in parsed_list) {
     if (!is.null(p$layout)) { layout <- p$layout; break }
   }
+
+  # Layout columns read with implied decimals that no source labels become
+  # unlabelled numeric variables; the rest (identifiers, fillers) are reported.
+  vars_merged <- .promote_layout_numeric(vars_merged, layout)
 
   # Warn about layout/variable-table mismatches
   if (!is.null(layout) && nrow(vars_merged) > 0L) {

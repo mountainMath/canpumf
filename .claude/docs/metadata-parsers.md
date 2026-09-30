@@ -11,6 +11,8 @@ Stage 3 adds `codes_applied.csv` next to them: `codes.csv` after the registry's 
 
 Several parsers can fire for the same survey (e.g. split-SPSS for layout/codes and SAS cards for BSW weights). `merge_metadata()` consolidates the results. `pumf_parse_metadata()` then runs `.fix_metadata_mojibake()` and finally the PDF cross-check.
 
+**Layout-only columns.** A DATA LIST / SAS INPUT column that no VARIABLE LABELS statement names has no `variables.csv` row and Stage 3 leaves it as text. `merge_metadata()` (both the single-source early return and the merged path) therefore calls `.promote_layout_numeric(variables, layout)`: every layout-only name whose layout `decimals > 0` gets an unlabelled `type = "numeric"` row (decimals carried over, missing range NA). This covers the CIUS 2022 `WTPG`/`WRPG1-WRPG1000` and the GSS/SGVP `WTBS_002-WTBS_500`. A layout-only column **without** decimals (CIUS `PUMFID`, GSS Cycle 13 `FILLER`) is deliberately not promoted: identifiers stay character, and the "Variables in layout but not in variable labels" warning names only those. `.layout_promoted_vars(variables, layout)` identifies the promoted rows afterwards (numeric, no label in either language, layout decimals > 0); Stage 3's `lang = "fra"` "no label in either language" warning and `check_bilingual_coverage()` exclude them. A registry `labels_supplement` can label a promoted column (CIUS `WTPG`).
+
 ## Parsers, in detection priority order (highest first)
 
 1. `parse_lfs_codebook()`: LFS `*codebook.csv`. Always read as CP1252.
