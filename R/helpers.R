@@ -149,14 +149,14 @@ robust_unzip <- function(path, exdir) {
 # Open a DuckDB connection that never registers in the RStudio Connections pane.
 #
 # Used for the many short-lived internal connections (status checks, write
-# phases, BSW edits, lock probes) that are opened and disconnected within a
+# phases, lock probes) that are opened and disconnected within a
 # single call.  Registering these in the pane — and tearing them down moments
 # later, often while another connection to the *same* database file is still
 # open — is what triggers RStudio's "Error in dbSendQuery(conn, statement, ...)"
 # pane popups: the pane observer enumerates objects on a handle that has already
 # been shut down, or on a duplicate entry for the same database file.  Only the
-# final connection returned to the user (via pumf_open_duckdb() / .lfs_open_tbl(),
-# and the BSW read-only reopen) should ever appear in the pane; those honour
+# final connection returned to the user (via pumf_open_duckdb() / .lfs_open_tbl())
+# should ever appear in the pane; those honour
 # getOption("canpumf.register_connection") via the option block in get_pumf().
 #
 # duckdb registers the connection synchronously inside dbConnect() when these
@@ -167,7 +167,49 @@ robust_unzip <- function(path, exdir) {
   old <- options(duckdb.enable_rstudio_connection_pane = FALSE,
                  duckdb.force_rstudio_connection_pane  = FALSE)
   on.exit(options(old), add = TRUE)
-  DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = read_only, ...)
+  .duckdb_connect(dbdir, read_only = read_only, ...)
+}
+
+# Open a DuckDB file, whatever in-process instance of it already exists.
+#
+# duckdb keeps one instance per file and process, read-only or read-write as
+# first opened.  Up to 1.5.5 a dbConnect() asking for the other mode was handed
+# that instance and its read_only argument was ignored; from 1.5.6 it fails.
+#   - read_only = TRUE while the process holds the file read-write (a
+#     get_pumf_connection(), a get_pumf(read_only = FALSE) tbl): share that
+#     instance, as before.  No lock is taken, the instance already exists.
+#   - read_only = FALSE while it holds the file read-only (a get_pumf() tbl):
+#     no write is possible until that tbl is closed, so say so.  Earlier duckdb
+#     versions return a connection here that fails on its first write, which
+#     .assert_duckdb_writable() detects.
+# Registers in the RStudio Connections pane as a plain dbConnect() does; the
+# internal short-lived connections use .duckdb_connect_quiet().
+.duckdb_connect <- function(dbdir, read_only = FALSE, ...) {
+  tryCatch(
+    DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = read_only, ...),
+    error = function(e) {
+      if (!.is_duckdb_read_only_mismatch(e)) stop(e)
+      if (!isTRUE(read_only)) .stop_duckdb_read_only_held(dbdir)
+      DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = FALSE, ...)
+    })
+}
+
+# TRUE when `e` is duckdb's (>= 1.5.6) refusal to open a file whose in-process
+# instance was created with the other read_only setting.
+.is_duckdb_read_only_mismatch <- function(e) {
+  grepl("`read_only`.*can.t be applied to the database instance",
+        conditionMessage(e))
+}
+
+# The error for a write attempted on a file the process holds open read-only.
+.stop_duckdb_read_only_held <- function(db_path) {
+  stop(structure(
+    class = c("canpumf_read_only_held", "error", "condition"),
+    list(message = paste0(
+           "'", basename(db_path), "' is held open by a read-only connection ",
+           "(e.g. a tbl from get_pumf()).\n",
+           "Close it first with close_pumf(tbl) and then retry."),
+         call = NULL)))
 }
 
 

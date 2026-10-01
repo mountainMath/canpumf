@@ -595,6 +595,11 @@ label mapping:
   `Concept:` line in both languages).  Applied in both Stage 3 and
   `label_pumf_columns()` / `pumf_var_labels()`, and fills only `NA` labels, so
   genuine source labels always win.
+- **`sentinel_labels`** — labels for sentinel codes the command file does not
+  label, shown in the sentinel companion table (see below).  Keyed by code
+  string (`"9999999" = c(label_en = "Not applicable", label_fr = "Sans objet")`,
+  for every variable) or by variable name (`HRSWK = list("999" = c(label_en =
+  "NOT APPLICABLE"))`).  It changes no data value.
 
 ### Bootstrap weight join (BSW)
 
@@ -629,6 +634,36 @@ StatCan omitted from the command file but documents in the user guide.
 The two sets are kept separate: applying the 7-digit sentinel to an 8-char
 field would incorrectly NA out a valid $9,999,999 income value (stored as
 `" 9999999"` which trims to `"9999999"`).
+
+Sentinels narrower than the field (Census 2011 `INCTAX` uses `888888` /
+`999999` in a six-character field) are `missing_codes` per entry, taken from
+the user guide.
+
+### Row key and the sentinel companion
+
+Before the table is written, a `pumf_row_id` column (the record's 1-based
+position in the data file, stored as `BIGINT`) is put first.  It is the
+permanent key that links the table to its companions: the bootstrap-weight
+tables of `add_bootstrap_weights()` when the registry names no `bsw_join_key`,
+and the sentinel table.
+
+Converting sentinels to `NA` loses the *reason* for the missing value ("not
+applicable" versus "not available").  Each rule above therefore reports the
+values it blanked, and Stage 3 writes them to a companion table
+`pumf_sentinels_<table>` (`pumf_sentinels_eng`): one row per record in which
+at least one value was a sentinel, one column per affected variable, `NA`
+where the main table has a value.  The columns are `ENUM`s holding the
+sentinel's *label*: the command file's label for the code where it has one,
+otherwise the registry's `sentinel_labels`, otherwise the digits.  The
+companion is always written, so an empty one means "no sentinels", and a
+missing one means the cache predates canpumf 0.6.1.  `pumf_sentinels(tbl)`
+returns it, and `pumf_sentinels(tbl, join = TRUE)` joins it onto the data.
+
+Stage 3 finally stamps the table: `pumf_build_info` records, per table, the
+canpumf and duckdb versions that built it and when.  `list_pumf_cache()`
+shows the stamp in its `built_with` column, and `get_pumf()` says once per
+session when it opens a table that has none (a build from before 0.6.1),
+pointing to `refresh = TRUE`.
 
 ### Code labels → factors
 

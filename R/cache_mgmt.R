@@ -11,8 +11,27 @@
     has_metadata = logical(),
     has_duckdb   = logical(),
     raw_mb       = double(),
-    duckdb_mb    = double()
+    duckdb_mb    = double(),
+    built_with   = character()
   )
+}
+
+# The canpumf version(s) that built the tables of one DuckDB file, read from
+# its `pumf_build_info` stamp: one string ("0.6.1", or "0.6.1, 0.6.2" when
+# tables were built by different versions), or NA when the file has no stamp
+# (built before 0.6.1) or cannot be opened (e.g. locked by a writer).  The
+# connection is read-only and released without shutting the instance down, so
+# a tbl the user holds open on the same file is unaffected.
+.duckdb_built_with <- function(db_path) {
+  if (!file.exists(db_path)) return(NA_character_)
+  con <- tryCatch(.duckdb_connect_quiet(db_path, read_only = TRUE),
+                  error = function(e) NULL)
+  if (is.null(con)) return(NA_character_)
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE))
+  info <- tryCatch(.read_build_info(con), error = function(e) NULL)
+  if (is.null(info)) return(NA_character_)
+  v <- unique(info$canpumf_version)
+  paste(v[order(package_version(v))], collapse = ", ")
 }
 
 # Size in MB of all files under path matching the (optional) include pattern,
@@ -46,7 +65,8 @@
     has_metadata = has_metadata,
     has_duckdb   = has_duckdb,
     raw_mb       = .path_size_mb(raw_files),
-    duckdb_mb    = if (has_duckdb) file.info(db_file)$size / 1e6 else NA_real_
+    duckdb_mb    = if (has_duckdb) file.info(db_file)$size / 1e6 else NA_real_,
+    built_with   = if (has_duckdb) .duckdb_built_with(db_file) else NA_character_
   )
 }
 
@@ -101,7 +121,10 @@
       has_duckdb   = v %in% loaded,
       raw_mb       = .path_size_mb(raw_files),
       # Shared DuckDB: same file backs all versions; show total size in every row.
-      duckdb_mb    = db_mb
+      duckdb_mb    = db_mb,
+      # The longitudinal databases track their versions in their own table
+      # and carry no per-table build stamp.
+      built_with   = NA_character_
     )
   })
 
@@ -134,6 +157,13 @@
 #'     \item{`raw_mb`}{Disk size of raw files in MB (excluding metadata and DuckDB).}
 #'     \item{`duckdb_mb`}{Disk size of the DuckDB file in MB.  For LFS this is
 #'       the total shared `LFS.duckdb` size, repeated for each version row.}
+#'     \item{`built_with`}{The canpumf version that built the DuckDB tables,
+#'       from the build stamp Stage 3 writes since 0.6.1.  `NA` when there is
+#'       no DuckDB, when it was built before 0.6.1 (no stamp: no `pumf_row_id`
+#'       key and no sentinel companion, so `pumf_sentinels()` needs a rebuild
+#'       with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
+#'       and when the file is locked by a writer.  Tables built by different
+#'       versions are listed together, oldest first.}
 #'   }
 #'   Returns a zero-row tibble with the same column structure if the cache
 #'   directory does not exist or is empty.
@@ -179,15 +209,28 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 
 # ---- remove_pumf_cache ------------------------------------------------------
 
-#' Remove a PUMF version from the local cache
+#' Remove a PUMF version, or one of its languages, from the local cache
 #'
 #' Deletes the DuckDB table (and optionally the raw zip and extracted files)
-#' for one cached PUMF version.
+#' for one cached PUMF version, or with `lang` only the tables of one
+#' language.
 #'
 #' With the default `keep_raw = TRUE`, only the DuckDB and parsed `metadata/`
 #' are removed; the raw zip and extracted data are left intact so that
 #' [get_pumf()] can rebuild without re-downloading.  Set `keep_raw = FALSE`
 #' to delete everything, freeing the full disk space.
+#'
+#' A survey built in both languages holds an `eng` and a `fra` table (each
+#' with its sentinel companion) in one DuckDB
+#' file.  `lang = "fra"` drops the French tables and keeps everything else:
+#' the English tables, the shared bootstrap-weight tables, the metadata and
+#' the raw files.  DuckDB does not return the space of a dropped table to the
+#' file system on its own, so the database is then compacted by copying it to
+#' a fresh file, which takes about as long as reading the remaining tables
+#' once.  When no table remains, the file is deleted instead.  The database
+#' must not be open: close tbls with [close_pumf()] first.  `keep_raw` is
+#' ignored with `lang`, and the longitudinal series (`"LFS"`, `"LFS_HIST"`)
+#' do not support it.
 #'
 #' For LFS surveys the DuckDB is shared across all versions.  Removing one
 #' version deletes only that version's rows from the shared `LFS.duckdb`; if
@@ -200,6 +243,9 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #'   everything including raw files.
 #' @param cache_path Root cache directory.  Defaults to
 #'   `getOption("canpumf.cache_path", tempdir())`.
+#' @param lang `NULL` (default) removes the version.  `"eng"` or `"fra"`
+#'   removes only that language's tables from the DuckDB and compacts the
+#'   file.
 #'
 #' @return Invisibly `NULL`.
 #'
@@ -207,6 +253,13 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #'
 #' @examples
 #' \donttest{
+#' # Drop the French tables of a bilingual build and shrink the file:
+#' fra <- get_pumf("SFS", "2019", lang = "fra")   # NULL if StatCan is unreachable
+#' if (!is.null(fra)) {
+#'   close_pumf(fra)
+#'   remove_pumf_cache("SFS", "2019", lang = "fra")
+#' }
+#'
 #' # Remove only DuckDB and metadata, keep raw files for quick rebuild:
 #' remove_pumf_cache("SFS", "2019")
 #'
@@ -218,15 +271,116 @@ remove_pumf_cache <- function(series,
                                version,
                                keep_raw   = TRUE,
                                cache_path = getOption("canpumf.cache_path",
-                                                      tempdir())) {
+                                                      tempdir()),
+                               lang       = NULL) {
+  if (!is.null(lang)) {
+    if (!is.character(lang) || length(lang) != 1L || !lang %in% c("eng", "fra"))
+      stop("'lang' must be \"eng\" or \"fra\".", call. = FALSE)
+    if (.is_longitudinal(series))
+      stop("'lang' is not supported for the longitudinal series (", series,
+           "): their shared database holds every version in one table per ",
+           "language.", call. = FALSE)
+  }
   if (.is_longitudinal(series)) {
     .remove_lfs_cache(version, cache_path, keep_raw, series)
   } else {
     version_dir <- file.path(cache_path, series, version)
     if (!dir.exists(version_dir))
       stop("'", series, " ", version, "' not found in cache at ", cache_path)
-    .remove_non_lfs_cache(series, version, version_dir, keep_raw)
+    if (is.null(lang))
+      .remove_non_lfs_cache(series, version, version_dir, keep_raw)
+    else
+      .remove_pumf_lang(series, version, lang, cache_path)
   }
+  invisible(NULL)
+}
+
+# Drop the tables of one language from a survey's DuckDB and compact the
+# file.  The language's objects are its main table(s) (one per module),
+# their pumf_sentinels_ companions, the <table>_bsw_* views that 0.6.0 made
+# for bootstrap weights and their pumf_build_info rows; the pumf_bsw_* weight
+# tables are shared between the languages (they join on pumf_row_id) and stay
+# while the other language does.  A dropped table's blocks are marked free inside the file but the
+# file is not truncated, so the remaining content is copied into a fresh
+# file (COPY FROM DATABASE keeps the ENUM types, views and stamp) which then
+# replaces the old one.  Needs the write lock.
+.remove_pumf_lang <- function(series, version, lang, cache_path) {
+  db_path <- .pumf_db_path(series, version, cache_path)
+  if (!file.exists(db_path))
+    stop("'", series, " ", version, "' has no DuckDB in the cache at ",
+         cache_path, "; nothing to remove.", call. = FALSE)
+  .assert_duckdb_writable(db_path)
+  size_before <- file.info(db_path)$size
+
+  con  <- .duckdb_connect_quiet(db_path)
+  done <- FALSE
+  on.exit(if (!done) DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  objs <- DBI::dbListTables(con)
+
+  reg    <- pumf_registry_lookup(series, version)
+  mods   <- .pumf_entry_modules(reg)
+  mains  <- if (is.null(mods)) .pumf_table_name(series, version, lang)
+            else vapply(names(mods), function(m)
+              .pumf_table_name(series, version, lang, m), character(1L))
+  mains  <- intersect(mains, objs)
+  if (length(mains) == 0L) {
+    DBI::dbDisconnect(con, shutdown = TRUE); done <- TRUE
+    stop("'", series, " ", version, "' has no '", lang, "' table in ",
+         basename(db_path), ".", call. = FALSE)
+  }
+  others <- if (is.null(mods)) .pumf_table_name(series, version,
+                                                setdiff(c("eng", "fra"), lang))
+            else vapply(names(mods), function(m)
+              .pumf_table_name(series, version, setdiff(c("eng", "fra"), lang), m),
+              character(1L))
+  other_remains <- length(intersect(others, objs)) > 0L
+
+  if (!other_remains) {
+    # The last language: the whole file goes, like remove_pumf_cache()
+    # without lang but leaving the metadata (it is bilingual and cheap).
+    DBI::dbDisconnect(con, shutdown = TRUE); done <- TRUE
+    unlink(c(db_path, paste0(db_path, ".wal")))
+    message("Removed ", basename(db_path), ": the '", lang, "' table",
+            if (length(mains) > 1L) "s" else "",
+            " of ", series, " ", version, " were the last. ",
+            sprintf("%.0f MB freed.", size_before / 1e6))
+    return(invisible(NULL))
+  }
+
+  views <- objs[grepl(paste0("^(", paste(mains, collapse = "|"), ")_bsw"), objs)]
+  for (v in views)
+    DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"', v))
+  for (t in c(mains, intersect(.sentinel_table_name(mains), objs)))
+    DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', t))
+  if (DBI::dbExistsTable(con, .build_info_table))
+    for (t in mains)
+      DBI::dbExecute(con, sprintf(
+        'DELETE FROM "%s" WHERE "table" = ?', .build_info_table),
+        params = list(t))
+
+  # Compact: copy what is left into a new file beside the old one, then swap.
+  tmp_path <- paste0(db_path, ".compact")
+  unlink(c(tmp_path, paste0(tmp_path, ".wal")))
+  dbname <- DBI::dbGetQuery(con, "SELECT current_database() AS d")$d
+  DBI::dbExecute(con, sprintf("ATTACH '%s' AS canpumf_compact",
+                              gsub("'", "''", tmp_path)))
+  DBI::dbExecute(con, sprintf('COPY FROM DATABASE "%s" TO canpumf_compact',
+                              dbname))
+  DBI::dbExecute(con, "DETACH canpumf_compact")
+  DBI::dbDisconnect(con, shutdown = TRUE); done <- TRUE
+  unlink(paste0(db_path, ".wal"))
+  # Swap in two renames (Windows cannot rename onto an existing file); the
+  # old file is only deleted once the compacted copy is in place.
+  old_path <- paste0(db_path, ".old")
+  unlink(old_path)
+  if (!file.rename(db_path, old_path) || !file.rename(tmp_path, db_path))
+    stop("Could not replace '", basename(db_path), "' with its compacted ",
+         "copy '", basename(tmp_path), "'.", call. = FALSE)
+  unlink(old_path)
+  size_after <- file.info(db_path)$size
+  message("Removed the '", lang, "' table", if (length(mains) > 1L) "s" else "",
+          " of ", series, " ", version, " and compacted ", basename(db_path),
+          sprintf(": %.0f MB to %.0f MB.", size_before / 1e6, size_after / 1e6))
   invisible(NULL)
 }
 

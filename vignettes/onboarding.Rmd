@@ -262,7 +262,7 @@ tbl <- get_pumf("NEWSURVEY", "2025", registry = entry, refresh = TRUE)
 
 tbl |> label_pumf_columns() |> head() |> collect()   # spot-check labels
 tbl |> count() |> collect()                           # row count sanity check
-bsw_info(tbl)                                         # confirm weights joined
+bsw_info(tbl)                                         # source = "survey": the replicate weights were joined
 ```
 
 Verify a few known values against the official documentation: a categorical

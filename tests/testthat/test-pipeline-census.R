@@ -78,6 +78,105 @@
 
 # The tests using this assume the 1991+ schema (a PR variable, bilingual
 # labels), so the 1971-1986 EFT/Borealis vintages are never picked.
+# Per-version checks run on the freshly built (collected) eng table inside the
+# "full pipeline" test below.  They pin the sentinel/label fixes of issue #24
+# and the 1981 two-value MISSING VALUES lists without needing a rebuilt cache.
+# Each check receives the collected English table `d` and its sentinel
+# companion `s` (pumf_row_id + one ENUM column per variable with sentinels).
+.sentinel_matches <- function(d, s, var, labels) {
+  # the companion marks exactly the NA cells of `var`, with the given labels
+  na_rows <- d$pumf_row_id[is.na(d[[var]])]
+  expect_true(var %in% names(s), label = paste(var, "in sentinel companion"))
+  hit <- s$pumf_row_id[!is.na(s[[var]])]
+  expect_setequal(hit, na_rows)
+  expect_true(all(levels(droplevels(s[[var]])) %in% labels),
+              label = paste(var, "sentinel labels"))
+}
+
+.census_1981_ind_checks <- function(d, s) {
+  # MISSING VALUES HRSWK ( 0,999 ) / WKSWK ( 0,99 ): 999/99 NA, 0 kept.
+  expect_false(any(d$HRSWK %in% 999)); expect_true(any(d$HRSWK %in% 0))
+  expect_false(any(d$WKSWK %in% 99));  expect_true(any(d$WKSWK %in% 0))
+  expect_gt(sum(is.na(d$HRSWK)), 0L)
+  # TOTINC ( 0,999999 ), OASGI ( 0,99999 ): 0 kept; the data never hold the
+  # NOT APPLICABLE code, so no NA and no companion column.
+  for (v in c("TOTINC", "WAGES", "OASGI")) {
+    expect_false(anyNA(d[[v]]), label = paste(v, "has no NA"))
+    expect_true(any(d[[v]] %in% 0), label = paste(v, "keeps 0"))
+    expect_false(v %in% names(s), label = paste(v, "has no sentinels"))
+  }
+  # AGEHMLP ( 0 ): 0 = NOT APPLICABLE
+  expect_false(any(d$AGEHMLP %in% 0)); expect_gt(sum(is.na(d$AGEHMLP)), 0L)
+  for (v in c("HRSWK", "WKSWK", "AGEHMLP", "AGEHHM"))
+    .sentinel_matches(d, s, v, "NOT APPLICABLE")
+  expect_setequal(levels(s$HRSWK), "NOT APPLICABLE")
+}
+.census_1981_hhld_checks <- function(d, s) {
+  expect_false(any(d$HRSWKHMP %in% 999)); expect_true(any(d$HRSWKHMP %in% 0))
+  expect_false(any(d$WKSWKWFP %in% 99));  expect_true(any(d$WKSWKWFP %in% 0))
+  expect_false(any(d$AGEHMLP %in% 99));   expect_gt(sum(is.na(d$AGEHMLP)), 0L)
+  # HHINC ( 0 ) and CFHTOTIN ( 0,999999 ): the 0 stays
+  for (v in c("HHINC", "CFINC", "CFHTOTIN")) {
+    expect_false(anyNA(d[[v]]), label = paste(v, "has no NA"))
+    expect_true(any(d[[v]] %in% 0), label = paste(v, "keeps 0"))
+    expect_false(v %in% names(s), label = paste(v, "has no sentinels"))
+  }
+  for (v in c("HRSWKHMP", "WKSWKWFP", "AGEHMLP"))
+    .sentinel_matches(d, s, v, "NOT APPLICABLE")
+}
+
+.census_post_build_checks <- list(
+  "2011 (individuals)" = function(d, s) {
+    # VALUE LABELS blocks headed "MOB1_", "PKID0_1_", ... (undeclared trailing
+    # underscore) now attach to MOB1, PKID0_1, ... in both languages.
+    for (v in c("MOB1", "PR1", "CIP2000", "NOC11", "PKID0_1", "PKID25"))
+      expect_true(is.factor(d[[v]]), label = paste(v, "is a labelled factor"))
+    expect_true("Not available" %in% levels(d$MOB1))
+    # Narrow-field sentinels documented in the user guide are NA.
+    expect_false(any(d$INCTAX %in% c(888888, 999999)))
+    expect_false(any(d$CHDBN  %in% c(88888, 99999)))
+    expect_false(any(d$GROSRT %in% c(8888, 9999)))
+    expect_false(any(d$TOTINC %in% c(8888888, 9999999)))
+    expect_gt(sum(is.na(d$INCTAX)), 0L)
+    for (v in c("INCTAX", "CHDBN", "GROSRT", "TOTINC"))
+      .sentinel_matches(d, s, v, c("Not available", "Not applicable"))
+    expect_true(all(c("Not available", "Not applicable") %in% levels(s$INCTAX)))
+  },
+  "2011 (hierarchical)" = function(d, s) {
+    expect_false(any(d$EFDIMBM   %in% 888888))
+    expect_false(any(d$TOTINC_AT %in% c(888888, 999999)))
+    expect_false(any(d$GTRFS     %in% c(88888, 99999)))
+    expect_false(any(d$FCOND     %in% c(888, 999)))
+    expect_false(any(d$OMP       %in% c(8888, 9999)))
+    for (v in c("TOTINC_AT", "GTRFS", "FCOND"))
+      .sentinel_matches(d, s, v, c("Not available", "Not applicable"))
+  },
+  "2006 (individuals)" = function(d, s) {
+    expect_false(any(d$GROSRT %in% c(8888, 9999)))
+    expect_false(any(d$OMP    %in% c(8888, 9999)))
+    expect_false(any(d$HRSWRK %in% 999))
+    expect_true(any(d$HRSWRK %in% 98))      # valid "84 hours or more" average
+    expect_false(any(d$WKSWRK %in% 99))
+    expect_false(any(d$WAGES  %in% c(8888888, 9999999)))
+    for (v in c("GROSRT", "HRSWRK", "WKSWRK", "WAGES"))
+      .sentinel_matches(d, s, v, c("Not available", "Not applicable"))
+  },
+  "2006 (hierarchical)" = function(d, s) {
+    expect_false(any(d$FCOND  %in% c(888, 999)))
+    expect_false(any(d$GROSRT %in% c(8888, 9999)))
+    expect_false(any(d$OMP    %in% c(8888, 9999)))
+    .sentinel_matches(d, s, "FCOND", c("Not available", "Not applicable"))
+  },
+  # 1981: the codebooks flag two codes M in the hours/weeks and income
+  # variables.  NOT APPLICABLE (999/99, 999999/99999, the age 0/99) is NA and
+  # labelled; ZERO / ZERO HOURS / ZERO WEEKS (0) is a value and stays 0.  The
+  # data code the income NOT APPLICABLE as 0 too, so the incomes have no NA.
+  "1981 (individuals)" = function(d, s) .census_1981_ind_checks(d, s),
+  "1981 (households)"  = function(d, s) .census_1981_hhld_checks(d, s),
+  "1981/individuals"   = function(d, s) .census_1981_ind_checks(d, s),
+  "1981/households"    = function(d, s) .census_1981_hhld_checks(d, s)
+)
+
 .census_any_version <- function() {
   for (v in .census_verified[as.integer(substr(.census_verified, 1L, 4L)) >= 1991L]) {
     if (.census_extracted(v)) return(v)
@@ -290,6 +389,8 @@ for (.v in .census_verified) {
       reg  <- canpumf:::pumf_registry_lookup("Census", ver)
       tmp  <- tempfile(fileext = ".duckdb")
       con  <- NULL
+      dat  <- NULL
+      sent <- NULL
       warns <- character(0L)
 
       withCallingHandlers(
@@ -303,7 +404,9 @@ for (.v in .census_verified) {
                                               refresh = TRUE)
           tbl <- canpumf:::pumf_open_duckdb(r$db_path, r$table_name)
           con <<- tbl$src$con
-          dplyr::collect(tbl)
+          dat <<- dplyr::collect(tbl)
+          sent <<- dplyr::collect(dplyr::tbl(
+            tbl$src$con, canpumf:::.sentinel_table_name(r$table_name)))
         },
         warning = function(w) {
           warns <<- c(warns, conditionMessage(w))
@@ -313,6 +416,18 @@ for (.v in .census_verified) {
 
       if (!is.null(con)) DBI::dbDisconnect(con, shutdown = TRUE)
       unlink(tmp)
+
+      # Every build carries the permanent key and a sentinel companion.
+      if (!is.null(dat)) {
+        expect_equal(names(dat)[1L], "pumf_row_id")
+        expect_equal(dat$pumf_row_id, seq_len(nrow(dat)))
+        expect_true(is.data.frame(sent))
+        expect_true(all(sent$pumf_row_id %in% dat$pumf_row_id))
+        for (v in setdiff(names(sent), "pumf_row_id"))
+          expect_true(is.factor(sent[[v]]), label = paste("sentinel", v, "is ENUM"))
+      }
+      chk <- .census_post_build_checks[[ver]]
+      if (!is.null(chk) && !is.null(dat)) chk(dat, sent)
 
       if (!is.null(pat)) {
         unexpected <- warns[!grepl(pat, warns)]

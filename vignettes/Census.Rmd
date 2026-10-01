@@ -28,6 +28,20 @@ The package supports Census PUMF from 1971 through 2021, covering individuals, h
 census_2021 <- get_pumf("Census",version="2021") 
 ```
 
+Statistics Canada codes non-responses in the dollar variables as sentinel values: an income of `99999999` means "not applicable" and `88888888` "not available". canpumf converts these to `NA`, so `sum()` and `mean()` are right without further recoding. The reason is kept in a companion table, one labelled column per affected variable, that `pumf_sentinels()` returns on its own or joined onto the data.
+
+```{r}
+pumf_sentinels(census_2021) |>
+  count(TOTINC) |>
+  collect()
+
+census_2021 |>
+  pumf_sentinels(join = TRUE) |>
+  filter(is.na(TOTINC)) |>
+  count(AGEGRP, TOTINC_sentinel) |>
+  collect()
+```
+
 
 As a simple application we look at household maintainer rates by age group for select metro areas, using standard weights.
 
@@ -74,7 +88,7 @@ census_2021 |>
        caption="StatCan Census 2021 PUMF") 
 ```
 
-However, if we want a deeper understanding of the robustness of the results we can add bootstrap weights, by default `add_bootstrap_weights` will add 500 bootstrap weights and save them to the database for later reference.
+However, if we want a deeper understanding of the robustness of the results we can add bootstrap weights, by default `add_bootstrap_weights` will add 500 bootstrap weights. They cover the whole table, which for the Census is a lot of data to keep in a temporary table, so it pays to store them in the database once, from a table opened with `get_pumf("Census", "2021", read_only = FALSE)`. Every later call, like the one below, then finds the stored weights and only joins them.
 
 
 ```{r}

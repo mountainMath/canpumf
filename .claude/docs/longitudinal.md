@@ -24,6 +24,7 @@ can be queried as a single table. `LFS` (2006 onwards, StatCan) and
 | `prepare()` | Stages 1+2 of the standard pipeline | Borealis download + canonical metadata |
 | `build()` | `.lfs_build_version()` | `.lfs_hist_build()` |
 | `variables()` | merge of every loaded version's `variables.csv`, newest wins | the shipped canonical `variables.csv` |
+| `codes()` | every distinct (`name`, `val`, `label_en`, `label_fr`) across the loaded versions' `codes.csv`, since each version was labelled from its own | the canonical `codes.csv` plus the era-specific lists |
 
 To add a series: write a spec, add it to `.pumf_longitudinal_specs()` and
 `.pumf_longitudinal_series`, and give it a shared registry entry in

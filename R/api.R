@@ -129,9 +129,10 @@
 #'   re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
 #'   Not valid with `refresh = "auto"`.
 #' @param read_only Open the DuckDB connection in read-only mode (default
-#'   `TRUE`).  Pass `FALSE` to allow write access, e.g. to persist custom
-#'   views or derived tables in the DuckDB file.  Use [close_pumf()] to
-#'   release the connection when done.
+#'   `TRUE`).  Pass `FALSE` to allow write access, e.g. to store the weights
+#'   of [add_bootstrap_weights()] or custom views and derived tables in the
+#'   DuckDB file.  A write connection needs the file to itself, so use
+#'   [close_pumf()] to release it when done.
 #' @param registry Optional custom configuration created by
 #'   [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
 #'   survey that is not in the built-in registry, or to override fields of one
@@ -178,8 +179,14 @@
 #'   Returns `invisible(NULL)` with an informative message if the data must be
 #'   downloaded but Statistics Canada is unreachable.
 #'
+#'   A database built by canpumf before 0.6.1 carries no build stamp, no
+#'   `pumf_row_id` key and no sentinel companion.  `get_pumf()` says so once
+#'   per session when it opens one; rebuild with `refresh = TRUE`, or silence
+#'   the message with `options(canpumf.stale_cache_message = FALSE)`.
+#'   [list_pumf_cache()] reports the building version of every database.
+#'
 #' @seealso [label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
-#'   [close_pumf()], [list_canpumf_collection()]
+#'   [close_pumf()], [list_canpumf_collection()], [list_pumf_cache()]
 #'
 #' @examples
 #' \donttest{
@@ -398,11 +405,62 @@ get_pumf <- function(series     = NULL,
   # connection's stable C++ pointer address.
   .pumf_register_con(tbl$src$con, series, version, cache_path, lang, module)
 
+  # Say once per session when the table predates the build stamp (canpumf
+  # < 0.6.1) and so lacks pumf_row_id and the sentinel companion.
+  .pumf_check_build_stamp(tbl$src$con, series, version, lang, table_name, db_path)
+
   # When the user loaded the survey's primary module (module = NULL) and the
   # survey is multi-module, list the sibling modules and show how to open one.
   if (is.null(module)) .pumf_announce_modules(series, version)
 
   tbl
+}
+
+# Tracks which database tables have already been reported as built by an
+# earlier canpumf, so get_pumf() says it once per session.
+.pumf_stale_announced <- new.env(parent = emptyenv())
+
+# On a cache hit, a table built by canpumf < 0.6.1 has no row in
+# `pumf_build_info` (and no pumf_row_id key, no sentinel companion).  Its
+# values are still those the building version produced, so this is a message
+# and not a warning, shown once per session and table, and silenced with
+# options(canpumf.stale_cache_message = FALSE).  Returns TRUE when it spoke.
+.pumf_check_build_stamp <- function(con, series, version, lang, table_name,
+                                    db_path) {
+  if (!isTRUE(getOption("canpumf.stale_cache_message", TRUE)))
+    return(invisible(FALSE))
+  key <- paste(db_path, table_name, sep = "::")
+  if (!is.null(.pumf_stale_announced[[key]])) return(invisible(FALSE))
+  info <- tryCatch(.read_build_info(con, table_name), error = function(e) NULL)
+  rebuild <- sprintf(paste0(
+    "Rebuild with get_pumf(\"%s\", \"%s\", refresh = TRUE); list_pumf_cache() ",
+    "shows the canpumf version behind every database (column 'built_with'). ",
+    "options(canpumf.stale_cache_message = FALSE) silences this message."),
+    series, version)
+  if (is.null(info)) {
+    .pumf_stale_announced[[key]] <- TRUE
+    message(sprintf(paste0(
+      "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
+      "and no sentinel companion, so pumf_sentinels() is not available; codes ",
+      "that share a label are merged into one level; and its values are those ",
+      "of the version that built it (see NEWS for fixes since). "),
+      series, version, lang), rebuild)
+    return(invisible(TRUE))
+  }
+  # A stamped table whose metadata has no codes_applied.csv was built by a
+  # 0.6.1 development version before value labels were made unique on the
+  # data: pumf_dictionary() then describes labels the table may not show.
+  applied <- .pumf_codes_applied_path(file.path(dirname(db_path), "metadata"))
+  if (!file.exists(applied)) {
+    .pumf_stale_announced[[key]] <- TRUE
+    message(sprintf(paste0(
+      "%s %s [%s] was built by a canpumf 0.6.1 development version before ",
+      "value labels were made unique: codes sharing a label may be merged, ",
+      "and pumf_dictionary() may not match the table's levels. "),
+      series, version, lang), rebuild)
+    return(invisible(TRUE))
+  }
+  invisible(FALSE)
 }
 
 # Tracks which (series/version) multi-module hints have been announced this
@@ -508,31 +566,8 @@ pumf_module <- function(tbl, module) {
   if (identical(series, "LFS_TIMELINE"))   # get_lfs_timeline()
     return(as.data.frame(.lfs_timeline_ref("variables")))
   if (.is_longitudinal(series)) {
-    spec    <- .pumf_longitudinal_spec(series)
-    db_path <- .long_db_path(spec, cache_path)
-    vt      <- spec$versions_table
-    if (!file.exists(db_path))
-      stop(series, " database not found at '", db_path, "'.", call. = FALSE)
-    # Reuse the registered connection to avoid opening a second DuckDB instance.
-    # Opening a new connection and disconnecting with shutdown=TRUE would
-    # invalidate the existing tbl connection for the same file.
-    read_versions <- function(con) {
-      if (DBI::dbExistsTable(con, vt))
-        DBI::dbGetQuery(con, sprintf(
-          "SELECT version FROM %s ORDER BY survyear, survmnth", vt))$version
-      else character(0L)
-    }
-    existing_con <- prov$con
-    if (!is.null(existing_con) && DBI::dbIsValid(existing_con)) {
-      all_versions <- read_versions(existing_con)
-    } else {
-      con_tmp <- .duckdb_connect_quiet(db_path, read_only = TRUE)
-      all_versions <- read_versions(con_tmp)
-      DBI::dbDisconnect(con_tmp, shutdown = TRUE)
-    }
-    if (length(all_versions) == 0L)
-      stop("No ", series, " versions found in the database.", call. = FALSE)
-    spec$variables(cache_path, all_versions)
+    spec <- .pumf_longitudinal_spec(series)
+    spec$variables(cache_path, .long_versions_from_prov(prov))
   } else {
     # Multi-module surveys keep each secondary module's metadata in a
     # metadata/<module>/ subdir; the primary module uses metadata/.
@@ -635,32 +670,21 @@ label_pumf_columns <- function(tbl) {
   label_col <- if (lang == "eng") "label_en" else "label_fr"
   variables <- .pumf_read_variables(tbl)
 
-  var_labels <- variables[!is.na(variables[[label_col]]),
-                           c("name", label_col), drop = FALSE]
-  names(var_labels)[2L] <- "label"
-
-  # Disambiguate duplicate labels by appending (NAME)
-  dups <- var_labels$label[duplicated(var_labels$label)]
-  if (length(dups) > 0L) {
-    is_dup <- var_labels$label %in% dups
-    var_labels$label[is_dup] <-
-      paste0(var_labels$label[is_dup], " (", var_labels$name[is_dup], ")")
-  }
+  var_labels <- .pumf_var_label_map(variables, label_col)
 
   # Only rename columns present in the tbl
   tbl_cols   <- colnames(tbl)
   var_labels <- var_labels[var_labels$name %in% tbl_cols, , drop = FALSE]
 
   # Inject labels for derived LFS helper columns that are not in the metadata.
-  derived <- c(SURVDATE   = "Survey date",
-               GENDER_SEX = "Gender/sex of respondent")
-  present_derived <- derived[names(derived) %in% tbl_cols]
-  if (length(present_derived) > 0L) {
-    extra <- data.frame(name  = names(present_derived),
-                        label = unname(present_derived),
-                        stringsAsFactors = FALSE)
-    var_labels <- rbind(var_labels, extra)
-  }
+  derived <- .lfs_derived_var_labels
+  derived <- derived[derived$name %in% tbl_cols &
+                       !derived$name %in% var_labels$name, , drop = FALSE]
+  if (nrow(derived) > 0L)
+    var_labels <- rbind(var_labels,
+                        data.frame(name  = derived$name,
+                                   label = derived[[label_col]],
+                                   stringsAsFactors = FALSE))
 
   if (nrow(var_labels) == 0L) return(tbl)
 
@@ -766,11 +790,23 @@ close_pumf <- function(x) {
 
 #' Generate bootstrap weights for a PUMF dataset
 #'
-#' For a **DuckDB-backed lazy table** (the typical case), bootstrap replicate
-#' weights are written directly into the DuckDB file as a separate table and
-#' exposed through a persistent VIEW that joins the main survey table with the
-#' BSW columns.  The returned `tbl` references this view, so all downstream
-#' dplyr operations have access to every replicate.
+#' For a **DuckDB-backed lazy table** (the typical case), the bootstrap
+#' replicate weights go into a table of their own, keyed like the survey table,
+#' and the function returns `tbl` joined with it.  What was applied to `tbl`
+#' before (`filter()`, `select()`, [label_pumf_columns()], ...) is kept; only
+#' the column(s) that identify the rows (see *ID column*) must still be
+#' present.  Where the weights live depends on the connection of `tbl`:
+#'   * **Write connection** (`get_pumf(..., read_only = FALSE)`): the weights
+#'     are stored in the DuckDB file, and every later call reuses them, in this
+#'     session or another.
+#'   * **Read-only connection** (the [get_pumf()] default): stored weights are
+#'     used when they cover the request.  Otherwise the weights are generated
+#'     into a temporary table that lasts until the connection is closed.
+#'     Nothing is written to the file, and a message says so.  Pass `seed` to
+#'     get the same weights in every session.
+#'
+#' The function never closes or reopens a connection: `tbl`, and every other
+#' table on the same connection, stays valid.
 #'
 #' For an **in-memory `data.frame` or `tibble`**, bootstrap weights are
 #' generated entirely in memory and the augmented data frame is returned.
@@ -780,9 +816,10 @@ close_pumf <- function(x) {
 #' row \eqn{i} in replicate \eqn{b} is `original_weight[i] * count[i,b]`, where
 #' `count[i,b]` is the number of times row \eqn{i} appeared in draw \eqn{b}.
 #'
-#' **Incremental re-runs (DuckDB path):** when a BSW table already exists the
-#' call only does the work needed to satisfy the request:
-#'   * **More replicates** than stored (and no new rows): the additional
+#' **Incremental re-runs (DuckDB path):** when weights exist already (stored
+#' ones, or the temporary ones of this connection) the call only does the work
+#' needed to satisfy the request:
+#'   * **More replicates** than exist (and no new rows): the additional
 #'     replicate columns are appended; existing columns are kept.
 #'   * **New rows** in the main table (some rows have no weights yet): because a
 #'     bootstrap replicate resamples the full population, added rows invalidate
@@ -790,42 +827,44 @@ close_pumf <- function(x) {
 #'     deleted and regenerated.  Unstratified, this regenerates every row; when
 #'     `strata_cols` are in effect, only the strata that gained rows are
 #'     regenerated and complete strata keep their existing weights.
-#'   * **Neither:** the stored weights are reused without recomputation.
-#' Pass `overwrite = TRUE` to force a full fresh regeneration regardless.
+#'   * **Neither:** the existing weights are reused without recomputation.
+#' On a read-only connection the result of the first two cases goes to the
+#' temporary table (stored replicates are copied into it, so they keep their
+#' values), and the stored weights stay as they are.  Pass `overwrite = TRUE`
+#' to force a full fresh regeneration regardless.
 #'
 #' **Multiple weight columns (hierarchical data):** by default `bsw_table` is
 #' named after `weight_col` (e.g. `"pumf_bsw_wstpwgt"`), so calling the
 #' function twice with different weight columns (e.g. household weight and
-#' person weight) produces two independent BSW tables and two separate views
-#' without any conflict.
+#' person weight) produces two independent BSW tables without any conflict.
+#' Give the second call its own `prefix` to have both sets of replicate
+#' columns in one result: replicate columns of the same `prefix` already in
+#' `tbl` are replaced.  A weights table holds the replicates of one `prefix`.
 #'
-#' **Connection note (DuckDB path):** calling this function fully shuts down the
-#' DuckDB in-process instance held by `tbl` (because a write connection requires
-#' exclusive access).  The input `tbl` and any other lazy tables backed by the
-#' same DuckDB file become invalid after the call.  Use the returned tbl instead.
+#' **The weights cover the whole survey table**, whatever rows `tbl` is
+#' filtered to, so that every subset is weighted from the same replicates.  For
+#' a small subset of a very large table (one month of the LFS) on a read-only
+#' connection it is cheaper to `collect()` the subset and add the weights to
+#' the data frame.
 #'
-#' **Filtered input tbls (DuckDB path):** bootstrap weights always cover the
-#' complete physical survey table.  If `tbl` has dplyr `filter()` operations
-#' applied, they are captured and automatically re-applied to the returned VIEW
-#' tbl so the visible rows match the original subset.  Other operations
-#' (`select()`, `mutate()`, etc.) are not replayed -- they would interfere with
-#' the BSW columns -- so apply them manually to the returned tbl if needed.
-#'
-#' **ID column (DuckDB path):** a stable row identifier is needed to link the
-#' main table to the BSW table.  If `id_col` is `NULL` (the default):
+#' **ID column (DuckDB path):** the weights are linked to the survey rows by a
+#' key that identifies each row.  If `id_col` is `NULL` (the default):
 #'   * The survey registry `bsw_join_key` is used when available (e.g.
-#'     `"PEFAMID"` for SFS 2016-2023) -- no table modification needed.
-#'   * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
-#'     survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
-#'     fills the values is O(n).
+#'     `"PEFAMID"` for SFS 2016-2023).
+#'   * Otherwise the `pumf_row_id` column that every table built by canpumf
+#'     0.6.1 or later carries (see [pumf_sentinels()]) is used.
+#'   * The longitudinal series (`"LFS"`, `"LFS_HIST"`) use `SURVYEAR`,
+#'     `SURVMNTH` and `REC_NUM` together.
+#' A table built by an earlier version that has none of these needs a rebuild
+#' (`get_pumf(..., refresh = TRUE)`) or an explicit `id_col`.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()], **or** an
 #'   in-memory `data.frame` / `tibble`.
 #' @param weight_col Name of the column holding the survey weights (string,
 #'   e.g. `"PWEIGHT"`).
-#' @param id_col Optional name of a column that uniquely identifies each row
-#'   (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key` is
-#'   used when available; otherwise `pumf_row_id` is added to the main table.
+#' @param id_col Optional name(s) of the column(s) that uniquely identify each
+#'   row (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key`,
+#'   `pumf_row_id` or the longitudinal record key is used (see *ID column*).
 #' @param strata_cols Optional character vector of column names to stratify on.
 #'   Resampling is performed independently within each unique combination of
 #'   stratum values, preserving stratum sample sizes across replicates.  For
@@ -840,16 +879,17 @@ close_pumf <- function(x) {
 #' @param bsw_table Name of the DuckDB table that stores the replicate weights
 #'   (DuckDB path only).  Defaults to `NULL`, which auto-names it
 #'   `paste0("pumf_bsw_", tolower(weight_col))` so separate calls with
-#'   different weight columns do not overwrite each other.
+#'   different weight columns do not overwrite each other.  The temporary
+#'   table of a read-only connection has the same name prefixed with `tmp_`.
 #' @param seed Optional integer seed for reproducibility.
-#' @param overwrite If the `bsw_table` already exists in the DuckDB file,
-#'   regenerate and overwrite it when `TRUE`.  When `FALSE` (default) the
-#'   existing table is reused silently -- no computation is performed.
+#' @param overwrite If weights for `weight_col` exist already, regenerate them
+#'   from scratch when `TRUE`: the stored table on a write connection, the
+#'   temporary one on a read-only connection.  When `FALSE` (default) existing
+#'   weights are reused.
 #'
 #' @return
-#'   * **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
-#'     VIEW that contains all original survey columns plus the `n_replicates`
-#'     bootstrap weight columns, with any input `filter()` operations re-applied.
+#'   * **DuckDB path:** `tbl` inner-joined with the `n_replicates` bootstrap
+#'     weight columns, a lazy `dplyr::tbl()` on the same connection.
 #'   * **In-memory path:** the input `data.frame` / `tibble` with bootstrap
 #'     weight columns appended so that `n_replicates` replicates are present.
 #'     If the input already carries replicate columns for `prefix`, only the
@@ -860,12 +900,22 @@ close_pumf <- function(x) {
 #'
 #' @examples
 #' \donttest{
+#' # read-only connection (the default): the weights are temporary
 #' sfs <- get_pumf("SFS", "2019")
 #' if (!is.null(sfs)) {
 #'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
 #'                                    n_replicates = 200L, seed = 42L)
 #'   bsw_info(sfs_bsw)
-#'   close_pumf(sfs_bsw)
+#'   close_pumf(sfs)
+#' }
+#'
+#' # write connection: the weights are stored in the database and reused
+#' sfs <- get_pumf("SFS", "2019", read_only = FALSE)
+#' if (!is.null(sfs)) {
+#'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
+#'                                    n_replicates = 200L, seed = 42L)
+#'   sfs <- remove_bootstrap_weights(sfs_bsw)
+#'   close_pumf(sfs)
 #' }
 #' }
 #' @export
@@ -883,11 +933,6 @@ add_bootstrap_weights <- function(tbl,
   stopifnot(is.numeric(n_replicates), n_replicates >= 1L)
   n_replicates <- as.integer(n_replicates)
 
-  # Auto-name BSW table after weight_col. If weight_col is a human-readable
-  # label (resolved later), store the raw value for naming; the resolution
-  # happens below after we know if this is DuckDB-backed or in-memory.
-  bsw_table_auto <- is.null(bsw_table)
-
   # ---- Dispatch: in-memory (data.frame / tibble) ----------------------------
   if (is.data.frame(tbl)) {
     weight_col <- .bsw_resolve_col_df(tbl, weight_col, "weight_col")
@@ -903,193 +948,302 @@ add_bootstrap_weights <- function(tbl,
   }
 
   # ---- DuckDB-backed lazy tbl path ------------------------------------------
+  # Everything happens on the connection of `tbl`: the weights are written to
+  # the database when that connection can write and to a temporary table when
+  # it cannot, and the result is `tbl` joined with them.  No connection is
+  # closed or opened, and no SQL of the input is taken apart and replayed.
 
-  con <- tbl$src$con
-  if (is.null(con) || !DBI::dbIsValid(con))
-    stop("The connection backing 'tbl' is no longer valid.", call. = FALSE)
-
-  prov <- .pumf_lookup_con(con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-
+  loc        <- .bsw_locate(tbl)
+  con        <- loc$con
+  prov       <- loc$prov
   series     <- prov$series
-  version    <- prov$version
-  cache_path <- prov$cache_path
-  lang       <- prov$lang %||% "eng"
-
-  table_name <- .pumf_table_name(series, version, lang)
-  db_path    <- .pumf_db_path(series, version, cache_path)
+  table_name <- loc$table_name
+  physical_cols <- DBI::dbListFields(con, table_name)
 
   # Resolve weight_col / id_col: if label_pumf_columns() was called, the user
   # may pass a human-readable label (e.g. "Person weight") rather than the
   # coded column name (e.g. "PWEIGHT"). Translate back to the coded name so
   # SQL queries against the raw DuckDB table work correctly.
-  weight_col <- .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", prov)
-  if (!is.null(id_col))
-    id_col <- .bsw_resolve_col_prov(con, table_name, id_col, "id_col", prov)
+  weight_col  <- .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", prov)
+  id_explicit <- !is.null(id_col)
+  if (id_explicit)
+    id_col <- unname(vapply(id_col, function(x)
+      .bsw_resolve_col_prov(con, table_name, x, "id_col", prov), character(1L)))
 
-  # Detect whether the input tbl has had label_pumf_columns() applied so we
-  # can re-apply it to the returned tbl.  The check: any column in the input
-  # that is not a generated BSW replicate column and is not in the physical
-  # table's coded column list must be a label alias.
-  # Replicate columns are identified from the `prefix` used for this call
-  # (default "CPBSW") rather than a hardcoded "*BSW" pattern, so detection stays
-  # correct for custom prefixes.  startsWith + digit-suffix avoids having to
-  # regex-escape a user-supplied prefix.
-  physical_cols <- DBI::dbListFields(con, table_name)
-  in_cols       <- colnames(tbl)
-  is_bsw_rep    <- startsWith(in_cols, prefix) &
-    grepl("^[0-9]+$", substring(in_cols, nchar(prefix) + 1L))
-  survey_input_cols <- in_cols[!is_bsw_rep]
-  input_was_labeled <- !all(survey_input_cols %in% physical_cols)
+  if (is.null(bsw_table))
+    bsw_table <- paste0("pumf_bsw_", tolower(weight_col), loc$suffix)
+  tmp_table <- paste0("tmp_", bsw_table)
+  writable  <- .bsw_con_writable(con)
 
-  if (bsw_table_auto)
-    bsw_table <- paste0("pumf_bsw_", tolower(weight_col))
-
-  # Capture the rendered SQL *before* closing the connection.  This is used to:
-  #   (a) detect non-replayable ops (GROUP BY, HAVING, DISTINCT, column-select),
-  #   (b) extract any WHERE clause to re-apply to the returned view tbl.
-  # tbl$ops is restricted in newer dbplyr; sql_render() is the public interface.
-  input_sql <- as.character(dbplyr::sql_render(tbl))
-
-  # Warn when the SQL has ops we cannot cleanly replay (they would either drop
-  # BSW columns or change aggregation semantics).
-  # "Base" SELECT forms: "SELECT *" and "SELECT table.*" (filter() uses the
-  # latter). Any other column list (from select()) would drop BSW columns.
-  has_complex_ops <-
-    grepl("\\bGROUP\\s+BY\\b|\\bHAVING\\b|\\bDISTINCT\\b",
-          input_sql, ignore.case = TRUE) ||
-    grepl("^SELECT\\s+(?!\\*|\\w+\\.\\*)", trimws(input_sql), perl = TRUE)
-
-  if (has_complex_ops)
-    warning(
-      "The input tbl has dplyr operations (select, group_by, etc.) that ",
-      "cannot be replayed on the BSW view \u2014 they would drop BSW columns or ",
-      "change aggregation semantics. Apply them manually to the returned tbl.",
-      call. = FALSE
-    )
-
-  # Extract the WHERE portion (+ ORDER BY if any) for re-application.
-  where_start  <- regexpr("(?i)WHERE\\s", input_sql, perl = TRUE)
-  where_clause <- if (where_start > 0L) substring(input_sql, where_start) else NULL
-  # VIEW name: "pumf_bsw_pweight" -> "eng_bsw_pweight"; preserves weight_col scope.
-  view_name  <- paste0(table_name, "_", sub("^pumf_", "", bsw_table))
-
-  # --- Determine row-identifier column (needed for all paths) ---------------
-  reg <- pumf_registry_lookup(series, version)
-  if (is.null(id_col)) {
-    if (!is.null(reg$bsw_join_key) && length(reg$bsw_join_key) == 1L)
-      id_col <- reg$bsw_join_key
+  # --- Default row key --------------------------------------------------------
+  # Registry key first, then the permanent pumf_row_id that Stage 3 has written
+  # since 0.6.1.  The longitudinal tables have neither: their records are
+  # identified by month and record number.
+  if (!id_explicit) {
+    long_key <- c("SURVYEAR", "SURVMNTH", "REC_NUM")
+    id_col <-
+      if (.is_longitudinal(series) && all(long_key %in% physical_cols))
+        long_key
+      else if (length(loc$key) == 1L && loc$key %in% physical_cols)
+        loc$key
+      else if ("pumf_row_id" %in% physical_cols)
+        "pumf_row_id"
   }
 
   # --- Resolve effective strata: explicit > registry > LFS default > none ---
   # character(0) explicitly suppresses the LFS default.
   eff_strata <- if (identical(strata_cols, character(0L))) {
     NULL
-  } else {
-    strata_cols %||% reg$bsw_strata %||%
-      if (.is_longitudinal(series)) c("SURVYEAR", "SURVMNTH") else NULL
-  }
-  if (!is.null(eff_strata)) {
-    avail_cols <- DBI::dbListFields(con, table_name)
-    bad_sc <- setdiff(eff_strata, avail_cols)
+  } else if (!is.null(strata_cols)) {
+    bad_sc <- setdiff(strata_cols, physical_cols)
     if (length(bad_sc) > 0L)
       stop("strata_cols not found in table '", table_name, "': ",
            paste(bad_sc, collapse = ", "), call. = FALSE)
+    strata_cols
+  } else if (!is.null(loc$strata) && all(loc$strata %in% physical_cols)) {
+    loc$strata
+  } else if (.is_longitudinal(series)) {
+    intersect(c("SURVYEAR", "SURVMNTH"), physical_cols)
   }
+  if (length(eff_strata) == 0L) eff_strata <- NULL
 
-  # --- Inspect existing BSW table (if present and not overwriting) ----------
-  bsw_exists <- !overwrite && DBI::dbExistsTable(con, bsw_table)
-
-  if (bsw_exists) {
-    bsw_all_cols  <- DBI::dbListFields(con, bsw_table)
-    rep_pat       <- paste0("^", prefix, "[0-9]+$")
-    rep_cols_all  <- bsw_all_cols[grepl(rep_pat, bsw_all_cols)]
-    # Sort numerically (BSW10 > BSW9, not lexicographically)
-    rep_cols_all  <- rep_cols_all[order(
-      as.integer(sub(paste0("^", prefix), "", rep_cols_all)))]
-    n_existing    <- length(rep_cols_all)
-    # The non-replicate column is the id join key used when BSW was created.
-    id_col_bsw    <- bsw_all_cols[!grepl(rep_pat, bsw_all_cols)]
-    id_col_bsw    <- if (length(id_col_bsw) == 1L) id_col_bsw[1L] else
-                     (id_col %||% "pumf_row_id")
-    # If the caller did not specify id_col, inherit it from the stored BSW table.
-    if (is.null(id_col)) id_col <- id_col_bsw
-
-    n_bsw_rows  <- DBI::dbGetQuery(
-      con, sprintf('SELECT COUNT(*) AS n FROM "%s"', bsw_table))$n
-    n_main_rows <- DBI::dbGetQuery(
-      con, sprintf('SELECT COUNT(*) AS n FROM "%s"', table_name))$n
-
-    need_more_rows <- n_bsw_rows  <  n_main_rows
-    need_more_cols <- n_replicates > n_existing
-
-    # ---- Case A: enough replicates, all rows present -- no write needed ------
-    # Return a SQL JOIN on the existing read-only connection; no disconnection.
-    if (!need_more_rows && !need_more_cols) {
-      cols_to_use <- rep_cols_all[seq_len(n_replicates)]
-      bsw_sel     <- paste0('"b"."', cols_to_use, '"', collapse = ", ")
-      join_sql    <- sprintf(
-        'SELECT "m".*, %s FROM "%s" "m" JOIN "%s" "b" ON "m"."%s" = "b"."%s"',
-        bsw_sel, table_name, bsw_table, id_col_bsw, id_col_bsw
-      )
-      full_sql <- if (!is.null(where_clause))
-        sprintf('SELECT * FROM (%s) "_t"\n%s', join_sql, where_clause)
-      else
-        join_sql
-      # con is already registered in .pumf_con_registry; no re-registration.
-      result_tbl <- dplyr::tbl(con, dplyr::sql(full_sql))
-      if (input_was_labeled) result_tbl <- label_pumf_columns(result_tbl)
-      return(result_tbl)
+  # --- Look for weights that cover the request --------------------------------
+  # A read-only connection prefers its own temporary table (it holds whatever
+  # an earlier call on this connection generated) over the stored one.  `use`
+  # is the first table with every row and enough replicates; `base` the first
+  # one that can be extended.
+  cand <- if (overwrite) list()
+          else if (writable) list(.bsw_state(con, bsw_table, prefix))
+          else list(.bsw_state(con, tmp_table, prefix),
+                    .bsw_state(con, bsw_table, prefix))
+  use  <- NULL
+  base <- NULL
+  for (st in cand) {
+    if (is.null(st) || !all(st$key %in% physical_cols)) next
+    same_key <- is.null(id_col) || setequal(st$key, id_col)
+    if (id_explicit && !same_key)
+      stop("The bootstrap weights in '", st$table, "' are keyed by ",
+           paste(st$key, collapse = ", "), ", not ",
+           paste(id_col, collapse = ", "), ".\n",
+           "Pass that as 'id_col', or overwrite = TRUE to regenerate them.",
+           call. = FALSE)
+    st$n_missing <- .bsw_n_missing(con, table_name, st)
+    if (st$n_missing == 0L && length(st$reps) >= n_replicates) {
+      use <- st
+      break
     }
-  } else {
-    n_existing    <- 0L
-    rep_cols_all  <- character(0L)
-    id_col_bsw    <- id_col %||% "pumf_row_id"
-    need_more_rows <- FALSE
-    need_more_cols <- FALSE
+    if (is.null(base) && same_key) base <- st
   }
 
-  # ---- Cases B/C/D: write connection needed --------------------------------
-  # B = new rows only; C = more columns only; D = full fresh generation.
-  # Pull the data we need from the read-only connection before closing it.
-
-  id_sql <- if (!is.null(id_col))
-    sprintf('"%s" AS row_id', id_col)
-  else
-    "rowid AS row_id"
-
-  strata_sql <- if (!is.null(eff_strata))
-    paste0(", ", paste0('"', eff_strata, '"', collapse = ", "))
-  else
-    ""
-
-  # Pull ALL rows' weights whenever we (re)generate: fresh build, added columns,
-  # or added rows.  The former "pull only the new rows" shortcut is gone:
-  # bootstrap replicates resample the full (stratum) population, so added rows
-  # invalidate -- and require regenerating -- every row in the affected resampling
-  # universe, not just the new rows themselves.
-  if (!bsw_exists || need_more_cols || need_more_rows) {
-    wt_data_all <- DBI::dbGetQuery(con, sprintf(
-      'SELECT %s, CAST("%s" AS DOUBLE) AS w%s FROM "%s"',
-      id_sql, weight_col, strata_sql, table_name
-    ))
-  }
-  if (bsw_exists && (need_more_rows || need_more_cols)) {
-    # Read the current BSW table to preserve the still-valid replicate weights.
-    old_bsw <- DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', bsw_table))
+  # --- Generate what is missing ----------------------------------------------
+  if (is.null(use)) {
+    if (!is.null(base)) id_col <- base$key
+    if (is.null(id_col))
+      stop("Table '", table_name, "' has no column that identifies its rows: ",
+           "it was built by canpumf before 0.6.1.\n",
+           "Rebuild it with get_pumf(..., refresh = TRUE), or name a column ",
+           "with unique values in 'id_col'.", call. = FALSE)
+    .bsw_generate(con, table_name, weight_col, id_col, eff_strata,
+                  n_replicates, prefix, seed, base,
+                  target = if (writable) bsw_table else tmp_table,
+                  temporary = !writable)
+    if (writable) {
+      # 0.6.0 and earlier exposed the weights through a view, which would now
+      # describe the table as it was before this write.
+      DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"',
+                                  .bsw_legacy_view(table_name, bsw_table)))
+    } else {
+      message("The bootstrap weights are in a temporary table: 'tbl' is on a ",
+              "read-only connection, so they last until it is closed.\n",
+              "Open the table with get_pumf(..., read_only = FALSE) to store ",
+              "them in the database.")
+    }
+    use <- .bsw_state(con, if (writable) bsw_table else tmp_table, prefix)
   }
 
-  # ---- Generate bootstrap weights ------------------------------------------
-  # .gen_bsw generates replicates for a single (possibly filtered) wt_df.
-  # Stratification is handled by the caller splitting wt_df by stratum.
-  # seed_val: when NULL the caller is responsible for set.seed() before calling.
-  .gen_bsw <- function(wt_df, n_cols_start, n_cols_end, seed_val,
-                        show_progress = TRUE) {
+  # --- Join the weights to the input tbl --------------------------------------
+  in_cols  <- colnames(tbl)
+  key_in   <- .bsw_key_in_tbl(in_cols, use$key, prov)
+  rep_in   <- in_cols[.bsw_is_rep(in_cols, prefix)]
+  if (length(rep_in) > 0L)
+    tbl <- dplyr::select(tbl, -dplyr::all_of(rep_in))
+  weights <- dplyr::select(dplyr::tbl(con, use$table),
+                           dplyr::all_of(c(use$key, use$reps[seq_len(n_replicates)])))
+  dplyr::inner_join(tbl, weights, by = stats::setNames(use$key, key_in))
+}
+
+
+# ---- bootstrap-weight internals ------------------------------------------
+
+# The bootstrap-weight functions were handed a tbl whose connection is closed.
+.stop_tbl_con_closed <- function() {
+  stop("The connection backing 'tbl' is no longer valid: it was closed by ",
+       "close_pumf(), or by a refresh or removal of its database.\n",
+       "Call get_pumf() again.", call. = FALSE)
+}
+
+# Connection, provenance and physical table behind a tbl from get_pumf().
+# `suffix` separates the weights of a secondary module from those of the
+# primary one, whose weight column may have the same name; `key` and `strata`
+# are the registry's bsw_join_key and bsw_strata for that table.
+.bsw_locate <- function(tbl) {
+  con <- tbl$src$con
+  if (is.null(con) || !DBI::dbIsValid(con)) .stop_tbl_con_closed()
+
+  prov <- .pumf_lookup_con(con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  if (identical(prov$series, "LFS_TIMELINE"))
+    stop("Bootstrap weights are not available for get_lfs_timeline(), which ",
+         "has no table of its own.\ncollect() the rows of interest and pass ",
+         "the data frame to add_bootstrap_weights().", call. = FALSE)
+
+  prov$lang   <- prov$lang %||% "eng"
+  prov$module <- .pumf_tbl_module(tbl, prov)
+  reg <- pumf_registry_lookup(prov$series, prov$version)
+  mod <- if (!is.null(prov$module)) .pumf_entry_modules(reg)[[prov$module]]
+  list(con        = con,
+       prov       = prov,
+       table_name = .pumf_table_name(prov$series, prov$version, prov$lang,
+                                     prov$module),
+       db_path    = .pumf_db_path(prov$series, prov$version, prov$cache_path),
+       suffix     = if (is.null(mod) || isTRUE(mod$is_primary)) ""
+                    else paste0("_", tolower(mod$id)),
+       key        = mod$bsw_join_key %||% reg$bsw_join_key,
+       strata     = mod$bsw_strata %||% reg$bsw_strata)
+}
+
+# TRUE when writes through `con` reach the database file.  Asked of the
+# database rather than of how the connection was opened: a read-only open
+# shares a read-write instance the session already holds (.duckdb_connect()).
+.bsw_con_writable <- function(con) {
+  ro <- tryCatch(
+    DBI::dbGetQuery(con, paste(
+      "SELECT readonly FROM duckdb_databases()",
+      "WHERE database_name = current_database()"))$readonly,
+    error = function(e) NULL)
+  if (length(ro) == 1L && !is.na(ro)) return(!ro)
+  !isTRUE(tryCatch(con@driver@read_only, error = function(e) FALSE))
+}
+
+# Which of `cols` are replicate columns of `prefix` (prefix + digits).
+# startsWith + digit suffix avoids regex-escaping a user-supplied prefix.
+.bsw_is_rep <- function(cols, prefix) {
+  startsWith(cols, prefix) &
+    grepl("^[0-9]+$", substring(cols, nchar(prefix) + 1L))
+}
+
+# Describe a weights table: its key column(s) and its replicate columns of
+# `prefix` in numeric order (CPBSW10 after CPBSW9).  NULL when the table does
+# not exist or holds no replicate of that prefix.
+.bsw_state <- function(con, name, prefix) {
+  if (!DBI::dbExistsTable(con, name)) return(NULL)
+  cols   <- DBI::dbListFields(con, name)
+  is_rep <- .bsw_is_rep(cols, prefix)
+  reps   <- cols[is_rep]
+  if (length(reps) == 0L) return(NULL)
+  reps <- reps[order(as.integer(substring(reps, nchar(prefix) + 1L)))]
+  list(table = name, key = cols[!is_rep], reps = reps)
+}
+
+# Number of rows of the survey table that have no weights in `st`.
+.bsw_n_missing <- function(con, table_name, st) {
+  on <- paste(sprintf('"m"."%s" = "b"."%s"', st$key, st$key), collapse = " AND ")
+  DBI::dbGetQuery(con, sprintf(
+    'SELECT COUNT(*) AS n FROM "%s" "m" WHERE NOT EXISTS (SELECT 1 FROM "%s" "b" WHERE %s)',
+    table_name, st$table, on))$n
+}
+
+# One value per row for the key column(s) of a data frame.
+.bsw_key <- function(df, cols) {
+  if (length(cols) == 1L) df[[cols]]
+  else do.call(paste, c(unname(as.list(df[cols])), sep = "\r"))
+}
+
+# The key column(s) as the input tbl names them: coded, or under the variable
+# label that label_pumf_columns() gave them.
+.bsw_key_in_tbl <- function(in_cols, key, prov) {
+  out  <- key
+  gone <- setdiff(key, in_cols)
+  if (length(gone) > 0L) {
+    label_col <- if (prov$lang == "eng") "label_en" else "label_fr"
+    map <- tryCatch(
+      .pumf_var_label_map(.pumf_read_variables_from_prov(prov), label_col),
+      error = function(e) NULL)
+    for (k in gone) {
+      lab <- map$label[map$name == k]
+      if (length(lab) == 1L && lab %in% in_cols) out[out == k] <- lab
+    }
+    gone <- setdiff(gone, key[out != key])
+  }
+  if (length(gone) > 0L)
+    stop("'tbl' no longer has the column", if (length(gone) > 1L) "s", " ",
+         paste(gone, collapse = ", "), " that link",
+         if (length(gone) == 1L) "s", " its rows to the bootstrap weights.\n",
+         "Add the weights before select() or summarise() drops ",
+         if (length(gone) > 1L) "them" else "it", ".", call. = FALSE)
+  out
+}
+
+# Name of the view through which 0.6.0 and earlier exposed a weights table:
+# "pumf_bsw_pweight" on table "eng" -> "eng_bsw_pweight".
+.bsw_legacy_view <- function(table_name, bsw_table)
+  paste0(table_name, "_", sub("^pumf_", "", bsw_table))
+
+# Generate replicate weights for the whole survey table and write them to
+# `target` on `con`, as a temporary table when `temporary`.
+#   base = NULL: fresh generation.
+#   base = a .bsw_state() with n_missing: keep what is still valid in that
+#   table and add the replicate columns and/or regenerate the rows it lacks.
+#   `base$table` is `target` itself, or the stored table a read-only
+#   connection extends into its temporary one.
+.bsw_generate <- function(con, table_name, weight_col, id_col, strata,
+                          n_replicates, prefix, seed, base, target, temporary) {
+
+  # Pull ALL rows' weights: bootstrap replicates resample the full (stratum)
+  # population, so added rows invalidate -- and require regenerating -- every
+  # row in the affected resampling universe, not just the new rows themselves.
+  wt <- DBI::dbGetQuery(con, sprintf(
+    'SELECT %s, CAST("%s" AS DOUBLE) AS ".w" FROM "%s"',
+    paste0('"', unique(c(id_col, strata)), '"', collapse = ", "),
+    weight_col, table_name))
+  names(wt)[names(wt) == ".w"] <- "w"
+
+  key <- .bsw_key(wt, id_col)
+  if (anyNA(wt[id_col]) || anyDuplicated(key) > 0L)
+    stop("'", paste(id_col, collapse = "', '"), "' ",
+         if (length(id_col) > 1L) "do" else "does",
+         " not identify the rows of '", table_name, "': the values are ",
+         "missing or repeated for some rows.\n",
+         "Name the column(s) that do in 'id_col'.", call. = FALSE)
+
+  if (anyNA(wt$w)) {
+    warning(sum(is.na(wt$w)), " NA weight(s) in '", weight_col,
+            "' replaced with 0.", call. = FALSE)
+    wt$w[is.na(wt$w)] <- 0
+  }
+
+  n_existing <- length(base$reps)
+  n_target   <- max(n_existing, n_replicates)
+  canon      <- c(id_col, paste0(prefix, seq_len(n_target)))
+
+  if (temporary) {
+    tmp_gb <- nrow(wt) * n_target * 8 / 1e9
+    if (tmp_gb > 2)
+      warning(sprintf(paste0(
+        "The temporary bootstrap weights take about %.0f GB of memory and ",
+        "temporary disk space, and are gone when the connection is closed.\n",
+        "Open the table with get_pumf(..., read_only = FALSE) to store them ",
+        "once, or collect() the rows of interest and add the weights to the ",
+        "data frame."), tmp_gb), call. = FALSE)
+  }
+
+  # Replicates n_cols_start+1 .. n_cols_end for one resampling universe (the
+  # table, or one stratum).  seed_val NULL: the caller has set the seed.
+  gen <- function(wt_df, n_cols_start, n_cols_end, seed_val,
+                  show_progress = TRUE) {
     n <- nrow(wt_df)
-    w <- wt_df$w
-    if (anyNA(w)) { w[is.na(w)] <- 0 }
     n_new <- n_cols_end - n_cols_start
     if (n_new <= 0L) return(NULL)
     mem_gb <- n_new * (n / 1e9) * 8
@@ -1110,239 +1264,143 @@ add_bootstrap_weights <- function(tbl,
         message(sprintf("  Replicate %d / %d ...",
                         i + n_cols_start, n_cols_end))
     }
-    mat <- w * counts
+    mat <- wt_df$w * counts
     colnames(mat) <- paste0(prefix, seq(n_cols_start + 1L, n_cols_end))
-    cbind(stats::setNames(data.frame(wt_df[[1L]]), id_col %||% "pumf_row_id"),
-          as.data.frame(mat))
+    cbind(wt_df[id_col], as.data.frame(mat))
   }
 
-  # ---- Determine what to generate and build (or stream) the BSW data -------
-  #
-  # Case D + strata: write strata one at a time directly to DuckDB after
-  # opening the write connection, so the full n x n_replicates matrix is never
-  # materialised in memory.  The wt_data_all pulled above stays in memory but
-  # each per-stratum chunk_df is freed after writing.
-  # All other cases (Cases B/C or unstratified Case D) build bsw_df in memory
-  # as before.
-
-  use_strata_stream <- !bsw_exists && !is.null(eff_strata)
-
-  if (!use_strata_stream) {
-    if (!bsw_exists) {
-      # Case D (unstratified): fresh generation for all rows.
-      if (anyNA(wt_data_all$w)) {
-        warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
-                "' replaced with 0.", call. = FALSE)
-        wt_data_all$w[is.na(wt_data_all$w)] <- 0
-      }
-      message(sprintf(
-        "Generating %d %s replicates for %d observations...",
-        n_replicates, prefix, nrow(wt_data_all)))
-      bsw_df <- .gen_bsw(wt_data_all, 0L, n_replicates, seed)
-    } else {
-      # bsw_exists, with added rows and/or added replicate columns.
-      #
-      # Bootstrap replicate weights are produced by resampling the full
-      # population (or, when stratified, the full stratum).  Therefore:
-      #   * Added ROWS invalidate the replicate weights of their resampling
-      #     universe and force regeneration there -- the whole table when
-      #     unstratified, or just the strata that gained rows when stratified
-      #     (complete strata keep their existing weights).
-      #   * Added COLUMNS are independent extra replicates appended to rows
-      #     whose resampling universe is unchanged.
-      n_target <- max(n_existing, n_replicates)
-      id_name  <- id_col %||% "pumf_row_id"
-      canon    <- c(id_name, paste0(prefix, seq_len(n_target)))
-
-      if (anyNA(wt_data_all$w)) {
-        warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
-                "' replaced with 0.", call. = FALSE)
-        wt_data_all$w[is.na(wt_data_all$w)] <- 0
-      }
-      has_bsw <- wt_data_all$row_id %in% old_bsw[[id_name]]
-      n_new   <- sum(!has_bsw)
-
-      if (is.null(eff_strata)) {
-        if (need_more_rows) {
-          # Whole population changed: every replicate weight is stale.
-          message(sprintf(
-            "%d new row(s) detected; deleting and regenerating all %d %s replicates for %d observations...",
-            n_new, n_target, prefix, nrow(wt_data_all)))
-          bsw_df <- .gen_bsw(wt_data_all, 0L, n_target, seed)[, canon, drop = FALSE]
-        } else {
-          # Case C: population unchanged, only add independent replicates.
-          message(sprintf("Adding replicates %d-%d to BSW table...",
-                          n_existing + 1L, n_target))
-          add_df <- .gen_bsw(wt_data_all, n_existing, n_target, seed)
-          bsw_df <- merge(old_bsw, add_df,
-                          by = intersect(names(old_bsw), names(add_df)),
-                          all = TRUE)[, canon, drop = FALSE]
-        }
-      } else {
-        # Stratified: regenerate only the strata that have missing weights.
-        strata_key  <- interaction(wt_data_all[eff_strata], drop = TRUE)
-        affected    <- if (need_more_rows)
-          unique(as.character(strata_key[!has_bsw])) else character(0L)
-        is_affected <- as.character(strata_key) %in% affected
-
-        if (!is.null(seed)) set.seed(seed)
-        parts <- list()
-
-        # 1) Affected strata: full fresh resample within each (n_target cols).
-        if (any(is_affected)) {
-          message(sprintf(
-            "%d new row(s) in %d of %d strata; deleting and regenerating those strata in full (%d %s replicates)...",
-            n_new, length(affected), nlevels(strata_key), n_target, prefix))
-          aff_dat <- wt_data_all[is_affected, , drop = FALSE]
-          aff_key <- droplevels(strata_key[is_affected])
-          for (lv in levels(aff_key)) {
-            s_data <- aff_dat[aff_key == lv, , drop = FALSE]
-            parts[[length(parts) + 1L]] <-
-              .gen_bsw(s_data, 0L, n_target, NULL,
-                       show_progress = FALSE)[, canon, drop = FALSE]
-          }
-        }
-
-        # 2) Unaffected strata: keep existing weights; add columns if requested,
-        #    resampling within each stratum (independent extra replicates).
-        if (any(!is_affected)) {
-          unaff_dat <- wt_data_all[!is_affected, , drop = FALSE]
-          keep_bsw  <- old_bsw[old_bsw[[id_name]] %in% unaff_dat$row_id, ,
-                               drop = FALSE]
-          if (n_target > n_existing) {
-            unaff_key <- droplevels(strata_key[!is_affected])
-            message(sprintf(
-              "Adding replicates %d-%d to %d unaffected stratum/strata...",
-              n_existing + 1L, n_target, nlevels(unaff_key)))
-            add_parts <- list()
-            for (lv in levels(unaff_key)) {
-              s_data <- unaff_dat[unaff_key == lv, , drop = FALSE]
-              add_parts[[length(add_parts) + 1L]] <-
-                .gen_bsw(s_data, n_existing, n_target, NULL, show_progress = FALSE)
-            }
-            add_df   <- do.call(rbind, add_parts)
-            keep_bsw <- merge(keep_bsw, add_df,
-                              by = intersect(names(keep_bsw), names(add_df)),
-                              all = TRUE)
-          }
-          parts[[length(parts) + 1L]] <- keep_bsw[, canon, drop = FALSE]
-        }
-
-        bsw_df <- do.call(rbind, parts)
-      }
-    }
-  }
-
-  id_col_final <- if (use_strata_stream) (id_col %||% "pumf_row_id")
-                  else names(bsw_df)[1L]
-
-  # --- Acquire exclusive write access ----------------------------------------
-  rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
-     envir = .pumf_con_registry, inherits = FALSE)
-  if (DBI::dbIsValid(con))
-    DBI::dbDisconnect(con, shutdown = TRUE)
-
-  # --- Write BSW table and VIEW to DuckDB ------------------------------------
-  # Diagnose lock conflicts up front (another process, or another tbl still
-  # open on this file) with an actionable message instead of duckdb's raw
-  # lock/read-only error surfacing from the first write below.
-  .assert_duckdb_writable(db_path)
-  rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
-  on.exit(
-    if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
-    add = TRUE
-  )
-
-  # Add pumf_row_id to the main table when no natural key was available.
-  if (is.null(id_col)) {
-    if (!"pumf_row_id" %in% DBI::dbListFields(rw_con, table_name)) {
-      message("Adding 'pumf_row_id' column to '", table_name, "'...")
-      DBI::dbExecute(rw_con,
-        sprintf('ALTER TABLE "%s" ADD COLUMN pumf_row_id BIGINT', table_name))
-      DBI::dbExecute(rw_con,
-        sprintf('UPDATE "%s" SET pumf_row_id = rowid', table_name))
-    }
-    id_col       <- "pumf_row_id"
-    id_col_final <- "pumf_row_id"
-  }
-
-  if (use_strata_stream) {
-    # Case D + strata: split wt_data_all by stratum, generate and write chunk
-    # by chunk so peak memory = one stratum's BSW matrix (not the full table).
-    # Warn once on NA weights before splitting (mirrors the non-stratified path)
-    # so the per-stratum zeroing in .gen_bsw is not silent.
-    if (anyNA(wt_data_all$w)) {
-      warning(sum(is.na(wt_data_all$w)), " NA weight(s) in '", weight_col,
-              "' replaced with 0.", call. = FALSE)
-      wt_data_all$w[is.na(wt_data_all$w)] <- 0
-    }
-    strata_key  <- interaction(wt_data_all[eff_strata], drop = TRUE)
+  # ---- Fresh generation, stratified ------------------------------------------
+  # Write the strata one at a time, so the full n x n_replicates matrix is
+  # never materialised in memory: peak memory is one stratum's matrix.
+  if (is.null(base) && !is.null(strata)) {
+    strata_key  <- interaction(wt[strata], drop = TRUE)
     strata_lvls <- levels(strata_key)
     n_st        <- length(strata_lvls)
     message(sprintf(
       "Generating %d %s replicates across %d %s strata (%d total obs)...",
-      n_replicates, prefix, n_st,
-      paste(eff_strata, collapse = "/"), nrow(wt_data_all)))
+      n_replicates, prefix, n_st, paste(strata, collapse = "/"), nrow(wt)))
     if (!is.null(seed)) set.seed(seed)
     for (si in seq_along(strata_lvls)) {
-      idx    <- which(strata_key == strata_lvls[si])
-      s_data <- wt_data_all[idx, , drop = FALSE]
-      sv_str <- paste(eff_strata,
-                      as.character(unlist(s_data[1L, eff_strata, drop = FALSE])),
+      s_data <- wt[which(strata_key == strata_lvls[si]), , drop = FALSE]
+      sv_str <- paste(strata,
+                      as.character(unlist(s_data[1L, strata, drop = FALSE])),
                       sep = "=", collapse = ", ")
       message(sprintf("  Stratum [%d/%d] %s (%d obs)",
                       si, n_st, sv_str, nrow(s_data)))
-      chunk_df <- .gen_bsw(s_data, 0L, n_replicates,
-                            seed_val = NULL, show_progress = FALSE)
-      DBI::dbWriteTable(rw_con, bsw_table, chunk_df,
+      chunk_df <- gen(s_data, 0L, n_replicates,
+                      seed_val = NULL, show_progress = FALSE)
+      DBI::dbWriteTable(con, target, chunk_df, temporary = temporary,
                         overwrite = (si == 1L), append = (si > 1L))
       rm(chunk_df)
     }
-    rm(wt_data_all)
-  } else {
-    message("Writing bootstrap weight table '", bsw_table, "' to DuckDB...")
-    DBI::dbWriteTable(rw_con, bsw_table, bsw_df, overwrite = TRUE)
+    return(.bsw_index(con, target, id_col, temporary))
   }
 
-  DBI::dbExecute(rw_con, sprintf(
-    'CREATE INDEX IF NOT EXISTS "idx_%s" ON "%s" ("%s")',
-    bsw_table, bsw_table, id_col_final
-  ))
-
-  # Expose the full set of replicate columns that ended up in the BSW table.
-  final_rep_cols <- setdiff(DBI::dbListFields(rw_con, bsw_table), id_col_final)
-  bsw_col_sql    <- paste0('"b"."', final_rep_cols, '"', collapse = ", ")
-  DBI::dbExecute(rw_con, sprintf(
-    'CREATE OR REPLACE VIEW "%s" AS SELECT "m".*, %s FROM "%s" "m" JOIN "%s" "b" ON "m"."%s" = "b"."%s"',
-    view_name, bsw_col_sql, table_name, bsw_table, id_col_final, id_col_final
-  ))
-
-  DBI::dbDisconnect(rw_con, shutdown = TRUE)
-
-  # --- Reopen read-only, register provenance, re-apply WHERE if needed -------
-  if (!file.exists(db_path))
-    stop("DuckDB file not found after write: ", db_path, call. = FALSE)
-  ro_con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
-
-  if (!is.null(where_clause)) {
-    # Re-apply the captured WHERE (and ORDER BY) by building a new SQL query
-    # that targets the view instead of the physical table.
-    new_sql <- sprintf('SELECT *\nFROM "%s"\n%s', view_name, where_clause)
-    new_tbl <- dplyr::tbl(ro_con, dplyr::sql(new_sql))
+  if (is.null(base)) {
+    # ---- Fresh generation, unstratified --------------------------------------
+    message(sprintf("Generating %d %s replicates for %d observations...",
+                    n_replicates, prefix, nrow(wt)))
+    bsw_df <- gen(wt, 0L, n_replicates, seed)
   } else {
-    if (!DBI::dbExistsTable(ro_con, view_name)) {
-      DBI::dbDisconnect(ro_con, shutdown = TRUE)
-      stop("View '", view_name, "' not found in ", db_path, ".", call. = FALSE)
+    # ---- Existing weights, with added rows and/or added replicate columns ----
+    #
+    # Bootstrap replicate weights are produced by resampling the full
+    # population (or, when stratified, the full stratum).  Therefore:
+    #   * Added ROWS invalidate the replicate weights of their resampling
+    #     universe and force regeneration there -- the whole table when
+    #     unstratified, or just the strata that gained rows when stratified
+    #     (complete strata keep their existing weights).
+    #   * Added COLUMNS are independent extra replicates appended to rows
+    #     whose resampling universe is unchanged.
+    need_more_rows <- base$n_missing > 0L
+    old_bsw <- DBI::dbGetQuery(con, sprintf(
+      'SELECT %s FROM "%s"',
+      paste0('"', c(id_col, base$reps), '"', collapse = ", "), base$table))
+    old_key <- .bsw_key(old_bsw, id_col)
+    has_bsw <- key %in% old_key
+    n_new   <- sum(!has_bsw)
+
+    if (is.null(strata)) {
+      if (need_more_rows) {
+        # Whole population changed: every replicate weight is stale.
+        message(sprintf(
+          "%d new row(s) detected; deleting and regenerating all %d %s replicates for %d observations...",
+          n_new, n_target, prefix, nrow(wt)))
+        bsw_df <- gen(wt, 0L, n_target, seed)[, canon, drop = FALSE]
+      } else {
+        # Population unchanged, only add independent replicates.
+        message(sprintf("Adding replicates %d-%d to the bootstrap weights...",
+                        n_existing + 1L, n_target))
+        add_df <- gen(wt, n_existing, n_target, seed)
+        bsw_df <- merge(old_bsw, add_df, by = id_col,
+                        all = TRUE)[, canon, drop = FALSE]
+      }
+    } else {
+      # Stratified: regenerate only the strata that have missing weights.
+      strata_key  <- interaction(wt[strata], drop = TRUE)
+      affected    <- if (need_more_rows)
+        unique(as.character(strata_key[!has_bsw])) else character(0L)
+      is_affected <- as.character(strata_key) %in% affected
+
+      if (!is.null(seed)) set.seed(seed)
+      parts <- list()
+
+      # 1) Affected strata: full fresh resample within each (n_target cols).
+      if (any(is_affected)) {
+        message(sprintf(
+          "%d new row(s) in %d of %d strata; deleting and regenerating those strata in full (%d %s replicates)...",
+          n_new, length(affected), nlevels(strata_key), n_target, prefix))
+        aff_dat <- wt[is_affected, , drop = FALSE]
+        aff_key <- droplevels(strata_key[is_affected])
+        for (lv in levels(aff_key)) {
+          s_data <- aff_dat[aff_key == lv, , drop = FALSE]
+          parts[[length(parts) + 1L]] <-
+            gen(s_data, 0L, n_target, NULL,
+                show_progress = FALSE)[, canon, drop = FALSE]
+        }
+      }
+
+      # 2) Unaffected strata: keep existing weights; add columns if requested,
+      #    resampling within each stratum (independent extra replicates).
+      if (any(!is_affected)) {
+        unaff_dat <- wt[!is_affected, , drop = FALSE]
+        keep_bsw  <- old_bsw[old_key %in% key[!is_affected], , drop = FALSE]
+        if (n_target > n_existing) {
+          unaff_key <- droplevels(strata_key[!is_affected])
+          message(sprintf(
+            "Adding replicates %d-%d to %d unaffected stratum/strata...",
+            n_existing + 1L, n_target, nlevels(unaff_key)))
+          add_parts <- list()
+          for (lv in levels(unaff_key)) {
+            s_data <- unaff_dat[unaff_key == lv, , drop = FALSE]
+            add_parts[[length(add_parts) + 1L]] <-
+              gen(s_data, n_existing, n_target, NULL, show_progress = FALSE)
+          }
+          keep_bsw <- merge(keep_bsw, do.call(rbind, add_parts), by = id_col,
+                            all = TRUE)
+        }
+        parts[[length(parts) + 1L]] <- keep_bsw[, canon, drop = FALSE]
+      }
+
+      bsw_df <- do.call(rbind, parts)
     }
-    new_tbl <- dplyr::tbl(ro_con, view_name)
   }
 
-  .pumf_register_con(ro_con, series, version, cache_path, lang)
-
-  if (input_was_labeled) new_tbl <- label_pumf_columns(new_tbl)
-  new_tbl
+  if (!temporary)
+    message("Writing bootstrap weight table '", target, "' to DuckDB...")
+  DBI::dbWriteTable(con, target, bsw_df, overwrite = TRUE,
+                    temporary = temporary)
+  .bsw_index(con, target, id_col, temporary)
 }
 
+# Index a stored weights table on its key.  A temporary table goes without.
+.bsw_index <- function(con, target, id_col, temporary) {
+  if (!temporary)
+    DBI::dbExecute(con, sprintf(
+      'CREATE INDEX IF NOT EXISTS "idx_%s" ON "%s" (%s)',
+      target, target, paste0('"', id_col, '"', collapse = ", ")))
+  invisible(NULL)
+}
 
 # Resolve a column name that may be a human-readable label back to the coded
 # column name. For data.frame input: checks if the name is in colnames(df);
@@ -1443,26 +1501,114 @@ add_bootstrap_weights <- function(tbl,
 
 # ---- bsw_info ----------------------------------------------------------
 
-#' Summarise bootstrap weight tables present in a PUMF DuckDB database
+# The bootstrap weight tables a connection can see: those stored in its
+# database ("pumf_bsw*") and its own temporary ones ("tmp_pumf_bsw*").
+# `rows` is DuckDB's estimated row count.
+.bsw_tables <- function(con) {
+  tabs <- DBI::dbGetQuery(con, paste(
+    "SELECT table_name, temporary, estimated_size AS rows,",
+    "column_count AS n_cols FROM duckdb_tables()",
+    "WHERE temporary OR database_name = current_database()"))
+  keep <- ifelse(tabs$temporary, grepl("^tmp_pumf_bsw", tabs$table_name),
+                 grepl("^pumf_bsw", tabs$table_name))
+  tabs <- tabs[keep, , drop = FALSE]
+  tabs[order(tabs$temporary, tabs$table_name), , drop = FALSE]
+}
+
+# The replicate weights that came with the survey.  They are columns of the
+# survey table: joined in Stage 3 from the release's bootstrap weights file
+# (registry `bsw_file_mask`), or part of the data file itself (Census WT1-WT16,
+# GSS WTBS_001-WTBS_500).  Nothing records which columns they are, so they are
+# recognised: a family of numeric columns named <prefix><number> and numbered
+# 1..n without gaps is a set of replicate weights when
+#   - none of its columns is in variables.csv (the columns of a bootstrap
+#     weights file, which the survey's metadata does not describe), or
+#   - a variable label calls it a bootstrap or replicate weight, or
+#   - none of its columns has a label (layout-only columns promoted by
+#     .promote_layout_numeric(), e.g. CIUS WRPG1-WRPG1000).
+# Numbered families of survey variables (SGVP GS1DNX01-GS1DNX15) are documented
+# with labels of their own and fail all three.  Returns a data frame with
+# `prefix` and `n_replicates`; zero rows for the longitudinal series, whose
+# shared table has no single variables.csv, and for a table without metadata.
+.bsw_survey_families <- function(con, loc) {
+  none <- data.frame(prefix = character(0L), n_replicates = integer(0L))
+  if (.is_longitudinal(loc$prov$series)) return(none)
+  vars <- tryCatch(read_metadata(.pumf_prov_meta(loc$prov)$meta_dir)$variables,
+                   error = function(e) NULL)
+  if (is.null(vars)) return(none)
+
+  cols <- DBI::dbGetQuery(con, paste(
+    "SELECT column_name, data_type FROM duckdb_columns()",
+    "WHERE database_name = current_database() AND table_name = ?",
+    "ORDER BY column_index"), params = list(loc$table_name))
+  cols <- cols[grepl("[0-9]$", cols$column_name) &
+                 grepl("^(DOUBLE|FLOAT|DECIMAL|U?(TINY|SMALL|BIG|HUGE)?INT)",
+                       cols$data_type), , drop = FALSE]
+  if (nrow(cols) == 0L) return(none)
+  cols$prefix <- sub("[0-9]+$", "", cols$column_name)
+  cols$num    <- as.numeric(substring(cols$column_name, nchar(cols$prefix) + 1L))
+
+  labelled <- function(x) !is.na(x) & nzchar(x)
+  is_bsw <- vapply(split(cols, cols$prefix), function(k) {
+    if (!nzchar(k$prefix[[1L]]) || nrow(k) < 2L ||
+        !setequal(k$num, seq_len(nrow(k)))) return(FALSE)
+    v <- vars[match(k$column_name, vars$name), , drop = FALSE]
+    if (all(is.na(v$name))) return(TRUE)
+    if (any(grepl("bootstrap|replicate|r[e\u00e9]pliqu",
+                  paste(v$label_en, v$label_fr), ignore.case = TRUE)))
+      return(TRUE)
+    !any(labelled(v$label_en) | labelled(v$label_fr))
+  }, logical(1L))
+
+  n <- table(cols$prefix)[names(is_bsw)[is_bsw]]
+  data.frame(prefix = names(n), n_replicates = as.integer(n))
+}
+
+#' Summarise the bootstrap weights of a PUMF table
 #'
-#' Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
-#' tables created by [add_bootstrap_weights()] and returns a one-row-per-table
-#' summary tibble.  Returns an empty tibble (invisibly) when no BSW tables are
-#' found.
+#' Lists the bootstrap weights available for a PUMF lazy table, one row per set
+#' of replicates, and says for each where it comes from:
+#' \itemize{
+#'   \item `source = "survey"`: replicate weights that came with the survey.
+#'     They are columns of the survey table itself and are always part of the
+#'     table [get_pumf()] returns.
+#'   \item `source = "generated"`: weights made by [add_bootstrap_weights()],
+#'     which are kept in a table of their own: stored in the DuckDB file, or
+#'     temporary on this connection.
+#' }
+#' Returns an empty tibble (invisibly) when there are none.
+#'
+#' The survey's own replicate weights are recognised by their column names and
+#' variable labels: a family of numeric columns numbered from 1 without gaps
+#' (`BSW1`, ..., `BSW1000`) that the survey's metadata labels as bootstrap or
+#' replicate weights, or does not describe at all.  The survey's documentation
+#' has the last word on what they are and which weight they belong to.  They
+#' are not reported for the longitudinal series (LFS), which ship none.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
 #'   [add_bootstrap_weights()].
 #'
-#' @return A tibble with columns:
+#' @return A tibble with one row per set of replicate weights and the columns:
 #'   \describe{
-#'     \item{`weight_col`}{The weight column the BSW table was built from
-#'       (matched back to the case used in the main survey table).}
-#'     \item{`bsw_table`}{Name of the DuckDB table storing the weights.}
-#'     \item{`view_name`}{Name of the DuckDB VIEW joining survey + BSW.}
-#'     \item{`view_exists`}{Whether the companion VIEW is present.}
+#'     \item{`source`}{`"survey"` for replicate weights that came with the
+#'       survey, `"generated"` for weights made by [add_bootstrap_weights()].}
+#'     \item{`weight_col`}{The weight column the generated weights were built
+#'       from (matched back to the case used in the survey table).  `NA` for
+#'       the survey's own replicates: the survey's documentation says which
+#'       weight they belong to.}
+#'     \item{`prefix`}{Common prefix of the replicate columns, which are named
+#'       prefix plus number (`"BSW"` for `BSW1`, ..., `BSW1000`; `"WTBS_"` for
+#'       `WTBS_001`, ..., `WTBS_500`).}
+#'     \item{`bsw_table`}{Name of the DuckDB table holding the replicate
+#'       columns: the survey table for `source = "survey"`, the weights table
+#'       for `source = "generated"`.}
+#'     \item{`temporary`}{`TRUE` for a temporary table, which belongs to this
+#'       connection and is gone when it is closed; `FALSE` for weights stored
+#'       in the database.}
 #'     \item{`n_replicates`}{Number of bootstrap replicate columns.}
-#'     \item{`size_mb`}{Estimated table size in megabytes (from DuckDB
-#'       metadata; `NA` when unavailable).}
+#'     \item{`size_mb`}{Size of the weights in megabytes before compression
+#'       (rows times replicates times 8 bytes).  Stored weights take less on
+#'       disk.}
 #'   }
 #'
 #' @seealso [add_bootstrap_weights()], [remove_bootstrap_weights()]
@@ -1471,9 +1617,11 @@ add_bootstrap_weights <- function(tbl,
 #' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
 #' if (!is.null(sfs)) {
-#'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+#'   bsw_info(sfs)   # the replicate weights SFS 2019 ships with
+#'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
+#'                                    n_replicates = 50L, seed = 1L)
 #'   bsw_info(sfs_bsw)
-#'   close_pumf(sfs_bsw)
+#'   close_pumf(sfs)
 #' }
 #' }
 #' @export
@@ -1483,105 +1631,107 @@ bsw_info <- function(tbl) {
          "For in-memory data frames, inspect column names directly.",
          call. = FALSE)
 
-  con <- tbl$src$con
-  if (is.null(con) || !DBI::dbIsValid(con))
-    stop("The connection backing 'tbl' is no longer valid.", call. = FALSE)
+  loc    <- .bsw_locate(tbl)
+  con    <- loc$con
+  tabs   <- .bsw_tables(con)
+  survey <- .bsw_survey_families(con, loc)
 
-  prov <- .pumf_lookup_con(con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
+  if (nrow(tabs) == 0L && nrow(survey) == 0L) {
+    message("No bootstrap weights found for '", loc$table_name, "' in '",
+            basename(loc$db_path), "': the survey table has no replicate ",
+            "weights and add_bootstrap_weights() has made none.")
+    return(invisible(tibble::tibble(
+      source       = character(0L),
+      weight_col   = character(0L),
+      prefix       = character(0L),
+      bsw_table    = character(0L),
+      temporary    = logical(0L),
+      n_replicates = integer(0L),
+      size_mb      = numeric(0L)
+    )))
+  }
+  size_mb <- function(n_row, n_rep) round(as.numeric(n_row) * n_rep * 8 / 1e6, 2)
 
-  series     <- prov$series
-  version    <- prov$version
-  cache_path <- prov$cache_path
-  lang       <- prov$lang %||% "eng"
-  table_name <- .pumf_table_name(series, version, lang)
-  db_path    <- .pumf_db_path(series, version, cache_path)
-
-  all_objs   <- DBI::dbListTables(con)
-  bsw_tables <- sort(all_objs[grepl("^pumf_bsw", all_objs)])
-
-  empty <- tibble::tibble(
-    weight_col   = character(0L),
-    bsw_table    = character(0L),
-    view_name    = character(0L),
-    view_exists  = logical(0L),
-    n_replicates = integer(0L),
-    size_mb      = numeric(0L)
-  )
-
-  if (length(bsw_tables) == 0L) {
-    message("No bootstrap weight tables found in '", basename(db_path), "'.")
-    return(invisible(empty))
+  # The survey's own replicates, columns of the survey table.
+  survey_rows <- if (nrow(survey) > 0L) {
+    n_row <- DBI::dbGetQuery(con, paste(
+      "SELECT estimated_size AS n FROM duckdb_tables()",
+      "WHERE database_name = current_database() AND table_name = ?"),
+      params = list(loc$table_name))$n
+    list(tibble::tibble(
+      source       = "survey",
+      weight_col   = NA_character_,
+      prefix       = survey$prefix,
+      bsw_table    = loc$table_name,
+      temporary    = FALSE,
+      n_replicates = survey$n_replicates,
+      size_mb      = size_mb(n_row, survey$n_replicates)
+    ))
   }
 
-  # Estimated table sizes from DuckDB catalogue (bytes -> MB).
-  size_df <- tryCatch(
-    DBI::dbGetQuery(con,
-      "SELECT table_name, estimated_size FROM duckdb_tables()"),
-    error = function(e)
-      data.frame(table_name = character(0L), estimated_size = numeric(0L))
-  )
+  # Columns of the survey tables: they tell the key column(s) of a weights
+  # table from its replicates, and restore the case of the weight column.
+  # Views are left out: 0.6.0 and earlier exposed the weights through one.
+  cols <- DBI::dbGetQuery(con, paste(
+    "SELECT table_name, column_name FROM duckdb_columns()",
+    "WHERE (database_name = current_database() OR database_name = 'temp')",
+    "AND table_name IN (SELECT table_name FROM duckdb_tables())"))
+  survey_cols <- unique(cols$column_name[
+    !grepl("^(tmp_)?pumf_bsw", cols$table_name)])
 
-  # Column names of the main survey table, for case-preserving weight_col lookup.
-  main_cols <- tryCatch(DBI::dbListFields(con, table_name), error = function(e) character(0L))
-
-  rows <- lapply(bsw_tables, function(bt) {
-    # Derive weight_col and view name from table name convention.
-    # "pumf_bsw_wstpwgt" -> weight suffix "wstpwgt"; view "eng_bsw_wstpwgt".
-    wc_lower <- sub("^pumf_bsw_?", "", bt)   # "" for legacy "pumf_bsw"
-    vn       <- paste0(table_name, "_", sub("^pumf_", "", bt))
-
-    # Restore proper case by matching against main table columns.
-    wc_match <- main_cols[tolower(main_cols) == wc_lower]
-    wc       <- if (length(wc_match) == 1L) wc_match else wc_lower
-
-    cols  <- tryCatch(DBI::dbListFields(con, bt), error = function(e) character(0L))
-    n_rep <- max(0L, as.integer(length(cols) - 1L))   # minus the ID column
-
-    sz_row  <- size_df[size_df$table_name == bt, , drop = FALSE]
-    size_mb <- if (nrow(sz_row) == 1L)
-      round(sz_row$estimated_size[[1L]] / 1e6, 2)
-    else
-      NA_real_
+  rows <- lapply(seq_len(nrow(tabs)), function(i) {
+    bt <- tabs$table_name[[i]]
+    # "pumf_bsw_wstpwgt" -> weight column "wstpwgt" ("" for a legacy
+    # "pumf_bsw"); a secondary module's table adds "_<module>".
+    wc <- sub("^(tmp_)?pumf_bsw_?", "", bt)
+    for (cand in unique(c(wc, sub("_[^_]+$", "", wc)))) {
+      hit <- survey_cols[tolower(survey_cols) == cand]
+      if (length(hit) == 1L) {
+        wc <- hit
+        break
+      }
+    }
+    bt_cols <- cols$column_name[cols$table_name == bt]
+    reps    <- bt_cols[!bt_cols %in% survey_cols]
 
     tibble::tibble(
+      source       = "generated",
       weight_col   = wc,
+      prefix       = if (length(reps)) sub("[0-9]+$", "", reps[[1L]])
+                     else NA_character_,
       bsw_table    = bt,
-      view_name    = vn,
-      view_exists  = vn %in% all_objs,
-      n_replicates = n_rep,
-      size_mb      = size_mb
+      temporary    = tabs$temporary[[i]],
+      n_replicates = length(reps),
+      size_mb      = size_mb(tabs$rows[[i]], length(reps))
     )
   })
 
-  do.call(rbind, rows)
+  do.call(rbind, c(survey_rows, rows))
 }
 
 
 # ---- remove_bootstrap_weights ------------------------------------------
 
-#' Remove bootstrap weight tables and views from a PUMF DuckDB database
+#' Remove bootstrap weight tables from a PUMF DuckDB database
 #'
-#' Drops the bootstrap weight table(s) created by [add_bootstrap_weights()]
-#' and their companion VIEWs from the DuckDB file.  When all BSW tables have
-#' been removed and the main survey table has a `pumf_row_id` column (added
-#' automatically by [add_bootstrap_weights()] when no natural key was
-#' available), that column is also dropped.
+#' Drops the bootstrap weight table(s) created by [add_bootstrap_weights()].
+#' The temporary tables of a read-only connection are always dropped.  Weights
+#' stored in the DuckDB file are dropped only through a write connection
+#' (`get_pumf(..., read_only = FALSE)`); on a read-only connection they are
+#' left in place and the function says so.
 #'
-#' Like [add_bootstrap_weights()], this function requires brief exclusive
-#' write access: the read-only connection backing `tbl` is shut down, the
-#' tables are dropped, and a fresh read-only connection is returned.
+#' Like [add_bootstrap_weights()], the function works on the connection of
+#' `tbl` and never closes it.  Tables that [add_bootstrap_weights()] returned
+#' for the removed weights can no longer be queried.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()] or by
 #'   [add_bootstrap_weights()].
 #' @param weight_col Name of the weight column whose BSW table should be
 #'   removed (e.g. `"PWEIGHT"`).  If `NULL` (default), **all** bootstrap
-#'   weight tables (and their companion VIEWs) are removed.
+#'   weight tables are removed.
 #'
-#' @return A lazy `dplyr::tbl()` backed by the original physical survey table
-#'   (without BSW columns), with a fresh read-only DuckDB connection.
+#' @return A lazy `dplyr::tbl()` of the survey table (without BSW columns) on
+#'   the connection of `tbl`.
 #'
 #' @seealso [add_bootstrap_weights()], [bsw_info()], [get_pumf()]
 #'
@@ -1591,8 +1741,8 @@ bsw_info <- function(tbl) {
 #' if (!is.null(sfs)) {
 #'   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
 #'   # Remove only the PWEIGHT BSW table
-#'   sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
-#'   close_pumf(sfs_clean)
+#'   sfs <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
+#'   close_pumf(sfs)
 #' }
 #' }
 #' @export
@@ -1603,80 +1753,61 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
          "df[, !grepl(\"^BSW[0-9]+$\", names(df))]",
          call. = FALSE)
 
-  con <- tbl$src$con
-  if (is.null(con) || !DBI::dbIsValid(con))
-    stop("The connection backing 'tbl' is no longer valid.", call. = FALSE)
-
-  prov <- .pumf_lookup_con(con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-
-  series     <- prov$series
-  version    <- prov$version
-  cache_path <- prov$cache_path
-  lang       <- prov$lang %||% "eng"
-  table_name <- .pumf_table_name(series, version, lang)
-  db_path    <- .pumf_db_path(series, version, cache_path)
-
-  # Identify which BSW tables to remove.
-  all_objs   <- DBI::dbListTables(con)
-  bsw_tables <- all_objs[grepl("^pumf_bsw", all_objs)]
+  loc        <- .bsw_locate(tbl)
+  con        <- loc$con
+  table_name <- loc$table_name
+  tabs       <- .bsw_tables(con)
 
   if (!is.null(weight_col)) {
-    target <- paste0("pumf_bsw_", tolower(weight_col))
-    if (!target %in% bsw_tables)
+    # A variable label is accepted, as in add_bootstrap_weights().
+    wc <- tryCatch(
+      .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", loc$prov),
+      error = function(e) weight_col)
+    target <- paste0("pumf_bsw_", tolower(wc), loc$suffix)
+    tabs   <- tabs[tabs$table_name %in% c(target, paste0("tmp_", target)), ,
+                   drop = FALSE]
+    if (nrow(tabs) == 0L)
       stop("No bootstrap weight table found for weight_col '", weight_col,
            "'. Use bsw_info() to see what is present.", call. = FALSE)
-    bsw_tables <- target
   }
 
-  if (length(bsw_tables) == 0L) {
-    message("No bootstrap weight tables to remove from '", basename(db_path), "'.")
+  if (nrow(tabs) == 0L) {
+    message("No bootstrap weight tables to remove from '",
+            basename(loc$db_path), "'.")
     return(tbl)
   }
 
-  # Acquire exclusive write access (same pattern as add_bootstrap_weights).
-  rm(list = intersect(format(con@conn_ref), ls(envir = .pumf_con_registry)),
-     envir = .pumf_con_registry, inherits = FALSE)
-  if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
+  stored <- tabs$table_name[!tabs$temporary]
+  temp   <- tabs$table_name[tabs$temporary]
 
-  # Same up-front lock diagnosis as add_bootstrap_weights().
-  .assert_duckdb_writable(db_path)
-  rw_con <- .duckdb_connect_quiet(db_path, read_only = FALSE)
-  on.exit(
-    if (DBI::dbIsValid(rw_con)) DBI::dbDisconnect(rw_con, shutdown = TRUE),
-    add = TRUE
-  )
+  # Stored weights go only through a connection that can write.  Nothing is
+  # closed and reopened to get there: that is the caller's decision.
+  if (length(stored) > 0L && !.bsw_con_writable(con)) {
+    how <- paste0("close_pumf() the table and open it with ",
+                  "get_pumf(..., read_only = FALSE) to remove them.")
+    if (length(temp) == 0L)
+      stop("The bootstrap weights in '", paste(stored, collapse = "', '"),
+           "' are stored in the database, and 'tbl' is on a read-only ",
+           "connection.\n", how, call. = FALSE)
+    message("The bootstrap weights stored in '",
+            paste(stored, collapse = "', '"), "' are kept: 'tbl' is on a ",
+            "read-only connection.\n", how)
+    stored <- character(0L)
+  }
 
-  for (bt in bsw_tables) {
-    vn <- paste0(table_name, "_", sub("^pumf_", "", bt))
-    if (vn %in% DBI::dbListTables(rw_con)) {
-      message("Dropping view '", vn, "'...")
-      DBI::dbExecute(rw_con, sprintf('DROP VIEW IF EXISTS "%s"', vn))
-    }
+  for (bt in temp) {
+    message("Dropping temporary bootstrap weight table '", bt, "'...")
+    DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
+  }
+  for (bt in stored) {
+    # The view through which 0.6.0 and earlier exposed the weights.
+    DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"',
+                                .bsw_legacy_view(table_name, bt)))
     message("Dropping bootstrap weight table '", bt, "'...")
-    DBI::dbExecute(rw_con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
+    DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
   }
 
-  # When no BSW tables remain, also remove pumf_row_id from the main table --
-  # it was added only to serve as a BSW join key.
-  remaining_bsw <- DBI::dbListTables(rw_con)
-  remaining_bsw <- remaining_bsw[grepl("^pumf_bsw", remaining_bsw)]
-  if (length(remaining_bsw) == 0L &&
-      "pumf_row_id" %in% DBI::dbListFields(rw_con, table_name)) {
-    message("Removing 'pumf_row_id' column from '", table_name, "'...")
-    DBI::dbExecute(rw_con,
-      sprintf('ALTER TABLE "%s" DROP COLUMN pumf_row_id', table_name))
-  }
-
-  DBI::dbDisconnect(rw_con, shutdown = TRUE)
-
-  # Reopen read-only on the physical table (no BSW view).
-  new_tbl <- pumf_open_duckdb(db_path, table_name, read_only = TRUE)
-  .pumf_register_con(new_tbl$src$con, series, version, cache_path, lang)
-
-  new_tbl
+  dplyr::tbl(con, table_name)
 }
 
 
@@ -1781,4 +1912,85 @@ pumf_metadata <- function(series,
                        metadata_encoding = reg$metadata_encoding,
                        refresh           = eff_refresh)
   read_metadata(file.path(version_dir, "metadata"))
+}
+
+
+# ---- pumf_sentinels -----------------------------------------------------
+
+#' Sentinel codes behind the NA values of a PUMF table
+#'
+#' Statistics Canada codes "not applicable", "not available", "not stated"
+#' and similar non-responses in numeric variables as sentinel values (Census
+#' income `9999999` / `8888888`, GSS `996`-`999`, ...).  [get_pumf()] converts
+#' them to `NA` so that sums and means are right, which loses the distinction
+#' between the reasons.  Every table built by canpumf 0.6.1 or later therefore
+#' carries a companion table with the raw sentinel codes, linked to the main
+#' table by the permanent `pumf_row_id` column (the record's 1-based position
+#' in the data file).  `pumf_sentinels()` returns that companion, or the main
+#' table joined with it.
+#'
+#' The companion has one row per record in which at least one value was a
+#' sentinel, and one column per variable in which a sentinel occurred, named
+#' as in the main table.  A cell holds the raw code (a `DOUBLE`) where the
+#' main table has `NA` for that reason, and `NA` where the main table has a
+#' value.  What each code means is documented in the survey's user guide and,
+#' where the command files label it, in `pumf_metadata()$codes`.  Values the
+#' data file could not parse as numbers, and unlabelled values of a
+#' categorical variable, are not sentinels and are not recorded.
+#'
+#' The companion covers the sentinel rules Stage 3 applies: declared
+#' `MISSING VALUES` ranges, labelled missing codes, and the registry's
+#' `na_values` / `missing_codes` fixups (see `vignette("pipeline")`).  It is
+#' not available for the longitudinal series (`"LFS"`, `"LFS_HIST"`), whose
+#' shared databases are appended month by month.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
+#' @param join If `TRUE`, return `tbl` left-joined with the companion on
+#'   `pumf_row_id`; the sentinel columns are suffixed `_sentinel`
+#'   (`INCTAX_sentinel`).  Apply it before [label_pumf_columns()], or the
+#'   suffixed columns keep their coded names.
+#'
+#' @return A lazy `dplyr::tbl()` on the same connection as `tbl`: the sentinel
+#'   companion (columns `pumf_row_id` plus one per affected variable), or with
+#'   `join = TRUE` the input joined with it.  An error is raised for a table
+#'   built by canpumf before 0.6.1; rebuild it with `refresh = TRUE`.
+#'
+#' @examples
+#' \dontrun{
+#' census <- get_pumf("Census", "2011 (individuals)")
+#' sent   <- pumf_sentinels(census)
+#' # how many NA incomes are "not available" (8s) vs "not applicable" (9s)?
+#' sent |> dplyr::count(TOTINC) |> dplyr::collect()
+#'
+#' # keep the reason next to the value
+#' census |>
+#'   pumf_sentinels(join = TRUE) |>
+#'   dplyr::filter(is.na(TOTINC)) |>
+#'   dplyr::count(TOTINC_sentinel)
+#' }
+#' @export
+pumf_sentinels <- function(tbl, join = FALSE) {
+  if (!inherits(tbl, "tbl_sql"))
+    stop("'tbl' must be a lazy tbl returned by get_pumf().", call. = FALSE)
+  prov <- .pumf_lookup_con(tbl$src$con)
+  if (is.null(prov))
+    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  if (.is_longitudinal(prov$series))
+    stop("pumf_sentinels() is not available for the longitudinal series (",
+         prov$series, ").", call. = FALSE)
+  table_name <- .pumf_table_name(prov$series, prov$version, prov$lang %||% "eng",
+                                 prov$module)
+  sent_table <- .sentinel_table_name(table_name)
+  con <- tbl$src$con
+  if (!DBI::dbExistsTable(con, sent_table))
+    stop("No sentinel table for ", prov$series, " ", prov$version,
+         ": the database was built by an earlier canpumf version. ",
+         "Rebuild it with get_pumf(..., refresh = TRUE).", call. = FALSE)
+  sent <- dplyr::tbl(con, sent_table)
+  if (!join) return(sent)
+  if (!"pumf_row_id" %in% colnames(tbl))
+    stop("'tbl' has no pumf_row_id column to join on; pass the tbl before ",
+         "select() drops it.", call. = FALSE)
+  dplyr::left_join(tbl, sent, by = "pumf_row_id", suffix = c("", "_sentinel"))
 }

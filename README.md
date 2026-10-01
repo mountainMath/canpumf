@@ -38,6 +38,13 @@ On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connect
 options("canpumf.register_connection" = TRUE)
 ```
 
+Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its companion tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a companion table: `pumf_sentinels(tbl)` returns it, with one labelled column per affected variable, and `pumf_sentinels(tbl, join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns. A variable whose only labels sit on a top code ("75 and more" hours) is kept numeric with the label dropped; `pumf_topcodes(tbl)` lists such values, so a mean or a range can be read with the ceiling in mind.
+
+```r
+census <- get_pumf("Census", "2011 (individuals)")
+pumf_sentinels(census) |> count(TOTINC)    # "Not available" vs "Not applicable"
+```
+
 ## Basic usage
 
 Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.
@@ -56,7 +63,7 @@ No account is needed. If the `BOREALIS_DATAVERSE_KEY` environment variable is se
 
 `get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
 
-Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
+Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). When several codes of one variable carry the same label and at least two of them occur in the data, every one of them gets its code appended (`"Other (3)"`, `"Other (6)"`), so no two codes share a level. Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
 
 ```r
 tbl <- get_pumf("LFS", "2022") |>
@@ -64,6 +71,20 @@ tbl <- get_pumf("LFS", "2022") |>
 ```
 
 When done querying, release the DuckDB connection with `close_pumf(tbl)`.
+
+### Reporting in the other language
+
+An analysis is usually carried out in one language, but results are sometimes needed in both. Every survey's metadata is bilingual, so a finished result can be relabelled without a second build. `pumf_dictionary()` returns the variable and value labels in both languages, and `pumf_translate()` applies them to a collected data frame: factor levels, values of survey variables and labelled column names are translated, everything else is left alone.
+
+```r
+sfs <- get_pumf("SFS", "2019")
+res <- sfs |>
+  count(PREGION, wt = PWEIGHT) |>
+  collect()
+pumf_translate(res, "fra", dict = sfs)     # "Atlantique", "Québec", ...
+```
+
+Levels the analysis introduced (`fct_collapse()`, a `case_when()` recode) are kept and reported once. Add their translations with `custom = c(West = "Ouest")`, or as a data frame with `label_en` and `label_fr` columns.
 
 ## Label repair
 
@@ -191,6 +212,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Canadian Health Survey on Seniors | CHSS | 2019-2020 | ✓ |
+| Canadian Internet Use Survey | CIUS | 2005, 2007, 2009, 2018, 2020, 2022 | ✓ |
 | Participation and Activity Limitation Survey | PALS | 2001, 2006 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |

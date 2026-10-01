@@ -285,10 +285,14 @@ select_labels <- function(metadata, lang = "eng") {
 #' @return \code{NULL} invisibly.
 #' @keywords internal
 check_bilingual_coverage <- function(metadata, threshold = 0.2) {
-  n <- nrow(metadata$variables)
+  # Only labelled variables count: a layout-only numeric column promoted by
+  # .promote_layout_numeric() (replicate weights) has no label to translate.
+  v <- metadata$variables
+  v <- v[!is.na(v$label_en) | !is.na(v$label_fr), , drop = FALSE]
+  n <- nrow(v)
   if (n == 0) return(invisible(NULL))
 
-  n_missing <- sum(is.na(metadata$variables$label_fr))
+  n_missing <- sum(is.na(v$label_fr))
   frac      <- n_missing / n
 
   # Only warn when French is partially available -- complete absence is expected
@@ -401,7 +405,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   spss <- .spss_read_preprocess(sps_path, encoding)
 
   # Section keyword positions (trimmed lines, trimmed to start of line)
-  is_kw <- function(pattern) which(grepl(pattern, spss$clean, perl = TRUE))
+  # Keywords are matched case-insensitively: CIUS 2009 heads its block
+  # "Missing Values" while every other section keyword is upper case.
+  is_kw <- function(pattern)
+    which(grepl(pattern, spss$clean, perl = TRUE, ignore.case = TRUE))
 
   var_labels_pos  <- is_kw("^VARIABLE LABELS\\s*$")
   val_labels_pos  <- is_kw("^VALUE LABELS\\s*$")
@@ -482,10 +489,32 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   missing_vals$name    <- toupper(missing_vals$name)
   if (!is.null(layout)) {
     dl_attr <- attr(layout, "dl_decimals")
+    dl_chr  <- attr(layout, "dl_char")
     layout$name <- toupper(layout$name)
     if (!is.null(dl_attr)) {
       names(dl_attr) <- toupper(names(dl_attr))
       attr(layout, "dl_decimals") <- dl_attr
+    }
+    attr(layout, "dl_char") <- toupper(dl_chr)
+  }
+
+  # ---- Undeclared trailing-underscore VALUE LABELS names ----
+  # Census 2011 (individuals, English) heads 13 VALUE LABELS blocks with a
+  # decorated name ("MOB1_", "PKID0_1_", "NOC11_") that no DATA LIST or
+  # VARIABLE LABELS statement declares; the French copy spells them correctly.
+  # Left alone, the codes attach to nothing, the variable is typed numeric and
+  # its French labels are lost too (the bilingual join is keyed on the English
+  # rows).  Rename a block to its undecorated name when that name is declared
+  # and the decorated one is not, so a genuine variable ending in "_" is never
+  # touched.
+  declared <- unique(c(variable_labels$name, if (!is.null(layout)) layout$name))
+  if (length(declared) > 0L && nrow(codes) > 0L) {
+    stripped <- sub("_+$", "", codes$name)
+    fix <- stripped != codes$name & stripped %in% declared &
+      !codes$name %in% declared
+    if (any(fix)) {
+      codes$name[fix] <- stripped[fix]
+      codes <- codes[!duplicated(paste(codes$name, codes$val)), ]
     }
   }
 
@@ -526,6 +555,10 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # GSS 2007 AGE_*C variables that document integer groupings but store real ages).
   dl_dec   <- if (!is.null(layout)) attr(layout, "dl_decimals") else integer(0L)
   dl_has_dec <- names(dl_dec)[dl_dec > 0L]
+  # Variables the DATA LIST declares with an "(A)" format are strings in SPSS
+  # whatever the other sections say: CIUS 2007/2009 declare "PUMFID (A)" and
+  # have no FORMATS section, so without this the identifier turned numeric.
+  dl_char  <- if (!is.null(layout)) attr(layout, "dl_char") else character(0L)
 
   variables <- variable_labels |>
     left_join(formats,         by = "name") |>
@@ -537,6 +570,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
       type = case_when(
         # DATA LIST decimal annotation overrides VALUE LABELS classification:
         # a variable declared with decimal places is continuous, not categorical.
+        .data$name %in% dl_char                          ~ "character",
         .data$name %in% dl_has_dec                       ~ "numeric",
         .data$name %in% truly_categorical                ~ "character",
         toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
@@ -558,25 +592,9 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   if (!is.null(layout) && length(var_labels_pos) == 0L) {
     missing_names <- setdiff(layout$name, variables$name)
     if (length(missing_names) > 0L) {
-      # Detect character-type variables from (A) annotations in the raw DATA
-      # LIST section lines (done here rather than in _spss_parse_data_list so
-      # that function's return value stays a plain (name, start, end) tibble).
-      dl_char_vars <- character(0L)
-      if (length(data_list_pos) > 0L) {
-        dl_sec <- spss$clean[seq(data_list_pos[1L] + 1L, length(spss$clean))]
-        end_dl <- which(grepl(
-          "^\\.$|^$|^VARIABLE LABELS|^VALUE LABELS|^MISSING VALUES|^FORMATS|^EXECUTE",
-          dl_sec, ignore.case = TRUE))[1L]
-        if (!is.na(end_dl)) dl_sec <- dl_sec[seq_len(end_dl - 1L)]
-        dl_sec <- dl_sec[grepl("[A-Za-z]", dl_sec)]
-        dl_sec <- dl_sec[!grepl("^DATA LIST|^FILE HANDLE|^GET DATA|^FILE=",
-                                 dl_sec, ignore.case = TRUE)]
-        for (ln in dl_sec) {
-          m <- regmatches(ln, regexpr("^([A-Za-z][A-Za-z0-9_]*)", trimws(ln)))
-          if (length(m) == 1L && grepl("\\(A", ln, ignore.case = TRUE))
-            dl_char_vars <- c(dl_char_vars, m)
-        }
-      }
+      # Character-type variables come from the (A) annotations the DATA LIST
+      # parser records in the layout's "dl_char" attribute.
+      dl_char_vars <- dl_char
       extra <- tibble::tibble(
         name         = missing_names,
         label        = NA_character_,
@@ -934,6 +952,13 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     stats::setNames(as.integer(dec_matches[, 3L]), dec_matches[, 2L])
   else
     integer(0L)
+  # "(A)" / "(A6)" annotations mark string variables (CIUS 2007/2009 PUMFID).
+  chr_matches <- stringr::str_match_all(
+    all_text,
+    stringr::regex("([A-Za-z][A-Za-z0-9_]*)\\s+(?:\\d+-\\d+|\\d+)\\s+\\(\\s*A[^)]*\\)",
+                   ignore_case = TRUE)
+  )[[1L]]
+  dl_char <- if (nrow(chr_matches) > 0L) unique(chr_matches[, 2L]) else character(0L)
 
   tokens <- stringr::str_extract_all(
     all_text, "[A-Za-z][A-Za-z0-9_]*|\\d+-\\d+|\\d+"
@@ -969,6 +994,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # type determination for variables declared with non-zero decimal places.
   out$decimals <- unname(dl_dec[out$name])
   attr(out, "dl_decimals") <- dl_dec
+  attr(out, "dl_char")     <- dl_char
   out
 }
 
@@ -1228,6 +1254,10 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   fmt_type = character(), decimals = integer())
 
 .sas_at_field_row <- function(line) {
+  # Drop SAS comments first: GSS Cycle 36 cards end every field with
+  # "/* 72 - 81 */", which otherwise hides the "w.d" informat from the
+  # end-of-line decimals match below.
+  line  <- trimws(gsub("/\\*.*?\\*/", "", line, perl = TRUE))
   start <- suppressWarnings(
     as.integer(stringr::str_match(line, "^@\\s*(\\d+)")[, 2L]))
   if (is.na(start)) return(.sas_at_empty_fields)
@@ -2267,6 +2297,49 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
 }
 
 
+# ---- Layout-only numeric columns --------------------------------------------
+#
+# A DATA LIST or SAS INPUT card sometimes declares columns that no VARIABLE
+# LABELS / VALUE LABELS statement mentions: the CIUS 2022 person weight WTPG
+# and its replicate weights WRPG1-WRPG1000, the GSS/SGVP WTBS_002-WTBS_500
+# beside a labelled WTBS_001.  Without a variables row Stage 3 left them as
+# text (no numeric conversion, no implied decimals).  A column the layout
+# reads with implied decimals is a measure by declaration, so it becomes an
+# unlabelled numeric variable.  A layout-only column *without* decimals (the
+# CIUS PUMFID, GSS Cycle 13 FILLER) is left out of the variable table and
+# stays character: an identifier keeps its leading zeros and joins exactly.
+.promote_layout_numeric <- function(variables, layout) {
+  if (is.null(variables)) variables <- empty_variables()
+  if (is.null(layout) || nrow(layout) == 0L || !"decimals" %in% names(layout))
+    return(variables)
+  dec  <- suppressWarnings(as.integer(layout$decimals))
+  up   <- toupper(layout$name)
+  cand <- !is.na(dec) & dec > 0L & !up %in% toupper(variables$name) &
+          !duplicated(up)
+  if (!any(cand)) return(variables)
+  add <- tibble::tibble(name         = layout$name[cand],
+                        label_en     = NA_character_,
+                        label_fr     = NA_character_,
+                        type         = "numeric",
+                        decimals     = dec[cand],
+                        missing_low  = NA_real_,
+                        missing_high = NA_real_)
+  out <- dplyr::bind_rows(variables, add)
+  out[, union(names(variables), names(add))]
+}
+
+# The promoted rows, as Stage 3 sees them: numeric, unlabelled in both
+# languages, and read with implied decimals.  They are not "variables the
+# source documents in neither language", so the lang='fra' warning skips them.
+.layout_promoted_vars <- function(variables, layout) {
+  if (is.null(layout) || !"decimals" %in% names(layout)) return(character(0L))
+  dec <- suppressWarnings(as.integer(layout$decimals))[
+    match(toupper(variables$name), toupper(layout$name))]
+  variables$name[variables$type == "numeric" &
+                 is.na(variables$label_en) & is.na(variables$label_fr) &
+                 !is.na(dec) & dec > 0L]
+}
+
 #' Merge metadata from multiple parser outputs
 #'
 #' Sources are applied in priority order: \code{spss_mono} > \code{spss_split}
@@ -2279,9 +2352,14 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
 #'   \code{variables}, \code{codes}, and \code{layout}).
 #' @return Single merged canonical metadata list.
 #' @keywords internal
-merge_metadata <- function(parsed_list) {
+merge_metadata <- function(parsed_list, layout_override = NULL) {
   if (length(parsed_list) == 0L) stop("No parsed metadata to merge.")
-  if (length(parsed_list) == 1L) return(parsed_list[[1L]])
+  if (length(parsed_list) == 1L) {
+    p <- parsed_list[[1L]]
+    if (!is.null(layout_override)) p$layout <- layout_override
+    p$variables <- .promote_layout_numeric(p$variables, p$layout)
+    return(p)
+  }
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
                       "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict",
@@ -2374,11 +2452,16 @@ merge_metadata <- function(parsed_list) {
     codes_merged <- empty_codes()
   }
 
-  # ---- Layout: first non-NULL source ----
-  layout <- NULL
-  for (p in parsed_list) {
-    if (!is.null(p$layout)) { layout <- p$layout; break }
-  }
+  # ---- Layout: the registry's layout_file, else the first non-NULL source ----
+  layout <- layout_override
+  if (is.null(layout))
+    for (p in parsed_list) {
+      if (!is.null(p$layout)) { layout <- p$layout; break }
+    }
+
+  # Layout columns read with implied decimals that no source labels become
+  # unlabelled numeric variables; the rest (identifiers, fillers) are reported.
+  vars_merged <- .promote_layout_numeric(vars_merged, layout)
 
   # Warn about layout/variable-table mismatches
   if (!is.null(layout) && nrow(vars_merged) > 0L) {
@@ -2472,6 +2555,44 @@ merge_metadata <- function(parsed_list) {
 }
 
 
+# The record layout read from one named command file.  A release can ship
+# reading cards that disagree about the record layout: the GSS Cycle 36 (2022)
+# Episode SPSS DATA LIST orders the variables differently from the SAS INPUT
+# card, and only the SAS card reads the file (#29).  The registry then names
+# the file whose layout the data follows (`layout_file`, a regex matched
+# case-insensitively against the basename of every file under the version
+# directory, the metadata/ side-cars excluded), and its layout replaces the one
+# merge_metadata() would take from the highest-priority parser.  The file is
+# read with the DATA LIST / @pos reader shared by the split-SPSS and SAS card
+# parsers.  A name the card declares twice (the Cycle 36 card reads INSTANCE
+# at 7-9 and again at 37-39, byte-identical in every record) keeps its first
+# field, since a column can only be read once.
+.pumf_layout_from_file <- function(source_dir, pattern, encoding = "Latin1") {
+  files <- list.files(source_dir, recursive = TRUE, full.names = TRUE)
+  files <- files[!grepl("/metadata/", files, fixed = TRUE)]
+  files <- files[grepl(pattern, basename(files), ignore.case = TRUE, perl = TRUE)]
+  if (length(files) != 1L)
+    stop("layout_file '", pattern, "' matches ", length(files), " file",
+         if (length(files) == 1L) "" else "s", " under ", source_dir,
+         if (length(files)) paste0(": ", paste(basename(files), collapse = ", ")),
+         call. = FALSE)
+  lay <- .spss_split_parse_layout(files[[1L]], encoding)$layout
+  if (is.null(lay) || nrow(lay) == 0L)
+    stop("layout_file '", basename(files[[1L]]),
+         "' declares no record layout (no DATA LIST or @pos INPUT fields).",
+         call. = FALSE)
+  if (!"decimals" %in% names(lay)) lay$decimals <- NA_integer_
+  dup <- duplicated(toupper(lay$name))
+  if (any(dup)) {
+    message("Layout file '", basename(files[[1L]]), "' declares ",
+            paste(unique(lay$name[dup]), collapse = ", "),
+            " more than once; keeping the first field of each.")
+    lay <- lay[!dup, , drop = FALSE]
+  }
+  tibble::as_tibble(lay[, c("name", "start", "end", "decimals")])
+}
+
+
 #' Parse all metadata from a PUMF version directory
 #'
 #' Detects every parseable command-file format in \code{version_dir}, runs all
@@ -2488,6 +2609,10 @@ merge_metadata <- function(parsed_list) {
 #'   through to \code{\link{parse_spss_split}} and
 #'   \code{\link{parse_sas_cards}}.
 #' @param refresh If \code{TRUE}, re-parse even if cached metadata exists.
+#' @param layout_file Optional regex naming the one command file whose reading
+#'   card is the record layout (see \code{\link{pumf_registry_entry}}); its
+#'   layout replaces the one the parsers merged. Defaults to the registry
+#'   entry's for the primary module.
 #' @return \code{metadata_dir} path invisibly.
 #' @keywords internal
 pumf_parse_metadata <- function(version_dir,
@@ -2495,7 +2620,8 @@ pumf_parse_metadata <- function(version_dir,
                                 metadata_encoding = NULL,
                                 refresh           = FALSE,
                                 meta_subdir       = NULL,
-                                file_mask         = NULL) {
+                                file_mask         = NULL,
+                                layout_file       = NULL) {
   # meta_subdir routes multi-module surveys: each module's canonical CSVs are
   # written under metadata/<meta_subdir>/ (the primary module uses metadata/
   # with meta_subdir = NULL).
@@ -2616,7 +2742,19 @@ pumf_parse_metadata <- function(version_dir,
     }
   }
 
-  metadata <- .fix_metadata_mojibake(merge_metadata(parsed))
+  # A release whose reading cards disagree about the record layout names the
+  # authoritative one in the registry (layout_file); its layout replaces the
+  # merged one before the PDF cross-check, so the frequencies are checked
+  # against the columns the data actually has.  A secondary module inherits
+  # nothing from the entry level (that is the primary module's).
+  eff_layout_file <- layout_file %||%
+    (if (is.null(meta_subdir)) reg$layout_file else NULL)
+  layout_override <- if (!is.null(eff_layout_file))
+    .pumf_layout_from_file(source_dir, eff_layout_file, encoding = enc_spss)
+  else NULL
+
+  metadata <- .fix_metadata_mojibake(
+    merge_metadata(parsed, layout_override = layout_override))
 
   if (!is.null(formats$pdf_freq) && is.null(parsed$pdf_freq)) {
     dir.create(metadata_dir, showWarnings = FALSE, recursive = TRUE)

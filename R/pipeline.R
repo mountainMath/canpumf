@@ -56,7 +56,8 @@
 #   (b) In-process read-only sharing: DuckDB silently hands back a connection
 #       that shares the read-only in-process instance already open (e.g. from
 #       a get_pumf() tbl the user is holding).  dbConnect succeeds, but the
-#       first write raises "attached in read-only mode".
+#       first write raises "attached in read-only mode".  duckdb >= 1.5.6
+#       fails in dbConnect instead (see .duckdb_connect()).
 #
 # We probe for (b) with a rolled-back DDL statement.  DuckDB DDL is fully
 # transactional, so BEGIN + CREATE TABLE + ROLLBACK leaves no trace.
@@ -70,11 +71,25 @@
   )
   if (inherits(con, "error")) {
     msg <- conditionMessage(con)
-    if (grepl("lock|conflict|in use|block", msg, ignore.case = TRUE))
+    # duckdb >= 1.5.6 refuses case (b) in dbConnect() itself, which
+    # .duckdb_connect() has already turned into the close_pumf() message.
+    if (inherits(con, "canpumf_read_only_held")) stop(con)
+    if (grepl("lock|conflict|in use|block|used by another process|already open",
+              msg, ignore.case = TRUE))
       stop("'", basename(db_path), "' is locked by an open connection.\n",
            "Close it first with close_pumf(tbl) and then retry.",
            call. = FALSE)
     stop(con)
+  }
+
+  # Case (b) is visible on the driver: duckdb's per-file driver registry
+  # hands back the existing instance whatever read_only was asked for, so a
+  # read_only driver here is the user's open tbl.  Checking the slot avoids
+  # the probe, whose failing statement would otherwise hold the file open
+  # until garbage collection (on Windows that blocks the next writer).
+  if (isTRUE(tryCatch(con@driver@read_only, error = function(e) FALSE))) {
+    DBI::dbDisconnect(con, shutdown = FALSE)
+    .stop_duckdb_read_only_held(db_path)
   }
 
   write_err <- tryCatch({
@@ -93,10 +108,7 @@
     DBI::dbDisconnect(con, shutdown = FALSE)
     msg <- conditionMessage(write_err)
     if (grepl("read[_-]?only|attached in read", msg, ignore.case = TRUE))
-      stop("'", basename(db_path), "' is held open by a read-only connection ",
-           "(e.g. a tbl from get_pumf()).\n",
-           "Close it first with close_pumf(tbl) and then retry.",
-           call. = FALSE)
+      .stop_duckdb_read_only_held(db_path)
     stop(write_err)
   }
 
@@ -351,29 +363,41 @@ pumf_locate_or_download <- function(series,
   invisible(version_dir)
 }
 
-# Extract any second-level zips found under `dir` (used by 1996 Census bundles
+# Extract any nested zips found under `dir` (used by 1996 Census bundles
 # and re-used for the bundle_source path in bundled-archive versions).
+# Extraction repeats while a pass exposes zips not seen before, so zips inside
+# zips are handled at any depth (CIUS 2018/2020: Data.zip holds RAW.zip holds
+# the data).  Each zip is visited once per call: the "already extracted" probe
+# below compares the zip's entry names with the files on disk, and for an
+# archive with accented entry names (CIUS 2020 "Data_Donn\u00e9es.zip") the
+# two spellings can differ, so re-probing would extract it again every pass.
 .extract_inner_zips <- function(dir) {
-  inner_zips <- list.files(dir, pattern = "\\.zip$",
-                            ignore.case = TRUE, recursive = TRUE,
-                            full.names = TRUE)
-  # Exclude top-level zips (only nested ones are inner zips).  Compare
-  # normalized paths: on Windows `dir` can carry backslashes from tempdir()
-  # while list.files() returns forward slashes, so a raw dirname() != dir test
-  # wrongly keeps a top-level zip and tries to re-extract it.
   dir_n <- normalizePath(dir, winslash = "/", mustWork = FALSE)
-  inner_zips <- inner_zips[
-    normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
-  for (iz in inner_zips) {
-    target_dir <- dirname(iz)
-    contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
-                            error = function(e) character(0L))
-    already_done <- length(contents) > 0L &&
-      all(file.exists(file.path(target_dir, contents)))
-    if (!already_done) {
-      message("Extracting inner zip ", basename(iz), " ...")
-      .unzip_impl(iz, target_dir)
+  seen  <- character(0L)
+  repeat {
+    inner_zips <- list.files(dir, pattern = "\\.zip$",
+                              ignore.case = TRUE, recursive = TRUE,
+                              full.names = TRUE)
+    # Exclude top-level zips (only nested ones are inner zips).  Compare
+    # normalized paths: on Windows `dir` can carry backslashes from tempdir()
+    # while list.files() returns forward slashes, so a raw dirname() != dir test
+    # wrongly keeps a top-level zip and tries to re-extract it.
+    inner_zips <- inner_zips[
+      normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
+    inner_zips <- setdiff(inner_zips, seen)
+    if (length(inner_zips) == 0L) break
+    for (iz in inner_zips) {
+      target_dir <- dirname(iz)
+      contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
+                              error = function(e) character(0L))
+      already_done <- length(contents) > 0L &&
+        all(file.exists(file.path(target_dir, contents)))
+      if (!already_done) {
+        message("Extracting inner zip ", basename(iz), " ...")
+        .unzip_impl(iz, target_dir)
+      }
     }
+    seen <- c(seen, inner_zips)
   }
   invisible(NULL)
 }
@@ -709,10 +733,16 @@ pumf_locate_or_download <- function(series,
 # na_values: character vector of raw values that become NA (e.g. c("99999999", "88888888")).
 # missing_codes: named list VAR -> numeric codes that become NA in that column
 #   only, for variables whose sentinels do not form one contiguous range.
+# The sentinel values each rule blanks are returned in the "pumf_sentinels"
+# attribute of the result: a named list VAR -> numeric vector of nrow(data),
+# holding the code where a value became NA and NA elsewhere.  Stage 3 stores
+# them in the companion table (.sentinel_companion()).  Only variables in
+# which a rule fired are listed.
 .apply_numeric_conversion <- function(data, variables, na_values = character(0L),
                                       implied_decimals = FALSE,
                                       missing_codes = list()) {
-  num_vars <- variables[variables$type == "numeric", ]
+  num_vars  <- variables[variables$type == "numeric", ]
+  sentinels <- list()
   for (i in seq_len(nrow(num_vars))) {
     v   <- num_vars[i, ]
     col <- v$name
@@ -728,6 +758,7 @@ pumf_locate_or_download <- function(series,
       plain <- !is.na(vals) & !grepl(".", raw, fixed = TRUE)
       vals[plain] <- vals[plain] / 10^v$decimals
     }
+    vals0 <- vals
     if (!is.na(v$missing_low) && !is.na(v$missing_high))
       vals[!is.na(vals) & vals >= v$missing_low & vals <= v$missing_high] <-
         NA_real_
@@ -740,8 +771,15 @@ pumf_locate_or_download <- function(series,
       vals[!is.na(vals) & round(vals, 8) %in% round(as.numeric(mc), 8)] <-
         NA_real_
 
+    hit <- !is.na(vals0) & is.na(vals)
+    if (any(hit)) {
+      s <- rep(NA_real_, length(vals))
+      s[hit] <- vals0[hit]
+      sentinels[[col]] <- s
+    }
     data[[col]] <- vals
   }
+  attr(data, "pumf_sentinels") <- sentinels
   data
 }
 
@@ -772,6 +810,127 @@ pumf_locate_or_download <- function(series,
   out
 }
 
+# Companion table name for a data table ("eng" -> "pumf_sentinels_eng").
+.sentinel_table_name <- function(table_name) paste0("pumf_sentinels_", table_name)
+
+# ---- Build stamp -------------------------------------------------------------
+#
+# Stage 3 records, per table it writes, which canpumf version built it and
+# when, in the small table `pumf_build_info` (columns `table`,
+# `canpumf_version`, `duckdb_version`, `built`).  A table without a row there
+# was built before the stamp existed (canpumf < 0.6.1), and so also lacks the
+# pumf_row_id key and the sentinel companion.  get_pumf() says so once per
+# session (.pumf_check_build_stamp()), and list_pumf_cache() reports the
+# version in its `built_with` column.  The longitudinal series keep their own
+# `*_versions` tables and are not stamped.
+.build_info_table <- "pumf_build_info"
+
+.write_build_info <- function(con, table_name) {
+  info <- data.frame(
+    table           = table_name,
+    canpumf_version = as.character(utils::packageVersion("canpumf")),
+    duckdb_version  = as.character(utils::packageVersion("duckdb")),
+    built           = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    stringsAsFactors = FALSE)
+  if (DBI::dbExistsTable(con, .build_info_table)) {
+    DBI::dbExecute(con, sprintf(
+      'DELETE FROM "%s" WHERE "table" = ?', .build_info_table),
+      params = list(table_name))
+    DBI::dbAppendTable(con, .build_info_table, info)
+  } else {
+    DBI::dbWriteTable(con, .build_info_table, info)
+  }
+  invisible(info)
+}
+
+# The build stamp of one table (a one-row data.frame), or NULL when the
+# database has no stamp for it.
+.read_build_info <- function(con, table_name = NULL) {
+  if (!isTRUE(tryCatch(DBI::dbExistsTable(con, .build_info_table),
+                       error = function(e) FALSE)))
+    return(NULL)
+  info <- DBI::dbReadTable(con, .build_info_table)
+  if (!is.null(table_name)) info <- info[info$table == table_name, , drop = FALSE]
+  if (nrow(info) == 0L) NULL else info
+}
+
+# Build the sentinel companion tibble from the "pumf_sentinels" attributes
+# collected in Stage 3: pumf_row_id plus one numeric column per variable in
+# which a sentinel was blanked, keeping only the rows where at least one
+# column is non-NA.  With no sentinels the result has the key column only.
+.sentinel_companion <- function(sentinels, n) {
+  out <- tibble::tibble(pumf_row_id = seq_len(n))
+  if (length(sentinels) == 0L) return(out[0L, , drop = FALSE])
+  sent <- tibble::as_tibble(sentinels)
+  keep <- rowSums(!is.na(sent)) > 0L
+  dplyr::bind_cols(out[keep, , drop = FALSE], sent[keep, , drop = FALSE])
+}
+
+# A sentinel code as the string the metadata spells it ("9999999", not
+# "1e+07"; "99.99" for a field read with implied decimals).
+.sentinel_key <- function(x)
+  vapply(x, function(v) format(v, scientific = FALSE, drop0trailing = TRUE),
+         character(1L))
+
+# The label of one sentinel code of one variable, in this order: the code's
+# label in codes.csv (the command file labelled it), the registry's
+# sentinel_labels for that variable, the registry's sentinel_labels for the
+# code across all variables, and finally the code itself as a string.
+# codes_var: the codes.csv rows of this variable; label_col: label_en/label_fr.
+.sentinel_label_one <- function(col, v, codes_var, label_col, sentinel_labels) {
+  pick <- function(lab) {
+    if (is.null(lab)) return(NULL)
+    l <- if (!is.null(names(lab)) && label_col %in% names(lab)) lab[[label_col]]
+         else if (!is.null(names(lab)) && "label_en" %in% names(lab)) lab[["label_en"]]
+         else lab[[1L]]
+    if (is.na(l) || !nzchar(l)) NULL else l
+  }
+  if (nrow(codes_var) > 0L) {
+    hit <- which(suppressWarnings(as.numeric(codes_var$val)) == v)
+    if (length(hit) > 0L) {
+      l <- codes_var[[label_col]][hit[1L]]
+      if (is.na(l) || !nzchar(l)) l <- codes_var$label_en[hit[1L]]
+      if (!is.na(l) && nzchar(l)) return(l)
+    }
+  }
+  key <- .sentinel_key(v)
+  pick(sentinel_labels[[col]][[key]]) %||%
+    pick(sentinel_labels[[key]]) %||%
+    key
+}
+
+# Turn every code column of the companion into a factor whose levels are the
+# codes' labels, in code order.  Written to DuckDB the factor becomes an ENUM,
+# so a count() of a sentinel column reads "Not available" / "Not applicable"
+# instead of 888888 / 999999.  Two codes with the same label are kept apart
+# by the code suffix, as in the main table.
+# codes: the merged codes tibble; sentinel_labels: the registry data_fixups
+# field (see registry.R).
+.label_sentinel_companion <- function(sent, codes, label_col,
+                                      sentinel_labels = list()) {
+  cols <- setdiff(names(sent), "pumf_row_id")
+  if (length(cols) == 0L || nrow(sent) == 0L) return(sent)
+  if (is.null(codes)) codes <- tibble::tibble(name = character(), val = character(),
+                                              label_en = character(), label_fr = character())
+  if (!label_col %in% names(codes)) codes[[label_col]] <- NA_character_
+  # French fallback and one row per code; no suffix yet -- the companion
+  # holds only the sentinel values that occur, deduped below.
+  codes <- .pumf_unique_code_labels(codes, present = list())
+  for (col in cols) {
+    x    <- sent[[col]]
+    vals <- sort(unique(x[!is.na(x)]))
+    codes_var <- codes[codes$name == col, , drop = FALSE]
+    labs <- vapply(vals, function(v)
+      .sentinel_label_one(col, v, codes_var, label_col, sentinel_labels),
+      character(1L))
+    # Two sentinel codes with one label (registry "NA" for 99 and 999) stay
+    # apart, as in the main table.
+    labs <- .pumf_dedupe_labels(labs, .sentinel_key(vals))
+    sent[[col]] <- factor(labs[match(x, vals)], levels = unique(labs))
+  }
+  sent
+}
+
 # Numeric code values labelled as true missing (English or French label), per
 # variable.  Returns a named list of numeric vectors.
 .label_missing_codes <- function(codes) {
@@ -785,19 +944,233 @@ pumf_locate_or_download <- function(series,
 }
 
 
+# ---- Unique value labels ------------------------------------------------------
+#
+# Statistics Canada's command files give several codes of one variable the same
+# label more often than one would hope: genuinely shared categories (Census
+# 1986 HHMOTG "Other" on 3 and 6, ITS "South Shore" on two region codes, CHSS
+# with two "Don't know" codes), scale midpoints printed as "|", "???" or "..."
+# placeholders across a whole code range, and truncated labels that collide.
+# A factor built from such labels would merge categories the survey keeps
+# apart, and the code would be lost.  When at least two of the codes sharing a
+# label occur in the data, every member of the group gets the code appended:
+# "Other (3)", "Other (6)".  All members are suffixed (not only the later ones)
+# so the result is symmetric, the same rule label_pumf_columns() uses for
+# column names.  A label whose other codes never occur stays as documented
+# (CHS PITM_05 declares 5 and 8 both "Do not know", and only 8 appears), so
+# the suffix shows up only where the data need it.
+
+# labels: the labels of one variable; vals: the codes as documented (used for
+# the suffix); key: the identity of each code (defaults to vals; the caller
+# passes normalised codes so "01" and "1" are one code, not two); present:
+# which codes occur in the data (default: all of them, the document-based
+# rule).  A group is suffixed when at least two of its present codes differ.
+.pumf_dedupe_labels <- function(labels, vals, key = vals,
+                                present = rep(TRUE, length(labels))) {
+  ok <- !is.na(labels) & nzchar(labels) & present
+  if (!any(ok)) return(labels)
+  n_codes <- tapply(key[ok], labels[ok], function(k) length(unique(k)))
+  dup <- !is.na(labels) & labels %in% names(n_codes)[n_codes > 1L]
+  labels[dup] <- paste0(labels[dup], " (", vals[dup], ")")
+  labels
+}
+
+# Codes of one variable compared as integers when every code is integer-like
+# ("01" == "1"), otherwise verbatim -- the rule .apply_code_labels() applies
+# to the data values.
+.pumf_code_key <- function(vals) {
+  if (length(vals) > 0L && all(grepl("^-?[0-9]+$", vals)))
+    as.character(as.integer(vals))
+  else
+    vals
+}
+
+# The codes (as .pumf_code_key() keys) of each coded variable that occur in
+# the character data, a named list by variable.  na_values are not counted.
+.pumf_codes_present <- function(data, codes, na_values = character(0L)) {
+  out <- list()
+  if (is.null(codes) || nrow(codes) == 0L) return(out)
+  for (col in intersect(unique(codes$name), names(data))) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    raw <- unique(x[!is.na(x)])
+    if (length(na_values) > 0L) raw <- raw[!trimws(raw) %in% na_values]
+    vals <- as.character(codes$val[codes$name == col])
+    if (length(vals) > 0L && all(grepl("^-?[0-9]+$", vals))) {
+      num <- suppressWarnings(as.integer(raw))
+      raw <- ifelse(!is.na(num), as.character(num), raw)
+    }
+    out[[col]] <- unique(raw)
+  }
+  out
+}
+
+# The codes tibble (name, val, label_en, label_fr) with unique labels within
+# each variable and language.  A missing French label is first filled from the
+# English one, as the build does, so the French uniqueness is judged on what
+# the French table will show; a code documented in neither language stays NA.
+# Exact repeats of one code (the same (name, val) listed twice) are reduced to
+# the first listing, which is the one the label lookup would have used anyway.
+# present: the .pumf_codes_present() list; NULL treats every code as present
+# (the document-based rule), and a variable absent from a non-NULL list has
+# no present code, so its labels are left as documented.
+.pumf_unique_code_labels <- function(codes, present = NULL) {
+  if (is.null(codes) || nrow(codes) == 0L) return(codes)
+  codes$val <- as.character(codes$val)
+  na_fr <- is.na(codes$label_fr)
+  codes$label_fr[na_fr] <- codes$label_en[na_fr]
+  keys  <- unsplit(lapply(split(codes$val, codes$name), .pumf_code_key),
+                   codes$name)
+  keep  <- !duplicated(paste(codes$name, keys))
+  codes <- codes[keep, , drop = FALSE]
+  keys  <- keys[keep]
+  by_var <- split(seq_len(nrow(codes)), codes$name)
+  pres <- unsplit(lapply(names(by_var), function(v) {
+    k <- keys[by_var[[v]]]
+    if (is.null(present)) rep(TRUE, length(k)) else k %in% present[[v]]
+  }), codes$name)
+  for (lc in intersect(c("label_en", "label_fr"), names(codes))) {
+    codes[[lc]] <- unsplit(
+      Map(.pumf_dedupe_labels,
+          split(codes[[lc]], codes$name), split(codes$val, codes$name),
+          split(keys, codes$name), split(pres, codes$name)),
+      codes$name)
+  }
+  codes
+}
+
+# The value labels as the table shows them: the codes after the registry's
+# code fixups, the French fallback and the code suffix decided on the data.
+# Stage 3 writes them to metadata/codes_applied.csv, which pumf_dictionary()
+# reads, so the dictionary and the ENUM levels agree by construction.
+.pumf_codes_applied_path <- function(meta_dir) file.path(meta_dir, "codes_applied.csv")
+.write_codes_applied <- function(codes, meta_dir) {
+  cols <- intersect(c("name", "val", "label_en", "label_fr", "applied_as"),
+                    names(codes))
+  readr::write_csv(as.data.frame(codes)[, cols], .pumf_codes_applied_path(meta_dir),
+                   na = "")
+}
+
+# How Stage 3 applied each documented code, the applied_as column of
+# codes_applied.csv:
+#   "level"    the code is a level of the variable's factor (ENUM) column;
+#   "value"    the variable is numeric and the code stays a number in the
+#              table: a top code ("75 and more"), a bottom code or another
+#              boundary label ("None" on 0).  pumf_topcodes() lists these;
+#   "sentinel" the code becomes NA in the table and is labelled in the
+#              sentinel companion.
+# NA for a variable the table does not hold, or a code that is not a number
+# on a numeric column.  A numeric column's codes go through the same
+# .apply_numeric_conversion() as the data (without implied decimals: the
+# documented codes are already in their decimal form), so the two agree.
+.pumf_codes_applied_as <- function(codes, data, conv_vars, na_values,
+                                   missing_codes) {
+  out <- rep(NA_character_, nrow(codes))
+  for (v in unique(codes$name)) {
+    if (!v %in% names(data)) next
+    idx  <- which(codes$name == v)
+    vals <- trimws(as.character(codes$val[idx]))
+    col  <- data[[v]]
+    if (is.factor(col)) {
+      out[idx] <- ifelse(vals %in% na_values, "sentinel", "level")
+    } else if (is.numeric(col)) {
+      cv <- conv_vars[conv_vars$name == v, , drop = FALSE]
+      if (nrow(cv) != 1L) next
+      cv$type <- "numeric"
+      probe <- data.frame(vals, stringsAsFactors = FALSE)
+      names(probe) <- v
+      kept <- .apply_numeric_conversion(probe, cv, na_values = na_values,
+                                        implied_decimals = FALSE,
+                                        missing_codes = missing_codes)[[v]]
+      isnum <- !is.na(suppressWarnings(as.numeric(vals)))
+      out[idx] <- ifelse(!isnum, NA_character_,
+                         ifelse(is.na(kept), "sentinel", "value"))
+    }
+  }
+  out
+}
+.read_codes_applied <- function(meta_dir) {
+  f <- .pumf_codes_applied_path(meta_dir)
+  if (!file.exists(f)) return(NULL)
+  as.data.frame(readr::read_csv(f, col_types = readr::cols(.default = "c"),
+                                na = "", progress = FALSE))
+}
+
+
+# Apply the registry's code-row fixups to a codes tibble (name, val, label_en,
+# label_fr).  Both are keyed by variable name and hold a data frame of
+# (val, label_en, label_fr):
+#   codes_supplement -- rows appended for codes the command file omits,
+#   codes_override   -- rows that replace the command file's label for a code
+#                       it declares (Census 1986 HHMOTG labels 3 and 6 both
+#                       "Other"; the user guide has "Other single responses" /
+#                       "Other multiple responses").  A code the file does not
+#                       declare is appended.
+# Codes match as strings after trimming and, when both sides are integers, by
+# value ("01" == "1").  Stage 3 and .pumf_dictionary_from_prov() both call this
+# so the dictionary describes what the table shows.
+.pumf_apply_code_fixups <- function(codes, fx) {
+  if (is.null(fx)) return(codes)
+  cols <- c("name", "val", "label_en", "label_fr")
+  if (length(fx$codes_supplement) > 0L) {
+    for (vname in names(fx$codes_supplement)) {
+      extra <- fx$codes_supplement[[vname]]
+      extra$name <- vname
+      codes <- bind_rows(codes, extra[, cols])
+    }
+  }
+  if (length(fx$codes_override) > 0L) {
+    key <- function(v) {
+      v <- trimws(as.character(v))
+      n <- suppressWarnings(as.integer(v))
+      ifelse(!is.na(n) & grepl("^-?[0-9]+$", v), as.character(n), v)
+    }
+    for (vname in names(fx$codes_override)) {
+      repl <- fx$codes_override[[vname]]
+      repl$name <- vname
+      repl <- repl[, cols]
+      hit  <- which(codes$name == vname)
+      m    <- match(key(repl$val), key(codes$val[hit]))
+      have <- !is.na(m)
+      if (any(have)) {
+        codes$label_en[hit[m[have]]] <- repl$label_en[have]
+        codes$label_fr[hit[m[have]]] <- repl$label_fr[have]
+      }
+      if (any(!have)) codes <- bind_rows(codes, repl[!have, , drop = FALSE])
+    }
+  }
+  codes
+}
+
 # Map raw character values → factor labels using codes metadata.
 # label_col is "label_en" or "label_fr".
 # Unmatched raw values become NA (warned).  Raw values listed in na_values
 # (registry-declared missing markers, e.g. SAS-style ".") become NA silently.
 # Factor levels are the complete ordered set from codes, not just those seen in
 # the data; this is the contract from test-factor-enum.R.
+# Values blanked by na_values in a labelled column are returned in the
+# "pumf_sentinels" attribute, as .apply_numeric_conversion() does for numeric
+# columns (numeric where the raw value parses as a number, else NA).
 .apply_code_labels <- function(data, codes, label_col, na_values = character(0L)) {
+  # Codes sharing a label are told apart by the code suffix where the data
+  # hold at least two of them (.pumf_unique_code_labels()).
+  codes      <- .pumf_unique_code_labels(
+                  codes, .pumf_codes_present(data, codes, na_values))
   char_cols  <- names(data)[vapply(data, is.character, logical(1L))]
   coded_cols <- intersect(char_cols, unique(codes$name))
+  sentinels  <- list()
 
   if (length(na_values) > 0L)
-    for (col in coded_cols)
-      data[[col]][trimws(data[[col]]) %in% na_values] <- NA_character_
+    for (col in coded_cols) {
+      raw <- trimws(data[[col]])
+      hit <- !is.na(raw) & raw %in% na_values
+      if (any(hit)) {
+        s <- rep(NA_real_, length(raw))
+        s[hit] <- suppressWarnings(as.numeric(raw[hit]))
+        sentinels[[col]] <- s
+        data[[col]][hit] <- NA_character_
+      }
+    }
 
   for (col in coded_cols) {
     col_codes <- codes[codes$name == col, ]
@@ -837,6 +1210,7 @@ pumf_locate_or_download <- function(series,
 
     data[[col]] <- factor(lookup[raw_vals], levels = lvls)
   }
+  attr(data, "pumf_sentinels") <- sentinels
   data
 }
 
@@ -1003,7 +1377,8 @@ pumf_build_duckdb <- function(version_dir,
       if (length(v) > 5L) paste0(" ... and ", length(v) - 5L, " more."))
     na_fr    <- is.na(variables$label_fr)
     fallback <- variables$name[na_fr & !is.na(variables$label_en)]
-    neither  <- variables$name[na_fr &  is.na(variables$label_en)]
+    neither  <- setdiff(variables$name[na_fr & is.na(variables$label_en)],
+                        .layout_promoted_vars(variables, layout))
     if (length(fallback) > 0L)
       warning("lang='fra': ", length(fallback),
               " variable(s) have no French label; using label_en for: ",
@@ -1118,15 +1493,10 @@ pumf_build_duckdb <- function(version_dir,
   if (length(dup_forced) > 0L)
     stop("Variable(s) listed in more than one force_* type override: ",
          paste(dup_forced, collapse = ", "), call. = FALSE)
-  # codes_supplement: per-variable extra rows to inject before label mapping.
-  # Used for codes that appear in data but are absent from the command files.
-  if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {
-    for (vname in names(reg$data_fixups$codes_supplement)) {
-      extra <- reg$data_fixups$codes_supplement[[vname]]
-      extra$name <- vname
-      codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
-    }
-  }
+  # codes_supplement / codes_override: registry code rows injected before
+  # label mapping (shared with pumf_dictionary(), so both see the same codes).
+  codes <- .pumf_apply_code_fixups(codes, reg$data_fixups)
+  codes_full <- codes
   # Labelled missing codes, captured before the force_* blocks drop codes: each
   # numeric code value whose English or French label is a true-missing label
   # (qualified forms included).  They become discrete missing codes for every
@@ -1149,6 +1519,22 @@ pumf_build_duckdb <- function(version_dir,
   # variables (SEX, PRV, …) and Cycle 12 its DDAY (Sunday-Saturday), and the
   # 1971 Census SUBSAMPL is labelled ONE-FIVE except in the household files.
   if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
+    # A forced name the metadata does not declare but the data carry (a
+    # layout-only column in a hand-written pumf_registry_entry()) gets an
+    # unlabelled numeric row, with the layout's implied decimals when the
+    # data are fixed-width, so that the override is not silently a no-op.
+    absent <- setdiff(intersect(reg$data_fixups$force_numeric, names(data)),
+                      variables$name)
+    if (length(absent) > 0L) {
+      dec <- if (is_fwf && "decimals" %in% names(layout))
+        suppressWarnings(as.integer(layout$decimals))[match(absent, layout$name)]
+      else rep(NA_integer_, length(absent))
+      variables <- dplyr::bind_rows(variables, tibble::tibble(
+        name = absent, label_en = NA_character_, label_fr = NA_character_,
+        type = "numeric", decimals = dec,
+        missing_low = NA_real_, missing_high = NA_real_))
+      variables <- .pumf_apply_labels_supplement(variables, reg)
+    }
     fn <- setdiff(reg$data_fixups$force_numeric,
                   .fully_labelled_vars(data, codes, reg$data_fixups$force_numeric,
                                        na_values = na_vals,
@@ -1241,10 +1627,37 @@ pumf_build_duckdb <- function(version_dir,
     lay_dec <- if ("decimals" %in% names(layout)) layout$decimals else NA_integer_
     conv_vars$decimals <- lay_dec[match(variables$name, layout$name)]
   }
+  # Which documented codes occur, for every variable with codes (the data are
+  # still character here): the code suffix that .apply_code_labels() adds to
+  # shared labels depends on it, and metadata/codes_applied.csv records the
+  # resulting labels for pumf_dictionary().
+  present_all <- .pumf_codes_present(data, codes_full, na_vals)
   data <- .apply_numeric_conversion(data, conv_vars, na_values = na_vals,
                                     implied_decimals = is_fwf,
                                     missing_codes = miss_codes)
+  sentinels <- attr(data, "pumf_sentinels") %||% list()
+  attr(data, "pumf_sentinels") <- NULL
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
+  sentinels <- c(sentinels, attr(data, "pumf_sentinels") %||% list())
+  attr(data, "pumf_sentinels") <- NULL
+  applied <- as.data.frame(.pumf_unique_code_labels(codes_full, present_all))
+  applied$applied_as <- .pumf_codes_applied_as(applied, data, conv_vars, na_vals,
+                                               miss_codes)
+  .write_codes_applied(applied, meta_dir)
+
+  # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
+  # order) links the main table to its companion tables: the sentinel table
+  # written below and the bootstrap-weight tables of add_bootstrap_weights().
+  data <- dplyr::bind_cols(
+    tibble::tibble(pumf_row_id = seq_len(nrow(data))),
+    data[setdiff(names(data), "pumf_row_id")])
+  sent_table <- .sentinel_table_name(table_name)
+  sent_labels <- if (is.null(reg)) list() else reg$data_fixups$sentinel_labels %||% list()
+  # codes_full: the force_* blocks above removed the rows of the variables
+  # they made numeric, but their labelled sentinels ("Not stated" on a
+  # top-coded hours variable) still name the companion's levels.
+  sent_df    <- .label_sentinel_companion(
+    .sentinel_companion(sentinels, nrow(data)), codes_full, label_col, sent_labels)
 
   # Step 9: write to DuckDB
   .assert_duckdb_writable(db_path)
@@ -1253,6 +1666,23 @@ pumf_build_duckdb <- function(version_dir,
     DBI::dbRemoveTable(con, table_name)
   message("Writing DuckDB table '", table_name, "' ...")
   DBI::dbWriteTable(con, table_name, data)
+  DBI::dbExecute(con, sprintf(
+    'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', table_name))
+  # The sentinel companion: one row per record in which at least one value
+  # was a sentinel, one ENUM column per such variable holding the sentinel's
+  # label.  It is always written, so an empty table means "no sentinels", and
+  # a missing one means a cache built before 0.6.1.
+  DBI::dbWriteTable(con, sent_table, sent_df, overwrite = TRUE)
+  DBI::dbExecute(con, sprintf(
+    'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', sent_table))
+  sent_factor <- names(sent_df)[vapply(sent_df, is.factor, logical(1L))]
+  if (length(sent_factor) > 0L)
+    .ensure_enum_columns(
+      con, sent_table,
+      stats::setNames(lapply(sent_factor, function(c) levels(sent_df[[c]])),
+                      sent_factor))
+  # The build stamp: which canpumf built this table, and when.
+  .write_build_info(con, table_name)
 
   # Step 8: verify / enforce ENUM on factor columns
   factor_cols <- names(data)[vapply(data, is.factor, logical(1L))]
@@ -1306,8 +1736,7 @@ pumf_open_duckdb <- function(db_path, table_name, read_only = TRUE) {
   if (!file.exists(db_path))
     stop("DuckDB file not found: ", db_path,
          ". Run pumf_build_duckdb() first.")
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                         read_only = read_only)
+  con <- .duckdb_connect(db_path, read_only = read_only)
   if (!DBI::dbExistsTable(con, table_name)) {
     DBI::dbDisconnect(con, shutdown = TRUE)
     stop("Table '", table_name, "' not found in ", db_path, ".")
@@ -1407,7 +1836,8 @@ pumf_run_pipeline <- function(series,
                            metadata_encoding = reg$metadata_encoding,
                            refresh           = eff_refresh,
                            meta_subdir       = m$meta_subdir,
-                           file_mask         = m$file_mask)
+                           file_mask         = m$file_mask,
+                           layout_file       = m$layout_file)
       r <- pumf_build_duckdb(version_dir, series, version,
                               lang         = lang,
                               layout_mask  = m$layout_mask,

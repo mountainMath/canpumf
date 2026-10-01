@@ -184,6 +184,29 @@ test_that(".extract_inner_zips: excludes top-level zips regardless of separator"
   expect_no_warning(canpumf:::.extract_inner_zips(paste0(vdir, "/")))
 })
 
+test_that(".extract_inner_zips: unpacks zips nested inside zips at any depth", {
+  # CIUS 2018/2020 ship Data.zip, which holds RAW.zip, which holds the data
+  # file.  One pass only exposes RAW.zip; the loop must go on until nothing
+  # new turns up.
+  tmp  <- withr::local_tempdir()
+  vdir <- file.path(tmp, "FAKE", "2099")
+  dir.create(vdir, recursive = TRUE)
+  work <- withr::local_tempdir()
+  writeLines("survey data", file.path(work, "PUMF.txt"))
+  withr::with_dir(work, {
+    utils::zip("RAW.zip", files = "PUMF.txt")
+    utils::zip("Data.zip", files = "RAW.zip")
+  })
+  bundle <- file.path(vdir, "bundle")
+  dir.create(bundle)
+  file.copy(file.path(work, "Data.zip"), bundle)
+
+  expect_message(canpumf:::.extract_inner_zips(vdir), "Extracting inner zip RAW.zip")
+  expect_true(file.exists(file.path(bundle, "PUMF.txt")))
+  # A second call finds everything in place and extracts nothing.
+  expect_no_message(canpumf:::.extract_inner_zips(vdir))
+})
+
 # ---- pumf_locate_or_download: extraction from zip ---------------------------
 
 test_that("pumf_locate_or_download: extracts zip when only zip is present", {

@@ -8,7 +8,8 @@ test_that("list_pumf_cache: empty cache returns empty tibble", {
   expect_s3_class(result, "data.frame")
   expect_equal(nrow(result), 0L)
   expect_named(result, c("series","version","has_raw","has_metadata",
-                          "has_duckdb","raw_mb","duckdb_mb"), ignore.order = TRUE)
+                          "has_duckdb","raw_mb","duckdb_mb","built_with"),
+               ignore.order = TRUE)
 })
 
 test_that("list_pumf_cache: nonexistent cache_path returns empty tibble", {
@@ -72,6 +73,26 @@ test_that("list_pumf_cache: has_duckdb TRUE after get_pumf builds it", {
   row <- result[result$series == "FAKE" & result$version == "2099", ]
   expect_true(row$has_duckdb)
   expect_true(row$duckdb_mb > 0)
+  expect_equal(row$built_with, as.character(utils::packageVersion("canpumf")))
+})
+
+test_that("list_pumf_cache: built_with is NA for a DuckDB without a build stamp", {
+  tmp  <- withr::local_tempdir()
+  vdir <- file.path(tmp, "OLD", "2001")
+  dir.create(vdir, recursive = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = file.path(vdir, "OLD_2001.duckdb"))
+  DBI::dbWriteTable(con, "eng", data.frame(X = 1:3))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  result <- list_pumf_cache(cache_path = tmp)
+  expect_true(result$has_duckdb)
+  expect_true(is.na(result$built_with))
+  # and lists every building version when tables differ, oldest first
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = file.path(vdir, "OLD_2001.duckdb"))
+  DBI::dbWriteTable(con, "pumf_build_info", data.frame(
+    table = c("eng", "fra"), canpumf_version = c("0.10.0", "0.6.1"),
+    duckdb_version = "1.0.0", built = "2026-09-26 00:00:00"))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  expect_equal(list_pumf_cache(cache_path = tmp)$built_with, "0.6.1, 0.10.0")
 })
 
 # ---- remove_pumf_cache: non-LFS ---------------------------------------------
@@ -116,6 +137,75 @@ test_that("remove_pumf_cache: errors when version not in cache", {
     remove_pumf_cache("SFS", "2099", cache_path = tmp),
     regexp = "not found in cache"
   )
+})
+
+# ---- remove_pumf_cache: one language ----------------------------------------
+
+test_that("remove_pumf_cache: lang drops one language's tables and compacts", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+  eng <- get_pumf("FAKE", "2099", cache_path = tmp)
+  close_pumf(eng)
+  fra <- get_pumf("FAKE", "2099", lang = "fra", cache_path = tmp)
+  db  <- fra$src$con@driver@dbdir
+
+  # Needs the write lock: an open tbl blocks it, with the usual advice.
+  expect_error(remove_pumf_cache("FAKE", "2099", lang = "fra", cache_path = tmp),
+               "close_pumf")
+  close_pumf(fra)
+
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db, read_only = TRUE)
+  expect_true(all(c("eng", "fra", "pumf_sentinels_eng", "pumf_sentinels_fra") %in%
+                    DBI::dbListTables(con)))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+
+  expect_message(
+    remove_pumf_cache("FAKE", "2099", lang = "fra", cache_path = tmp),
+    "Removed the 'fra' table of FAKE 2099 and compacted")
+  expect_true(file.exists(db))
+  expect_false(file.exists(paste0(db, ".compact")))
+  expect_false(file.exists(paste0(db, ".old")))
+
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db, read_only = TRUE)
+  tabs <- DBI::dbListTables(con)
+  expect_true(all(c("eng", "pumf_sentinels_eng", "pumf_build_info") %in% tabs))
+  expect_false(any(c("fra", "pumf_sentinels_fra") %in% tabs))
+  expect_equal(DBI::dbReadTable(con, "pumf_build_info")$table, "eng")
+  # the ENUM levels survive the copy
+  prov <- DBI::dbGetQuery(con, "SELECT PROV FROM eng ORDER BY pumf_row_id")$PROV
+  expect_true(is.factor(prov))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+
+  # The English table still opens through get_pumf(), without a rebuild.
+  expect_silent(eng <- get_pumf("FAKE", "2099", cache_path = tmp))
+  expect_true(is.factor(dplyr::collect(eng)$PROV))
+  close_pumf(eng)
+  # and the metadata and raw files are untouched
+  expect_true(file.exists(file.path(tmp, "FAKE", "2099", "metadata", "variables.csv")))
+
+  # Asking for a language that is not there
+  expect_error(remove_pumf_cache("FAKE", "2099", lang = "fra", cache_path = tmp),
+               "no 'fra' table")
+
+  # Dropping the last language removes the file and keeps the metadata.
+  expect_message(
+    remove_pumf_cache("FAKE", "2099", lang = "eng", cache_path = tmp),
+    "were the last")
+  expect_false(file.exists(db))
+  expect_true(file.exists(file.path(tmp, "FAKE", "2099", "metadata", "variables.csv")))
+  expect_true(file.exists(file.path(tmp, "FAKE", "2099", "sentinel.txt")))
+  expect_error(remove_pumf_cache("FAKE", "2099", lang = "eng", cache_path = tmp),
+               "no DuckDB")
+})
+
+test_that("remove_pumf_cache: lang is validated and refused for longitudinal series", {
+  tmp <- withr::local_tempdir()
+  expect_error(remove_pumf_cache("FAKE", "2099", lang = "de", cache_path = tmp),
+               "'lang' must be")
+  expect_error(remove_pumf_cache("LFS", "2023", lang = "fra", cache_path = tmp),
+               "longitudinal")
+  expect_error(remove_pumf_cache("LFS_HIST", "1995-06", lang = "fra", cache_path = tmp),
+               "longitudinal")
 })
 
 # ---- remove_pumf_cache: LFS -------------------------------------------------

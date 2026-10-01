@@ -176,46 +176,6 @@ test_that(".pumf_announce_modules: lists sibling modules once per survey", {
 
 # ---- get_pumf end-to-end (uses synthetic fixture) ---------------------------
 
-make_e2e_version_dir <- function(tmp, series = "FAKE", version = "2099") {
-  vdir     <- file.path(tmp, series, version)
-  meta_dir <- file.path(vdir, "metadata")
-  dir.create(meta_dir, recursive = TRUE)
-
-  vars  <- tibble::tibble(
-    name = c("PROV","WEIGHT"),
-    label_en = c("Province","Survey weight"),
-    label_fr = c("Province","Poids"),
-    type = c("character","numeric"),
-    decimals = c(NA_integer_, 0L),
-    missing_low = c(NA_real_, 9999L),
-    missing_high = c(NA_real_, 9999L)
-  )
-  codes <- tibble::tibble(
-    name = c("PROV","PROV"),
-    val  = c("10","35"),
-    label_en = c("Newfoundland","Ontario"),
-    label_fr = c("Terre-Neuve","Ontario")
-  )
-  readr::write_csv(vars,  file.path(meta_dir, "variables.csv"))
-  readr::write_csv(codes, file.path(meta_dir, "codes.csv"))
-  readr::write_csv(
-    tibble::tibble(PROV=c("10","35","10"), WEIGHT=c("100","200","9999")),
-    file.path(vdir, "survey.csv")
-  )
-  # Minimal codebook so pumf_parse_metadata can re-parse on refresh=TRUE
-  readr::write_csv(
-    tibble::tibble(
-      Field_Champ               = c("PROV", NA, NA, "WEIGHT"),
-      Variable_Variable         = c("PROV", "10", "35", "WEIGHT"),
-      EnglishLabel_EtiquetteAnglais = c("Province","Newfoundland","Ontario","Survey weight"),
-      FrenchLabel_EtiquetteFrancais = c("Province","Terre-Neuve","Ontario","Poids")
-    ),
-    file.path(vdir, "codebook.csv")
-  )
-  writeLines("", file.path(vdir, "sentinel.txt"))
-  vdir
-}
-
 test_that("get_pumf_connection: returns a DBI connection with table list message", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
@@ -517,17 +477,256 @@ test_that("get_pumf: cache hit leaves an already-open tbl on the same file valid
   expect_equal(nrow(dplyr::collect(tbl2)), 3L)
 })
 
-test_that("add_bootstrap_weights: clear error when another tbl holds the file", {
+test_that("get_pumf: reads share a read-write connection the session holds", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  # duckdb >= 1.5.6 refuses read_only = TRUE on a file whose in-process
+  # instance is read-write; the read path then shares that instance.
+  rw <- get_pumf("FAKE", "2099", cache_path = tmp, read_only = FALSE)
+  on.exit(close_pumf(rw), add = TRUE)
+  db <- file.path(tmp, "FAKE", "2099", "FAKE_2099.duckdb")
+
+  expect_true(canpumf:::.duckdb_table_exists(db, "eng"))
+  expect_false(is.na(list_pumf_cache(cache_path = tmp)$built_with))
+  tbl <- get_pumf("FAKE", "2099", cache_path = tmp)
+  expect_equal(nrow(dplyr::collect(tbl)), 3L)
+  expect_equal(nrow(dplyr::collect(rw)), 3L)
+  expect_no_error(DBI::dbExecute(rw$src$con,
+    "CREATE OR REPLACE VIEW test_view AS SELECT 1 AS x"))
+})
+
+test_that(".is_duckdb_read_only_mismatch: recognises duckdb's wording only", {
+  mismatch <- simpleError(paste0(
+    "`read_only` can't be applied to the database instance for ",
+    "`/tmp/FAKE_2099.duckdb`, which already exists."))
+  expect_true(canpumf:::.is_duckdb_read_only_mismatch(mismatch))
+  expect_false(canpumf:::.is_duckdb_read_only_mismatch(
+    simpleError("IO Error: Could not set lock on file")))
+  expect_false(canpumf:::.is_duckdb_read_only_mismatch(simpleError(paste0(
+    "`config$threads` can't be applied to the database instance for ",
+    "`/tmp/FAKE_2099.duckdb`, which already exists."))))
+})
+
+test_that("get_pumf: read_only = FALSE cannot write while a tbl holds the file", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  ro <- get_pumf("FAKE", "2099", cache_path = tmp)
+  on.exit(close_pumf(ro), add = TRUE)
+  # duckdb >= 1.5.6 fails in dbConnect(), reported with the close_pumf()
+  # message; earlier versions hand back the read-only instance.
+  rw <- tryCatch(get_pumf("FAKE", "2099", cache_path = tmp, read_only = FALSE),
+                 canpumf_read_only_held = function(e) e)
+  if (inherits(rw, "error")) {
+    expect_match(conditionMessage(rw), "close_pumf")
+  } else {
+    expect_error(DBI::dbExecute(rw$src$con, "CREATE TABLE should_fail (x INTEGER)"),
+                 regexp = "read[ _-]only")
+  }
+  expect_equal(nrow(dplyr::collect(ro)), 3L)
+})
+
+test_that("add_bootstrap_weights: never takes a write lock on a read-only tbl", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
 
   tbl   <- get_pumf("FAKE", "2099", cache_path = tmp)
   other <- get_pumf("FAKE", "2099", cache_path = tmp)
-  on.exit(close_pumf(other), add = TRUE)
+  on.exit({ close_pumf(other); try(close_pumf(tbl), silent = TRUE) }, add = TRUE)
 
+  # The weights go to a temporary table of the tbl's connection: no connection
+  # is closed, so both tbls on the file stay usable.
+  # (The fixture has one sentinel weight, which is NA and counts as 0.)
+  expect_warning(
+    expect_message(
+      out <- add_bootstrap_weights(tbl, weight_col = "WEIGHT", n_replicates = 4L),
+      regexp = "temporary table"),
+    regexp = "NA weight")
+  expect_equal(sum(grepl("^CPBSW", colnames(out))), 4L)
+  expect_equal(nrow(dplyr::collect(out)), 3L)
+  expect_equal(nrow(dplyr::collect(tbl)), 3L)
+  expect_equal(nrow(dplyr::collect(other)), 3L)
   expect_error(
-    suppressWarnings(suppressMessages(
-      add_bootstrap_weights(tbl, weight_col = "WEIGHT", n_replicates = 4L))),
-    regexp = "held open by a read-only connection|locked by an open connection"
+    DBI::dbExecute(tbl$src$con, "CREATE TABLE should_fail (x INTEGER)"),
+    regexp = "read[ _-]only"
   )
+})
+
+
+# ---- pumf_sentinels ----------------------------------------------------------
+
+# A DuckDB with a labelled main table and its sentinel companion, registered
+# with provenance as get_pumf() would.
+.sentinel_db <- function(with_companion = TRUE, env = parent.frame()) {
+  cache <- withr::local_tempdir(.local_envir = env)
+  s <- list(cache = cache, series = "SENT", version = "2099", lang = "eng")
+  s$db_path <- .pumf_db_path(s$series, s$version, cache)
+  dir.create(dirname(s$db_path), recursive = TRUE, showWarnings = FALSE)
+  s$tname <- .pumf_table_name(s$series, s$version, s$lang)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path)
+  DBI::dbWriteTable(con, s$tname,
+    data.frame(pumf_row_id = 1:4, INC = c(10, NA, NA, 40), HRS = c(NA, 2, 3, 4)))
+  if (with_companion)
+    DBI::dbWriteTable(con, .sentinel_table_name(s$tname),
+      data.frame(pumf_row_id = c(1L, 2L, 3L),
+                 INC = factor(c(NA, "Not available", "Not applicable")),
+                 HRS = factor(c("Not applicable", NA, NA))))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path, read_only = TRUE)
+  .pumf_register_con(con, s$series, s$version, cache, s$lang)
+  dplyr::tbl(con, s$tname)
+}
+
+test_that("pumf_sentinels: returns the companion table on the same connection", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  sent <- pumf_sentinels(t)
+  expect_s3_class(sent, "tbl_sql")
+  expect_identical(sent$src$con, t$src$con)
+  d <- dplyr::collect(dplyr::arrange(sent, pumf_row_id))
+  expect_equal(d$pumf_row_id, c(1, 2, 3))
+  expect_equal(as.character(d$INC), c(NA, "Not available", "Not applicable"))
+})
+
+test_that("pumf_sentinels: join = TRUE suffixes the sentinel columns", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  j <- dplyr::collect(dplyr::arrange(pumf_sentinels(t, join = TRUE), pumf_row_id))
+  expect_true(all(c("INC", "INC_sentinel", "HRS", "HRS_sentinel") %in% names(j)))
+  expect_equal(nrow(j), 4L)
+  expect_equal(j$INC, c(10, NA, NA, 40))
+  expect_equal(as.character(j$INC_sentinel),
+               c(NA, "Not available", "Not applicable", NA))
+  # composes with dplyr verbs applied first
+  f <- t |> dplyr::filter(is.na(INC)) |> pumf_sentinels(join = TRUE) |>
+    dplyr::count(INC_sentinel) |> dplyr::collect()
+  expect_equal(nrow(f), 2L)
+})
+
+test_that("pumf_sentinels: join = TRUE needs pumf_row_id in the tbl", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  expect_error(pumf_sentinels(dplyr::select(t, INC), join = TRUE), "pumf_row_id")
+})
+
+test_that("pumf_sentinels: errors on a table built without a companion", {
+  t <- .sentinel_db(with_companion = FALSE)
+  on.exit(close_pumf(t))
+  expect_error(pumf_sentinels(t), "refresh = TRUE")
+})
+
+test_that("pumf_sentinels: errors on a data.frame or a tbl without provenance", {
+  expect_error(pumf_sentinels(data.frame(x = 1)), "lazy tbl")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, "t", data.frame(X = 1L))
+  expect_error(pumf_sentinels(dplyr::tbl(con, "t")), "provenance")
+})
+
+test_that("pumf_sentinels: refuses the longitudinal series", {
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, "lfs_eng", data.frame(X = 1L))
+  .pumf_register_con(con, "LFS", "2024-01", tempdir(), "eng")
+  expect_error(pumf_sentinels(dplyr::tbl(con, "lfs_eng")), "longitudinal")
+})
+
+
+# ---- build stamp: tables built before 0.6.1 ---------------------------------
+
+# A table with no pumf_build_info row is one built before 0.6.1.  get_pumf()
+# says so once per session and table, through .pumf_check_build_stamp().
+test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped one", {
+  t <- .sentinel_db(with_companion = FALSE)   # written without a stamp
+  on.exit(close_pumf(t), add = TRUE)
+  con <- t$src$con
+  args <- list(con, "SENT", "2099", "eng", "eng", "/tmp/stamp-a.duckdb")
+  msg <- NULL
+  withCallingHandlers(
+    spoke <- do.call(.pumf_check_build_stamp, args),
+    message = function(m) { msg <<- conditionMessage(m); invokeRestart("muffleMessage") })
+  expect_true(spoke)
+  expect_match(msg, "SENT 2099 \\[eng\\] was built by canpumf before 0.6.1")
+  expect_match(msg, "codes that share a label are merged")
+  expect_match(msg, "refresh = TRUE.*list_pumf_cache\\(\\).*canpumf.stale_cache_message")
+  # the second time the same table is opened it is silent
+  expect_silent(again <- do.call(.pumf_check_build_stamp, args))
+  expect_false(again)
+  # another table of another database speaks again
+  expect_message(.pumf_check_build_stamp(con, "SENT", "2099", "fra", "fra",
+                                         "/tmp/stamp-b.duckdb"),
+                 "SENT 2099 \\[fra\\]")
+  # a stamped table without metadata/codes_applied.csv was built by a 0.6.1
+  # development version before value labels were made unique: it speaks once
+  vdir <- withr::local_tempdir()
+  db3  <- file.path(vdir, "stamped.duckdb")
+  wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3)
+  for (tab in c("eng", "fra")) {
+    DBI::dbWriteTable(wcon, tab, data.frame(pumf_row_id = 1:2, X = 1:2))
+    .write_build_info(wcon, tab)
+  }
+  DBI::dbDisconnect(wcon, shutdown = TRUE)
+  rcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(rcon, shutdown = TRUE), add = TRUE)
+  expect_message(res <- .pumf_check_build_stamp(rcon, "S", "v", "eng", "eng", db3),
+                 "S v \\[eng\\] was built by a canpumf 0.6.1 development version.*refresh = TRUE")
+  expect_true(res)
+  # a stamped table with the side-car is silent (a fresh key: another table)
+  dir.create(file.path(vdir, "metadata"))
+  .write_codes_applied(data.frame(name = "X", val = "1", label_en = "a", label_fr = "a"),
+                       file.path(vdir, "metadata"))
+  expect_silent(res <- .pumf_check_build_stamp(rcon, "S", "v", "fra", "fra", db3))
+  expect_false(res)
+})
+
+test_that(".pumf_check_build_stamp: options(canpumf.stale_cache_message = FALSE) silences it", {
+  withr::local_options(canpumf.stale_cache_message = FALSE)
+  t <- .sentinel_db(with_companion = FALSE)
+  on.exit(close_pumf(t), add = TRUE)   # add = TRUE keeps withr's option restore
+  expect_silent(res <- .pumf_check_build_stamp(t$src$con, "SENT", "2099", "eng",
+                                               "eng", "/tmp/stamp-c.duckdb"))
+  expect_false(res)
+})
+
+# A minimal FAKE/2099 version directory get_pumf() can build without network.
+.stamp_version_dir <- function(tmp) {
+  vdir <- file.path(tmp, "FAKE", "2099")
+  meta_dir <- file.path(vdir, "metadata")
+  dir.create(meta_dir, recursive = TRUE)
+  readr::write_csv(tibble::tibble(
+    name = "X", label_en = "V", label_fr = "V", type = "character",
+    decimals = NA_integer_, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta_dir, "variables.csv"))
+  readr::write_csv(tibble::tibble(name = character(), val = character(),
+                                  label_en = character(), label_fr = character()),
+                   file.path(meta_dir, "codes.csv"))
+  readr::write_csv(tibble::tibble(X = c("a", "b")), file.path(vdir, "data.csv"))
+  readr::write_csv(tibble::tibble(
+    Field_Champ = c("X", NA_character_), Variable_Variable = c("X", "a"),
+    EnglishLabel_EtiquetteAnglais = c("Var", "Label a"),
+    FrenchLabel_EtiquetteFrancais = c("Var", "Etiq a")),
+    file.path(vdir, "codebook.csv"))
+  writeLines("", file.path(vdir, "sentinel.txt"))
+  vdir
+}
+
+test_that("get_pumf: a freshly built table is silent, one without a stamp is announced once", {
+  tmp <- withr::local_tempdir()
+  .stamp_version_dir(tmp)
+  expect_no_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
+                    message = "before 0.6.1")
+  db_path <- DBI::dbGetInfo(t$src$con)$dbname
+  close_pumf(t)
+
+  # strip the stamp: the table now looks like a pre-0.6.1 build
+  wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  DBI::dbRemoveTable(wcon, "pumf_build_info")
+  DBI::dbDisconnect(wcon, shutdown = TRUE)
+  expect_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
+                 "FAKE 2099 \\[eng\\] was built by canpumf before 0.6.1")
+  close_pumf(t)
+  expect_no_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
+                    message = "before 0.6.1")
+  close_pumf(t)
 })

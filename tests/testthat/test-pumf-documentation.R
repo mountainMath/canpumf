@@ -47,6 +47,33 @@ test_that("open_pumf_documentation: deprecated params warn", {
 })
 
 
+# ---- Version aliases ---------------------------------------------------------
+
+test_that("open_pumf_documentation: resolves the version aliases of get_pumf()", {
+  tmp <- tempfile()
+  on.exit(unlink(tmp, recursive = TRUE))
+  open_doc <- function(series, version) with_mocked_bindings(
+    browseURL = function(url, ...) invisible(url), .package = "utils",
+    suppressMessages(open_pumf_documentation(series, version, cache_path = tmp))
+  )
+  docs <- c("Census/2021 (individuals)" = "census_2021_guide.pdf",
+            "Census/1986 (families)"    = "census_1986_families.pdf",
+            "GSS/Cycle 31 (2017)"       = "gss_31_guide.pdf")
+  for (key in names(docs)) {
+    dir.create(file.path(tmp, key), recursive = TRUE)
+    writeLines("x", file.path(tmp, key, docs[[key]]))
+  }
+  expect_equal(basename(open_doc("Census", "2021")), "census_2021_guide.pdf")
+  expect_equal(basename(open_doc("Census", "2021 (individuals)")),
+               "census_2021_guide.pdf")
+  # No EFT bundle in this cache, so the loose key goes to the Borealis entry.
+  expect_equal(basename(open_doc("Census", "1986 families")),
+               "census_1986_families.pdf")
+  expect_equal(basename(open_doc("GSS", "2017")), "gss_31_guide.pdf")
+  expect_equal(basename(open_doc("GSS", "Cycle 31")), "gss_31_guide.pdf")
+})
+
+
 # ---- LFS with no version: most recently cached ------------------------------
 
 test_that(".pumf_lfs_latest_cached: returns NULL when LFS dir absent", {

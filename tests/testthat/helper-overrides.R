@@ -10,9 +10,17 @@
 #   rename             — one row per renamed pair (variable = old, value = new)
 #   rename_regex       — one row per pattern (variable = pattern, value = replacement)
 #   codes_supplement   — one row per supplemented (variable, val) pair
+#   codes_override     — one row per overridden (variable, val) pair
 #   missing_supplement — one row per variable (value = "lo-hi" range)
-#   missing_codes      — one row per (variable, code) pair
+#   missing_codes      — one row per (variable, code) pair; an empty vector
+#                        (the variable has no missing code, the parsed range is
+#                        cleared) gives one row with value = ""
 #   labels_supplement  — one row per variable (value = supplied label_en)
+#   force_character / force_integer / force_bigint
+#                      — one row per variable (storage type kept or overridden)
+#   layout_file        — one row per entry or module that names its record
+#                        layout's command file (variable = module id, "" for a
+#                        single-table survey; value = the pattern)
 enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
   rows <- list()
   add <- function(series, version, type, variable = "", value = "") {
@@ -30,6 +38,12 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
     if (length(fx) == 0L) return(invisible())
     for (v in fx$force_numeric)
       add(series, version, "force_numeric", v)
+    for (v in fx$force_character)
+      add(series, version, "force_character", v)
+    for (v in fx$force_integer)
+      add(series, version, "force_integer", v)
+    for (v in fx$force_bigint)
+      add(series, version, "force_bigint", v)
     for (val in fx$na_values)
       add(series, version, "na_values", "", val)
     if (!is.null(fx$cols_swap))
@@ -51,15 +65,35 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
         add(series, version, "missing_supplement", nm,
             paste(fx$missing_supplement[[nm]], collapse = "-"))
     if (!is.null(fx$missing_codes))
-      for (nm in names(fx$missing_codes))
-        for (val in fx$missing_codes[[nm]])
+      for (nm in names(fx$missing_codes)) {
+        vals <- fx$missing_codes[[nm]]
+        # numeric(0) is itself a claim: the variable has no missing code and
+        # its parsed range is cleared (Census 1981 HHINC, whose declared 0 is
+        # the codebook's "ZERO", a value).
+        if (length(vals) == 0L) add(series, version, "missing_codes", nm, "")
+        for (val in vals)
           add(series, version, "missing_codes", nm, as.character(val))
+      }
     if (!is.null(fx$codes_supplement))
       for (nm in names(fx$codes_supplement)) {
         df <- fx$codes_supplement[[nm]]
         for (j in seq_len(nrow(df)))
           add(series, version, "codes_supplement", nm, df$val[j])
       }
+    if (!is.null(fx$codes_override))
+      for (nm in names(fx$codes_override)) {
+        df <- fx$codes_override[[nm]]
+        for (j in seq_len(nrow(df)))
+          add(series, version, "codes_override", nm, df$val[j])
+      }
+    # sentinel_labels: only the per-variable form is a claim about one
+    # variable's codes.  The code-keyed form ("9999999" = ...) is the survey-wide
+    # convention already recorded under the na_values rows for the same codes.
+    if (!is.null(fx$sentinel_labels))
+      for (nm in names(fx$sentinel_labels))
+        if (!grepl("^[0-9.-]+$", nm))
+          for (code in names(fx$sentinel_labels[[nm]]))
+            add(series, version, "sentinel_labels", nm, code)
     if (!is.null(fx$labels_supplement))
       for (nm in names(fx$labels_supplement))
         add(series, version, "labels_supplement", nm,
@@ -76,6 +110,13 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
             else entry$primary_module
       for (id in setdiff(names(entry$modules), pm))
         add_fixups(entry$series, entry$version, entry$modules[[id]]$data_fixups)
+      # layout_file is per module; the entry level only mirrors the primary's.
+      for (id in names(entry$modules))
+        if (!is.null(entry$modules[[id]]$layout_file))
+          add(entry$series, entry$version, "layout_file", id,
+              entry$modules[[id]]$layout_file)
+    } else if (!is.null(entry$layout_file)) {
+      add(entry$series, entry$version, "layout_file", "", entry$layout_file)
     }
   }
   do.call(rbind, rows)

@@ -379,8 +379,7 @@
 # Returns the full table when survyear is NULL.
 .lfs_open_tbl <- function(db_path, data_tbl, survyear = NULL,
                             survmnth = NA_integer_, read_only = TRUE) {
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                         read_only = read_only)
+  con <- .duckdb_connect(db_path, read_only = read_only)
   if (!DBI::dbExistsTable(con, data_tbl)) {
     DBI::dbDisconnect(con, shutdown = TRUE)
     stop("Table '", data_tbl, "' does not exist in ", db_path,
@@ -462,7 +461,8 @@
     },
     build          = function(version_dir, label_col, version)
       .lfs_build_version(version_dir, label_col),
-    variables      = .lfs_merged_variables)
+    variables      = .lfs_merged_variables,
+    codes          = .lfs_merged_codes)
 }
 
 # Variable labels across every loaded LFS version, most recent winning: the

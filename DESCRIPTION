@@ -1,7 +1,7 @@
 Package: canpumf
 Type: Package
 Title: Parse StatCan PUMF Files
-Version: 0.6.0
+Version: 0.6.1
 Authors@R: c(
     person("Jens", "von Bergmann", email = "jens@mountainmath.ca", role = c("aut", "cre"))
     )
@@ -51,4 +51,4 @@ URL: https://github.com/mountainMath/canpumf, https://mountainmath.github.io/can
 BugReports: https://github.com/mountainMath/canpumf/issues
 VignetteBuilder: knitr
 Language: en-CA
-Config/roxygen2/version: 8.0.0
+Config/roxygen2/version: 8.1.0

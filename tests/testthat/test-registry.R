@@ -30,7 +30,7 @@ test_that("pumf_registry_lookup: inherits newest sibling config for new year", {
 test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
   e <- canpumf:::pumf_registry_lookup("SFS", "2019")
 
-  expect_named(e, c("series","version","layout_mask","bsw_mask","bsw_file_mask",
+  expect_named(e, c("series","version","layout_mask","layout_file","bsw_mask","bsw_file_mask",
                     "bsw_join_key","bsw_drop_cols","bsw_strata","file_mask",
                     "data_encoding","metadata_encoding","data_fixups",
                     "bundled_eng_sps","bundle_source","bundle_sps_mask","doc_mask",
@@ -87,6 +87,18 @@ test_that("pumf_registry_lookup: Census/2021 (individuals) has RELIGION_DER rena
   expect_false(is.null(e$data_fixups$rename))
   expect_equal(names(e$data_fixups$rename), "RELIGION_DER")
   expect_equal(unname(e$data_fixups$rename), "RELIG")
+})
+
+test_that("pumf_registry_lookup: both Census 1986 household entries carry the HHMOTG override", {
+  for (v in c("1986/households", "1986 (households)")) {
+    reg <- pumf_registry_lookup("Census", v)
+    ov  <- reg$data_fixups$codes_override
+    expect_named(ov, "HHMOTG", info = v)
+    expect_equal(ov$HHMOTG$val, c("3", "6"), info = v)
+    expect_equal(ov$HHMOTG$label_en,
+                 c("Other single responses", "Other multiple responses"), info = v)
+  }
+  expect_true("codes_override" %in% canpumf:::.pumf_fixup_fields)
 })
 
 test_that("pumf_registry_lookup: Census fixed-width versions have .dat file_mask", {

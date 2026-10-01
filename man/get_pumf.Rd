@@ -46,9 +46,10 @@ re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
 Not valid with `refresh = "auto"`.}
 
 \item{read_only}{Open the DuckDB connection in read-only mode (default
-`TRUE`).  Pass `FALSE` to allow write access, e.g. to persist custom
-views or derived tables in the DuckDB file.  Use [close_pumf()] to
-release the connection when done.}
+`TRUE`).  Pass `FALSE` to allow write access, e.g. to store the weights
+of [add_bootstrap_weights()] or custom views and derived tables in the
+DuckDB file.  A write connection needs the file to itself, so use
+[close_pumf()] to release it when done.}
 
 \item{registry}{Optional custom configuration created by
 [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
@@ -100,6 +101,12 @@ A lazy `dplyr::tbl()` backed by a DuckDB connection.  Data values
   human-readable labels, or [close_pumf()] to release the connection.
   Returns `invisible(NULL)` with an informative message if the data must be
   downloaded but Statistics Canada is unreachable.
+
+  A database built by canpumf before 0.6.1 carries no build stamp, no
+  `pumf_row_id` key and no sentinel companion.  `get_pumf()` says so once
+  per session when it opens one; rebuild with `refresh = TRUE`, or silence
+  the message with `options(canpumf.stale_cache_message = FALSE)`.
+  [list_pumf_cache()] reports the building version of every database.
 }
 \description{
 Main entry point for the canpumf package.  Downloads (if needed), parses
@@ -142,5 +149,5 @@ if (!is.null(sfs_fr)) close_pumf(sfs_fr)
 }
 \seealso{
 [label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
-  [close_pumf()], [list_canpumf_collection()]
+  [close_pumf()], [list_canpumf_collection()], [list_pumf_cache()]
 }
