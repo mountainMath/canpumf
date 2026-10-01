@@ -477,6 +477,56 @@ test_that("get_pumf: cache hit leaves an already-open tbl on the same file valid
   expect_equal(nrow(dplyr::collect(tbl2)), 3L)
 })
 
+test_that("get_pumf: reads share a read-write connection the session holds", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  # duckdb >= 1.5.6 refuses read_only = TRUE on a file whose in-process
+  # instance is read-write; the read path then shares that instance.
+  rw <- get_pumf("FAKE", "2099", cache_path = tmp, read_only = FALSE)
+  on.exit(close_pumf(rw), add = TRUE)
+  db <- file.path(tmp, "FAKE", "2099", "FAKE_2099.duckdb")
+
+  expect_true(canpumf:::.duckdb_table_exists(db, "eng"))
+  expect_false(is.na(list_pumf_cache(cache_path = tmp)$built_with))
+  tbl <- get_pumf("FAKE", "2099", cache_path = tmp)
+  expect_equal(nrow(dplyr::collect(tbl)), 3L)
+  expect_equal(nrow(dplyr::collect(rw)), 3L)
+  expect_no_error(DBI::dbExecute(rw$src$con,
+    "CREATE OR REPLACE VIEW test_view AS SELECT 1 AS x"))
+})
+
+test_that(".is_duckdb_read_only_mismatch: recognises duckdb's wording only", {
+  mismatch <- simpleError(paste0(
+    "`read_only` can't be applied to the database instance for ",
+    "`/tmp/FAKE_2099.duckdb`, which already exists."))
+  expect_true(canpumf:::.is_duckdb_read_only_mismatch(mismatch))
+  expect_false(canpumf:::.is_duckdb_read_only_mismatch(
+    simpleError("IO Error: Could not set lock on file")))
+  expect_false(canpumf:::.is_duckdb_read_only_mismatch(simpleError(paste0(
+    "`config$threads` can't be applied to the database instance for ",
+    "`/tmp/FAKE_2099.duckdb`, which already exists."))))
+})
+
+test_that("get_pumf: read_only = FALSE cannot write while a tbl holds the file", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+
+  ro <- get_pumf("FAKE", "2099", cache_path = tmp)
+  on.exit(close_pumf(ro), add = TRUE)
+  # duckdb >= 1.5.6 fails in dbConnect(), reported with the close_pumf()
+  # message; earlier versions hand back the read-only instance.
+  rw <- tryCatch(get_pumf("FAKE", "2099", cache_path = tmp, read_only = FALSE),
+                 canpumf_read_only_held = function(e) e)
+  if (inherits(rw, "error")) {
+    expect_match(conditionMessage(rw), "close_pumf")
+  } else {
+    expect_error(DBI::dbExecute(rw$src$con, "CREATE TABLE should_fail (x INTEGER)"),
+                 regexp = "read[ _-]only")
+  }
+  expect_equal(nrow(dplyr::collect(ro)), 3L)
+})
+
 test_that("add_bootstrap_weights: clear error when another tbl holds the file", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)

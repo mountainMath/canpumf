@@ -99,11 +99,11 @@
   }
 
   # A single connection serves both the status summary and the returned tbl.
-  # It is opened with a plain dbConnect (not .duckdb_connect_quiet) because it
+  # It is opened with .duckdb_connect (not .duckdb_connect_quiet) because it
   # is the connection handed back to the caller, so it should appear in the
   # RStudio Connections pane.  On the early-exit paths that return no tbl,
   # `keep` stays FALSE and the connection is closed before returning.
-  con  <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = read_only)
+  con  <- .duckdb_connect(db_path, read_only = read_only)
   keep <- FALSE
   on.exit(if (!keep) DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 

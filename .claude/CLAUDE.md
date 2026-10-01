@@ -62,6 +62,8 @@ The registry (`R/registry.R`), the test suite, and the **Verified datasets** tab
 - (a) inside `pumf_build_duckdb()` and the LFS write phase, while a build or refresh actually writes. They are opened after `.assert_duckdb_writable()` and closed before returning.
 - (b) in `add_bootstrap_weights()` / `remove_bootstrap_weights()`. These close the input tbl, assert writability (for the actionable lock message), write, and return a fresh read-only tbl.
 
+**Every file connection goes through `.duckdb_connect()`** (`R/helpers.R`; `.duckdb_connect_quiet()` is the variant kept out of the RStudio Connections pane), never a bare `DBI::dbConnect(duckdb::duckdb(), dbdir = ...)`. duckdb keeps one instance per file and process, and from 1.5.6 `dbConnect()` fails when `read_only` differs from that instance instead of ignoring the argument. The helper restores the behaviour the rest of the package assumes: a read-only open shares a read-write instance the session already holds (no lock is taken), and a read-write open against a held read-only instance raises the classed `canpumf_read_only_held` error with the `close_pumf()` message (`.stop_duckdb_read_only_held()`), which `.assert_duckdb_writable()` passes through.
+
 `get_pumf()` therefore calls `pumf_run_pipeline(read_only = read_only)` directly, **not** via `get_pumf_connection()`, which hardcodes read-write. On a cache hit, every connection is read-only from start to finish. Transient existence probes use `.duckdb_table_exists()` (read-only, `shutdown = FALSE`), so a user's open in-process instance is never shut down. Regression tests: the "read path never takes a write lock" section of `tests/testthat/test-api.R`.
 
 ## Architecture

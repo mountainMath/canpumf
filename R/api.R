@@ -1352,7 +1352,7 @@ add_bootstrap_weights <- function(tbl,
   # --- Reopen read-only, register provenance, re-apply WHERE if needed -------
   if (!file.exists(db_path))
     stop("DuckDB file not found after write: ", db_path, call. = FALSE)
-  ro_con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+  ro_con <- .duckdb_connect(db_path, read_only = TRUE)
 
   if (!is.null(where_clause)) {
     # Re-apply the captured WHERE (and ORDER BY) by building a new SQL query

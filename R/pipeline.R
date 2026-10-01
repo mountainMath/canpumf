@@ -56,7 +56,8 @@
 #   (b) In-process read-only sharing: DuckDB silently hands back a connection
 #       that shares the read-only in-process instance already open (e.g. from
 #       a get_pumf() tbl the user is holding).  dbConnect succeeds, but the
-#       first write raises "attached in read-only mode".
+#       first write raises "attached in read-only mode".  duckdb >= 1.5.6
+#       fails in dbConnect instead (see .duckdb_connect()).
 #
 # We probe for (b) with a rolled-back DDL statement.  DuckDB DDL is fully
 # transactional, so BEGIN + CREATE TABLE + ROLLBACK leaves no trace.
@@ -70,6 +71,9 @@
   )
   if (inherits(con, "error")) {
     msg <- conditionMessage(con)
+    # duckdb >= 1.5.6 refuses case (b) in dbConnect() itself, which
+    # .duckdb_connect() has already turned into the close_pumf() message.
+    if (inherits(con, "canpumf_read_only_held")) stop(con)
     if (grepl("lock|conflict|in use|block|used by another process|already open",
               msg, ignore.case = TRUE))
       stop("'", basename(db_path), "' is locked by an open connection.\n",
@@ -85,10 +89,7 @@
   # until garbage collection (on Windows that blocks the next writer).
   if (isTRUE(tryCatch(con@driver@read_only, error = function(e) FALSE))) {
     DBI::dbDisconnect(con, shutdown = FALSE)
-    stop("'", basename(db_path), "' is held open by a read-only connection ",
-         "(e.g. a tbl from get_pumf()).\n",
-         "Close it first with close_pumf(tbl) and then retry.",
-         call. = FALSE)
+    .stop_duckdb_read_only_held(db_path)
   }
 
   write_err <- tryCatch({
@@ -107,10 +108,7 @@
     DBI::dbDisconnect(con, shutdown = FALSE)
     msg <- conditionMessage(write_err)
     if (grepl("read[_-]?only|attached in read", msg, ignore.case = TRUE))
-      stop("'", basename(db_path), "' is held open by a read-only connection ",
-           "(e.g. a tbl from get_pumf()).\n",
-           "Close it first with close_pumf(tbl) and then retry.",
-           call. = FALSE)
+      .stop_duckdb_read_only_held(db_path)
     stop(write_err)
   }
 
@@ -1738,8 +1736,7 @@ pumf_open_duckdb <- function(db_path, table_name, read_only = TRUE) {
   if (!file.exists(db_path))
     stop("DuckDB file not found: ", db_path,
          ". Run pumf_build_duckdb() first.")
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                         read_only = read_only)
+  con <- .duckdb_connect(db_path, read_only = read_only)
   if (!DBI::dbExistsTable(con, table_name)) {
     DBI::dbDisconnect(con, shutdown = TRUE)
     stop("Table '", table_name, "' not found in ", db_path, ".")
