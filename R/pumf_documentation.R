@@ -16,6 +16,8 @@
 #'   tbl or connection is supplied, `version`, `cache_path`, and `lang` are
 #'   read from the connection provenance; explicit arguments take precedence.
 #' @param version Version string (e.g. `"2019"`, `"2021 (individuals)"`).
+#'   The aliases [get_pumf()] accepts work here too (`"2021"` for the Census
+#'   individuals file, `"Cycle 31"` or `"2017"` for a GSS cycle).
 #'   For LFS, omit to open documentation for the most recently downloaded
 #'   version.  Ignored when `series` is a tbl or connection.
 #' @param lang `"eng"` (default) or `"fra"`.  Documentation files whose names
@@ -87,6 +89,8 @@ open_pumf_documentation <- function(series          = NULL,
   if (is.null(lang)) lang <- "eng"
   stopifnot(lang %in% c("eng", "fra"))
   if (is.null(series)) stop("'series' must be specified.")
+  # Same aliases as get_pumf() ("2021" -> "2021 (individuals)", GSS cycles).
+  version <- pumf_resolve_version(series, version, cache_path)
 
   # --- Longitudinal series: most recently downloaded slice --------------------
   # With no version, the latest slice in the cache; LFS_HIST keeps months

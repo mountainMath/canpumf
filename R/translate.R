@@ -152,6 +152,8 @@
                   cache_path = cache_path, module = NULL))
     if (!.is_longitudinal(series) && is.null(version))
       stop("'version' is required when 'x' is a series name.", call. = FALSE)
+    # Same aliases as get_pumf() ("2021" -> "2021 (individuals)", GSS cycles).
+    version <- pumf_resolve_version(series, version, cache_path)
     return(list(series = series, version = version, cache_path = cache_path,
                 module = module))
   }
@@ -246,7 +248,9 @@
 #'
 #' @param x A lazy `dplyr::tbl()` returned by [get_pumf()] or
 #'   [get_lfs_timeline()], or a series name (`"SFS"`).
-#' @param version The version, when `x` is a series name.  Ignored for a tbl.
+#' @param version The version, when `x` is a series name; the aliases
+#'   [get_pumf()] accepts work here too (`"2021"` for the Census individuals
+#'   file, `"Cycle 31"` or `"2017"` for a GSS cycle).  Ignored for a tbl.
 #' @param module For a multi-module survey given by name, the module whose
 #'   dictionary to return (default: the primary module).  A tbl carries its
 #'   module.

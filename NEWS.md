@@ -73,6 +73,11 @@
 * **Census 1981: the second value of a two-value `MISSING VALUES` list was dropped, and zero incomes were blanked.** `HRSWK ( 0,999 )` and `WKSWK ( 0,99 )` (and the household-file `HRSWK*` / `WKSWK*` counterparts) only blanked the `0`, leaving `999` / `99` hours and weeks in the data, while the income declarations (`TOTINC ( 0,999999 )`, `HHINC ( 0 )`) turned every zero income into `NA`. The codebooks flag both codes M, but the `0` is "ZERO" / "ZERO HOURS" / "ZERO WEEKS", excluded from the codebook means yet a value, not a non-response. Now only the "NOT APPLICABLE" codes (`999`, `99`, `999999`, `99999`, and the `0` / `99` of the age-of-spouse variables) are `missing_codes`, labelled `NOT APPLICABLE` in the sentinel companion, and every zero income and zero hour stays `0`. The 1981 data files code the income "not applicable" (persons under 15, institutional residents, family members a family does not have) as `0` rather than the codebook's `999999`, so the income variables carry `0` for both and have no sentinels.
 * A systematic scan of every numeric Census column, 1971 to 2021, for values made only of 8s or 9s found no further undocumented sentinels. The values it flagged in 1971 (`AGEFTMAR` 88) and 1976 (`AGE`, `AGEHD` 88) are real ages, and 2006 `HRSWRK` 98 is the valid "84 hours or more" average.
 
+## Version aliases
+
+* `open_pumf_documentation()` accepts the version aliases of `get_pumf()`. `open_pumf_documentation("Census", "2021")` reported "No data found" although `get_pumf("Census", "2021")` had built `"2021 (individuals)"`, because the version was used as the cache directory name without being resolved. The same went for the other Census years, the loose Census forms (`"1986 families"`) and the GSS aliases (`"2017"`, `"Cycle 31"`).
+* `pumf_dictionary()` and `pumf_topcodes()` accept them as well when called with a series name: `pumf_dictionary("Census", "2021")` stopped with "Metadata directory not found". `remove_pumf_cache()` still takes the exact version only, so that a loose name never decides what is deleted.
+
 # canpumf 0.6.0
 
 ## Historical Labour Force Survey and a 1976-onward LFS timeline

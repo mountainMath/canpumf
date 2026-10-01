@@ -334,6 +334,31 @@ test_that("pumf_topcodes: a factor variable's codes are levels, not top codes", 
   expect_error(pumf_topcodes("LFS", cache_path = tmp), "longitudinal")
 })
 
+test_that("pumf_dictionary, pumf_topcodes: resolve the version aliases of get_pumf()", {
+  tmp  <- withr::local_tempdir()
+  fake <- file.path(make_e2e_version_dir(tmp), "metadata")
+  # The FAKE metadata under the canonical keys an alias resolves to, with a
+  # top code recorded the way Stage 3 would.
+  for (key in c("Census/2021 (individuals)", "GSS/Cycle 31 (2017)")) {
+    meta <- file.path(tmp, key, "metadata")
+    dir.create(meta, recursive = TRUE)
+    file.copy(list.files(fake, full.names = TRUE), meta)
+    readr::write_csv(data.frame(
+      name = "WEIGHT", val = "75", label_en = "75 and more",
+      label_fr = "75 et plus", applied_as = "value"),
+      file.path(meta, "codes_applied.csv"))
+  }
+  expect_equal(pumf_dictionary("Census", "2021", cache_path = tmp),
+               pumf_dictionary("Census", "2021 (individuals)", cache_path = tmp))
+  expect_equal(pumf_dictionary("GSS", "2017", cache_path = tmp),
+               pumf_dictionary("GSS", "Cycle 31 (2017)", cache_path = tmp))
+  for (tc in list(pumf_topcodes("Census", "2021", cache_path = tmp),
+                  pumf_topcodes("GSS", "Cycle 31", cache_path = tmp))) {
+    expect_equal(tc$name, "WEIGHT")
+    expect_equal(tc$val, 75)
+  }
+})
+
 test_that("pumf_topcodes: asks for a rebuild when the side-car predates it", {
   tmp <- withr::local_tempdir()
   tbl <- .fake_tbl(tmp)
