@@ -2,7 +2,7 @@
 % Please edit documentation in R/api.R
 \name{bsw_info}
 \alias{bsw_info}
-\title{Summarise bootstrap weight tables present in a PUMF DuckDB database}
+\title{Summarise the bootstrap weights of a PUMF table}
 \usage{
 bsw_info(tbl)
 }
@@ -11,31 +11,59 @@ bsw_info(tbl)
 [add_bootstrap_weights()].}
 }
 \value{
-A tibble with columns:
+A tibble with one row per set of replicate weights and the columns:
   \describe{
-    \item{`weight_col`}{The weight column the BSW table was built from
-      (matched back to the case used in the main survey table).}
-    \item{`bsw_table`}{Name of the DuckDB table storing the weights.}
-    \item{`view_name`}{Name of the DuckDB VIEW joining survey + BSW.}
-    \item{`view_exists`}{Whether the companion VIEW is present.}
+    \item{`source`}{`"survey"` for replicate weights that came with the
+      survey, `"generated"` for weights made by [add_bootstrap_weights()].}
+    \item{`weight_col`}{The weight column the generated weights were built
+      from (matched back to the case used in the survey table).  `NA` for
+      the survey's own replicates: the survey's documentation says which
+      weight they belong to.}
+    \item{`prefix`}{Common prefix of the replicate columns, which are named
+      prefix plus number (`"BSW"` for `BSW1`, ..., `BSW1000`; `"WTBS_"` for
+      `WTBS_001`, ..., `WTBS_500`).}
+    \item{`bsw_table`}{Name of the DuckDB table holding the replicate
+      columns: the survey table for `source = "survey"`, the weights table
+      for `source = "generated"`.}
+    \item{`temporary`}{`TRUE` for a temporary table, which belongs to this
+      connection and is gone when it is closed; `FALSE` for weights stored
+      in the database.}
     \item{`n_replicates`}{Number of bootstrap replicate columns.}
-    \item{`size_mb`}{Estimated table size in megabytes (from DuckDB
-      metadata; `NA` when unavailable).}
+    \item{`size_mb`}{Size of the weights in megabytes before compression
+      (rows times replicates times 8 bytes).  Stored weights take less on
+      disk.}
   }
 }
 \description{
-Queries the DuckDB file backing a PUMF lazy table for bootstrap weight
-tables created by [add_bootstrap_weights()] and returns a one-row-per-table
-summary tibble.  Returns an empty tibble (invisibly) when no BSW tables are
-found.
+Lists the bootstrap weights available for a PUMF lazy table, one row per set
+of replicates, and says for each where it comes from:
+\itemize{
+  \item `source = "survey"`: replicate weights that came with the survey.
+    They are columns of the survey table itself and are always part of the
+    table [get_pumf()] returns.
+  \item `source = "generated"`: weights made by [add_bootstrap_weights()],
+    which are kept in a table of their own: stored in the DuckDB file, or
+    temporary on this connection.
+}
+Returns an empty tibble (invisibly) when there are none.
+}
+\details{
+The survey's own replicate weights are recognised by their column names and
+variable labels: a family of numeric columns numbered from 1 without gaps
+(`BSW1`, ..., `BSW1000`) that the survey's metadata labels as bootstrap or
+replicate weights, or does not describe at all.  The survey's documentation
+has the last word on what they are and which weight they belong to.  They
+are not reported for the longitudinal series (LFS), which ship none.
 }
 \examples{
 \donttest{
 sfs <- get_pumf("SFS", "2019")
 if (!is.null(sfs)) {
-  sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
+  bsw_info(sfs)   # the replicate weights SFS 2019 ships with
+  sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
+                                   n_replicates = 50L, seed = 1L)
   bsw_info(sfs_bsw)
-  close_pumf(sfs_bsw)
+  close_pumf(sfs)
 }
 }
 }

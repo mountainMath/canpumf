@@ -94,8 +94,8 @@ plot_data <- renter_chs_pumf |>
   filter(`Geographic grouping`=="Vancouver") |>
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - forced to move`) |>
-  summarise(value=sum(`Household weight`),.groups = "drop") |>
-  mutate(share=value/sum(value)) |>
+  summarise(value=sum(`Household weight`, na.rm=TRUE),.groups = "drop") |>
+  mutate(share=value/sum(value, na.rm=TRUE)) |>
   filter(`Previous accommodations - forced to move`=="Yes",
          !grepl("10",`Previous accommodations - when move to current dwelling occurred`))
 
@@ -112,13 +112,19 @@ ggplot(plot_data,aes(x=`Previous accommodations - when move to current dwelling 
 
 This looks interesting in that there seem to be distinct periods when the frequency of being forced to move changed, recognizing that longer ago brackets are conditional on not having moved after.
 
-With PUMF data we need to be aware that we are dealing with a synthetic sample that has been altered from the original survey responses for privacy reasons. With that, and the general uncertainty when dealing with survey data, it is important to assess how good these estimates are. Some PUMF data ship with bootstrap weights to facilitate this, when this is not the case the **canpumf** package fills the gap via the `add_bootstrap_weights` function. By default it adds 500 bootstrap weights. The function can act on a database connection or a tibble. If it's a database connection, then the weights get stored in the database by default and will be re-used on subsequent calls without the need to re-generate them.
+With PUMF data we need to be aware that we are dealing with a synthetic sample that has been altered from the original survey responses for privacy reasons. With that, and the general uncertainty when dealing with survey data, it is important to assess how good these estimates are. Some PUMF data ship with bootstrap weights to facilitate this, when this is not the case the **canpumf** package fills the gap via the `add_bootstrap_weights` function. By default it adds 500 bootstrap weights. The function can act on a database table or a tibble.
+
+For a database table the weights are kept in a table of their own and joined to the table passed in, so the filter and the column labels we applied above stay in place. `get_pumf` opens the database read-only, and in that case the weights go to a temporary table that lasts until the connection is closed; the `seed` makes them the same in every session. To generate them only once, open the table with `get_pumf("CHS", "2018", read_only = FALSE)` and add the weights there: they are then stored in the database and re-used by every later call, on read-only tables too. The *Bootstrap weights* vignette has the details.
+
+```{r add-bootstrap-weights}
+renter_chs_pumf <- renter_chs_pumf |>
+  add_bootstrap_weights(weight_col = "Household weight", seed=42)
+```
 
 ```{r fig-yvr-renters-forced-moves-bootstrap, fig.alt="Vancouver renters forced to move with bootstrap weights"}
 plot_data <- renter_chs_pumf |>
-  add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
   filter(`Geographic grouping`=="Vancouver") |>
-  summarise(across(matches("CPBSW\\d+|Household weight"),sum),
+  summarise(across(matches("CPBSW\\d+|Household weight"),\(x) sum(x, na.rm=TRUE)),
             .by=c(`Previous accommodations - when move to current dwelling occurred`,
                   `Previous accommodations - forced to move`)) |>
   collect() |>
@@ -145,9 +151,8 @@ Another complication when interpreting the data is that the previous accommodati
 
 ```{r fig-yvr-renters-forced-moves-previous-location, fig.alt="Vancouver renters forced to move by previous location"}
 plot_data <- renter_chs_pumf |>
-  add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
   filter(`Geographic grouping`=="Vancouver") |>
-  summarise(across(matches("CPBSW\\d+|Household weight"),sum),
+  summarise(across(matches("CPBSW\\d+|Household weight"),\(x) sum(x, na.rm=TRUE)),
             .by=c(`Previous accommodations - when move to current dwelling occurred`,
                   `Previous accommodations - location of previous dwelling`,
                   `Previous accommodations - forced to move`)) |>
@@ -180,7 +185,6 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 ```{r fig-renters-forced-moves, fig.alt="Renters forced to move"}
 plot_data <- renter_chs_pumf |>
   collect() |>
-  add_bootstrap_weights(weight_col = "Household weight", seed=42) |>
   filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) |>
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,

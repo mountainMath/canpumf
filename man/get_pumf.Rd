@@ -46,9 +46,10 @@ re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
 Not valid with `refresh = "auto"`.}
 
 \item{read_only}{Open the DuckDB connection in read-only mode (default
-`TRUE`).  Pass `FALSE` to allow write access, e.g. to persist custom
-views or derived tables in the DuckDB file.  Use [close_pumf()] to
-release the connection when done.}
+`TRUE`).  Pass `FALSE` to allow write access, e.g. to store the weights
+of [add_bootstrap_weights()] or custom views and derived tables in the
+DuckDB file.  A write connection needs the file to itself, so use
+[close_pumf()] to release it when done.}
 
 \item{registry}{Optional custom configuration created by
 [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a

@@ -18,6 +18,7 @@ knitr::opts_chunk$set(
 ```{r setup, warning=FALSE}
 library(dplyr)
 library(canpumf)
+options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
 ```
 
 PUMF data are a synthetic sample, altered from the original survey responses for
@@ -25,6 +26,20 @@ privacy reasons. As with any survey sample, point estimates carry sampling
 uncertainty, and it is good practice to quantify it. Some PUMF ship with
 bootstrap weights for exactly this purpose; when they do not, **canpumf** can
 generate them with `add_bootstrap_weights()`.
+
+The weights a survey ships with need no extra step: they are columns of the
+table `get_pumf()` returns (`BSW1`, ..., `BSW1000` for the Survey of Financial
+Security, `WT1`, ..., `WT16` for the Census). `bsw_info()` lists them as
+`source = "survey"`, next to the `source = "generated"` weights this vignette is
+about:
+
+```{r, eval = FALSE}
+get_pumf("SFS", "2019") |> bsw_info()
+#> # A tibble: 1 x 7
+#>   source weight_col prefix bsw_table     temporary n_replicates size_mb
+#>   <chr>  <chr>      <chr>  <chr>         <lgl>            <int>   <dbl>
+#> 1 survey NA         BSW_   eng_EFAM_PUMF FALSE             1000    83.4
+```
 
 This vignette explains how `add_bootstrap_weights()` works: the method it uses,
 where the weights live, how stratification works, and — importantly — what
@@ -52,10 +67,11 @@ The default is `n_replicates = 500`. Pass `seed` for reproducibility.
 for each:
 
 * **A DuckDB-backed lazy table** returned by `get_pumf()` (the typical case).
-  The replicate weights are written into the DuckDB file as a persistent,
-  separate table and exposed through a VIEW that joins the survey table to the
-  weights. The returned `tbl` points at that view. Because the weights are
-  persisted, **subsequent calls reuse them** instead of recomputing.
+  The replicate weights go into a table of their own, keyed like the survey
+  table, and the function returns the input table joined to it. Whether that
+  table is stored in the DuckDB file or is temporary depends on how the survey
+  table was opened (next section). Stored weights are **reused by subsequent
+  calls** instead of being recomputed.
 * **An in-memory `data.frame` / `tibble`** (e.g. after `collect()`). The
   weights are generated in memory and the augmented data frame is returned.
   Nothing is persisted.
@@ -72,36 +88,70 @@ grep("^CPBSW", colnames(cis_bsw), value = TRUE) |> head()
 
 ## Where the weights are stored (DuckDB path)
 
-The replicate weights are **not** copied into the main survey table. Instead:
+The replicate weights are **not** copied into the main survey table. They are
+written to a separate table, auto-named
+`paste0("pumf_bsw_", tolower(weight_col))` (e.g. `pumf_bsw_fweight`). The
+auto-naming means generating weights for two different weight columns
+(e.g. a household weight and a person weight) produces two independent BSW
+tables that never collide.
 
-* They are written to a separate DuckDB table, auto-named
-  `paste0("pumf_bsw_", tolower(weight_col))` (e.g. `pumf_bsw_pweight`). The
-  auto-naming means generating weights for two different weight columns
-  (e.g. a household weight and a person weight) produces two independent BSW
-  tables that never collide.
-* A companion VIEW (e.g. `eng_bsw_pweight`) joins the survey table to the BSW
-  table on a row identifier, so the returned `tbl` exposes every survey column
-  plus the replicate columns.
+`add_bootstrap_weights()` works on the connection of the table it is given. It
+never closes or reopens one, so what it can store depends on that connection:
 
-`bsw_info()` summarises what is stored:
+* **Read-only** (the `get_pumf()` default). Stored weights are used when there
+  are any. Otherwise the weights go to a temporary table of the connection
+  (`tmp_pumf_bsw_fweight`). The DuckDB file is not touched, other sessions
+  reading the same survey are not disturbed, and the weights are gone when the
+  connection is closed (`close_pumf()`, or the end of the R session). A message
+  says so. Pass `seed` to get the same weights the next time.
+* **Read-write** (`get_pumf(..., read_only = FALSE)`). The weights are stored in
+  the DuckDB file and reused by every later call, in this session or another,
+  and also by read-only tables. A write connection needs the database to
+  itself: close the read-only tables of the survey first, and `close_pumf()`
+  the write connection when the weights are stored.
+
+```{r, eval = FALSE}
+# once: store the weights
+close_pumf(cis)     # the read-only table opened above holds the database
+cis_rw <- get_pumf("CIS", "2019", read_only = FALSE)
+cis_rw |> add_bootstrap_weights(weight_col = "FWEIGHT", n_replicates = 200, seed = 42)
+close_pumf(cis_rw)
+
+# from then on, in any session: the stored weights are found and joined
+cis_bsw <- get_pumf("CIS", "2019") |>
+  add_bootstrap_weights(weight_col = "FWEIGHT", n_replicates = 200)
+```
+
+`bsw_info()` summarises the bootstrap weights of the table. `source` tells the
+generated weights (`temporary` says whether they are stored) from replicate
+weights that came with the survey, which the CIS does not have:
 
 ```{r}
 bsw_info(cis_bsw)
 ```
 
-This separation keeps the main table untouched and lets you add, inspect, or
-remove replicate weights independently of the survey data.
+The weights always cover the complete survey table. For a temporary table that
+is rows x replicates x 8 bytes, which is small for most surveys and several
+gigabytes for the Census or the full LFS; `add_bootstrap_weights()` warns
+before it builds a temporary table of more than about 2 GB. Store such weights
+through a write connection, or `collect()` the rows of interest and add the
+weights to the data frame.
 
 ## Identifying rows
 
-To join replicate weights back to the survey rows a stable row identifier is
-needed. With `id_col = NULL` (the default):
+To join replicate weights back to the survey rows a key that identifies each
+row is needed. With `id_col = NULL` (the default):
 
 * the survey registry's `bsw_join_key` is used when one is defined (e.g.
-  `PEFAMID` for the SFS), requiring no change to the table; otherwise
-* a `pumf_row_id` column (DuckDB `rowid`) is added to the survey table once.
+  `PEFAMID` for the SFS); otherwise
+* the `pumf_row_id` column that every table built by canpumf 0.6.1 or later
+  carries;
+* for the longitudinal series (`"LFS"`, `"LFS_HIST"`), `SURVYEAR`, `SURVMNTH`
+  and `REC_NUM` together.
 
-You can always pass `id_col` explicitly to use a natural key.
+You can always pass `id_col` explicitly to use a natural key, which may consist
+of several columns. A table built by an earlier version of canpumf that has
+none of these needs a rebuild (`get_pumf(..., refresh = TRUE)`) or an `id_col`.
 
 ## Stratified bootstrap weights
 
@@ -165,14 +215,15 @@ weights?
 
 ### Reuse — nothing to do
 
-If the stored weights already cover every row and there are at least
-`n_replicates` of them, they are reused without recomputation (requesting fewer
-than are stored simply returns a subset). This is why repeatedly opening a
-weighted survey is cheap.
+If the weights already cover every row and there are at least `n_replicates` of
+them, they are reused without recomputation (requesting fewer than exist simply
+returns a subset). This is why repeatedly opening a survey with stored weights
+is cheap. On a read-only connection the temporary weights of that connection
+are looked at first, then the stored ones.
 
 ### More replicates requested
 
-If you ask for more replicates than are stored (and no rows were added), the
+If you ask for more replicates than exist (and no rows were added), the
 additional replicate columns are generated and appended; the existing columns
 are kept unchanged. When stratified, the new columns are resampled within
 strata, consistent with the existing ones.
@@ -202,28 +253,33 @@ not all rows have weights and **deletes and regenerates** the affected weights:
 Extending the number of replicates and adding rows can happen in the same call;
 each is handled on the rows it applies to.
 
+On a read-only connection both cases are worked out in the temporary table:
+the stored replicates are copied into it, so they keep their values, and the
+stored weights stay as they are.
+
 > Extending a weighted table after appending rows relies on the new rows having
 > a valid identifier. Use a natural `id_col` (or the registry `bsw_join_key`)
 > when you expect to grow the table, so the new rows can be matched.
 
 ### Forcing a full regeneration
 
-Pass `overwrite = TRUE` to discard the stored weights and regenerate from
-scratch regardless of what is already there.
+Pass `overwrite = TRUE` to discard the weights and regenerate from scratch
+regardless of what is already there: the stored weights on a write connection,
+the temporary ones on a read-only connection.
 
 ```{r, eval = FALSE}
-cis_bsw <- add_bootstrap_weights(cis, "PWEIGHT", n_replicates = 200,
+cis_bsw <- add_bootstrap_weights(cis, "FWEIGHT", n_replicates = 200,
                                  seed = 42, overwrite = TRUE)
 ```
 
 ## Multiple weight columns
 
 Because each BSW table is named after its weight column, hierarchical surveys
-with several weights are handled by simply calling the function once per weight:
-
-By default all replicate columns share the `CPBSW` prefix, so when storing
-weights for more than one weight column give each a distinct `prefix` to tell
-the two sets of replicates apart (the column names are survey-specific):
+with several weights are handled by simply calling the function once per weight.
+By default all replicate columns share the `CPBSW` prefix, and a call replaces
+the replicate columns of its prefix that the input already carries. Give each
+weight column a distinct `prefix` to have both sets of replicates in one table
+(the column names are survey-specific):
 
 ```{r, eval = FALSE}
 tbl <- get_pumf("<series>", "<version>") |>
@@ -231,27 +287,45 @@ tbl <- get_pumf("<series>", "<version>") |>
   add_bootstrap_weights(weight_col = "<person_weight>",    prefix = "PPBSW")
 ```
 
-## Filtered input tables
+## What the input table carries
 
-Bootstrap weights always cover the complete physical survey table, so variance
-estimates use the full sample. If the input `tbl` carries `filter()`
-operations, they are captured and re-applied to the returned view, so the
-visible rows still match your subset. Other operations (`select()`, `mutate()`,
-…) are not replayed — apply them to the returned tbl instead.
+Bootstrap weights always cover the complete physical survey table, so every
+subset is weighted from the same replicates. The result is the input `tbl`
+joined to the weights: a `filter()`, `select()`, `mutate()` or
+`label_pumf_columns()` applied before the call is still in effect afterwards.
+
+```{r, eval = FALSE}
+cis |>
+  filter(PROV == "Ontario") |>
+  label_pumf_columns() |>
+  add_bootstrap_weights(weight_col = "FWEIGHT", n_replicates = 200, seed = 42)
+#> the Ontario rows, with labelled columns and CPBSW1 ... CPBSW200
+```
+
+Two things to keep in mind:
+
+* The column(s) that identify the rows must still be among the columns of the
+  input, since the join runs on them. Add the weights before a `select()` or
+  `summarise()` drops them.
+* The order of an `arrange()` does not survive a join; sort the result instead.
 
 ## Connection lifecycle
 
-Generating weights on a DuckDB-backed table requires exclusive write access, so
-`add_bootstrap_weights()` shuts down the connection held by the input `tbl`.
-**Use the returned tbl** afterwards; the input `tbl` (and any other lazy tables
-backed by the same DuckDB file) are invalid after the call.
+`add_bootstrap_weights()`, `bsw_info()` and `remove_bootstrap_weights()` never
+close a connection. The table passed in, and every other table on the same
+connection, stays valid, and the returned table lives on that connection too.
+Temporary weights last exactly as long as it does: after `close_pumf()` they
+are gone, and the next call generates them again (or finds stored ones).
 
 ## Inspecting and removing weights
 
 ```{r, eval = FALSE}
-bsw_info(cis_bsw)                      # list stored BSW tables and replicate counts
-cis_clean <- remove_bootstrap_weights(cis_bsw, weight_col = "PWEIGHT")
+bsw_info(cis_bsw)                      # the survey's own and the generated weights, replicate counts
+cis_clean <- remove_bootstrap_weights(cis_bsw, weight_col = "FWEIGHT")
 ```
 
-`remove_bootstrap_weights()` drops the BSW table and its companion view and
-returns a clean tbl on the original survey table.
+`remove_bootstrap_weights()` drops the temporary weights of the connection and
+returns a tbl on the original survey table. Stored weights are dropped on a
+write connection only; on a read-only connection they are kept. The replicate
+weights that came with the survey are part of the survey table and are never
+removed.

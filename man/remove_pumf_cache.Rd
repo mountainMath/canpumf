@@ -43,7 +43,7 @@ are removed; the raw zip and extracted data are left intact so that
 to delete everything, freeing the full disk space.
 
 A survey built in both languages holds an `eng` and a `fra` table (each
-with its sentinel companion and bootstrap-weight views) in one DuckDB
+with its sentinel companion) in one DuckDB
 file.  `lang = "fra"` drops the French tables and keeps everything else:
 the English tables, the shared bootstrap-weight tables, the metadata and
 the raw files.  DuckDB does not return the space of a dropped table to the

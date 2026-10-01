@@ -527,18 +527,29 @@ test_that("get_pumf: read_only = FALSE cannot write while a tbl holds the file",
   expect_equal(nrow(dplyr::collect(ro)), 3L)
 })
 
-test_that("add_bootstrap_weights: clear error when another tbl holds the file", {
+test_that("add_bootstrap_weights: never takes a write lock on a read-only tbl", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
 
   tbl   <- get_pumf("FAKE", "2099", cache_path = tmp)
   other <- get_pumf("FAKE", "2099", cache_path = tmp)
-  on.exit(close_pumf(other), add = TRUE)
+  on.exit({ close_pumf(other); try(close_pumf(tbl), silent = TRUE) }, add = TRUE)
 
+  # The weights go to a temporary table of the tbl's connection: no connection
+  # is closed, so both tbls on the file stay usable.
+  # (The fixture has one sentinel weight, which is NA and counts as 0.)
+  expect_warning(
+    expect_message(
+      out <- add_bootstrap_weights(tbl, weight_col = "WEIGHT", n_replicates = 4L),
+      regexp = "temporary table"),
+    regexp = "NA weight")
+  expect_equal(sum(grepl("^CPBSW", colnames(out))), 4L)
+  expect_equal(nrow(dplyr::collect(out)), 3L)
+  expect_equal(nrow(dplyr::collect(tbl)), 3L)
+  expect_equal(nrow(dplyr::collect(other)), 3L)
   expect_error(
-    suppressWarnings(suppressMessages(
-      add_bootstrap_weights(tbl, weight_col = "WEIGHT", n_replicates = 4L))),
-    regexp = "held open by a read-only connection|locked by an open connection"
+    DBI::dbExecute(tbl$src$con, "CREATE TABLE should_fail (x INTEGER)"),
+    regexp = "read[ _-]only"
   )
 })
 

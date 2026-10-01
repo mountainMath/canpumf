@@ -2,7 +2,7 @@
 % Please edit documentation in R/api.R
 \name{remove_bootstrap_weights}
 \alias{remove_bootstrap_weights}
-\title{Remove bootstrap weight tables and views from a PUMF DuckDB database}
+\title{Remove bootstrap weight tables from a PUMF DuckDB database}
 \usage{
 remove_bootstrap_weights(tbl, weight_col = NULL)
 }
@@ -12,24 +12,23 @@ remove_bootstrap_weights(tbl, weight_col = NULL)
 
 \item{weight_col}{Name of the weight column whose BSW table should be
 removed (e.g. `"PWEIGHT"`).  If `NULL` (default), **all** bootstrap
-weight tables (and their companion VIEWs) are removed.}
+weight tables are removed.}
 }
 \value{
-A lazy `dplyr::tbl()` backed by the original physical survey table
-  (without BSW columns), with a fresh read-only DuckDB connection.
+A lazy `dplyr::tbl()` of the survey table (without BSW columns) on
+  the connection of `tbl`.
 }
 \description{
-Drops the bootstrap weight table(s) created by [add_bootstrap_weights()]
-and their companion VIEWs from the DuckDB file.  When all BSW tables have
-been removed from a table built by canpumf before 0.6.1, the `pumf_row_id`
-column that [add_bootstrap_weights()] added to it as a join key is also
-dropped.  A table built by 0.6.1 or later keeps its `pumf_row_id`: there it
-is the permanent record key, written by the build itself.
+Drops the bootstrap weight table(s) created by [add_bootstrap_weights()].
+The temporary tables of a read-only connection are always dropped.  Weights
+stored in the DuckDB file are dropped only through a write connection
+(`get_pumf(..., read_only = FALSE)`); on a read-only connection they are
+left in place and the function says so.
 }
 \details{
-Like [add_bootstrap_weights()], this function requires brief exclusive
-write access: the read-only connection backing `tbl` is shut down, the
-tables are dropped, and a fresh read-only connection is returned.
+Like [add_bootstrap_weights()], the function works on the connection of
+`tbl` and never closes it.  Tables that [add_bootstrap_weights()] returned
+for the removed weights can no longer be queried.
 }
 \examples{
 \donttest{
@@ -37,8 +36,8 @@ sfs <- get_pumf("SFS", "2019")
 if (!is.null(sfs)) {
   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT", seed = 1L)
   # Remove only the PWEIGHT BSW table
-  sfs_clean <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
-  close_pumf(sfs_clean)
+  sfs <- remove_bootstrap_weights(sfs_bsw, weight_col = "PWEIGHT")
+  close_pumf(sfs)
 }
 }
 }

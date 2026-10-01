@@ -35,8 +35,12 @@ import(dplyr)
 import(readr)
 import(stringr)
 importFrom(dbplyr,sql_render)
-importFrom(rlang,":=")
-importFrom(rlang,.data)
-importFrom(stats,na.omit)
-importFrom(stats,setNames)
+importFrom(rlang,
+  ":=",
+  .data
+)
+importFrom(stats,
+  na.omit,
+  setNames
+)
 importFrom(utils,head)

@@ -221,7 +221,7 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
 #' to delete everything, freeing the full disk space.
 #'
 #' A survey built in both languages holds an `eng` and a `fra` table (each
-#' with its sentinel companion and bootstrap-weight views) in one DuckDB
+#' with its sentinel companion) in one DuckDB
 #' file.  `lang = "fra"` drops the French tables and keeps everything else:
 #' the English tables, the shared bootstrap-weight tables, the metadata and
 #' the raw files.  DuckDB does not return the space of a dropped table to the
@@ -297,14 +297,13 @@ remove_pumf_cache <- function(series,
 
 # Drop the tables of one language from a survey's DuckDB and compact the
 # file.  The language's objects are its main table(s) (one per module),
-# their pumf_sentinels_ companions, their <table>_bsw_* views and their
-# pumf_build_info rows; the pumf_bsw_* weight tables are shared between the
-# languages (they join on pumf_row_id) and stay while the other language
-# does.  A dropped table's blocks are marked free inside the file but the
+# their pumf_sentinels_ companions, the <table>_bsw_* views that 0.6.0 made
+# for bootstrap weights and their pumf_build_info rows; the pumf_bsw_* weight
+# tables are shared between the languages (they join on pumf_row_id) and stay
+# while the other language does.  A dropped table's blocks are marked free inside the file but the
 # file is not truncated, so the remaining content is copied into a fresh
 # file (COPY FROM DATABASE keeps the ENUM types, views and stamp) which then
-# replaces the old one.  Needs the write lock, like the bootstrap-weight
-# functions.
+# replaces the old one.  Needs the write lock.
 .remove_pumf_lang <- function(series, version, lang, cache_path) {
   db_path <- .pumf_db_path(series, version, cache_path)
   if (!file.exists(db_path))
