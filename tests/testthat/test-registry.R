@@ -27,6 +27,15 @@ test_that("pumf_registry_lookup: inherits newest sibling config for new year", {
                canpumf:::pumf_registry_lookup("SHS", "2017")$file_mask)
 })
 
+test_that("pumf_registry_lookup: a Borealis-sourced entry is not inherited", {
+  # TCP 1881 names one Borealis dataset; another year must not resolve to its
+  # DOI (get_pumf("TCP", "1981") downloaded the 1881 files under that name).
+  expect_false(is.null(canpumf:::pumf_registry_lookup("TCP", "1881")$borealis))
+  expect_no_message(e <- canpumf:::pumf_registry_lookup("TCP", "1981"))
+  expect_null(e)
+  expect_null(canpumf:::.pumf_registry_newest_sibling("TCP", "1891"))
+})
+
 test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
   e <- canpumf:::pumf_registry_lookup("SFS", "2019")
 
@@ -35,7 +44,7 @@ test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
                     "data_encoding","metadata_encoding","data_fixups",
                     "bundled_eng_sps","bundle_source","bundle_sps_mask","doc_mask",
                     "download_format","modules","primary_module","module_key",
-                    "borealis"),
+                    "csv_reader","borealis"),
                ignore.order = TRUE)
 
   expect_equal(e$series,        "SFS")

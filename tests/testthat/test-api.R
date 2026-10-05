@@ -554,11 +554,12 @@ test_that("add_bootstrap_weights: never takes a write lock on a read-only tbl", 
 })
 
 
-# ---- pumf_sentinels ----------------------------------------------------------
+# ---- pumf_sidecar / list_pumf_sidecars ---------------------------------------
 
-# A DuckDB with a labelled main table and its sentinel companion, registered
-# with provenance as get_pumf() would.
-.sentinel_db <- function(with_companion = TRUE, env = parent.frame()) {
+# A DuckDB with a labelled main table, its sentinel sidecar and (optionally)
+# a removed-records sidecar, registered with provenance as get_pumf() would.
+.sentinel_db <- function(with_companion = TRUE, with_removed = FALSE,
+                         env = parent.frame()) {
   cache <- withr::local_tempdir(.local_envir = env)
   s <- list(cache = cache, series = "SENT", version = "2099", lang = "eng")
   s$db_path <- .pumf_db_path(s$series, s$version, cache)
@@ -572,16 +573,19 @@ test_that("add_bootstrap_weights: never takes a write lock on a read-only tbl", 
       data.frame(pumf_row_id = c(1L, 2L, 3L),
                  INC = factor(c(NA, "Not available", "Not applicable")),
                  HRS = factor(c("Not applicable", NA, NA))))
+  if (with_removed)
+    DBI::dbWriteTable(con, .removed_table_name(s$tname),
+      data.frame(pumf_row_id = 5:6, INC = c(50, 60), HRS = c(5, NA)))
   DBI::dbDisconnect(con, shutdown = TRUE)
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = s$db_path, read_only = TRUE)
   .pumf_register_con(con, s$series, s$version, cache, s$lang)
   dplyr::tbl(con, s$tname)
 }
 
-test_that("pumf_sentinels: returns the companion table on the same connection", {
+test_that("pumf_sidecar: returns the sentinel table on the same connection", {
   t <- .sentinel_db()
   on.exit(close_pumf(t))
-  sent <- pumf_sentinels(t)
+  sent <- pumf_sidecar(t, "sentinels")
   expect_s3_class(sent, "tbl_sql")
   expect_identical(sent$src$con, t$src$con)
   d <- dplyr::collect(dplyr::arrange(sent, pumf_row_id))
@@ -589,47 +593,107 @@ test_that("pumf_sentinels: returns the companion table on the same connection", 
   expect_equal(as.character(d$INC), c(NA, "Not available", "Not applicable"))
 })
 
-test_that("pumf_sentinels: join = TRUE suffixes the sentinel columns", {
+test_that("pumf_sidecar: join = TRUE suffixes the sentinel columns", {
   t <- .sentinel_db()
   on.exit(close_pumf(t))
-  j <- dplyr::collect(dplyr::arrange(pumf_sentinels(t, join = TRUE), pumf_row_id))
+  j <- dplyr::collect(dplyr::arrange(
+    pumf_sidecar(t, "sentinels", join = TRUE), pumf_row_id))
   expect_true(all(c("INC", "INC_sentinel", "HRS", "HRS_sentinel") %in% names(j)))
   expect_equal(nrow(j), 4L)
   expect_equal(j$INC, c(10, NA, NA, 40))
   expect_equal(as.character(j$INC_sentinel),
                c(NA, "Not available", "Not applicable", NA))
   # composes with dplyr verbs applied first
-  f <- t |> dplyr::filter(is.na(INC)) |> pumf_sentinels(join = TRUE) |>
+  f <- t |> dplyr::filter(is.na(INC)) |>
+    pumf_sidecar("sentinels", join = TRUE) |>
     dplyr::count(INC_sentinel) |> dplyr::collect()
   expect_equal(nrow(f), 2L)
 })
 
-test_that("pumf_sentinels: join = TRUE needs pumf_row_id in the tbl", {
+test_that("pumf_sidecar: join = TRUE needs pumf_row_id in the tbl", {
   t <- .sentinel_db()
   on.exit(close_pumf(t))
-  expect_error(pumf_sentinels(dplyr::select(t, INC), join = TRUE), "pumf_row_id")
+  expect_error(pumf_sidecar(dplyr::select(t, INC), "sentinels", join = TRUE),
+               "pumf_row_id")
 })
 
-test_that("pumf_sentinels: errors on a table built without a companion", {
+test_that("pumf_sidecar: errors on a table built without a sentinel table", {
   t <- .sentinel_db(with_companion = FALSE)
   on.exit(close_pumf(t))
-  expect_error(pumf_sentinels(t), "refresh = TRUE")
+  expect_error(pumf_sidecar(t, "sentinels"), "refresh = TRUE")
 })
 
-test_that("pumf_sentinels: errors on a data.frame or a tbl without provenance", {
-  expect_error(pumf_sentinels(data.frame(x = 1)), "lazy tbl")
+test_that("pumf_sidecar: the removed records, alone and appended", {
+  t <- .sentinel_db(with_removed = TRUE)
+  on.exit(close_pumf(t))
+  rem <- pumf_sidecar(t, "removed")
+  expect_identical(rem$src$con, t$src$con)
+  expect_equal(dplyr::collect(dplyr::arrange(rem, pumf_row_id))$pumf_row_id,
+               c(5, 6))
+  all <- dplyr::collect(dplyr::arrange(
+    pumf_sidecar(t, "removed", join = TRUE), pumf_row_id))
+  expect_equal(all$pumf_row_id, 1:6)
+  expect_equal(all$INC, c(10, NA, NA, 40, 50, 60))
+  # rows may be filtered first, but the columns must be the survey table's
+  f <- t |> dplyr::filter(pumf_row_id > 3) |>
+    pumf_sidecar("removed", join = TRUE) |> dplyr::collect()
+  expect_equal(sort(f$pumf_row_id), c(4, 5, 6))
+  expect_error(pumf_sidecar(dplyr::select(t, INC), "removed", join = TRUE),
+               "columns of the survey table")
+})
+
+test_that("pumf_sidecar: a dataset that sets no records aside has no \"removed\"", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  expect_error(pumf_sidecar(t, "removed"), "sets no records aside")
+})
+
+test_that("pumf_sidecar: the sidecar must be a known name", {
+  t <- .sentinel_db()
+  on.exit(close_pumf(t))
+  expect_error(pumf_sidecar(t, "weights"), "list_pumf_sidecars")
+  expect_error(pumf_sidecar(t), "list_pumf_sidecars")
+  expect_error(pumf_sidecar(t, c("sentinels", "removed")), "list_pumf_sidecars")
+})
+
+test_that("pumf_sidecar: errors on a data.frame or a tbl without provenance", {
+  expect_error(pumf_sidecar(data.frame(x = 1), "sentinels"), "lazy tbl")
+  expect_error(list_pumf_sidecars(data.frame(x = 1)), "lazy tbl")
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbWriteTable(con, "t", data.frame(X = 1L))
-  expect_error(pumf_sentinels(dplyr::tbl(con, "t")), "provenance")
+  expect_error(pumf_sidecar(dplyr::tbl(con, "t"), "sentinels"), "provenance")
+  expect_error(list_pumf_sidecars(dplyr::tbl(con, "t")), "provenance")
 })
 
-test_that("pumf_sentinels: refuses the longitudinal series", {
+test_that("pumf_sidecar: refuses the longitudinal series, which list none", {
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbWriteTable(con, "lfs_eng", data.frame(X = 1L))
   .pumf_register_con(con, "LFS", "2024-01", tempdir(), "eng")
-  expect_error(pumf_sentinels(dplyr::tbl(con, "lfs_eng")), "longitudinal")
+  expect_error(pumf_sidecar(dplyr::tbl(con, "lfs_eng"), "sentinels"),
+               "longitudinal")
+  expect_equal(nrow(list_pumf_sidecars(dplyr::tbl(con, "lfs_eng"))), 0L)
+})
+
+test_that("list_pumf_sidecars: one row per sidecar the table has", {
+  t <- .sentinel_db(with_removed = TRUE)
+  l <- list_pumf_sidecars(t)
+  expect_named(l, c("sidecar", "table", "kind", "n_rows", "description"))
+  expect_equal(l$sidecar, c("sentinels", "removed"))
+  expect_equal(l$table, c("pumf_sentinels_eng", "pumf_removed_eng"))
+  expect_equal(l$kind, c("values", "records"))
+  expect_equal(l$n_rows, c(3, 2))
+  # every listed name is accepted by pumf_sidecar()
+  for (nm in l$sidecar) expect_s3_class(pumf_sidecar(t, nm), "tbl_sql")
+  close_pumf(t)
+
+  t <- .sentinel_db()
+  expect_equal(list_pumf_sidecars(t)$sidecar, "sentinels")
+  close_pumf(t)
+  t <- .sentinel_db(with_companion = FALSE)
+  on.exit(close_pumf(t))
+  expect_equal(nrow(list_pumf_sidecars(t)), 0L)
 })
 
 

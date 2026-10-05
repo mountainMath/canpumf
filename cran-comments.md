@@ -17,7 +17,7 @@ downloaded data and do not run on CRAN.
 The other changes:
 
 * Special values (not stated, valid skip, ...) that are blanked to `NA` are
-  kept in a companion table, returned by the new `pumf_sentinels()`.
+  kept in a sidecar table, returned by the new `pumf_sidecar()`.
 * New `pumf_dictionary()`, `pumf_translate()` and `pumf_topcodes()` for
   bilingual reporting.
 * Value labels are unique per variable.

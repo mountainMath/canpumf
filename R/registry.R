@@ -34,7 +34,8 @@
 #               no code: the variable's declared "missing" value is a value
 #               (Census 1981 income "ZERO" 0).
 #   sentinel_labels: labels for sentinel codes the source metadata does not
-#               label, shown in the sentinel companion table (pumf_sentinels()).
+#               label, shown in the sentinel sidecar
+#               (pumf_sidecar(tbl, "sentinels")).
 #               A named list keyed by code string ("9999999" = c(label_en=,
 #               label_fr=)), applying to every variable, or by variable name
 #               (HRSWK = list("0" = c(label_en=))) for one variable.  The
@@ -44,6 +45,30 @@
 #               variable labels the source metadata leaves blank (e.g. a weight
 #               variable with an empty Concept line in the PDF codebook).  Fills
 #               only NA labels, so genuine source labels always win.
+#   fix_mojibake: TRUE repairs double-encoded UTF-8 ("QuÃ©bec" for "Québec")
+#               in the character columns of the data, with the same
+#               .fix_mojibake() the metadata labels go through.  For files
+#               whose text fields were re-encoded once too often upstream
+#               (TCP 1881 place names, surnames and occupations).
+#   removed_records: list(var = , values = ) naming a variable and the raw
+#               values that mark a record the producer says to drop (TCP 1881
+#               remove_TCP = 1: crossed-out, duplicate or blank lines).  Those
+#               records go to the sidecar table pumf_removed_<table>
+#               (pumf_sidecar(tbl, "removed")) with their pumf_row_id, and
+#               are left out of the main table.
+#   keep_unlabelled_codes: TRUE (every coded variable) or a character vector
+#               of variables whose data values without a label stay a level
+#               named by the code instead of becoming NA.  For value-label
+#               dictionaries that are incomplete by construction (TCP 1881
+#               occupation codes).  Decided on the data: only codes that occur
+#               are added.
+#
+# csv_reader (a top-level field, not a fixup): "duckdb" reads a CSV data file
+#   with DuckDB's own reader instead of readr, so the records never pass
+#   through R: only the distinct values of the coded and numeric columns do
+#   (.pumf_native_scan()).  For files too large to hold in memory as
+#   character columns (TCP 1881: 4.3 million records, 1.1 GB).  UTF-8 or
+#   Latin-1 data without a bootstrap-weight join only.
 
 .make_entry <- function(series,
                         version,
@@ -63,6 +88,7 @@
                         bundle_sps_mask   = NULL,
                         doc_mask          = NULL,
                         download_format   = NULL,
+                        csv_reader        = NULL,
                         modules           = NULL,
                         primary_module    = NULL,
                         module_key        = NULL,
@@ -117,6 +143,7 @@
     bundle_sps_mask   = bundle_sps_mask,
     doc_mask          = doc_mask,
     download_format   = download_format,
+    csv_reader        = csv_reader,
     modules           = modules,
     primary_module    = primary_module,
     module_key        = module_key,
@@ -364,6 +391,122 @@
   CR   = character(0L)
 )
 
+
+# ---- TCP: The Canadian Peoples / Les populations canadiennes ----------------
+# The 1881 Census of Canada, complete count (4,277,810 records), from the
+# Borealis dataverse TCPCensusData.  The dataset ships one UTF-8 CSV, a JSON
+# value-label dictionary for 15 coded fields (English only) and a
+# documentation PDF that lists the 52 fields but describes only five of them
+# (TCPUID_CSD_1881, comment, remove_TCP, remove_why_TCP, unique_identifier).
+# The variable labels below are therefore canpumf's own, written from the
+# field names, the 1881 schedule and the values the fields hold; the French
+# ones are translations.  A label the dictionary ever supplies wins.
+.tcp_1881_var_labels <- list(
+  TCPUID_CSD_1881              = c(label_en = "Census subdivision identifier, 1881 (TCP/HGIS)",
+                                   label_fr = "Identifiant de la subdivision de recensement, 1881 (TCP/HGIS)"),
+  AGE                          = c(label_en = "Age in years",
+                                   label_fr = "\u00c2ge en ann\u00e9es"),
+  AGEMONTH                     = c(label_en = "Age in months",
+                                   label_fr = "\u00c2ge en mois"),
+  COMMENT                      = c(label_en = "Comments by data processing staff or enumerators",
+                                   label_fr = "Commentaires du personnel de traitement des donn\u00e9es ou des recenseurs"),
+  DBIRTHMO                     = c(label_en = "Month of birth, if born within the last twelve months",
+                                   label_fr = "Mois de naissance, si n\u00e9(e) dans les douze derniers mois"),
+  DBIRTHPL                     = c(label_en = "Birthplace (as transcribed)",
+                                   label_fr = "Lieu de naissance (transcription)"),
+  DBIRTHPL_EVALUATION_FLAG_TCP = c(label_en = "Birthplace: coding evaluation flag (TCP)",
+                                   label_fr = "Lieu de naissance : indicateur d'\u00e9valuation du codage (TCP)"),
+  DBIRTHPL_TCP                 = c(label_en = "Birthplace (TCP code)",
+                                   label_fr = "Lieu de naissance (code TCP)"),
+  DBIRTHPL_2_TCP               = c(label_en = "Birthplace, second code (TCP)",
+                                   label_fr = "Lieu de naissance, second code (TCP)"),
+  DISTNAM                      = c(label_en = "Census district name",
+                                   label_fr = "Nom du district de recensement"),
+  DISTNO                       = c(label_en = "Census district number",
+                                   label_fr = "Num\u00e9ro du district de recensement"),
+  DIVNAM                       = c(label_en = "Name of the division of the sub-district",
+                                   label_fr = "Nom de la division du sous-district"),
+  DIVNO                        = c(label_en = "Number of the division of the sub-district",
+                                   label_fr = "Num\u00e9ro de la division du sous-district"),
+  DIVNO_2                      = c(label_en = "Number of the division of the sub-district (second field)",
+                                   label_fr = "Num\u00e9ro de la division du sous-district (second champ)"),
+  DOCCUP                       = c(label_en = "Occupation (as transcribed)",
+                                   label_fr = "Profession (transcription)"),
+  DOCCUP_TCP                   = c(label_en = "Occupation (TCP code)",
+                                   label_fr = "Profession (code TCP)"),
+  DOCCUP_RELATE_TCP            = c(label_en = "Occupation: relation code (TCP)",
+                                   label_fr = "Profession : code de relation (TCP)"),
+  DOCCUP_STATUS_TCP            = c(label_en = "Occupation: status code (TCP)",
+                                   label_fr = "Profession : code de statut (TCP)"),
+  DORIGIN                      = c(label_en = "Origin (as transcribed)",
+                                   label_fr = "Origine (transcription)"),
+  DORIGIN_EVALUATION_FLAG_TCP  = c(label_en = "Origin: coding evaluation flag (TCP)",
+                                   label_fr = "Origine : indicateur d'\u00e9valuation du codage (TCP)"),
+  DORIGIN_TCP                  = c(label_en = "Origin (TCP code)",
+                                   label_fr = "Origine (code TCP)"),
+  DORIGIN_2_TCP                = c(label_en = "Origin, second code (TCP)",
+                                   label_fr = "Origine, second code (TCP)"),
+  DRELIGN                      = c(label_en = "Religion (as transcribed)",
+                                   label_fr = "Religion (transcription)"),
+  DRELIGN_EVALUATION_FLAG_TCP  = c(label_en = "Religion: coding evaluation flag (TCP)",
+                                   label_fr = "Religion : indicateur d'\u00e9valuation du codage (TCP)"),
+  DRELIGN_TCP                  = c(label_en = "Religion (TCP code)",
+                                   label_fr = "Religion (code TCP)"),
+  DRELIGN_2_TCP                = c(label_en = "Religion, second code (TCP)",
+                                   label_fr = "Religion, second code (TCP)"),
+  DSNP                         = c(label_en = "District, sub-district, division and page reference",
+                                   label_fr = "R\u00e9f\u00e9rence du district, du sous-district, de la division et de la page"),
+  FOLDER                       = c(label_en = "Image folder (Library and Archives Canada)",
+                                   label_fr = "Dossier d'images (Biblioth\u00e8que et Archives Canada)"),
+  HHNBR                        = c(label_en = "Household number",
+                                   label_fr = "Num\u00e9ro du m\u00e9nage"),
+  JPG_NUM                      = c(label_en = "Image number of the census page",
+                                   label_fr = "Num\u00e9ro de l'image de la page de recensement"),
+  LINE                         = c(label_en = "Line number on the census page",
+                                   label_fr = "Num\u00e9ro de ligne sur la page de recensement"),
+  MARST                        = c(label_en = "Marital status",
+                                   label_fr = "\u00c9tat matrimonial"),
+  MARST_TCP                    = c(label_en = "Marital status (TCP code)",
+                                   label_fr = "\u00c9tat matrimonial (code TCP)"),
+  NAMFRST                      = c(label_en = "Given name",
+                                   label_fr = "Pr\u00e9nom"),
+  NAMFRST2                     = c(label_en = "Given name, second part",
+                                   label_fr = "Pr\u00e9nom, deuxi\u00e8me partie"),
+  NAMLAST                      = c(label_en = "Surname",
+                                   label_fr = "Nom de famille"),
+  NAMLAST2                     = c(label_en = "Surname, second part",
+                                   label_fr = "Nom de famille, deuxi\u00e8me partie"),
+  PAGENO                       = c(label_en = "Census page number",
+                                   label_fr = "Num\u00e9ro de la page de recensement"),
+  PARENT_TCP                   = c(label_en = "Parent indicator (TCP)",
+                                   label_fr = "Indicateur de parent (TCP)"),
+  PARENT_SUM_TCP               = c(label_en = "Parent count (TCP)",
+                                   label_fr = "Nombre de parents (TCP)"),
+  PROVINCE                     = c(label_en = "Province or territory",
+                                   label_fr = "Province ou territoire"),
+  REEL_NAC                     = c(label_en = "Microfilm reel number (National Archives of Canada)",
+                                   label_fr = "Num\u00e9ro de bobine de microfilm (Archives nationales du Canada)"),
+  REMOVE_TCP                   = c(label_en = "Record to remove (TCP)",
+                                   label_fr = "Enregistrement \u00e0 retirer (TCP)"),
+  REMOVE_WHY_TCP               = c(label_en = "Reason for record removal (TCP)",
+                                   label_fr = "Raison du retrait de l'enregistrement (TCP)"),
+  SDISTLET                     = c(label_en = "Census sub-district letter",
+                                   label_fr = "Lettre du sous-district de recensement"),
+  SDISTLET_2                   = c(label_en = "Census sub-district letter (second field)",
+                                   label_fr = "Lettre du sous-district de recensement (second champ)"),
+  SDISTNAM                     = c(label_en = "Census sub-district name",
+                                   label_fr = "Nom du sous-district de recensement"),
+  SERIAL                       = c(label_en = "Household serial number",
+                                   label_fr = "Num\u00e9ro de s\u00e9rie du m\u00e9nage"),
+  SEX                          = c(label_en = "Sex",
+                                   label_fr = "Sexe"),
+  UNIQUE_IDENTIFIER            = c(label_en = "Unique record identifier",
+                                   label_fr = "Identifiant unique de l'enregistrement"),
+  URL                          = c(label_en = "Path of the census page image",
+                                   label_fr = "Chemin de l'image de la page de recensement"),
+  VOLUME                       = c(label_en = "Volume number",
+                                   label_fr = "Num\u00e9ro du volume")
+)
 
 .pumf_registry <- list(
 
@@ -1689,7 +1832,29 @@
   "Census/1971 (families, CMA)" = .make_entry("Census",
     "1971 (families, CMA)",
     borealis    = list(doi = "doi:10.5683/SP3/R8V3ID"),
-    data_fixups = .census_fixup_1971)
+    data_fixups = .census_fixup_1971),
+
+  # ---- TCP: The Canadian Peoples, complete-count historical censuses --------
+  # 1881 (the only vintage whose data file is open; 1871 and 1891-1921 need a
+  # project application).  A 1.1 GB CSV: read by DuckDB, never through R.
+  #   - AGE, AGEMONTH: the only measures; every other field is an identifier,
+  #     a transcribed text or a code.
+  #   - fix_mojibake: the transcribed text fields (names, places, occupations,
+  #     religions) are double-encoded UTF-8.
+  #   - removed_records: remove_TCP = 1 marks 1,137 crossed-out, duplicate or
+  #     blank lines the documentation says to drop before analysis.
+  #   - keep_unlabelled_codes: 98 codes of the three occupation fields occur
+  #     in the data without an entry in the value-label dictionary.
+  "TCP/1881" = .make_entry("TCP", "1881",
+    borealis      = list(doi = "doi:10.5683/SP3/FXZEVO"),
+    data_encoding = "UTF-8",
+    csv_reader    = "duckdb",
+    data_fixups   = list(
+      force_numeric         = c("AGE", "AGEMONTH"),
+      fix_mojibake          = TRUE,
+      removed_records       = list(var = "REMOVE_TCP", values = "1"),
+      keep_unlabelled_codes = TRUE,
+      labels_supplement     = .tcp_1881_var_labels))
 )
 
 #' Resolve version aliases
@@ -1992,7 +2157,8 @@ pumf_registry_keys <- function() {
 #' Considers only plain four-digit-year keys (`series/2023`) so multi-part
 #' versions (Census `1971/individuals_prov`) never inherit across types.
 #' Prefers the newest sibling not later than `version`; if the requested year
-#' predates every entry, falls back to the oldest registered sibling.
+#' predates every entry, falls back to the oldest registered sibling.  Entries
+#' with a registry `borealis` source are never inherited from.
 #'
 #' @return the chosen sibling version string, or `NULL` if no year-keyed sibling
 #' @keywords internal
@@ -2000,6 +2166,10 @@ pumf_registry_keys <- function() {
   if (!grepl("^\\d{4}$", version)) return(NULL)
   pre <- paste0(series, "/")
   sibs <- names(.pumf_registry)[startsWith(names(.pumf_registry), pre)]
+  # An entry with a Borealis source describes that one dataset: its DOI would
+  # make any year of the series download the same files (TCP 1881).
+  sibs <- sibs[vapply(.pumf_registry[sibs], function(e) is.null(e$borealis),
+                      logical(1L))]
   years <- sub(paste0("^", pre), "", sibs)
   years <- years[grepl("^\\d{4}$", years)]
   if (length(years) == 0L) return(NULL)
@@ -2019,14 +2189,15 @@ pumf_registry_keys <- function() {
   "layout_mask", "layout_file", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
   "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
   "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
-  "doc_mask", "download_format", "borealis")
+  "doc_mask", "download_format", "csv_reader", "borealis")
 
 # Recognised data_fixups sub-fields (for validation warnings).
 .pumf_fixup_fields <- c(
   "str_pad", "rename", "rename_regex", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
   "codes_supplement", "codes_override", "missing_supplement", "missing_codes",
-  "labels_supplement", "sentinel_labels")
+  "labels_supplement", "sentinel_labels",
+  "fix_mojibake", "removed_records", "keep_unlabelled_codes")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.
@@ -2038,13 +2209,16 @@ pumf_registry_keys <- function() {
                             "bsw_join_key", "file_mask", "data_encoding",
                             "metadata_encoding", "bundled_eng_sps",
                             "bundle_source", "bundle_sps_mask", "doc_mask",
-                            "download_format")
+                            "download_format", "csv_reader")
   for (f in intersect(single_string_fields, names(x))) {
     v <- x[[f]]
     if (!is.null(v) && !is_str(v))
       stop("Registry field '", f, "' must be a single string (or NULL).",
            call. = FALSE)
   }
+  if (!is.null(x$csv_reader) && !x$csv_reader %in% c("readr", "duckdb"))
+    stop("Registry field 'csv_reader' must be \"readr\" or \"duckdb\".",
+         call. = FALSE)
   for (f in intersect(c("bsw_drop_cols", "bsw_strata"), names(x))) {
     v <- x[[f]]
     if (!is.null(v) && !is_chr(v))
@@ -2073,6 +2247,11 @@ pumf_registry_keys <- function() {
               paste(unknown, collapse = ", "),
               ". Recognised: ", paste(.pumf_fixup_fields, collapse = ", "),
               call. = FALSE)
+    rr <- x$data_fixups$removed_records
+    if (!is.null(rr) &&
+        !(is.list(rr) && is_str(rr$var) && length(rr$values) > 0L))
+      stop("data_fixups 'removed_records' must be list(var = <variable>, ",
+           "values = <raw values>).", call. = FALSE)
     # A variable may appear in at most one force_* type override.
     forced <- unlist(x$data_fixups[c("force_numeric", "force_character",
                                      "force_integer", "force_bigint")],
@@ -2124,7 +2303,8 @@ pumf_registry_keys <- function() {
 #' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
 #'   `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
 #'   `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
-#'   `missing_supplement`, `missing_codes`, `labels_supplement`.
+#'   `missing_supplement`, `missing_codes`, `labels_supplement`,
+#'   `fix_mojibake`, `removed_records`, `keep_unlabelled_codes`.
 #'   The `force_character`/`force_integer`/`force_bigint` fields take character
 #'   vectors of variable names and override the DuckDB storage type (VARCHAR /
 #'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
@@ -2138,6 +2318,12 @@ pumf_registry_keys <- function() {
 #'   values, for variables whose sentinels do not form one contiguous range (and
 #'   which a single `missing_low`/`missing_high` pair therefore cannot express);
 #'   an empty vector keeps every value of the variable.
+#'   `fix_mojibake = TRUE` repairs double-encoded UTF-8 text in the character
+#'   columns of the data. `removed_records = list(var = , values = )` moves the
+#'   records whose raw value of `var` is one of `values` to the `"removed"`
+#'   sidecar (see [pumf_sidecar()]). `keep_unlabelled_codes` (`TRUE` or a character
+#'   vector of variables) keeps data values without a value label as a level
+#'   named by the code instead of turning them into `NA`.
 #' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
 #'   bundled-archive and documentation options.
 #' @param download_format Format bundle to download when Statistics Canada
@@ -2145,6 +2331,11 @@ pumf_registry_keys <- function() {
 #'   default the preferred format wins; set this when only one bundle carries
 #'   the command files the metadata parsers need (e.g. the Canadian Health
 #'   Survey on Seniors, whose CSV zip ships the data alone).
+#' @param csv_reader `"duckdb"` reads a CSV data file with DuckDB's own
+#'   reader instead of `readr` (the default, `"readr"`), so that the records
+#'   never pass through R. Meant for files too large to hold in memory as
+#'   character columns; needs UTF-8 or Latin-1 data and no bootstrap-weight
+#'   file to join.
 #' @param borealis A Borealis Dataverse source for the data: a DOI string
 #'   (`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the
 #'   optional `files` (file ids or names from [list_borealis_pumf_files()])
@@ -2183,6 +2374,7 @@ pumf_registry_entry <- function(layout_mask       = NULL,
                                 bundle_sps_mask   = NULL,
                                 doc_mask          = NULL,
                                 download_format   = NULL,
+                                csv_reader        = NULL,
                                 borealis          = NULL,
                                 ...) {
   dots <- names(list(...))
@@ -2278,6 +2470,7 @@ print.pumf_registry_entry <- function(x, ...) {
   show("bundle_source",     x$bundle_source)
   show("doc_mask",          x$doc_mask)
   show("download_format",   x$download_format)
+  show("csv_reader",        x$csv_reader)
   show("borealis",          x$borealis$doi)
   if (length(x$data_fixups) > 0L) {
     cat("  data_fixups:\n")

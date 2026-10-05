@@ -226,3 +226,66 @@ NULL
 ## quiets concerns of R CMD check re: NSE column names
 if (getRversion() >= "4.1")
   utils::globalVariables(c(".", "SURVMNTH", "SURVYEAR", "SEX", "GENDER"))
+
+# ---- Compressed data files ---------------------------------------------------
+# A downloaded data file stays compressed in the cache: readr, readLines() and
+# DuckDB's read_csv() all read a gzip file directly, so nothing ever needs the
+# uncompressed copy on disk.  .borealis_download_dataset() therefore stores a
+# CSV data file as `<name>.csv.gz` (see .borealis_download_csv_gz()).
+
+# TRUE for a CSV path, plain or gzip-compressed.
+.is_csv_path <- function(path) {
+  grepl("\\.csv(\\.gz)?$", path, ignore.case = TRUE)
+}
+
+# Copy the binary connection `inp` into the gzip file `dest` and close it.
+# Streams in chunks, so the memory use does not depend on the size.  Returns
+# the number of (uncompressed) bytes copied; a failed copy leaves no `dest`.
+.stream_to_gzip <- function(inp, dest, chunk = 16e6) {
+  done <- FALSE
+  out  <- gzfile(dest, "wb", compression = 6L)
+  on.exit({
+    close(inp)
+    close(out)
+    if (!done) unlink(dest)
+  }, add = TRUE)
+  n <- 0
+  repeat {
+    buf <- readBin(inp, "raw", n = chunk)
+    if (length(buf) == 0L) break
+    writeBin(buf, out)
+    n <- n + length(buf)
+  }
+  done <- TRUE
+  n
+}
+
+# Compress `path` to `<path>.gz` and remove the original.  Returns the new path.
+.gzip_file <- function(path, chunk = 16e6) {
+  dest <- paste0(path, ".gz")
+  .stream_to_gzip(file(path, "rb"), dest, chunk = chunk)
+  unlink(path)
+  dest
+}
+
+# Recompress the entry `entry` of the archive `zip` as the gzip file `dest`,
+# without the uncompressed file ever being on disk.  Returns the number of
+# uncompressed bytes, which the caller compares with the expected size (R's
+# unz() truncates an entry of 4 GB or more).
+.zip_entry_to_gzip <- function(zip, entry, dest, chunk = 16e6) {
+  .stream_to_gzip(unz(zip, entry, "rb"), dest, chunk = chunk)
+}
+
+# Size in bytes of the data a file holds: for a gzip file the uncompressed
+# size recorded in its last four bytes (modulo 4 GB, which is what gzip
+# stores), otherwise the file size.
+.pumf_data_file_size <- function(path) {
+  size <- file.size(path)
+  if (!grepl("\\.gz$", path, ignore.case = TRUE) || is.na(size) || size < 18)
+    return(size)
+  con <- file(path, "rb")
+  on.exit(close(con), add = TRUE)
+  seek(con, size - 4)
+  b <- as.numeric(readBin(con, "raw", n = 4L))
+  sum(b * 256^(0:3))
+}

@@ -107,6 +107,16 @@ test_that(".borealis_select_files: oversized docs and restricted files skipped",
   expect_equal(sel$role[[4L]], "doc")
 })
 
+test_that(".borealis_select_files: a JSON value-label dictionary is metadata", {
+  # The Canadian Peoples 1881: one CSV, the value labels as JSON, two PDFs.
+  files <- .fake_listing(
+    c("1881_v20251217.csv", "1881_value_labels.json", "TCP_1881_UserGuide.pdf",
+      "notes.json"),
+    size = c(1.1e9, 3e5, 2e6, 1e3))
+  sel <- canpumf:::.borealis_select_files(files)
+  expect_equal(sel$role, c("data", "metadata", "doc", "skip"))
+})
+
 # ---- StatCan-availability flag ---------------------------------------------
 
 test_that(".borealis_norm_series strips years, suffixes and articles", {
@@ -188,6 +198,86 @@ test_that("an explicit Borealis load warns when StatCan has the data", {
 })
 
 # ---- Manifest ---------------------------------------------------------------
+
+# A stand-in for the Borealis bundle endpoint: a zip of `files` (name -> lines)
+# plus the MANIFEST.TXT Dataverse adds to every bundle.
+.fake_bundle <- function(dest, files) {
+  src <- withr::local_tempdir()
+  for (f in names(files)) writeLines(files[[f]], file.path(src, f))
+  writeLines("manifest", file.path(src, "MANIFEST.TXT"))
+  withr::with_dir(src, utils::zip(dest, c(names(files), "MANIFEST.TXT"),
+                                  flags = "-q"))
+}
+
+.fake_dataset <- function() {
+  listing <- .fake_listing(c("survey.csv", "survey.sps", "guide.pdf"))
+  listing$md5  <- c("aaa", "bbb", "ccc")
+  listing$size <- c(8, 100, 100)          # "a,b\n1,2\n"
+  attr(listing, "doi")   <- "doi:10.5683/SP3/FAKE01"
+  attr(listing, "title") <- "Fake survey"
+  listing
+}
+
+test_that(".borealis_download_dataset: a CSV data file arrives and stays compressed", {
+  skip_if(!nzchar(Sys.which("zip")), "no zip utility")
+  vdir <- file.path(withr::local_tempdir(), "FAKE", "2099")
+  listing <- .fake_dataset()
+  direct <- character(0L)
+  local_mocked_bindings(
+    .borealis_dataset_files = function(doi) listing,
+    .borealis_download_bundle = function(file_ids, dest, original = FALSE)
+      .fake_bundle(dest, list(survey.csv = c("a,b", "1,2"))),
+    .borealis_download_file = function(file_id, dest, original = FALSE) {
+      direct <<- c(direct, basename(dest))
+      writeLines("x", dest)
+    },
+    .pumf_warn_cache_path_on_download = function(...) invisible(NULL))
+  suppressMessages(
+    canpumf:::.borealis_download_dataset("doi:10.5683/SP3/FAKE01", vdir))
+  # the CSV came through the bundle only; neither it nor the bundle is left
+  expect_setequal(direct, c("survey.sps", "guide.pdf"))
+  expect_setequal(list.files(vdir),
+                  c("survey.csv.gz", "survey.sps", "guide.pdf",
+                    "borealis_manifest.csv"))
+  expect_equal(readLines(file.path(vdir, "survey.csv.gz")), c("a,b", "1,2"))
+  m <- readr::read_csv(file.path(vdir, "borealis_manifest.csv"),
+                       col_types = readr::cols(.default = "c"))
+  expect_equal(m$filename[m$role == "data"], "survey.csv.gz")
+  expect_equal(m$data_file[m$role == "data"], "survey.csv.gz")
+  # the md5 stays the one Borealis publishes (of the uncompressed file)
+  expect_equal(m$md5[m$role == "data"], "aaa")
+  expect_equal(canpumf:::.borealis_manifest_file_mask(vdir),
+               "^survey\\.csv\\.gz$")
+  expect_equal(basename(canpumf:::.find_pumf_data_file(
+    vdir, canpumf:::.borealis_manifest_file_mask(vdir))), "survey.csv.gz")
+})
+
+test_that(".borealis_download_csv_gz: falls back to the uncompressed download", {
+  skip_if(!nzchar(Sys.which("zip")), "no zip utility")
+  bundles <- list(
+    "bundle endpoint fails" = function(file_ids, dest, original = FALSE)
+      stop("HTTP 500"),
+    # above the zip size limit Dataverse sends a bundle without the file
+    "file left out of the bundle" = function(file_ids, dest, original = FALSE)
+      .fake_bundle(dest, list()),
+    "bundle holds a truncated file" = function(file_ids, dest, original = FALSE)
+      .fake_bundle(dest, list(survey.csv = "a,b"))
+  )
+  for (case in names(bundles)) {
+    dir  <- withr::local_tempdir()
+    dest <- file.path(dir, "survey.csv")
+    local_mocked_bindings(
+      .borealis_download_bundle = bundles[[case]],
+      .borealis_download_file = function(file_id, dest, original = FALSE)
+        writeLines(c("a,b", "1,2"), dest))
+    expect_message(
+      gz <- canpumf:::.borealis_download_csv_gz(1L, dest, size = 8),
+      "downloading the uncompressed file", label = case)
+    expect_equal(basename(gz), "survey.csv.gz", label = case)
+    expect_equal(list.files(dir), "survey.csv.gz", label = case)
+    expect_equal(readLines(gz), c("a,b", "1,2"), label = case)
+  }
+})
 
 test_that("the manifest pins the data file as an anchored, escaped mask", {
   vdir <- withr::local_tempdir()
@@ -291,7 +381,8 @@ test_that("EFT entries point at their Borealis twin", {
 
 test_that("every Borealis registry entry has a valid, unique DOI", {
   keys <- .borealis_keys()
-  expect_length(keys, 14L)
+  # 14 Census PUMFs (1971-1986) and TCP 1881
+  expect_length(keys, 15L)
   dois <- vapply(canpumf:::.pumf_registry[keys], canpumf:::.borealis_entry_doi,
                  character(1L))
   expect_true(all(grepl("^doi:10\\.5683/SP3/[A-Z0-9]{6}$", dois)))
@@ -300,8 +391,12 @@ test_that("every Borealis registry entry has a valid, unique DOI", {
 
 test_that("list_canpumf_collection rows for Borealis entries", {
   rows <- canpumf:::.borealis_registry_collection()
-  expect_equal(nrow(rows), 14L)
-  expect_true(all(rows$Acronym == "Census"))
+  expect_equal(nrow(rows), 15L)
+  expect_equal(sum(rows$Acronym == "Census"), 14L)
+  tcp <- rows[rows$Acronym == "TCP", ]
+  expect_equal(unname(tcp$Version), "1881")
+  expect_equal(unname(tcp$Title), "The Canadian Peoples complete-count census")
+  expect_true(is.na(tcp$`Survey Number`))
   expect_true(all(startsWith(rows$url, "https://borealisdata.ca/dataset.xhtml")))
   expect_true("1971 (individuals, CMA)" %in% rows$Version)
 })

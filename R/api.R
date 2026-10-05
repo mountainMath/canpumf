@@ -441,7 +441,7 @@ get_pumf <- function(series     = NULL,
     .pumf_stale_announced[[key]] <- TRUE
     message(sprintf(paste0(
       "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
-      "and no sentinel companion, so pumf_sentinels() is not available; codes ",
+      "and no sentinel companion, so pumf_sidecar() is not available; codes ",
       "that share a label are merged into one level; and its values are those ",
       "of the version that built it (see NEWS for fixes since). "),
       series, version, lang), rebuild)
@@ -852,7 +852,7 @@ close_pumf <- function(x) {
 #'   * The survey registry `bsw_join_key` is used when available (e.g.
 #'     `"PEFAMID"` for SFS 2016-2023).
 #'   * Otherwise the `pumf_row_id` column that every table built by canpumf
-#'     0.6.1 or later carries (see [pumf_sentinels()]) is used.
+#'     0.6.1 or later carries (see [pumf_sidecar()]) is used.
 #'   * The longitudinal series (`"LFS"`, `"LFS_HIST"`) use `SURVYEAR`,
 #'     `SURVMNTH` and `REC_NUM` together.
 #' A table built by an earlier version that has none of these needs a rebuild
@@ -1915,82 +1915,187 @@ pumf_metadata <- function(series,
 }
 
 
-# ---- pumf_sentinels -----------------------------------------------------
+# ---- sidecar tables: pumf_sidecar(), list_pumf_sidecars() ---------------
 
-#' Sentinel codes behind the NA values of a PUMF table
+#' Sidecar tables of a PUMF: sentinel codes, removed records
 #'
-#' Statistics Canada codes "not applicable", "not available", "not stated"
-#' and similar non-responses in numeric variables as sentinel values (Census
-#' income `9999999` / `8888888`, GSS `996`-`999`, ...).  [get_pumf()] converts
-#' them to `NA` so that sums and means are right, which loses the distinction
-#' between the reasons.  Every table built by canpumf 0.6.1 or later therefore
-#' carries a companion table with the raw sentinel codes, linked to the main
-#' table by the permanent `pumf_row_id` column (the record's 1-based position
-#' in the data file).  `pumf_sentinels()` returns that companion, or the main
-#' table joined with it.
+#' Besides the survey table that [get_pumf()] returns, a database holds
+#' record-level tables that belong to it, each linked by the permanent
+#' `pumf_row_id` column (the record's 1-based position in the data file).
+#' `list_pumf_sidecars()` says which ones a table has, and `pumf_sidecar()`
+#' returns one of them as a lazy tbl, or the survey table combined with it.
+#' (Bootstrap weights are kept apart: see [add_bootstrap_weights()] and
+#' [bsw_info()].)
 #'
-#' The companion has one row per record in which at least one value was a
-#' sentinel, and one column per variable in which a sentinel occurred, named
-#' as in the main table.  A cell holds the raw code (a `DOUBLE`) where the
-#' main table has `NA` for that reason, and `NA` where the main table has a
-#' value.  What each code means is documented in the survey's user guide and,
-#' where the command files label it, in `pumf_metadata()$codes`.  Values the
-#' data file could not parse as numbers, and unlabelled values of a
-#' categorical variable, are not sentinels and are not recorded.
+#' @section Sidecars:
+#' \describe{
+#'   \item{`"sentinels"`}{Statistics Canada codes "not applicable", "not
+#'     available", "not stated" and similar non-responses in numeric
+#'     variables as sentinel values (Census income `9999999` / `8888888`, GSS
+#'     `996`-`999`, ...).  [get_pumf()] converts them to `NA` so that sums and
+#'     means are right, which loses the distinction between the reasons.  The
+#'     sidecar keeps it: one row per record in which at least one value was a
+#'     sentinel, and one column per variable in which a sentinel occurred,
+#'     named as in the survey table.  A cell holds the sentinel's label
+#'     (`"Not applicable"`; the code's digits where nothing labels it) where
+#'     the survey table has `NA` for that reason, and `NA` where it has a
+#'     value.  With `join = TRUE` the columns are left-joined onto `tbl` as
+#'     `<VAR>_sentinel`.  It covers the sentinel rules Stage 3 applies:
+#'     declared `MISSING VALUES` ranges, labelled missing codes, and the
+#'     registry's `na_values` / `missing_codes` fixups (see
+#'     `vignette("pipeline")`).  Values the data file could not parse as
+#'     numbers, and unlabelled values of a categorical variable, are not
+#'     sentinels and are not recorded.  Every table built by canpumf 0.6.1 or
+#'     later has this sidecar.}
+#'   \item{`"removed"`}{Records the producer of the file flags as not
+#'     belonging to the data.  The 1881 census of The Canadian Peoples project
+#'     (`"TCP"`, `"1881"`) marks 1,137 rows that were crossed out on the
+#'     census page, are duplicates or blank, or do not refer to a person
+#'     (`remove_TCP = 1`, the reason in `remove_why_TCP`).  [get_pumf()]
+#'     leaves such records out of the survey table, so that counts are right
+#'     without a filter; the sidecar holds them with the survey table's
+#'     columns, labels and types.  Their `pumf_row_id` values are the gaps in
+#'     the survey table's.  With `join = TRUE` they are appended to `tbl`
+#'     (`UNION ALL`), which gives the file as published.  Only datasets whose
+#'     registry entry declares `removed_records` have this sidecar (see
+#'     [pumf_registry_entry()]).}
+#' }
 #'
-#' The companion covers the sentinel rules Stage 3 applies: declared
-#' `MISSING VALUES` ranges, labelled missing codes, and the registry's
-#' `na_values` / `missing_codes` fixups (see `vignette("pipeline")`).  It is
-#' not available for the longitudinal series (`"LFS"`, `"LFS_HIST"`), whose
-#' shared databases are appended month by month.
+#' Sidecars are not available for the longitudinal series (`"LFS"`,
+#' `"LFS_HIST"`), whose shared databases are appended month by month:
+#' `list_pumf_sidecars()` returns no rows for them.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @param join If `TRUE`, return `tbl` left-joined with the companion on
-#'   `pumf_row_id`; the sentinel columns are suffixed `_sentinel`
-#'   (`INCTAX_sentinel`).  Apply it before [label_pumf_columns()], or the
-#'   suffixed columns keep their coded names.
+#' @param sidecar The sidecar's name: `"sentinels"` or `"removed"`.
+#' @param join If `TRUE`, return `tbl` combined with the sidecar instead of
+#'   the sidecar: for `"sentinels"` a left join on `pumf_row_id` with the
+#'   sentinel columns suffixed `_sentinel` (`INCTAX_sentinel`), for
+#'   `"removed"` the union of the two.  Apply it before
+#'   [label_pumf_columns()], and for `"removed"` before any verb that changes
+#'   the columns.
 #'
-#' @return A lazy `dplyr::tbl()` on the same connection as `tbl`: the sentinel
-#'   companion (columns `pumf_row_id` plus one per affected variable), or with
-#'   `join = TRUE` the input joined with it.  An error is raised for a table
-#'   built by canpumf before 0.6.1; rebuild it with `refresh = TRUE`.
+#' @return `pumf_sidecar()`: a lazy `dplyr::tbl()` on the same connection as
+#'   `tbl`.  An error is raised when the table has no such sidecar; for
+#'   `"sentinels"` that means it was built by canpumf before 0.6.1 and needs
+#'   `refresh = TRUE`.
+#'
+#'   `list_pumf_sidecars()`: a tibble with one row per sidecar the table has
+#'   and the columns `sidecar` (the name to pass to `pumf_sidecar()`),
+#'   `table` (the DuckDB table), `kind` (`"values"`: columns annotating the
+#'   survey table's records; `"records"`: records left out of it), `n_rows`
+#'   and `description`.
 #'
 #' @examples
 #' \dontrun{
 #' census <- get_pumf("Census", "2011 (individuals)")
-#' sent   <- pumf_sentinels(census)
-#' # how many NA incomes are "not available" (8s) vs "not applicable" (9s)?
-#' sent |> dplyr::count(TOTINC) |> dplyr::collect()
+#' list_pumf_sidecars(census)
+#'
+#' # how many NA incomes are "Not available" vs "Not applicable"?
+#' pumf_sidecar(census, "sentinels") |> dplyr::count(TOTINC) |> dplyr::collect()
 #'
 #' # keep the reason next to the value
 #' census |>
-#'   pumf_sentinels(join = TRUE) |>
+#'   pumf_sidecar("sentinels", join = TRUE) |>
 #'   dplyr::filter(is.na(TOTINC)) |>
 #'   dplyr::count(TOTINC_sentinel)
+#'
+#' # the records the 1881 census file flags for removal, by reason
+#' tcp <- get_pumf("TCP", "1881")
+#' pumf_sidecar(tcp, "removed") |> dplyr::count(REMOVE_WHY_TCP)
 #' }
 #' @export
-pumf_sentinels <- function(tbl, join = FALSE) {
+pumf_sidecar <- function(tbl, sidecar, join = FALSE) {
+  loc <- .pumf_sidecar_locate(tbl, "pumf_sidecar()")
+  if (missing(sidecar) || !is.character(sidecar) || length(sidecar) != 1L ||
+      !sidecar %in% names(.pumf_sidecars))
+    stop("'sidecar' must be one of ",
+         paste0('"', names(.pumf_sidecars), '"', collapse = ", "),
+         "; see list_pumf_sidecars().", call. = FALSE)
+  if (.is_longitudinal(loc$prov$series))
+    stop("pumf_sidecar() is not available for the longitudinal series (",
+         loc$prov$series, ").", call. = FALSE)
+  spec       <- .pumf_sidecars[[sidecar]]
+  side_table <- spec$table(loc$table_name)
+  if (!DBI::dbExistsTable(loc$con, side_table))
+    stop("No \"", sidecar, "\" sidecar for ", loc$prov$series, " ",
+         loc$prov$version, ": ", spec$absent, call. = FALSE)
+  side <- dplyr::tbl(loc$con, side_table)
+  if (!join) return(side)
+  if (identical(spec$kind, "values")) {
+    if (!"pumf_row_id" %in% colnames(tbl))
+      stop("'tbl' has no pumf_row_id column to join on; pass the tbl before ",
+           "select() drops it.", call. = FALSE)
+    return(dplyr::left_join(tbl, side, by = "pumf_row_id",
+                            suffix = c("", spec$suffix)))
+  }
+  if (!setequal(colnames(tbl), colnames(side)))
+    stop("'tbl' no longer has the columns of the survey table, so the \"",
+         sidecar, "\" records cannot be appended; pass the tbl as returned ",
+         "by get_pumf().", call. = FALSE)
+  dplyr::union_all(tbl, dplyr::select(side, dplyr::all_of(colnames(tbl))))
+}
+
+#' @rdname pumf_sidecar
+#' @export
+list_pumf_sidecars <- function(tbl) {
+  loc <- .pumf_sidecar_locate(tbl, "list_pumf_sidecars()")
+  out <- tibble::tibble(sidecar = character(0L), table = character(0L),
+                        kind = character(0L), n_rows = numeric(0L),
+                        description = character(0L))
+  if (.is_longitudinal(loc$prov$series)) return(out)
+  for (nm in names(.pumf_sidecars)) {
+    spec       <- .pumf_sidecars[[nm]]
+    side_table <- spec$table(loc$table_name)
+    if (!DBI::dbExistsTable(loc$con, side_table)) next
+    n <- DBI::dbGetQuery(loc$con, sprintf(
+      "SELECT count(*) AS n FROM %s",
+      as.character(DBI::dbQuoteIdentifier(loc$con, side_table))))$n
+    out <- tibble::add_row(out, sidecar = nm, table = side_table,
+                           kind = spec$kind, n_rows = as.numeric(n),
+                           description = spec$description)
+  }
+  out
+}
+
+# The sidecar tables: record-level tables Stage 3 writes beside a survey
+# table, keyed by pumf_row_id.  `table` maps the survey table's name to the
+# sidecar's; `kind` is "values" (columns annotating the survey table's
+# records, joined with `suffix`) or "records" (records left out of it, with
+# its columns); `absent` completes the error for a table without it.  A new
+# sidecar is one entry here plus the Stage 3 code that writes its table (and
+# its name in .remove_pumf_lang(), via .pumf_sidecar_tables()).
+.pumf_sidecars <- list(
+  sentinels = list(
+    table       = function(t) .sentinel_table_name(t),
+    kind        = "values",
+    suffix      = "_sentinel",
+    description = paste("Labels of the sentinel codes (not applicable, not",
+                        "stated, ...) that are NA in the survey table"),
+    absent      = paste("the database was built by an earlier canpumf",
+                        "version. Rebuild it with get_pumf(..., refresh = TRUE).")),
+  removed = list(
+    table       = function(t) .removed_table_name(t),
+    kind        = "records",
+    description = paste("Records the producer flags for removal, left out",
+                        "of the survey table"),
+    absent      = "its registry entry sets no records aside.")
+)
+
+# The names of every sidecar table of the survey table(s) `table_name`.
+.pumf_sidecar_tables <- function(table_name)
+  unlist(lapply(.pumf_sidecars, function(s) s$table(table_name)),
+         use.names = FALSE)
+
+# Connection, provenance and survey-table name of a get_pumf() tbl.
+.pumf_sidecar_locate <- function(tbl, fn) {
   if (!inherits(tbl, "tbl_sql"))
     stop("'tbl' must be a lazy tbl returned by get_pumf().", call. = FALSE)
   prov <- .pumf_lookup_con(tbl$src$con)
   if (is.null(prov))
     stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
          call. = FALSE)
-  if (.is_longitudinal(prov$series))
-    stop("pumf_sentinels() is not available for the longitudinal series (",
-         prov$series, ").", call. = FALSE)
-  table_name <- .pumf_table_name(prov$series, prov$version, prov$lang %||% "eng",
-                                 prov$module)
-  sent_table <- .sentinel_table_name(table_name)
-  con <- tbl$src$con
-  if (!DBI::dbExistsTable(con, sent_table))
-    stop("No sentinel table for ", prov$series, " ", prov$version,
-         ": the database was built by an earlier canpumf version. ",
-         "Rebuild it with get_pumf(..., refresh = TRUE).", call. = FALSE)
-  sent <- dplyr::tbl(con, sent_table)
-  if (!join) return(sent)
-  if (!"pumf_row_id" %in% colnames(tbl))
-    stop("'tbl' has no pumf_row_id column to join on; pass the tbl before ",
-         "select() drops it.", call. = FALSE)
-  dplyr::left_join(tbl, sent, by = "pumf_row_id", suffix = c("", "_sentinel"))
+  list(con = tbl$src$con, prov = prov,
+       table_name = if (.is_longitudinal(prov$series)) NA_character_
+                    else .pumf_table_name(prov$series, prov$version,
+                                          prov$lang %||% "eng", prov$module))
 }

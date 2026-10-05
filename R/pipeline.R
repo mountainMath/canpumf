@@ -419,8 +419,9 @@ pumf_locate_or_download <- function(series,
   # When file_mask has a recognised extension, use it to pre-filter by
   # extension; otherwise (unusual extensions like .INDIV) set ext_pat=NULL
   # and rely solely on file_mask to select the correct file.
+  # A CSV may be gzip-compressed (`.csv.gz`, how a Borealis download is kept).
   ext_pat <- if (!is.null(file_mask) && grepl("\\.csv$", file_mask, ignore.case = TRUE))
-    "\\.csv$"
+    "\\.csv(\\.gz)?$"
   else if (!is.null(file_mask) && grepl("\\.(txt|dat)$", file_mask, ignore.case = TRUE))
     "\\.(txt|dat)$"
   else if (!is.null(file_mask) && grepl("\\.sas7bdat$", file_mask, ignore.case = TRUE))
@@ -430,7 +431,7 @@ pumf_locate_or_download <- function(series,
   else if (prefer_fwf)
     "\\.(txt|dat)$"
   else
-    "\\.csv$"
+    "\\.csv(\\.gz)?$"
   # Subdirectory names that hold metadata/layout but not data.
   # Also exclude *_CMA and *_PR directories (e.g. 1986_individuals_CMA/,
   # 1971_individuals_PR/) which hold geographic-subset data files that duplicate
@@ -448,7 +449,7 @@ pumf_locate_or_download <- function(series,
   # BSW files are always handled separately; exclude them regardless of format
   candidates <- candidates[!grepl("_BSW\\.", basename(candidates), ignore.case = TRUE)]
 
-  if (isTRUE(grepl("\\.csv$", ext_pat, fixed = TRUE))) {
+  if (isTRUE(grepl("\\.csv", ext_pat, fixed = TRUE))) {
     candidates <- candidates[!grepl(
       "codebook|variables|layout|readme|lisezmoi|dictionary",
       basename(candidates), ignore.case = TRUE)]
@@ -1249,6 +1250,392 @@ pumf_locate_or_download <- function(series,
 }
 
 
+# ---- Registry fixups on the data records --------------------------------------
+
+# fix_mojibake: repair double-encoded UTF-8 in every character column, through
+# the distinct values of the column (a place name occurs many thousand times).
+.fix_data_mojibake <- function(data) {
+  for (col in names(data)) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    u <- unique(x)
+    f <- .fix_mojibake(u)
+    if (any(!is.na(u) & u != f)) data[[col]] <- f[match(x, u)]
+  }
+  data
+}
+
+# removed_records: the side table of a data table ("eng" -> "pumf_removed_eng")
+# and the records it takes -- those whose raw value of spec$var is one of
+# spec$values.  NULL when the entry declares none or the variable is absent.
+.removed_table_name <- function(table_name) paste0("pumf_removed_", table_name)
+
+.pumf_removed_mask <- function(data, spec) {
+  if (is.null(spec)) return(NULL)
+  if (!spec$var %in% names(data)) {
+    warning("removed_records: variable ", spec$var, " is not in the data; ",
+            "no record is set aside.", call. = FALSE)
+    return(NULL)
+  }
+  x <- trimws(as.character(data[[spec$var]]))
+  !is.na(x) & x %in% trimws(as.character(spec$values))
+}
+
+# keep_unlabelled_codes: a data value of a labelled variable that has no code
+# row gets one whose label is the code itself, in both languages, so the value
+# stays a level ("40") instead of becoming NA with a warning.  `vars` is TRUE
+# (every variable in `codes`) or a character vector.  Only values that occur
+# are added, after the documented codes and in numeric order.  A variable
+# whose documented codes are all integers takes integer values only, so that
+# the "01" == "1" matching of .apply_code_labels() stays in force.
+.pumf_keep_unlabelled_codes <- function(codes, data, vars = TRUE,
+                                        na_values = character(0L)) {
+  if (is.null(codes) || nrow(codes) == 0L) return(codes)
+  if (isTRUE(vars)) vars <- unique(codes$name)
+  int_rx <- "^-?[0-9]+$"
+  for (v in intersect(vars, intersect(unique(codes$name), names(data)))) {
+    x <- data[[v]]
+    if (!is.character(x)) next
+    raw  <- unique(trimws(x[!is.na(x)]))
+    raw  <- raw[nzchar(raw) & !raw %in% na_values]
+    have <- trimws(as.character(codes$val[codes$name == v]))
+    if (length(have) > 0L && all(grepl(int_rx, have))) {
+      raw  <- raw[grepl(int_rx, raw)]
+      raw  <- unique(as.character(suppressWarnings(as.integer(raw))))
+      have <- as.character(as.integer(have))
+    }
+    new <- setdiff(raw[!is.na(raw)], have)
+    if (length(new) == 0L) next
+    num <- suppressWarnings(as.numeric(new))
+    new <- new[order(num, new)]
+    codes <- dplyr::bind_rows(codes, tibble::tibble(
+      name = v, val = new, label_en = new, label_fr = new))
+  }
+  codes
+}
+
+
+# ---- csv_reader = "duckdb": Stage 3 without the records in R -------------------
+#
+# readr hands Stage 3 every field of the file as an R string, which for a
+# complete-count census is several gigabytes before the first label is
+# applied.  With the registry field csv_reader = "duckdb" the records stay in
+# DuckDB, which reads the file into a temporary all-VARCHAR table (fields
+# trimmed, "" and "NA" NULL, as readr does), and R only sees the *distinct
+# values* of the columns Stage 3 transforms: the numeric and the coded ones.  They form a small frame, one
+# column per such variable, padded with NA to a common length.  Every Stage 3
+# rule is a function of a column's set of values (numeric conversion, missing
+# codes, the data-based label rules, the label lookup), so the unchanged
+# helpers run on the frame and give, per column, a map from raw value to
+# result.  The table is then written by one CREATE TABLE AS that joins the
+# staged records to those maps; columns nothing transforms pass straight
+# through, with their double-encoded strings repaired through a map of the
+# distinct non-ASCII values when the entry asks for fix_mojibake.
+# pumf_row_id is the stage table's rowid + 1, the record's position in the
+# file, exactly as on the readr path.
+#
+# DuckDB takes whatever memory it is allowed (80% of RAM by default) before it
+# spills a temporary table or a sort to disk, so the build runs under a
+# memory limit (.pumf_native_limits()).  TCP 1881 (4.3 million records, a
+# 1.1 GB file) builds in 31 s with a peak of 2 GB for the R process under the
+# default limit of 1 GB, in 20 s / 3.5 GB under 2 GB and in 13 s / 5.4 GB
+# under 4 GB; readr takes about a minute and 7 to 8 GB.
+
+.pumf_native_stage_table <- "pumf_csv_stage"
+.pumf_native_rn          <- "__pumf_rn"
+
+# The resource limits of a csv_reader = "duckdb" build.  The memory limit is
+# the option canpumf.native_memory_limit (a DuckDB size such as "4GB"; NULL
+# or "" leaves DuckDB's setting alone).  DuckDB's sort and joins need working
+# memory per thread and fail rather than spill when the limit is small for
+# the number of threads (27 joins sorted on 10 threads do not fit in 2 GB),
+# so the threads are capped at two per GB.  .pumf_native_oom() points a
+# build that still runs out of memory to the option.  `restore` (the value of an
+# earlier call) puts the previous settings back, for an instance the session
+# shares.
+.pumf_native_limits <- function(con, restore = NULL,
+    limit = getOption("canpumf.native_memory_limit", "1GB")) {
+  set <- function(name, value) DBI::dbExecute(con, sprintf(
+    "SET %s = %s", name, as.character(DBI::dbQuoteString(con, as.character(value)))))
+  cur <- function() DBI::dbGetQuery(con, paste(
+    "SELECT current_setting('memory_limit') AS memory_limit,",
+    "current_setting('threads') AS threads"))
+  if (!is.null(restore)) {
+    set("memory_limit", restore$memory_limit)
+    set("threads", restore$threads)
+    return(invisible(NULL))
+  }
+  old <- cur()
+  if (is.null(limit) || !nzchar(limit)) return(old)
+  set("memory_limit", limit)
+  m  <- regmatches(cur()$memory_limit,
+                   regexec("^([0-9.]+) *([KMGT])i?B", cur()$memory_limit))[[1L]]
+  gb <- if (length(m) == 3L)
+    as.numeric(m[2L]) * c(K = 2^-20, M = 2^-10, G = 1, T = 2^10)[[m[3L]]]
+  else NA_real_
+  if (!is.na(gb))
+    set("threads", max(1L, min(as.integer(old$threads), as.integer(round(2 * gb)))))
+  old
+}
+
+# Run `expr`; a DuckDB out-of-memory error is re-raised with the way out.
+.pumf_native_oom <- function(expr) {
+  tryCatch(expr, error = function(e) {
+    if (!grepl("Out of Memory", conditionMessage(e), ignore.case = TRUE)) stop(e)
+    stop("DuckDB ran out of memory reading the data file under the limit of ",
+         "this build. Raise it with options(canpumf.native_memory_limit = ",
+         "\"4GB\") and try again.\n", conditionMessage(e), call. = FALSE)
+  })
+}
+
+# DuckDB's name for the data encoding; an error for one it cannot read
+# without an extension (CP1252 differs from Latin-1 in 0x80-0x9F).
+.pumf_native_encoding <- function(encoding) {
+  e <- toupper(gsub("[^A-Za-z0-9]", "", encoding %||% "CP1252"))
+  if (e %in% c("UTF8")) return("utf-8")
+  if (e %in% c("LATIN1", "ISO88591")) return("latin-1")
+  stop("csv_reader = \"duckdb\" reads UTF-8 or Latin-1 data only; this entry ",
+       "declares data_encoding = \"", encoding, "\".", call. = FALSE)
+}
+
+# Read the CSV into the stage table and return what the rest of Stage 3 needs:
+#   src         the SQL of the staged records: the columns of the file under
+#               their upper-cased names, plus the record number,
+#   stage_cols  those column names,
+#   out_cols    their names after the registry's rename fixups,
+#   cand        the positions of the columns Stage 3 may transform,
+#   raw         the distinct-values frame of those columns (named by out_cols),
+#   non_ascii   for fix_mojibake, the distinct non-ASCII values of the other
+#               columns (a list by position),
+#   n           the number of records.
+# NULL (with a message) when the distinct values would not make a small
+# frame, e.g. a survey whose every record has its own weight; the caller then
+# reads the file with readr.
+.pumf_native_scan <- function(con, data_path, encoding, variables, codes, fx) {
+  qid <- function(x) as.character(DBI::dbQuoteIdentifier(con, x))
+  csv <- sprintf(paste0(
+    "read_csv(%s, all_varchar = true, header = true, delim = ',', ",
+    "quote = '\"', escape = '\"', encoding = '%s')"),
+    as.character(DBI::dbQuoteString(con, normalizePath(data_path))),
+    .pumf_native_encoding(encoding))
+  hdr        <- DBI::dbGetQuery(con, paste0("DESCRIBE SELECT * FROM ", csv))$column_name
+  stage_cols <- toupper(hdr)
+  if (anyDuplicated(stage_cols))
+    stop("The data file has column names that differ only by case: ",
+         paste(unique(stage_cols[duplicated(stage_cols)]), collapse = ", "),
+         call. = FALSE)
+  # DuckDB preserves the order of read_csv on insertion, so the rowid of the
+  # stage table is the record's position in the file.
+  DBI::dbExecute(con, sprintf(
+    "CREATE OR REPLACE TEMP TABLE %s AS SELECT %s FROM %s",
+    .pumf_native_stage_table,
+    paste(sprintf("NULLIF(NULLIF(trim(%s, ' \t'), ''), 'NA') AS %s",
+                  qid(hdr), qid(stage_cols)), collapse = ", "),
+    csv))
+  src <- sprintf("(SELECT rowid + 1 AS %s, * FROM %s)", qid(.pumf_native_rn),
+                 .pumf_native_stage_table)
+
+  # The rename fixups only touch names: run them on an empty frame.
+  dry <- tibble::as_tibble(stats::setNames(
+    rep(list(character(0L)), length(stage_cols)), stage_cols))
+  out_cols <- names(.apply_data_fixups(
+    dry, fx[intersect(names(fx), c("rename", "rename_regex", "cols_swap"))],
+    known_vars = variables$name))
+
+  cand <- which(out_cols %in% unique(c(
+    variables$name[variables$type == "numeric"], codes$name,
+    names(fx$codes_supplement), names(fx$codes_override), fx$force_numeric,
+    unlist(lapply(fx$str_pad, function(sp) sp$cols), use.names = FALSE))))
+  pass <- setdiff(seq_along(out_cols), cand)
+
+  # Pass 1: the record count and how many distinct values the frame would hold.
+  stat <- DBI::dbGetQuery(con, sprintf(
+    "SELECT count(*) AS n%s FROM %s AS s",
+    paste(sprintf(", approx_count_distinct(%s)", qid(stage_cols[cand])),
+          collapse = ""), src))
+  nd <- as.numeric(unlist(stat[-1L], use.names = FALSE))
+  if (length(cand) > 0L &&
+      max(nd) * length(cand) > getOption("canpumf.native_max_cells", 5e7)) {
+    message("csv_reader = \"duckdb\": the numeric and coded columns have too ",
+            "many distinct values (about ", format(max(nd), big.mark = ","),
+            "); reading with readr instead.")
+    DBI::dbExecute(con, paste("DROP TABLE IF EXISTS", .pumf_native_stage_table))
+    return(NULL)
+  }
+
+  # Pass 2: the distinct values themselves.
+  want_mj <- isTRUE(fx$fix_mojibake) && length(pass) > 0L
+  aggs <- c(
+    sprintf("list(DISTINCT %1$s) FILTER (WHERE %1$s IS NOT NULL) AS c%2$d",
+            qid(stage_cols[cand]), cand),
+    if (want_mj) sprintf(
+      "list(DISTINCT %1$s) FILTER (WHERE strlen(%1$s) <> length(%1$s)) AS c%2$d",
+      qid(stage_cols[pass]), pass))
+  dist <- if (length(aggs) > 0L) DBI::dbGetQuery(con, sprintf(
+    "SELECT %s FROM %s AS s", paste(aggs, collapse = ", "), src))
+  pick <- function(i) {
+    v <- dist[[paste0("c", i)]][[1L]]
+    v <- as.character(unlist(v, use.names = FALSE))
+    sort(v[!is.na(v)])
+  }
+  vals <- lapply(cand, pick)
+  len  <- max(1L, lengths(vals))
+  raw  <- tibble::as_tibble(stats::setNames(
+    lapply(vals, function(v) c(v, rep(NA_character_, len - length(v)))),
+    out_cols[cand]))
+  non_ascii <- list()
+  if (want_mj) for (i in pass) non_ascii[[as.character(i)]] <- pick(i)
+  list(src = src, stage_cols = stage_cols, out_cols = out_cols, cand = cand,
+       raw = raw, non_ascii = non_ascii, n = as.numeric(stat$n))
+}
+
+# Write the main table, the removed-records side table and the sentinel
+# companion from the records.  `data` is the distinct-values frame after
+# Stage 3's Step 7 (row-aligned with native$raw), `sentinels` the blanked
+# values Step 7 reported on that frame, `removed` the registry's
+# removed_records spec.  Returns the number of records set aside (NA: none
+# declared).
+.pumf_native_write <- function(con, native, data, sentinels, codes_full,
+                               label_col, sent_labels, table_name,
+                               removed = NULL) {
+  qid  <- function(x) as.character(DBI::dbQuoteIdentifier(con, x))
+  qstr <- function(x) as.character(DBI::dbQuoteString(con, x))
+  rn   <- qid(.pumf_native_rn)
+  stage_cols <- native$stage_cols
+  out_cols   <- native$out_cols
+  temp_tbls  <- character(0L)
+  write_map  <- function(name, df) {
+    DBI::dbWriteTable(con, name, df, temporary = TRUE, overwrite = TRUE)
+    temp_tbls <<- c(temp_tbls, name)
+  }
+
+  sel   <- character(length(out_cols))
+  joins <- character(0L)
+  # Transformed columns: one map (raw value -> numeric / factor / string) each.
+  for (i in native$cand) {
+    col <- out_cols[i]
+    raw <- native$raw[[col]]
+    out <- data[[col]]
+    ok  <- !is.na(raw)
+    if (is.character(out) && identical(out[ok], raw[ok])) next
+    map <- data.frame(raw = raw[ok], stringsAsFactors = FALSE)
+    map$out <- out[ok]
+    nm  <- paste0("pumf_map_", i)
+    write_map(nm, map)
+    sel[i] <- sprintf("%s.out AS %s", nm, qid(col))
+    joins  <- c(joins, sprintf("LEFT JOIN %s ON s.%s = %s.raw",
+                               nm, qid(stage_cols[i]), nm))
+  }
+  # The other columns pass through; their double-encoded strings are repaired
+  # through one map of the distinct non-ASCII values that the repair changes.
+  fixes <- list()
+  for (i in which(!nzchar(sel))) {
+    sel[i] <- sprintf("s.%s AS %s", qid(stage_cols[i]), qid(out_cols[i]))
+    v  <- native$non_ascii[[as.character(i)]]
+    if (length(v) == 0L) next
+    f  <- .fix_mojibake(v)
+    ch <- v != f
+    if (!any(ch)) next
+    fixes[[length(fixes) + 1L]] <-
+      data.frame(raw = v[ch], fixed = f[ch], stringsAsFactors = FALSE)
+    al <- paste0("pumf_mj_", i)
+    sel[i] <- sprintf("COALESCE(%s.fixed, s.%s) AS %s", al,
+                      qid(stage_cols[i]), qid(out_cols[i]))
+    joins  <- c(joins, sprintf("LEFT JOIN pumf_mojibake_map AS %s ON s.%s = %s.raw",
+                               al, qid(stage_cols[i]), al))
+  }
+  if (length(fixes) > 0L) {
+    mj <- do.call(rbind, fixes)
+    write_map("pumf_mojibake_map", mj[!duplicated(mj$raw), , drop = FALSE])
+  }
+  sel <- sel[out_cols != "pumf_row_id"]
+
+  is_removed <- NULL
+  if (!is.null(removed)) {
+    if (!removed$var %in% out_cols) {
+      warning("removed_records: variable ", removed$var, " is not in the data; ",
+              "no record is set aside.", call. = FALSE)
+    } else {
+      is_removed <- sprintf(
+        "coalesce(s.%s IN (%s), false)",
+        qid(stage_cols[match(removed$var, out_cols)]),
+        paste(qstr(trimws(as.character(removed$values))), collapse = ", "))
+    }
+  }
+  body <- sprintf(
+    "SELECT CAST(s.%s AS BIGINT) AS pumf_row_id, %s FROM %s AS s %s",
+    rn, paste(sel, collapse = ", "), native$src, paste(joins, collapse = " "))
+  create <- function(tbl, where = NULL, order = FALSE) {
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", qid(tbl)))
+    DBI::dbExecute(con, sprintf(
+      "CREATE TABLE %s AS %s%s%s", qid(tbl), body,
+      if (is.null(where)) "" else paste(" WHERE", where),
+      if (order) paste0(" ORDER BY s.", rn) else ""))
+  }
+
+  # The sentinel companion: the blanked values of the frame, labelled as on
+  # the readr path, joined back to the records.
+  sent_table <- .sentinel_table_name(table_name)
+  scols      <- intersect(names(sentinels), out_cols[native$cand])
+  sent_sel <- sent_join <- character(0L)
+  sent_levels <- list()
+  if (length(scols) > 0L) {
+    lab <- .label_sentinel_companion(
+      tibble::as_tibble(c(list(pumf_row_id = seq_len(nrow(data))),
+                          sentinels[scols])),
+      codes_full, label_col, sent_labels)
+    for (col in scols) {
+      i   <- match(col, out_cols)
+      raw <- native$raw[[col]]
+      ok  <- !is.na(raw) & !is.na(lab[[col]])
+      if (!any(ok)) next
+      map <- data.frame(raw = raw[ok], stringsAsFactors = FALSE)
+      map$out <- droplevels(lab[[col]][ok])
+      nm  <- paste0("pumf_smap_", i)
+      write_map(nm, map)
+      sent_sel  <- c(sent_sel, sprintf("%s.out AS %s", nm, qid(col)))
+      sent_join <- c(sent_join, sprintf("LEFT JOIN %s ON s.%s = %s.raw",
+                                        nm, qid(stage_cols[i]), nm))
+      sent_levels[[col]] <- levels(map$out)
+    }
+  }
+
+  DBI::dbBegin(con)
+  tryCatch({
+    # ORDER BY: a join does not promise to keep the order of the records.
+    create(table_name, if (!is.null(is_removed)) paste("NOT", is_removed),
+           order = TRUE)
+    if (!is.null(is_removed))
+      create(.removed_table_name(table_name), is_removed, order = TRUE)
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", qid(sent_table)))
+    if (length(sent_sel) > 0L) {
+      DBI::dbExecute(con, sprintf(paste0(
+        "CREATE TABLE %s AS SELECT * FROM (SELECT CAST(s.%s AS BIGINT) ",
+        "AS pumf_row_id, %s FROM %s AS s %s) WHERE %s ORDER BY pumf_row_id"),
+        qid(sent_table), rn, paste(sent_sel, collapse = ", "), native$src,
+        paste(sent_join, collapse = " "),
+        paste(sprintf("%s IS NOT NULL", qid(names(sent_levels))),
+              collapse = " OR ")))
+    } else {
+      DBI::dbExecute(con, sprintf("CREATE TABLE %s (pumf_row_id BIGINT)",
+                                  qid(sent_table)))
+    }
+    DBI::dbCommit(con)
+  }, error = function(e) {
+    try(DBI::dbRollback(con), silent = TRUE)
+    stop(e)
+  })
+  if (length(sent_levels) > 0L)
+    .ensure_enum_columns(con, sent_table, sent_levels)
+  for (t in unique(c(temp_tbls, .pumf_native_stage_table)))
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", t))
+
+  if (is.null(is_removed)) NA_real_
+  else as.numeric(DBI::dbGetQuery(con, sprintf(
+    "SELECT count(*) AS n FROM %s", qid(.removed_table_name(table_name))))$n)
+}
+
+
 # ============================================================================
 # Stage 3 — public function
 # ============================================================================
@@ -1418,11 +1805,41 @@ pumf_build_duckdb <- function(version_dir,
   # Some surveys (e.g. CHS) ship both a CSV and a TXT file; the SPSS DATA LIST
   # section creates a layout.csv, but data must be read from the CSV.
   is_fwf    <- !is_sas && !is.null(layout) &&
-               !grepl("\\.csv$", data_path, ignore.case = TRUE)
-  message("Reading ", if (is_sas) "SAS" else if (is_fwf) "fixed-width" else "CSV",
-          " data from ", basename(data_path), " ...")
+               !.is_csv_path(data_path)
+  fx0       <- if (is.null(reg)) list() else reg$data_fixups %||% list()
 
-  if (is_sas) {
+  # csv_reader = "duckdb": DuckDB reads the file on the write connection of
+  # this build, and `data` is the frame of the distinct values of the columns
+  # Stage 3 transforms (.pumf_native_scan()).  The connection is therefore
+  # opened here, not at Step 9.
+  con    <- NULL
+  on.exit(if (!is.null(con))
+    try(DBI::dbDisconnect(con, shutdown = TRUE), silent = TRUE), add = TRUE)
+  native <- NULL
+  if (identical(reg$csv_reader, "duckdb") && !is_sas && !is_fwf) {
+    .pumf_native_encoding(data_enc)
+    if (!is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key))
+      stop("csv_reader = \"duckdb\" does not join a bootstrap-weight file; ",
+           "drop csv_reader for ", series, " ", version, ".", call. = FALSE)
+    message("Reading CSV data from ", basename(data_path), " with DuckDB ...")
+    .assert_duckdb_writable(db_path)
+    con    <- .duckdb_connect_quiet(db_path)
+    native_lim <- .pumf_native_limits(con)
+    native <- .pumf_native_oom(.pumf_native_scan(
+      con, data_path, data_enc, variables,
+      .pumf_apply_code_fixups(codes, fx0), fx0))
+    if (is.null(native)) {
+      DBI::dbDisconnect(con, shutdown = TRUE)
+      con <- NULL
+    }
+  }
+  if (is.null(native))
+    message("Reading ", if (is_sas) "SAS" else if (is_fwf) "fixed-width" else "CSV",
+            " data from ", basename(data_path), " ...")
+
+  if (!is.null(native)) {
+    data <- native$raw
+  } else if (is_sas) {
     data <- .read_sas_data(data_path)
   } else if (is_fwf) {
     data <- readr::read_fwf(
@@ -1454,10 +1871,17 @@ pumf_build_duckdb <- function(version_dir,
     if (any(junk)) data <- data[!junk, ]
   }
 
-  # Apply pre-label data fixups (str_pad, column renames) from registry
+  # fix_mojibake: double-encoded UTF-8 in the text fields (TCP 1881).
+  if (isTRUE(fx0$fix_mojibake)) data <- .fix_data_mojibake(data)
+
+  # Apply pre-label data fixups (str_pad, column renames) from registry.  The
+  # DuckDB reader has applied the renames to its frame already.
   if (!is.null(reg) && length(reg$data_fixups) > 0L)
-    data <- .apply_data_fixups(data, reg$data_fixups,
-                               known_vars = variables$name)
+    data <- .apply_data_fixups(
+      data,
+      if (is.null(native)) reg$data_fixups
+      else fx0[intersect(names(fx0), "str_pad")],
+      known_vars = variables$name)
 
   # Runs after the fixups so a renamed column is matched under the name the
   # metadata declares, not the one the source file happened to use.
@@ -1473,6 +1897,10 @@ pumf_build_duckdb <- function(version_dir,
       data <- left_join(data, bsw, by = reg$bsw_join_key)
     }
   }
+
+  # removed_records: which records go to the side table, decided on the raw
+  # values (the DuckDB reader decides in SQL).
+  removed <- if (is.null(native)) .pumf_removed_mask(data, fx0$removed_records)
 
   # Step 7: numeric types, then code labels → factors
   na_vals <- if (!is.null(reg)) reg$data_fixups$na_values %||% character(0L)
@@ -1627,6 +2055,21 @@ pumf_build_duckdb <- function(version_dir,
     lay_dec <- if ("decimals" %in% names(layout)) layout$decimals else NA_integer_
     conv_vars$decimals <- lay_dec[match(variables$name, layout$name)]
   }
+  # keep_unlabelled_codes: the variables about to be labelled get a code row
+  # for every data value that has none, so the value stays a level.
+  if (!is.null(fx$keep_unlabelled_codes) &&
+      !isFALSE(fx$keep_unlabelled_codes)) {
+    keep_vars <- intersect(unique(codes$name),
+                           variables$name[variables$type == "character"])
+    if (!isTRUE(fx$keep_unlabelled_codes))
+      keep_vars <- intersect(keep_vars, fx$keep_unlabelled_codes)
+    n_codes <- nrow(codes)
+    codes <- .pumf_keep_unlabelled_codes(codes, data, keep_vars, na_vals)
+    if (nrow(codes) > n_codes)
+      codes_full <- dplyr::bind_rows(
+        codes_full, codes[seq.int(n_codes + 1L, nrow(codes)), , drop = FALSE])
+  }
+
   # Which documented codes occur, for every variable with codes (the data are
   # still character here): the code suffix that .apply_code_labels() adds to
   # shared labels depends on it, and metadata/codes_applied.csv records the
@@ -1645,76 +2088,111 @@ pumf_build_duckdb <- function(version_dir,
                                                miss_codes)
   .write_codes_applied(applied, meta_dir)
 
-  # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
-  # order) links the main table to its companion tables: the sentinel table
-  # written below and the bootstrap-weight tables of add_bootstrap_weights().
-  data <- dplyr::bind_cols(
-    tibble::tibble(pumf_row_id = seq_len(nrow(data))),
-    data[setdiff(names(data), "pumf_row_id")])
-  sent_table <- .sentinel_table_name(table_name)
+  sent_table  <- .sentinel_table_name(table_name)
+  rm_table    <- .removed_table_name(table_name)
   sent_labels <- if (is.null(reg)) list() else reg$data_fixups$sentinel_labels %||% list()
-  # codes_full: the force_* blocks above removed the rows of the variables
-  # they made numeric, but their labelled sentinels ("Not stated" on a
-  # top-coded hours variable) still name the companion's levels.
-  sent_df    <- .label_sentinel_companion(
-    .sentinel_companion(sentinels, nrow(data)), codes_full, label_col, sent_labels)
 
-  # Step 9: write to DuckDB
-  .assert_duckdb_writable(db_path)
-  con <- .duckdb_connect_quiet(db_path)
-  if (DBI::dbExistsTable(con, table_name))
-    DBI::dbRemoveTable(con, table_name)
-  message("Writing DuckDB table '", table_name, "' ...")
-  DBI::dbWriteTable(con, table_name, data)
-  DBI::dbExecute(con, sprintf(
-    'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', table_name))
-  # The sentinel companion: one row per record in which at least one value
-  # was a sentinel, one ENUM column per such variable holding the sentinel's
-  # label.  It is always written, so an empty table means "no sentinels", and
-  # a missing one means a cache built before 0.6.1.
-  DBI::dbWriteTable(con, sent_table, sent_df, overwrite = TRUE)
-  DBI::dbExecute(con, sprintf(
-    'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', sent_table))
-  sent_factor <- names(sent_df)[vapply(sent_df, is.factor, logical(1L))]
-  if (length(sent_factor) > 0L)
-    .ensure_enum_columns(
-      con, sent_table,
-      stats::setNames(lapply(sent_factor, function(c) levels(sent_df[[c]])),
-                      sent_factor))
+  if (!is.null(native)) {
+    # Steps 8c and 9 in SQL: the records joined to the maps the frame gives
+    # (.pumf_native_write()).
+    message("Writing DuckDB table '", table_name, "' ...")
+    n_removed <- .pumf_native_oom(.pumf_native_write(
+      con, native, data, sentinels, codes_full, label_col, sent_labels,
+      table_name, removed = fx0$removed_records))
+    .pumf_native_limits(con, restore = native_lim)
+  } else {
+    # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
+    # order) links the main table to its companion tables: the sentinel table
+    # written below and the bootstrap-weight tables of add_bootstrap_weights().
+    data <- dplyr::bind_cols(
+      tibble::tibble(pumf_row_id = seq_len(nrow(data))),
+      data[setdiff(names(data), "pumf_row_id")])
+    # codes_full: the force_* blocks above removed the rows of the variables
+    # they made numeric, but their labelled sentinels ("Not stated" on a
+    # top-coded hours variable) still name the companion's levels.
+    sent_df    <- .label_sentinel_companion(
+      .sentinel_companion(sentinels, nrow(data)), codes_full, label_col, sent_labels)
+    # removed_records: the flagged records leave the main table with the
+    # pumf_row_id they have in the file, so the key keeps naming the record's
+    # position and the main table's ids have gaps.
+    removed_df <- NULL
+    n_removed  <- NA_real_
+    if (!is.null(removed)) {
+      removed_df <- data[removed, , drop = FALSE]
+      data       <- data[!removed, , drop = FALSE]
+      n_removed  <- nrow(removed_df)
+    }
+
+    # Step 9: write to DuckDB
+    .assert_duckdb_writable(db_path)
+    con <- .duckdb_connect_quiet(db_path)
+    if (DBI::dbExistsTable(con, table_name))
+      DBI::dbRemoveTable(con, table_name)
+    message("Writing DuckDB table '", table_name, "' ...")
+    DBI::dbWriteTable(con, table_name, data)
+    DBI::dbExecute(con, sprintf(
+      'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', table_name))
+    if (!is.null(removed_df)) {
+      DBI::dbWriteTable(con, rm_table, removed_df, overwrite = TRUE)
+      DBI::dbExecute(con, sprintf(
+        'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', rm_table))
+    }
+    # The sentinel companion: one row per record in which at least one value
+    # was a sentinel, one ENUM column per such variable holding the sentinel's
+    # label.  It is always written, so an empty table means "no sentinels", and
+    # a missing one means a cache built before 0.6.1.
+    DBI::dbWriteTable(con, sent_table, sent_df, overwrite = TRUE)
+    DBI::dbExecute(con, sprintf(
+      'ALTER TABLE "%s" ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT', sent_table))
+    sent_factor <- names(sent_df)[vapply(sent_df, is.factor, logical(1L))]
+    if (length(sent_factor) > 0L)
+      .ensure_enum_columns(
+        con, sent_table,
+        stats::setNames(lapply(sent_factor, function(c) levels(sent_df[[c]])),
+                        sent_factor))
+  }
+  if (!is.na(n_removed))
+    message(format(n_removed, big.mark = ","), " record(s) flagged by ",
+            fx0$removed_records$var, " set aside in '", rm_table,
+            "' (pumf_sidecar(tbl, \"removed\")).")
   # The build stamp: which canpumf built this table, and when.
   .write_build_info(con, table_name)
 
   # Step 8: verify / enforce ENUM on factor columns
   factor_cols <- names(data)[vapply(data, is.factor, logical(1L))]
   if (length(factor_cols) > 0L)
-    .ensure_enum_columns(
-      con, table_name,
-      stats::setNames(lapply(factor_cols, function(c) levels(data[[c]])),
-                      factor_cols))
+    for (t in c(table_name, if (!is.na(n_removed)) rm_table))
+      .ensure_enum_columns(
+        con, t,
+        stats::setNames(lapply(factor_cols, function(c) levels(data[[c]])),
+                        factor_cols))
 
   # Step 8b: set INTEGER/BIGINT storage for the raw-kept ID columns by casting
   # from VARCHAR.  An INTEGER cast that overflows surfaces as a DuckDB error —
   # use force_bigint for IDs beyond the 32-bit range.
   if (length(force_int) > 0L || length(force_big) > 0L) {
     tbl_fields <- DBI::dbListFields(con, table_name)
-    for (col in intersect(force_int, tbl_fields))
-      tryCatch(
+    for (tbl in c(table_name, if (!is.na(n_removed)) rm_table)) {
+      for (col in intersect(force_int, tbl_fields))
+        tryCatch(
+          DBI::dbExecute(con, sprintf(
+            'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE INTEGER',
+            tbl, col)),
+          error = function(e)
+            stop("force_integer: could not cast '", col, "' to INTEGER ",
+                 "(values may exceed the 32-bit range; use force_bigint). ",
+                 conditionMessage(e), call. = FALSE))
+      for (col in intersect(force_big, tbl_fields))
         DBI::dbExecute(con, sprintf(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE INTEGER',
-          table_name, col)),
-        error = function(e)
-          stop("force_integer: could not cast '", col, "' to INTEGER ",
-               "(values may exceed the 32-bit range; use force_bigint). ",
-               conditionMessage(e), call. = FALSE))
-    for (col in intersect(force_big, tbl_fields))
-      DBI::dbExecute(con, sprintf(
-        'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE BIGINT',
-        table_name, col))
+          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE BIGINT',
+          tbl, col))
+    }
   }
 
   # Step 10: disconnect writer — no lingering connections so the next
   # pumf_build_duckdb call (e.g. for lang="fra") can open the file read-write.
   DBI::dbDisconnect(con, shutdown = TRUE)
+  con <- NULL
   invisible(result)
 }
 

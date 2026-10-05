@@ -291,7 +291,7 @@ pumf_dictionary <- function(x, version = NULL, module = NULL,
 #'
 #' Sentinel codes of the same variables ("Not stated", "Don't know") are not
 #' listed: they become `NA` in the table and are reported, with their labels,
-#' by [pumf_sentinels()].  The list is read from `metadata/codes_applied.csv`,
+#' by [pumf_sidecar()].  The list is read from `metadata/codes_applied.csv`,
 #' which the build writes; a database built by an earlier canpumf version has
 #' to be rebuilt with `get_pumf(..., refresh = TRUE)` first.  The longitudinal
 #' series (`"LFS"`, `"LFS_HIST"`) have no such variables and are not
@@ -304,7 +304,7 @@ pumf_dictionary <- function(x, version = NULL, module = NULL,
 #'   table keeps as a number, sorted by variable and value.  Zero rows when
 #'   the survey has none.
 #'
-#' @seealso [pumf_dictionary()] for every documented code, [pumf_sentinels()]
+#' @seealso [pumf_dictionary()] for every documented code, [pumf_sidecar()]
 #'   for the codes that became `NA`.
 #' @examples
 #' \donttest{
@@ -396,8 +396,8 @@ pumf_topcodes <- function(x, version = NULL, module = NULL,
 #' The translation is keyed on the column and the label.  A column is matched
 #' to a survey variable by its coded name, by its variable label in the source
 #' language, or, for the `<VAR>_sentinel` columns of
-#' `pumf_sentinels(join = TRUE)`, by the variable it annotates.  Its labels are
-#' then looked up among that variable's codes.  Custom entries and the
+#' `pumf_sidecar("sentinels", join = TRUE)`, by the variable it annotates.
+#' Its labels are then looked up among that variable's codes.  Custom entries and the
 #' dictionary's variable-independent rows apply to every column.
 #'
 #' Labels the analysis introduced (`forcats::fct_collapse()`, a `case_when()`

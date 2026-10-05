@@ -1922,6 +1922,65 @@ parse_cpss_csv <- function(variables_path, encoding = "Latin1") {
 }
 
 
+#' Parse a JSON value-label dictionary into canonical metadata
+#'
+#' The Canadian Peoples (TCP) historical census files on Borealis document
+#' their coded fields in one JSON object per release
+#' (\code{<year>_value_labels.json}): each member is a variable, holding an
+#' object that maps code strings to English labels.  The file names only the
+#' coded variables and carries no variable labels, types or French text, so
+#' the variable list is the header of the data CSV, every variable is typed
+#' \code{character}, and both variable-label columns are \code{NA}.  The
+#' registry supplies what the file cannot (\code{labels_supplement},
+#' \code{force_numeric}).
+#'
+#' @param json_path Path to the \code{*_value_labels.json} file.
+#' @param data_path Optional path to the data CSV whose header lists the
+#'   variables.  Without it only the coded variables are returned.
+#' @return Named list with elements \code{variables}, \code{codes},
+#'   and \code{layout} (always \code{NULL}: the data are delimited).
+#' @keywords internal
+parse_json_value_labels <- function(json_path, data_path = NULL) {
+  lab <- jsonlite::fromJSON(json_path, simplifyVector = FALSE)
+  is_dict <- vapply(lab, function(x) is.list(x) && !is.null(names(x)), logical(1L))
+  lab <- lab[is_dict]
+
+  codes <- dplyr::bind_rows(lapply(names(lab), function(v) {
+    tibble::tibble(
+      name     = toupper(v),
+      val      = trimws(names(lab[[v]])),
+      label_en = vapply(lab[[v]], function(l)
+        if (is.null(l) || length(l) != 1L) NA_character_ else as.character(l),
+        character(1L), USE.NAMES = FALSE),
+      label_fr = NA_character_)
+  }))
+  if (nrow(codes) == 0L)
+    codes <- tibble::tibble(name = character(), val = character(),
+                            label_en = character(), label_fr = character())
+  codes$label_en[!is.na(codes$label_en) & !nzchar(trimws(codes$label_en))] <- NA_character_
+
+  header <- character(0L)
+  if (!is.null(data_path) && file.exists(data_path)) {
+    first  <- sub("^﻿", "", readLines(data_path, n = 1L, warn = FALSE,
+                                           encoding = "UTF-8"))
+    header <- toupper(trimws(scan(text = first, what = "", sep = ",",
+                                  quote = "\"", quiet = TRUE)))
+  }
+  var_names <- unique(c(header, toupper(names(lab))))
+  variables <- tibble::tibble(
+    name         = var_names,
+    label_en     = NA_character_,
+    label_fr     = NA_character_,
+    type         = "character",
+    decimals     = NA_integer_,
+    missing_low  = NA_real_,
+    missing_high = NA_real_
+  )
+
+  list(variables = variables, codes = codes, layout = NULL)
+}
+
+
 # ============================================================
 # Step 7 -- Format detector, merger, dispatcher
 # ============================================================
@@ -1967,6 +2026,11 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   # 2. CPSS variables.csv
   vf <- all_files[grepl("(?i)^variables\\.csv$", basename(all_files), perl = TRUE)]
   if (length(vf) > 0L) result$cpss_csv <- vf[[1L]]
+
+  # 2b. JSON value-label dictionary (The Canadian Peoples census files on
+  #     Borealis: "<year>_value_labels.json" beside the data CSV).
+  jl <- all_files[grepl("(?i)value_labels\\.json$", basename(all_files), perl = TRUE)]
+  if (length(jl) > 0L) result$json_labels <- jl[[1L]]
 
   # 3. SAS reading cards: directory containing both .lay and .lbe files.
   # When multiple candidates exist (e.g. parallel SAS and SPSS card directories),
@@ -2139,6 +2203,7 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   #    common surveys that already have labels.  Candidates are PDFs under a
   #    Codebook/LivreDesCodes path; the "zerofreq" variants are skipped.
   if (is.null(result$lfs_csv) && is.null(result$cpss_csv) &&
+      is.null(result$json_labels) &&
       is.null(result$sas_cards) && is.null(result$spss_split) &&
       is.null(result$spss_mono) && is.null(result$spss_sav) &&
       is.null(result$pdf_dict) && is.null(result$unparsed_pdf_dict)) {
@@ -2362,7 +2427,7 @@ merge_metadata <- function(parsed_list, layout_override = NULL) {
   }
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
-                      "lfs_csv", "cpss_csv", "sas_labels", "pdf_dict",
+                      "lfs_csv", "cpss_csv", "json_labels", "sas_labels", "pdf_dict",
                       "pdf_codebook", "pdf_freq")
   ordered  <- c(intersect(priority_order, names(parsed_list)),
                 setdiff(names(parsed_list), priority_order))
@@ -2692,6 +2757,21 @@ pumf_parse_metadata <- function(version_dir,
 
   if (!is.null(formats$cpss_csv))
     parsed$cpss_csv   <- parse_cpss_csv(formats$cpss_csv, encoding = enc_csv)
+
+  # The JSON dictionary names only the coded variables; the full variable list
+  # is the header of the data file Stage 3 will read.
+  if (!is.null(formats$json_labels)) {
+    json_data <- tryCatch(
+      .find_pumf_data_file(source_dir,
+                           file_mask %||% reg$file_mask %||%
+                             .borealis_manifest_file_mask(source_dir),
+                           prefer_fwf = FALSE),
+      error = function(e) NULL)
+    if (!is.null(json_data) && !.is_csv_path(json_data))
+      json_data <- NULL
+    parsed$json_labels <- parse_json_value_labels(formats$json_labels,
+                                                  data_path = json_data)
+  }
 
   if (!is.null(formats$sas_cards))
     parsed$sas_cards  <- parse_sas_cards(formats$sas_cards,

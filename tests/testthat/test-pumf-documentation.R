@@ -23,6 +23,34 @@ test_that("open_pumf_documentation: returns NULL with message when dir missing",
   expect_null(result)
 })
 
+test_that("open_pumf_documentation: a missing version names the cached ones", {
+  cache <- file.path(tempdir(), "doc_cached_versions")
+  on.exit(unlink(cache, recursive = TRUE), add = TRUE)
+  dir.create(file.path(cache, "TCP", "1881"), recursive = TRUE)
+  writeLines("x", file.path(cache, "TCP", "1881", "guide.pdf"))
+  dir.create(file.path(cache, "TCP", "empty"))
+  expect_message(
+    result <- open_pumf_documentation("TCP", "1981", cache_path = cache),
+    regexp = 'No data found for TCP 1981.*Cached TCP versions: "1881"\\.')
+  expect_null(result)
+  # Nothing was created for the unknown version.
+  expect_false(dir.exists(file.path(cache, "TCP", "1981")))
+})
+
+test_that(".pumf_emit_override_message: lists the record-level fixups (TCP 1881)", {
+  expect_message(canpumf:::.pumf_emit_override_message("TCP", "1881"),
+                 "Forced numeric: AGE, AGEMONTH")
+  msg <- tryCatch(canpumf:::.pumf_emit_override_message("TCP", "1881"),
+                  message = function(m) conditionMessage(m))
+  expect_match(msg, "Mis-encoded accented text")
+  expect_match(msg, 'REMOVE_TCP = 1 are set aside; see pumf_sidecar(tbl, "removed")',
+               fixed = TRUE)
+  expect_match(msg, "Codes without a documented label are kept under the code itself.",
+               fixed = TRUE)
+  expect_match(msg, "Variable labels supplied by canpumf where the source metadata has none: 52 variables.",
+               fixed = TRUE)
+})
+
 test_that("open_pumf_documentation: errors on invalid lang", {
   expect_error(
     open_pumf_documentation("SFS", "2019", lang = "deu"),

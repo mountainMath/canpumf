@@ -18,6 +18,12 @@
 #   labels_supplement  — one row per variable (value = supplied label_en)
 #   force_character / force_integer / force_bigint
 #                      — one row per variable (storage type kept or overridden)
+#   fix_mojibake       — one row per entry that repairs double-encoded text in
+#                        the data (variable = "", value = "TRUE")
+#   removed_records    — one row per raw value that sends a record to the
+#                        "removed" sidecar (variable = the flag variable)
+#   keep_unlabelled_codes — one row per entry (variable = "", value = "TRUE")
+#                        or per named variable (value = "")
 #   layout_file        — one row per entry or module that names its record
 #                        layout's command file (variable = module id, "" for a
 #                        single-table survey; value = the pattern)
@@ -98,6 +104,16 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
       for (nm in names(fx$labels_supplement))
         add(series, version, "labels_supplement", nm,
             unname(fx$labels_supplement[[nm]]["label_en"]))
+    if (isTRUE(fx$fix_mojibake))
+      add(series, version, "fix_mojibake", "", "TRUE")
+    if (!is.null(fx$removed_records))
+      for (val in fx$removed_records$values)
+        add(series, version, "removed_records", fx$removed_records$var,
+            as.character(val))
+    if (isTRUE(fx$keep_unlabelled_codes))
+      add(series, version, "keep_unlabelled_codes", "", "TRUE")
+    else for (v in fx$keep_unlabelled_codes)
+      add(series, version, "keep_unlabelled_codes", v)
   }
   for (entry in registry) {
     # Top-level data_fixups (for multi-module surveys this is the primary

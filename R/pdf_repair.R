@@ -428,7 +428,8 @@
   is_fwf <- !is.null(layout) && nrow(layout) > 0L
   # A very large flat file is not worth tabulating during metadata parsing;
   # skip validation rather than stall the pipeline (no repairs will be made).
-  if (file.size(data_path) > 500e6) return(unchecked("data file too large"))
+  if (.pumf_data_file_size(data_path) > 500e6)
+    return(unchecked("data file too large"))
 
   getcol <- tryCatch(.pumf_column_values(data_path, layout, is_fwf, data_encoding),
                      error = function(e) NULL)

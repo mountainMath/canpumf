@@ -51,8 +51,8 @@ that keep their coded names (`PROV`) are left alone.
 The translation is keyed on the column and the label.  A column is matched
 to a survey variable by its coded name, by its variable label in the source
 language, or, for the `<VAR>_sentinel` columns of
-`pumf_sentinels(join = TRUE)`, by the variable it annotates.  Its labels are
-then looked up among that variable's codes.  Custom entries and the
+`pumf_sidecar("sentinels", join = TRUE)`, by the variable it annotates.
+Its labels are then looked up among that variable's codes.  Custom entries and the
 dictionary's variable-independent rows apply to every column.
 
 Labels the analysis introduced (`forcats::fct_collapse()`, a `case_when()`

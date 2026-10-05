@@ -366,7 +366,8 @@ list_canpumf_collection <- function(){
 }
 
 # Collection rows for registry entries sourced from Borealis (the 1971-1986
-# Census PUMFs); `url` is the Borealis dataset page.
+# Census PUMFs and the TCP complete-count census of 1881); `url` is the
+# Borealis dataset page.
 .borealis_registry_collection <- function() {
   keys <- names(.pumf_registry)[vapply(.pumf_registry, function(e)
     !is.null(e$borealis), logical(1L))]
@@ -374,7 +375,10 @@ list_canpumf_collection <- function(){
   ents <- .pumf_registry[keys]
   series <- vapply(ents, function(e) e$series, character(1L))
   tibble(
-    Title           = ifelse(series == "Census", "Census of population", series),
+    Title           = dplyr::case_when(
+      series == "Census" ~ "Census of population",
+      series == "TCP"    ~ "The Canadian Peoples complete-count census",
+      TRUE               ~ series),
     Acronym         = series,
     Version         = vapply(ents, function(e) e$version, character(1L)),
     `Survey Number` = ifelse(series == "Census", "3901", NA_character_),

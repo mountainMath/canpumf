@@ -127,7 +127,7 @@ key that identifies each row.  If `id_col` is `NULL` (the default):
   * The survey registry `bsw_join_key` is used when available (e.g.
     `"PEFAMID"` for SFS 2016-2023).
   * Otherwise the `pumf_row_id` column that every table built by canpumf
-    0.6.1 or later carries (see [pumf_sentinels()]) is used.
+    0.6.1 or later carries (see [pumf_sidecar()]) is used.
   * The longitudinal series (`"LFS"`, `"LFS_HIST"`) use `SURVYEAR`,
     `SURVMNTH` and `REC_NUM` together.
 A table built by an earlier version that has none of these needs a rebuild

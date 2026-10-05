@@ -160,7 +160,7 @@
 #'     \item{`built_with`}{The canpumf version that built the DuckDB tables,
 #'       from the build stamp Stage 3 writes since 0.6.1.  `NA` when there is
 #'       no DuckDB, when it was built before 0.6.1 (no stamp: no `pumf_row_id`
-#'       key and no sentinel companion, so `pumf_sentinels()` needs a rebuild
+#'       key and no sentinel companion, so `pumf_sidecar()` needs a rebuild
 #'       with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
 #'       and when the file is locked by a writer.  Tables built by different
 #'       versions are listed together, oldest first.}
@@ -297,10 +297,11 @@ remove_pumf_cache <- function(series,
 
 # Drop the tables of one language from a survey's DuckDB and compact the
 # file.  The language's objects are its main table(s) (one per module),
-# their pumf_sentinels_ companions, the <table>_bsw_* views that 0.6.0 made
-# for bootstrap weights and their pumf_build_info rows; the pumf_bsw_* weight
-# tables are shared between the languages (they join on pumf_row_id) and stay
-# while the other language does.  A dropped table's blocks are marked free inside the file but the
+# their sidecar tables (pumf_sentinels_, pumf_removed_), the
+# <table>_bsw_* views that 0.6.0 made for bootstrap weights and their
+# pumf_build_info rows; the pumf_bsw_* weight tables are shared between the
+# languages (they join on pumf_row_id) and stay while the other language
+# does.  A dropped table's blocks are marked free inside the file but the
 # file is not truncated, so the remaining content is copied into a fresh
 # file (COPY FROM DATABASE keeps the ENUM types, views and stamp) which then
 # replaces the old one.  Needs the write lock.
@@ -350,7 +351,7 @@ remove_pumf_cache <- function(series,
   views <- objs[grepl(paste0("^(", paste(mains, collapse = "|"), ")_bsw"), objs)]
   for (v in views)
     DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"', v))
-  for (t in c(mains, intersect(.sentinel_table_name(mains), objs)))
+  for (t in c(mains, intersect(.pumf_sidecar_tables(mains), objs)))
     DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', t))
   if (DBI::dbExistsTable(con, .build_info_table))
     for (t in mains)

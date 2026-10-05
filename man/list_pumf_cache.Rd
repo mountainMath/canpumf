@@ -24,7 +24,7 @@ A tibble with columns:
     \item{`built_with`}{The canpumf version that built the DuckDB tables,
       from the build stamp Stage 3 writes since 0.6.1.  `NA` when there is
       no DuckDB, when it was built before 0.6.1 (no stamp: no `pumf_row_id`
-      key and no sentinel companion, so `pumf_sentinels()` needs a rebuild
+      key and no sentinel companion, so `pumf_sidecar()` needs a rebuild
       with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
       and when the file is locked by a writer.  Tables built by different
       versions are listed together, oldest first.}

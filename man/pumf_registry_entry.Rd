@@ -21,6 +21,7 @@ pumf_registry_entry(
   bundle_sps_mask = NULL,
   doc_mask = NULL,
   download_format = NULL,
+  csv_reader = NULL,
   borealis = NULL,
   ...
 )
@@ -50,7 +51,8 @@ CSV vs fixed-width).}
 \item{data_fixups}{A named list of pre-label fixups: any of `str_pad`,
 `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
 `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
-`missing_supplement`, `missing_codes`, `labels_supplement`.
+`missing_supplement`, `missing_codes`, `labels_supplement`,
+`fix_mojibake`, `removed_records`, `keep_unlabelled_codes`.
 The `force_character`/`force_integer`/`force_bigint` fields take character
 vectors of variable names and override the DuckDB storage type (VARCHAR /
 INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
@@ -63,7 +65,13 @@ declared, so it can never collide with a correctly-named column.
 `missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
 values, for variables whose sentinels do not form one contiguous range (and
 which a single `missing_low`/`missing_high` pair therefore cannot express);
-an empty vector keeps every value of the variable.}
+an empty vector keeps every value of the variable.
+`fix_mojibake = TRUE` repairs double-encoded UTF-8 text in the character
+columns of the data. `removed_records = list(var = , values = )` moves the
+records whose raw value of `var` is one of `values` to the `"removed"`
+sidecar (see [pumf_sidecar()]). `keep_unlabelled_codes` (`TRUE` or a character
+vector of variables) keeps data values without a value label as a level
+named by the code instead of turning them into `NA`.}
 
 \item{bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask}{Advanced
 bundled-archive and documentation options.}
@@ -73,6 +81,12 @@ offers the same edition in several (`"CSV"`, `"SAS"`, `"TXT"`, ...). By
 default the preferred format wins; set this when only one bundle carries
 the command files the metadata parsers need (e.g. the Canadian Health
 Survey on Seniors, whose CSV zip ships the data alone).}
+
+\item{csv_reader}{`"duckdb"` reads a CSV data file with DuckDB's own
+reader instead of `readr` (the default, `"readr"`), so that the records
+never pass through R. Meant for files too large to hold in memory as
+character columns; needs UTF-8 or Latin-1 data and no bootstrap-weight
+file to join.}
 
 \item{borealis}{A Borealis Dataverse source for the data: a DOI string
 (`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the

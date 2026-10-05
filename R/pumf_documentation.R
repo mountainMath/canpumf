@@ -112,9 +112,13 @@ open_pumf_documentation <- function(series          = NULL,
                  else                  file.path(cache_path, series, version)
 
   if (!dir.exists(version_dir)) {
+    cached <- .pumf_cached_versions(cache_path, series)
     message("No data found for ", series,
             if (!is.null(version)) paste0(" ", version), ". ",
-            "Use get_pumf() or pumf_metadata() to download first.")
+            "Use get_pumf() or pumf_metadata() to download first.",
+            if (!is.null(version) && length(cached) > 0L)
+              paste0("\nCached ", series, " versions: ",
+                     paste0('"', cached, '"', collapse = ", "), "."))
     return(invisible(NULL))
   }
 
@@ -199,6 +203,16 @@ open_pumf_documentation <- function(series          = NULL,
 
   message("No documentation files found for ", title, ".")
   invisible(NULL)
+}
+
+
+# Versions of a series with content in the cache, for the hint given when the
+# requested version is not there.
+.pumf_cached_versions <- function(cache_path, series) {
+  dirs <- list.dirs(file.path(cache_path, series), recursive = FALSE,
+                    full.names = TRUE)
+  dirs <- dirs[vapply(dirs, function(d) length(list.files(d)) > 0L, logical(1L))]
+  sort(basename(dirs))
 }
 
 
@@ -376,6 +390,32 @@ open_pumf_documentation <- function(series          = NULL,
     lines <- c(lines, paste0(
       "  Missing-range overrides applied to: ",
       paste(names(reg$missing_supplement), collapse = ", "), "."
+    ))
+
+  if (isTRUE(fx$fix_mojibake))
+    lines <- c(lines,
+      "  Mis-encoded accented text (\"Qu\u00c3\u00a9bec\") repaired in the character columns.")
+
+  if (!is.null(fx$removed_records))
+    lines <- c(lines, paste0(
+      "  Records with ", fx$removed_records$var, " = ",
+      paste(fx$removed_records$values, collapse = ", "),
+      " are set aside; see pumf_sidecar(tbl, \"removed\")."
+    ))
+
+  if (isTRUE(fx$keep_unlabelled_codes) || length(fx$keep_unlabelled_codes) > 0L)
+    lines <- c(lines, paste0(
+      "  Codes without a documented label are kept under the code itself",
+      if (is.character(fx$keep_unlabelled_codes))
+        paste0(" for: ", paste(fx$keep_unlabelled_codes, collapse = ", ")),
+      "."
+    ))
+
+  if (length(fx$labels_supplement) > 0L)
+    lines <- c(lines, paste0(
+      "  Variable labels supplied by canpumf where the source metadata has none: ",
+      length(fx$labels_supplement), " variable",
+      if (length(fx$labels_supplement) != 1L) "s", "."
     ))
 
   if (length(lines) == 0L) return(invisible(NULL))

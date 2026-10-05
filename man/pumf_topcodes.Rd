@@ -43,7 +43,7 @@ mean or a range can be read with the ceiling in mind.
 \details{
 Sentinel codes of the same variables ("Not stated", "Don't know") are not
 listed: they become `NA` in the table and are reported, with their labels,
-by [pumf_sentinels()].  The list is read from `metadata/codes_applied.csv`,
+by [pumf_sidecar()].  The list is read from `metadata/codes_applied.csv`,
 which the build writes; a database built by an earlier canpumf version has
 to be rebuilt with `get_pumf(..., refresh = TRUE)` first.  The longitudinal
 series (`"LFS"`, `"LFS_HIST"`) have no such variables and are not
@@ -59,6 +59,6 @@ if (!is.null(gss)) {
 }
 }
 \seealso{
-[pumf_dictionary()] for every documented code, [pumf_sentinels()]
+[pumf_dictionary()] for every documented code, [pumf_sidecar()]
   for the codes that became `NA`.
 }

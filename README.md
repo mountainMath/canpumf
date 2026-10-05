@@ -38,11 +38,11 @@ On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connect
 options("canpumf.register_connection" = TRUE)
 ```
 
-Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its companion tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a companion table: `pumf_sentinels(tbl)` returns it, with one labelled column per affected variable, and `pumf_sentinels(tbl, join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns. A variable whose only labels sit on a top code ("75 and more" hours) is kept numeric with the label dropped; `pumf_topcodes(tbl)` lists such values, so a mean or a range can be read with the ceiling in mind.
+Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its sidecar tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a sidecar table: `pumf_sidecar(tbl, "sentinels")` returns it, with one labelled column per affected variable, and `pumf_sidecar(tbl, "sentinels", join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns. `list_pumf_sidecars(tbl)` lists the sidecar tables a survey has. A variable whose only labels sit on a top code ("75 and more" hours) is kept numeric with the label dropped; `pumf_topcodes(tbl)` lists such values, so a mean or a range can be read with the ceiling in mind.
 
 ```r
 census <- get_pumf("Census", "2011 (individuals)")
-pumf_sentinels(census) |> count(TOTINC)    # "Not available" vs "Not applicable"
+pumf_sidecar(census, "sentinels") |> count(TOTINC)    # "Not available" vs "Not applicable"
 ```
 
 ## Basic usage
@@ -189,6 +189,18 @@ By default the package loads the *individuals* file. Available variants by year:
 pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 ```
 
+### The 1881 Census, complete count
+
+The complete-count microdata of the 1881 Census of Canada, published by The Canadian Peoples / Les populations canadiennes (TCP) project [on Borealis](https://doi.org/10.5683/SP3/FXZEVO), is available as series `"TCP"`. It is not a Statistics Canada PUMF: it holds every enumerated person (4.3 million records, a 1.1 GB file that is downloaded and kept compressed, at 88 MB), with the transcribed names, places and occupations next to the project's coded variables. Variable labels are available in English and French, value labels in English only.
+
+```r
+census_1881 <- get_pumf("TCP", "1881")
+
+# the 1,137 records the project flags for removal (crossed-out rows and the
+# like) are kept out of the table, in a sidecar
+pumf_sidecar(census_1881, "removed")
+```
+
 ## Verified datasets
 
 The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or unexpected warnings. Known, benign warnings (e.g. no French translation for the 2021 Census individuals file) are documented in `tests/TEST_COVERAGE.md`. Versions marked **direct download** can be fetched automatically by `get_pumf()` (from Statistics Canada, or from Borealis where marked); others must be placed in the cache directory via Statistics Canada's EFT portal.
@@ -200,6 +212,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
+| Census of Canada 1881, complete count (The Canadian Peoples) | TCP | 1881 | ✓ (Borealis) |
 | General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
 | General Social Survey — Caregiving (Aging and Social Support) | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
 | General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |

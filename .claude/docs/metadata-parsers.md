@@ -2,7 +2,7 @@
 
 Back to [CLAUDE.md](../CLAUDE.md). The PDF user-guide parser (#9) and everything downstream of it are covered in [pdf-crosscheck.md](pdf-crosscheck.md).
 
-Nine parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
+Ten parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
 - `variables.csv`: one row per variable (name, label_en, label_fr, type, decimals, missing_low, missing_high)
 - `codes.csv`: one row per code value (name, val, label_en, label_fr)
 - `layout.csv`: one row per fixed-width column (name, start, end). Absent for CSV-format data.
@@ -17,6 +17,7 @@ Several parsers can fire for the same survey (e.g. split-SPSS for layout/codes a
 
 1. `parse_lfs_codebook()`: LFS `*codebook.csv`. Always read as CP1252.
 2. `parse_cpss_csv()`: CPSS `variables.csv`.
+   - 2b. `parse_json_value_labels()`: a `*value_labels.json` dictionary (The Canadian Peoples census files on Borealis; `detect_formats()` key `json_labels`). One JSON object, a member per coded variable mapping code strings to English labels. It names no uncoded variable and has no variable labels, types or French text, so the variable list is the header of the data CSV (`data_path`, upper-cased), every variable is `character`, the variable labels are `NA` and `label_fr` is `NA` (Stage 3's fr→en fallback applies). The registry supplies the rest: `labels_supplement`, `force_numeric`. No `layout`.
 3. `parse_sas_cards()`: a directory with `.lay` + `.lbe` files.
 4. `parse_spss_split()`: a directory with `vare`/`vale`/`_i` named `.sps` files.
 5. `parse_spss_mono()`: a single `.sps`, `*SPSS.txt` or `.xmf` file whose content contains `VALUE LABELS` or `DATA LIST`. `VARIABLE LABELS` is optional (e.g. Census 2011 individuals). DATA LIST-only files (e.g. SFS 1999) give layout and type info but no labels. Parser 7 fills in the labels where a PDF dictionary exists.

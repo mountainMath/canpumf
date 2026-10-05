@@ -481,7 +481,7 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
 #               command file, then .sas7bdat.
 #   metadata -- SPSS .sps command files; else a documentation .sas; else the
 #               .sav (embedded labels); else a converter .sas from the SAS
-#               data folder.
+#               data folder.  Also a "*value_labels.json" dictionary.
 #   doc      -- PDFs / HTML / codebook text up to `max_doc_mb`.
 #   skip     -- Stata files, Dataverse .tab ingests, .missRecode, the
 #               non-selected data formats, and SAS/Stata/SPSS data zips.
@@ -535,6 +535,9 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
   # Command-code zips (e.g. Census 2021 "Command Code/*_sas.zip") are only
   # needed when no loose command file exists.
   if (!any(role == "metadata") && any(cmd_zip)) role[cmd_zip] <- "metadata"
+  # A JSON value-label dictionary (The Canadian Peoples census files) is the
+  # only machine-readable metadata of its dataset; parse_json_value_labels().
+  role[grepl("(?i)value_labels\\.json$", name, perl = TRUE)] <- "metadata"
 
   # -- documentation
   doc <- which(role == "skip" &
@@ -648,6 +651,49 @@ list_borealis_pumf_files <- function(doi) {
                  source = "Borealis")
 }
 
+# Download Borealis files as a zip bundle.  Borealis stores files uncompressed
+# and the single-file endpoint serves them that way; the bundle endpoint
+# deflates on the fly, which makes a large text file a much smaller transfer.
+.borealis_download_bundle <- function(file_ids, dest, original = FALSE) {
+  url <- paste0(BOREALIS_SERVER, "/api/access/datafiles/",
+                paste(file_ids, collapse = ","),
+                if (original) "?format=original" else "")
+  key <- .borealis_token()
+  headers <- if (is.null(key)) NULL else c(`X-Dataverse-key` = key)
+  .pumf_download(url, dest, mode = "wb", quiet = TRUE, headers = headers,
+                 source = "Borealis")
+}
+
+# Download one Borealis CSV into the cache as `<dest>.gz`; returns that path.
+# The file comes as a one-file zip bundle (the 1.1 GB TCP 1881 file is an
+# 85 MB transfer) whose entry is recompressed straight to gzip, so the
+# uncompressed file is neither transferred nor written.  Dataverse leaves a
+# file out of a bundle above the installation's zip size limit (it only says
+# so in the bundle's MANIFEST.TXT); when the bundle does not hold the complete
+# file (`size` bytes, when known), the file is downloaded as is and compressed.
+.borealis_download_csv_gz <- function(file_id, dest, size = NA_real_,
+                                      original = FALSE) {
+  gz  <- paste0(dest, ".gz")
+  zip <- paste0(dest, ".bundle.zip")
+  on.exit(unlink(zip), add = TRUE)
+  ok <- tryCatch({
+    .borealis_download_bundle(file_id, zip, original = original)
+    entry <- setdiff(utils::unzip(zip, list = TRUE)$Name, "MANIFEST.TXT")
+    length(entry) == 1L && {
+      n <- .zip_entry_to_gzip(zip, entry, gz)
+      n > 0 && (is.na(size) || n == size)
+    }
+  }, warning = function(w) FALSE, error = function(e) FALSE)
+  if (!isTRUE(ok)) {
+    unlink(c(zip, gz))
+    message("No compressed download of ", basename(dest),
+            "; downloading the uncompressed file ...")
+    .borealis_download_file(file_id, dest, original = original)
+    gz <- .gzip_file(dest)
+  }
+  gz
+}
+
 #' @keywords internal
 #' @noRd
 # Download the selected files of a Borealis dataset into `version_dir` (flat),
@@ -695,7 +741,16 @@ list_borealis_pumf_files <- function(doi) {
     if (fname %in% sel$local && !is.na(sel$directory[[i]]))
       fname <- paste0(gsub("[/ ]+", "_", sel$directory[[i]]), "_", fname)
     dest <- file.path(version_dir, fname)
-    .borealis_download_file(sel$file_id[[i]], dest, original = use_orig)
+    # A CSV data file is kept compressed in the cache (every reader takes
+    # `.csv.gz`).  The manifest's md5 stays the one Borealis publishes, i.e.
+    # that of the uncompressed file.
+    if (sel$role[[i]] == "data" && grepl("\\.csv$", dest, ignore.case = TRUE)) {
+      dest <- .borealis_download_csv_gz(
+        sel$file_id[[i]], dest, original = use_orig,
+        size = if (use_orig) NA_real_ else sel$size[[i]])
+    } else {
+      .borealis_download_file(sel$file_id[[i]], dest, original = use_orig)
+    }
     sel$local[[i]] <- basename(dest)
     if (tolower(tools::file_ext(dest)) == "zip") {
       before <- list.files(version_dir, recursive = TRUE)
