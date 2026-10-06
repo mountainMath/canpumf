@@ -199,11 +199,19 @@ test_that("an explicit Borealis load warns when StatCan has the data", {
 
 # ---- Manifest ---------------------------------------------------------------
 
+# writeLines() with LF line endings on every platform, so a fixture's byte
+# count matches the declared size (Windows would write CRLF).
+.write_lf <- function(text, path) {
+  con <- file(path, "wb")
+  on.exit(close(con))
+  writeLines(text, con)
+}
+
 # A stand-in for the Borealis bundle endpoint: a zip of `files` (name -> lines)
 # plus the MANIFEST.TXT Dataverse adds to every bundle.
 .fake_bundle <- function(dest, files) {
   src <- withr::local_tempdir()
-  for (f in names(files)) writeLines(files[[f]], file.path(src, f))
+  for (f in names(files)) .write_lf(files[[f]], file.path(src, f))
   writeLines("manifest", file.path(src, "MANIFEST.TXT"))
   withr::with_dir(src, utils::zip(dest, c(names(files), "MANIFEST.TXT"),
                                   flags = "-q"))
@@ -546,7 +554,7 @@ test_that(".borealis_download_csv_gz: a bundle with a folder entry still yields 
     .borealis_download_bundle = function(file_ids, dest, original = FALSE) {
       src <- withr::local_tempdir()
       dir.create(file.path(src, "Data"))
-      writeLines(c("a,b", "1,2"), file.path(src, "Data", "data.csv"))
+      .write_lf(c("a,b", "1,2"), file.path(src, "Data", "data.csv"))
       writeLines("manifest", file.path(src, "MANIFEST.TXT"))
       withr::with_dir(src, utils::zip(dest, c("Data/", "Data/data.csv", "MANIFEST.TXT"),
                                       flags = "-q"))
