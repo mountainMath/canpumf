@@ -1517,7 +1517,11 @@ pumf_locate_or_download <- function(series,
     "SELECT current_setting('memory_limit') AS memory_limit,",
     "current_setting('threads') AS threads"))
   if (!is.null(restore)) {
-    set("memory_limit", restore$memory_limit)
+    # DuckDB reports the limit rounded ("12.4 GiB"), and setting that string
+    # back can land on a different value; RESET restores the default exactly.
+    DBI::dbExecute(con, "RESET memory_limit")
+    if (!identical(cur()$memory_limit, restore$memory_limit))
+      set("memory_limit", restore$memory_limit)
     set("threads", restore$threads)
     return(invisible(NULL))
   }

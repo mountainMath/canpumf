@@ -2022,7 +2022,7 @@ parse_json_value_labels <- function(json_path, data_path = NULL) {
 
   header <- character(0L)
   if (!is.null(data_path) && file.exists(data_path)) {
-    first  <- sub("^﻿", "", readLines(data_path, n = 1L, warn = FALSE,
+    first  <- sub("^\ufeff", "", readLines(data_path, n = 1L, warn = FALSE,
                                            encoding = "UTF-8"))
     header <- toupper(trimws(scan(text = first, what = "", sep = ",",
                                   quote = "\"", quiet = TRUE)))
