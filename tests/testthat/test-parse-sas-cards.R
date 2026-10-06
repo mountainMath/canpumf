@@ -264,7 +264,7 @@ test_that("parse_sas_data_labels: French 's'applique à' associates formats too"
   expect_true(all(is.na(m$codes$label_fr[m$codes$name == "AGEGRP"])))
 })
 
-test_that(".is_fra_sas: /FR/ directory marker pairs the French command file", {
+test_that(".is_fra_path(\"sas\"): /FR/ directory marker pairs the French command file", {
   # PALS ships one archive laid out as PUMF/ENG/ and PUMF/FR/, each holding a
   # complete copy; the command filenames carry no language suffix, so the
   # directory is the only marker.

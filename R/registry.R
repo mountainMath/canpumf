@@ -1,92 +1,20 @@
 # R/registry.R -- Survey-specific configuration registry.
 #
-# Each entry captures the non-derivable per-(series, version) configuration
-# needed by the three-stage pipeline: layout/BSW masks, file masks, encoding
-# overrides, and raw-data fixups applied before label mapping in Stage 3.
+# One entry per (series, version) holds the configuration the three-stage
+# pipeline cannot derive from the files themselves: layout/BSW/file masks,
+# encodings, download source and the `data_fixups` applied to the raw data in
+# Stage 3.  Surveys not listed fall back to auto-detection, which also covers
+# read_pumf_data() on manually deposited directories.
 #
-# Surveys not listed here fall back to auto-detection with no special handling.
-# That covers the generic read_pumf_data() path for manually-deposited directories.
-#
-# data_fixups structure (applied to raw character data before label mapping):
-#   str_pad:    list of list(cols, width, side, pad) -- left/right-pad raw values
-#   rename:     named character vector c(old_name = "new_name") -- column renames
-#               (applied only when the old column exists; safe for conditional renames)
-#   rename_regex: named character vector c(pattern = "replacement") rewriting
-#               many column names at once (sub() semantics).  A rewrite is only
-#               applied when it lands on a name the metadata declares and the
-#               current name is not itself declared, so it cannot collide with a
-#               correctly-named column.  For releases that decorate the
-#               documented names wholesale (PALS 2001's "A" collection prefix).
-#   na_values:  character vector of raw values that should become NA for all
-#               numeric columns (applied in .apply_numeric_conversion)
-#   force_character/force_integer/force_bigint: character vectors of variable
-#               names whose DuckDB storage type is overridden.  force_character
-#               keeps raw VARCHAR (leading zeros, geo/ID codes); force_integer
-#               and force_bigint keep the raw values and set the column type to
-#               INTEGER / BIGINT after the table is written (large IDs survive).
-#               A variable may appear in at most one force_* set.
-#   missing_codes: named list VAR = c(codes) of discrete missing values, for
-#               variables whose sentinels do not form a single contiguous range
-#               (PALS 2006 AUDE_Q02: -5/-6/-7 and 998/999 straddle hours 1-97,
-#               so the derived [-7, 999] range would NA the whole column).
-#               Replaces any range derived or parsed for that variable.  An
-#               empty vector (HHINC = numeric(0)) clears the range and declares
-#               no code: the variable's declared "missing" value is a value
-#               (Census 1981 income "ZERO" 0).
-#   sentinel_labels: labels for sentinel codes the source metadata does not
-#               label, shown in the sentinel sidecar
-#               (pumf_sidecar(tbl, "sentinels")).
-#               A named list keyed by code string ("9999999" = c(label_en=,
-#               label_fr=)), applying to every variable, or by variable name
-#               (HRSWK = list("0" = c(label_en=))) for one variable.  The
-#               command file's own label for the code always wins; an unlabelled
-#               code is shown as its digits.  Changes no data value.
-#   labels_supplement: named list c(VAR = c(label_en=, label_fr=)) supplying
-#               variable labels the source metadata leaves blank (e.g. a weight
-#               variable with an empty Concept line in the PDF codebook).  Fills
-#               only NA labels, so genuine source labels always win.
-#   fix_mojibake: TRUE repairs double-encoded UTF-8 ("QuÃ©bec" for "Québec")
-#               in the character columns of the data, with the same
-#               .fix_mojibake() the metadata labels go through.  For files
-#               whose text fields were re-encoded once too often upstream
-#               (TCP 1881 place names, surnames and occupations).
-#   removed_records: list(var = , values = ) naming a variable and the raw
-#               values that mark a record the producer says to drop (TCP 1881
-#               remove_TCP = 1: crossed-out, duplicate or blank lines).  Those
-#               records go to the sidecar table pumf_removed_<table>
-#               (pumf_sidecar(tbl, "removed")) with their pumf_row_id, and
-#               are left out of the main table.
-#   keep_unlabelled_codes: TRUE (every coded variable) or a character vector
-#               of variables whose data values without a label stay a level
-#               named by the code instead of becoming NA.  For value-label
-#               dictionaries that are incomplete by construction (TCP 1881
-#               occupation codes).  Decided on the data: only codes that occur
-#               are added.
-#   labels_as_description: TRUE moves the source's variable labels to the
-#               optional `description_en`/`description_fr` columns of
-#               variables.csv in Stage 2 and blanks the labels, for a source
-#               whose labels are sentences (the CCRI SAS card).  The short
-#               labels then come from labels_supplement.
-#   rejoin_split_records: TRUE joins, before parsing a CSV data file, the
-#               consecutive short lines that a line break inside a field has
-#               split and that together make exactly one record (CCRI 1911,
-#               15 records).  readr path only.
-#   column_encoding: named list c(<encoding> = <columns>) for a CSV whose
-#               columns are not all in data_encoding (CCRI 1911: two CP850
-#               columns in a CP1252 file).  readr path only.
-#   text_missing_codes: character vector of numeric codes that the source
-#               writes into its free-text columns as strings (CCRI's
-#               99999001 "Blank" in a name field).  In every column that is
-#               still character after labelling, those values become NA and
-#               go to the sentinel sidecar, labelled through sentinel_labels.
-#               Columns with value labels are not affected.  readr path only.
-#
-# csv_reader (a top-level field, not a fixup): "duckdb" reads a CSV data file
-#   with DuckDB's own reader instead of readr, so the records never pass
-#   through R: only the distinct values of the coded and numeric columns do
-#   (.pumf_native_scan()).  For files too large to hold in memory as
-#   character columns (TCP 1881: 4.3 million records, 1.1 GB).  UTF-8 or
-#   Latin-1 data without a bootstrap-weight join only.
+# The fields, every data_fixups entry (str_pad, rename, rename_regex,
+# na_values, force_*, codes_supplement/codes_override, missing_codes,
+# sentinel_labels, labels_supplement, fix_mojibake, removed_records,
+# keep_unlabelled_codes, labels_as_description, rejoin_split_records,
+# column_encoding, text_missing_codes), the DuckDB-native CSV build
+# (csv_reader), sibling inheritance, version aliases and the override
+# verification workflow are documented in .claude/docs/registry.md.  Every
+# manual override needs a verified row in
+# tests/testthat/override_verification.csv.
 
 .make_entry <- function(series,
                         version,
@@ -169,15 +97,46 @@
   )
 }
 
-# Expand one (val, label_en, label_fr) triple into a codes_supplement fragment
-# covering many variables at once.  Some releases omit the *same* reserved code
-# from dozens of formats (PALS 2001 leaves 93 = "Not applicable" out of every
-# format whose universe is the disabled sub-population), and spelling each one
-# out would bury the single fact being asserted in a hundred lines of noise.
+# A codes_supplement / codes_override fragment: the code table (val,
+# label_en, label_fr) for each of `vars`.  Usually one variable; some releases
+# omit the *same* reserved code from dozens of formats (PALS 2001 leaves 93 =
+# "Not applicable" out of every format whose universe is the disabled
+# sub-population), and spelling each one out would bury the single fact being
+# asserted in a hundred lines of noise.
 .codes_for <- function(vars, val, label_en, label_fr) {
   df <- data.frame(val = val, label_en = label_en, label_fr = label_fr,
                    stringsAsFactors = FALSE)
   stats::setNames(rep(list(df), length(vars)), vars)
+}
+
+# Several versions of a series whose releases share one configuration, as the
+# named list of entries ("series/version" keys) spliced into .pumf_registry.
+# For releases that are literally identical year to year; a release that
+# differs in any field gets its own entry.
+.entries_for <- function(series, versions, ...) {
+  stats::setNames(lapply(versions, function(v) .make_entry(series, v, ...)),
+                  paste0(series, "/", versions))
+}
+
+# The three 1976 Census files: from the EFT bundle (keyed "1976/<type>", one
+# SPSS card and data file per type) and from Borealis (keyed "1976 (<type>)",
+# one dataset DOI per type).
+.census_1976_eft_entries <- function() {
+  stems <- c(individuals = "indiv76", households = "hhld76", families = "fam76")
+  stats::setNames(lapply(names(stems), function(t)
+    .make_entry("Census", paste0("1976/", t),
+                bundle_sps_mask = stems[[t]],
+                file_mask       = paste0("^", stems[[t]], "\\.txt$"))),
+    paste0("Census/1976/", names(stems)))
+}
+.census_1976_borealis_entries <- function() {
+  dois <- c(individuals = "doi:10.5683/SP3/ZX0MPJ",
+            households  = "doi:10.5683/SP3/QDJL7W",
+            families    = "doi:10.5683/SP3/5LWCXB")
+  stats::setNames(lapply(names(dois), function(t)
+    .make_entry("Census", paste0("1976 (", t, ")"),
+                borealis = list(doi = dois[[t]]))),
+    paste0("Census/1976 (", names(dois), ")"))
 }
 
 # The shared respondent key on which a multi-module survey's tables join (e.g.
@@ -185,15 +144,14 @@
 # key is discoverable from one source of truth rather than only documented in
 # tests. Returns NULL for single-table surveys (or modular entries that predate
 # the field). pumf_module() surfaces it in a message so callers know how to join.
-.pumf_module_key <- function(reg) {
-  if (is.null(reg)) return(NULL)
-  reg$module_key
-}
+.pumf_module_key <- function(reg) reg$module_key
 
 # Return the uniform module table for a registry entry as a named list keyed by
 # module id, each element list(layout_mask, layout_file, file_mask, data_fixups,
 # is_primary, meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
-# unset), so callers can branch on is.null() to keep the legacy path untouched.
+# unset), so callers can branch on is.null(); the pipeline itself runs every
+# entry through `.pumf_stage_modules()`, which supplies a synthetic primary
+# module for single-table surveys.
 # The primary module's metadata stays in `metadata/` (meta_subdir = NULL) for
 # backward compatibility; secondary modules use `metadata/<id>/`.
 .pumf_entry_modules <- function(reg) {
@@ -358,12 +316,9 @@
 # 1971 CMA individuals: TYPE66/TYPE71 value 0 ("Data not available") is absent
 # from the SPSS VALUE LABELS (EFT and Borealis alike); confirmed from the PDF
 # documentation.
-.census_1971_type_na <- local({
-  df <- data.frame(val = "0", label_en = "Data not available",
-                   label_fr = "Donn\u00e9es non disponibles",
-                   stringsAsFactors = FALSE)
-  list(TYPE66 = df, TYPE71 = df)
-})
+.census_1971_type_na <- .codes_for(c("TYPE66", "TYPE71"), "0",
+                                   "Data not available",
+                                   "Donn\u00e9es non disponibles")
 
 # 1986: continuous variables whose SPSS value labels declare only boundary
 # codes ("<$20,000", "85 yrs or more", "100 hours or more"); shared by the EFT
@@ -383,11 +338,10 @@
 # 6 under "Multiple responses", and the spouse variable SPMOTG spells the same
 # two categories out as "Other single responses" / "Other multiple responses".
 # The French is the standard Census wording (reponses uniques / multiples).
-.census_1986_hhmotg <- list(HHMOTG = data.frame(
-  val      = c("3", "6"),
-  label_en = c("Other single responses", "Other multiple responses"),
-  label_fr = c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples"),
-  stringsAsFactors = FALSE))
+.census_1986_hhmotg <- .codes_for(
+  "HHMOTG", c("3", "6"),
+  c("Other single responses", "Other multiple responses"),
+  c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples"))
 
 # GSS cycle 16 (2002) per-module force_numeric: count/age/date variables whose
 # SPSS value-label blocks declare only boundary/sentinel codes (e.g. a top-code
@@ -814,7 +768,9 @@
   "HEALTH_INSURANCE", "LIFE_INSURANCE", "COST_OF_EDUCATION", "COST_OF_INSURANCE",
   "IN_SCHOOL_MONTHS_AMOUNT", "YEAR_OF_NATURALIZATION")
 
-.pumf_registry <- list(
+# Built as c() of list() blocks so a group of identical releases can be one
+# .entries_for() call; the order of the keys is the order of the file.
+.pumf_registry <- c(list(
 
   # ---- SFS: Survey of Financial Security ------------------------------------
 
@@ -826,9 +782,10 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF\\.txt"),
+    file_mask     = "EFAM_PUMF\\.txt")),
 
-  "SFS/2019" = .make_entry("SFS", "2019",
+  # 2019 and 2016: one release format.
+  .entries_for("SFS", c("2019", "2016"),
     layout_mask   = "EFAM_PUMF",
     bsw_mask      = "bsweights",
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
@@ -836,14 +793,7 @@
     bsw_drop_cols = "PWEIGHT",
     file_mask     = "EFAM_PUMF\\.txt"),
 
-  "SFS/2016" = .make_entry("SFS", "2016",
-    layout_mask   = "EFAM_PUMF",
-    bsw_mask      = "bsweights",
-    bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
-    bsw_join_key  = "PEFAMID",
-    bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF\\.txt"),
-
+  list(
   # 2012: no bootstrap weights, no padding fixup
   "SFS/2012" = .make_entry("SFS", "2012"),
 
@@ -857,19 +807,14 @@
   # 1999: DATA LIST-only SPSS file (no VARIABLE/VALUE LABELS); no bootstrap
   # weights; FWF data file is in the DATA/ subdirectory.
   "SFS/1999" = .make_entry("SFS", "1999",
-    file_mask = "ec1999ef\\.sdf"),
+    file_mask = "ec1999ef\\.sdf")),
 
   # ---- CIS: Canadian Income Survey ------------------------------------------
   # Data dir contains CIS{year}_PUMF.txt (FWF), CIS{year}_PUMF.csv, Readme.txt
   # and Lisezmoi.txt; file_mask selects the FWF data file unambiguously.
+  .entries_for("CIS", as.character(2022:2017), file_mask = "PUMF\\.txt"),
 
-  "CIS/2022" = .make_entry("CIS", "2022", file_mask = "PUMF\\.txt"),
-  "CIS/2021" = .make_entry("CIS", "2021", file_mask = "PUMF\\.txt"),
-  "CIS/2020" = .make_entry("CIS", "2020", file_mask = "PUMF\\.txt"),
-  "CIS/2019" = .make_entry("CIS", "2019", file_mask = "PUMF\\.txt"),
-  "CIS/2018" = .make_entry("CIS", "2018", file_mask = "PUMF\\.txt"),
-  "CIS/2017" = .make_entry("CIS", "2017", file_mask = "PUMF\\.txt"),
-
+  list(
   # ---- CHS: Canadian Housing Survey ----------------------------------------
 
   # PPROV code 95 is the combined territories, so individual codes 60/61/62
@@ -882,11 +827,8 @@
   "CHS/2018" = .make_entry("CHS", "2018",
     layout_mask   = "chs2018ecl_pumf",
     file_mask     = "CHS2018ECL_PUMF\\.csv",
-    data_fixups   = list(codes_supplement = list(
-      PPROV = data.frame(val = "95",
-                         label_en = "Territories",
-                         label_fr = "Territoires",
-                         stringsAsFactors = FALSE)))),
+    data_fixups   = list(codes_supplement =
+      .codes_for("PPROV", "95", "Territories", "Territoires"))),
 
   # 2021/2022 use a generic \d{4} year so the entry clones cleanly for new
   # release years. Masks are anchored by the surrounding literals (chs…ecl_pumf)
@@ -899,11 +841,8 @@
     bsw_file_mask = "chs\\d{4}ecl_PUMF_bsw\\.csv",
     bsw_join_key  = "PUMFID",
     file_mask     = "CHS\\d{4}ECL_PUMF\\.csv",
-    data_fixups   = list(codes_supplement = list(
-      PPROV = data.frame(val = "95",
-                         label_en = "Territorial capitals",
-                         label_fr = "Capitales territoriales",
-                         stringsAsFactors = FALSE)))),
+    data_fixups   = list(codes_supplement =
+      .codes_for("PPROV", "95", "Territorial capitals", "Capitales territoriales"))),
 
   "CHS/2022" = .make_entry("CHS", "2022",
     layout_mask   = "chs\\d{4}ecl_pumf",
@@ -945,26 +884,21 @@
     bsw_file_mask     = "bsw_flatfile\\.txt",
     bsw_join_key      = "CASEID",
     metadata_encoding = "UTF-8",
-    file_mask         = "shs2019_flatfile\\.txt"),
+    file_mask         = "shs2019_flatfile\\.txt")),
 
-  # 2021: SPSS split-file format; BSW layout is a SAS @pos .txt file co-located
-  # with the BSW data (not in the SPSS cards dir); fallback in .read_bsw_data
-  # handles this automatically. Join key is CASEID (uppercased from "CaseID").
-  # file_mask uses a generic \d{4} year so the entry can be cloned for new
-  # release years without edits. The BSW files (pumf_shs<year>_bsw_*.txt) have
-  # no underscore before the year and don't end in \d{4}.txt, so the data file
-  # matches unambiguously.
-  "SHS/2021" = .make_entry("SHS", "2021",
+  # 2021 and 2023: SPSS split-file format; BSW layout is a SAS @pos .txt file
+  # co-located with the BSW data (not in the SPSS cards dir); fallback in
+  # .read_bsw_data handles this automatically. Join key is CASEID (uppercased
+  # from "CaseID").  file_mask uses a generic \d{4} year so the entry can be
+  # cloned for new release years without edits. The BSW files
+  # (pumf_shs<year>_bsw_*.txt) have no underscore before the year and don't end
+  # in \d{4}.txt, so the data file matches unambiguously.
+  .entries_for("SHS", c("2021", "2023"),
     bsw_file_mask = "bsw_flatfile\\.txt",
     bsw_join_key  = "CASEID",
     file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
 
-  # 2023: same SPSS split-file format as 2021.
-  "SHS/2023" = .make_entry("SHS", "2023",
-    bsw_file_mask = "bsw_flatfile\\.txt",
-    bsw_join_key  = "CASEID",
-    file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
-
+  list(
   # ---- GSS: General Social Survey -------------------------------------------
   # Canonical version keys are "Cycle N (YYYY)" (a bare year is not unique across
   # the GSS).  Cycle number, bare year, and historical theme names all resolve as
@@ -1662,15 +1596,12 @@
         # DISAB=1 counterpart, 91 = "Invalid data".
         .codes_for(c("NSTIENP", "ROOMSP"), "99",
                    "Invalid data", "Donn\u00e9es non valides"),
-        stats::setNames(
-          rep(list(data.frame(
-            val      = c("0", "93", "98", "R", "X"),
-            label_en = c("Valid data", "Not applicable", "Not stated",
-                         "Refusal", "Don't know"),
-            label_fr = c("Donn\u00e9es valides", "Ne s'applique pas",
-                         "Non d\u00e9clar\u00e9", "Refus", "Ne sait pas"),
-            stringsAsFactors = FALSE)), 4L),
-          c("B12", "B28", "B54", "C40"))))),
+        .codes_for(c("B12", "B28", "B54", "C40"),
+                   c("0", "93", "98", "R", "X"),
+                   c("Valid data", "Not applicable", "Not stated",
+                     "Refusal", "Don't know"),
+                   c("Donn\u00e9es valides", "Ne s'applique pas",
+                     "Non d\u00e9clar\u00e9", "Refus", "Ne sait pas"))))),
 
   # ---- SGVP: GSS Giving, Volunteering and Participating ---------------------
   # Generic \d{4} year file_mask (matches GVP_DBP_<year>_PUMF_FMGD.txt, not the
@@ -1690,11 +1621,7 @@
     file_mask   = "GSS33PUMF\\.txt$",
     data_fixups = list(
       force_numeric    = c("HSDSIZEC", "DSCORE"),
-      codes_supplement = list(
-        BRTHMACR = data.frame(val = "9", label_en = NA_character_,
-                              label_fr = NA_character_,
-                              stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("BRTHMACR", "9", NA_character_, NA_character_)
     )),
 
   # 2013 (cycle 27): monolithic SPSS (GSSC27GVPpumf_e.sps + French pair).
@@ -1777,17 +1704,15 @@
         layout_mask = "_VOLNTR_",
         file_mask   = "NSGVP1997_VOLNTR_PUMF\\.txt$",
         data_fixups = list(na_values = "."))),
-    module_key = "IDNUM"),
+    module_key = "IDNUM")),
 
   # ---- ITS: International Travel Survey -------------------------------------
   # Split-SPSS layout (VTS_<year>_PUMF_{i,vale,vare,valf,varf,miss}.sps) in
   # Layout_Cards/.  Generic \d{4} year file_mask avoids the README.txt and
   # clones cleanly for new release years.
-  "ITS/2018" = .make_entry("ITS", "2018",
-    file_mask = "VTS_\\d{4}_PUMF\\.txt"),
-  "ITS/2019" = .make_entry("ITS", "2019",
-    file_mask = "VTS_\\d{4}_PUMF\\.txt"),
+  .entries_for("ITS", c("2018", "2019"), file_mask = "VTS_\\d{4}_PUMF\\.txt"),
 
+  list(
   # ---- Census of Population -------------------------------------------------
   # 2021 and 2016 are downloadable. Older years are EFT-only (user deposits zip).
   # All Census files use CP1252-encoded data; 2021 uses UTF-8 metadata (command
@@ -1849,10 +1774,7 @@
     file_mask   = "\\.dat",
     data_fixups = c(.census_fixup_7, list(
       missing_codes    = .census_2006_hier_missing,
-      codes_supplement = list(
-        MORGH = data.frame(val = "8", label_en = "Not available",
-                           label_fr = "Non disponible", stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("MORGH", "8", "Not available", "Non disponible")
     ))),
 
   # 2001: fixed-width .dat; three file types
@@ -1867,10 +1789,7 @@
   "Census/2001 (families)" = .make_entry("Census", "2001 (families)",
     file_mask   = "\\.dat",
     data_fixups = c(.census_fixup_7, list(
-      codes_supplement = list(
-        MODEF = data.frame(val="7", label_en="Other method",
-                           label_fr="Autre moyen", stringsAsFactors=FALSE)
-      )
+      codes_supplement = .codes_for("MODEF", "7", "Other method", "Autre moyen")
     ))),
 
   # 1996: separate EFT archive per type.  Each outer zip contains a
@@ -1899,10 +1818,7 @@
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/IND91.XMF",
     data_fixups       = c(.census_fixup_7, list(
-      codes_supplement = list(
-        NOLGREP = data.frame(val = "9", label_en = "Not applicable",
-                             label_fr = "Sans objet", stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("NOLGREP", "9", "Not applicable", "Sans objet")
     ))),
 
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
@@ -1957,16 +1873,12 @@
     doc_mask        = "Individu|[Pp]articulier|indvls",
     data_fixups     = list(
       force_numeric = .census_1986_numeric_ind,
-      codes_supplement = list(
-        ETHNICOR = data.frame(
-          val      = c("29", "30"),
-          label_en = c("Other European single responses (Atl/YT/NWT)",
-                       "Asian (Atl/YT/NWT)"),
-          label_fr = c("Autres origines uniques europ\u00e9ennes (Atl/YN/TNO)",
-                       "Asiatique (Atl/YN/TNO)"),
-          stringsAsFactors = FALSE
-        )
-      )
+      codes_supplement = .codes_for(
+        "ETHNICOR", c("29", "30"),
+        c("Other European single responses (Atl/YT/NWT)",
+          "Asian (Atl/YT/NWT)"),
+        c("Autres origines uniques europ\u00e9ennes (Atl/YN/TNO)",
+          "Asiatique (Atl/YN/TNO)"))
     )),
 
   "Census/1986/households" = .make_entry("Census", "1986/households",
@@ -2003,20 +1915,11 @@
   "Census/1981/households" = .make_entry("Census", "1981/households",
     bundle_sps_mask = "hhmdf81",
     file_mask       = "^HHMDF81\\.DAT$",
-    data_fixups     = .census_1981_hhld_fixups),
+    data_fixups     = .census_1981_hhld_fixups)),
 
-  "Census/1976/individuals" = .make_entry("Census", "1976/individuals",
-    bundle_sps_mask = "indiv76",
-    file_mask       = "^indiv76\\.txt$"),
+  .census_1976_eft_entries(),
 
-  "Census/1976/households" = .make_entry("Census", "1976/households",
-    bundle_sps_mask = "hhld76",
-    file_mask       = "^hhld76\\.txt$"),
-
-  "Census/1976/families" = .make_entry("Census", "1976/families",
-    bundle_sps_mask = "fam76",
-    file_mask       = "^fam76\\.txt$"),
-
+  list(
   # 1971 has separate CMA (Census Metropolitan Area) and provincial (prov)
   # variants for each file type; both come from the same bundle zip.
   "Census/1971/individuals_prov" = .make_entry("Census", "1971/individuals_prov",
@@ -2048,11 +1951,7 @@
       # CMACODE is always 000 in the provincial file (no CMA detail); the SPSS
       # VALUE LABELS only list 008/021 (Montreal/Toronto from the CMA file), so
       # 000 would otherwise warn as unmatched.
-      codes_supplement = list(
-        CMACODE = data.frame(val = "000", label_en = NA_character_,
-                             label_fr = NA_character_,
-                             stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("CMACODE", "000", NA_character_, NA_character_)
     ))),
 
   "Census/1971/families_cma" = .make_entry("Census", "1971/families_cma",
@@ -2101,13 +2000,11 @@
   # One combined "Households and Family File", as in the EFT bundle.
   "Census/1981 (households)" = .make_entry("Census", "1981 (households)",
     borealis    = list(doi = "doi:10.5683/SP3/WECYST"),
-    data_fixups = .census_1981_hhld_fixups),
-  "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
-    borealis = list(doi = "doi:10.5683/SP3/ZX0MPJ")),
-  "Census/1976 (households)" = .make_entry("Census", "1976 (households)",
-    borealis = list(doi = "doi:10.5683/SP3/QDJL7W")),
-  "Census/1976 (families)" = .make_entry("Census", "1976 (families)",
-    borealis = list(doi = "doi:10.5683/SP3/5LWCXB")),
+    data_fixups = .census_1981_hhld_fixups)),
+
+  .census_1976_borealis_entries(),
+
+  list(
   "Census/1971 (individuals, provincial)" = .make_entry("Census",
     "1971 (individuals, provincial)",
     borealis    = list(doi = "doi:10.5683/SP3/RUGTLM"),
@@ -2131,10 +2028,8 @@
     "1971 (families, provincial)",
     borealis    = list(doi = "doi:10.5683/SP3/CYMXK3"),
     # CMACODE is always 0 in the provincial file (unpadded in the CSV).
-    data_fixups = c(.census_fixup_1971, list(codes_supplement = list(
-      CMACODE = data.frame(val = "0", label_en = NA_character_,
-                           label_fr = NA_character_, stringsAsFactors = FALSE)
-    )))),
+    data_fixups = c(.census_fixup_1971, list(codes_supplement =
+      .codes_for("CMACODE", "0", NA_character_, NA_character_)))),
   "Census/1971 (families, CMA)" = .make_entry("Census",
     "1971 (families, CMA)",
     borealis    = list(doi = "doi:10.5683/SP3/R8V3ID"),
@@ -2224,7 +2119,7 @@
       keep_unlabelled_codes = TRUE,
       labels_as_description = TRUE,
       labels_supplement     = .ccri_1911_var_labels))
-)
+))
 
 #' Resolve version aliases
 #'
@@ -2299,24 +2194,27 @@ pumf_resolve_version <- function(series, version,
 # Registry key of an EFT bundle entry ("1971/individuals_cma", "1986/families"),
 # or NULL when that year/type has none.
 .census_eft_key <- function(year, type, is_cma) {
-  cands <- c(if (is_cma) paste0(year, "/", type, "_cma"),
-             paste0(year, "/", type, "_prov"),
-             paste0(year, "/", type))
-  for (k in cands)
-    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
-  NULL
+  .census_first_key(c(if (is_cma) paste0(year, "/", type, "_cma"),
+                      paste0(year, "/", type, "_prov"),
+                      paste0(year, "/", type)))
 }
 
 # Registry key of a Borealis-sourced entry ("1971 (individuals, CMA)",
 # "1986 (families)"), or NULL.  Only keys carrying a borealis DOI qualify, so
 # StatCan-downloadable years (1991+) never resolve here.
 .census_borealis_key <- function(year, type, is_cma) {
-  cands <- c(if (is_cma) paste0(year, " (", type, ", CMA)"),
-             paste0(year, " (", type, ", provincial)"),
-             paste0(year, " (", type, ")"))
+  .census_first_key(c(if (is_cma) paste0(year, " (", type, ", CMA)"),
+                      paste0(year, " (", type, ", provincial)"),
+                      paste0(year, " (", type, ")")),
+                    borealis = TRUE)
+}
+
+# The first of the candidate Census version keys that is registered (and, with
+# `borealis = TRUE`, carries a Borealis source), or NULL.
+.census_first_key <- function(cands, borealis = FALSE) {
   for (k in cands) {
     e <- .pumf_registry[[paste0("Census/", k)]]
-    if (!is.null(e) && !is.null(e$borealis)) return(k)
+    if (!is.null(e) && (!borealis || !is.null(e$borealis))) return(k)
   }
   NULL
 }
@@ -2382,19 +2280,24 @@ pumf_resolve_version <- function(series, version,
 .pumf_gss_canon_keys <- function()
   sub("^GSS/", "", grep("^GSS/Cycle ", names(.pumf_registry), value = TRUE))
 
+# Normalise a version string for alias matching: lower case, punctuation to
+# spaces, whitespace collapsed; `split_digits` also separates trailing letters
+# from digits ("cycle16" -> "cycle 16").
+.pumf_norm_alias <- function(x, split_digits = FALSE) {
+  x <- tolower(gsub("[[:punct:]]", " ", x))
+  if (split_digits) x <- gsub("([a-z])([0-9])", "\\1 \\2", x)
+  trimws(gsub("\\s+", " ", x))
+}
+
 .pumf_gss_alias <- function(version) {
-  norm <- function(x) {
-    x <- tolower(gsub("[[:punct:]]", " ", x))
-    x <- gsub("([a-z])([0-9])", "\\1 \\2", x)  # "cycle16" -> "cycle 16"
-    trimws(gsub("\\s+", " ", x))
-  }
-  v <- norm(version)
+  v <- .pumf_norm_alias(version, split_digits = TRUE)
   for (canon in .pumf_gss_canon_keys()) {
     m <- regmatches(canon, regexec("^Cycle (\\d+) \\((\\d{4})\\)$", canon))[[1L]]
     if (length(m) != 3L) next
     cyc <- m[2L]; yr <- m[3L]
     auto <- c(paste("cycle", cyc), cyc, yr, paste("cycle", cyc, yr))
-    if (v %in% norm(c(auto, .pumf_gss_theme_aliases[[canon]]))) return(canon)
+    if (v %in% .pumf_norm_alias(c(auto, .pumf_gss_theme_aliases[[canon]]),
+                                split_digits = TRUE)) return(canon)
   }
   NULL
 }
@@ -2409,7 +2312,7 @@ pumf_resolve_version <- function(series, version,
 # 2021), so a year cannot identify a single cycle.
 .pumf_ccahs_year_aliases <- c("2022" = "1")
 .pumf_cycle_alias <- function(series, version) {
-  v <- trimws(gsub("\\s+", " ", gsub("[[:punct:]]", " ", tolower(version))))
+  v <- .pumf_norm_alias(version)
   if (series == "CCAHS" && v %in% names(.pumf_ccahs_year_aliases))
     return(unname(.pumf_ccahs_year_aliases[v]))
   if (grepl("^(cycle|series|cpss|ccahs) ?[0-9]+$", v))
@@ -2417,23 +2320,69 @@ pumf_resolve_version <- function(series, version,
   NULL
 }
 
-# Shared LFS build configuration.  LFS is not keyed per version in
-# .pumf_registry (every version uses one shared DuckDB), so its config lives
-# here and is returned by pumf_registry_lookup()/pumf_registry() for any LFS
-# version.  force_integer keeps the survey-dimension/record columns as integers
-# for make_date() and integer year/month filtering.
-.pumf_lfs_entry <- .make_entry(
-  "LFS", NA_character_,
-  data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
-
-# LFS_HIST (1976-2005, R/lfs_hist.R) likewise shares one configuration.
-.pumf_lfs_hist_entry <- .make_entry(
-  "LFS_HIST", NA_character_,
-  data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
+# Shared build configuration of a longitudinal series (LFS, LFS_HIST).  Those
+# series are not keyed per version in .pumf_registry (every version goes into
+# one shared DuckDB), so one entry per series is returned by
+# pumf_registry_lookup()/pumf_registry() for any of its versions.
+# force_integer keeps the survey-dimension/record columns as integers for
+# make_date() and integer year/month filtering.
+.long_entry <- function(series) {
+  .make_entry(series, NA_character_,
+              data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
+}
+.pumf_lfs_entry      <- .long_entry("LFS")
+.pumf_lfs_hist_entry <- .long_entry("LFS_HIST")   # R/lfs_hist.R reads force_integer
 
 # Shared entry of a longitudinal series, or NULL.
 .pumf_longitudinal_entry <- function(series) {
   switch(series, LFS = .pumf_lfs_entry, LFS_HIST = .pumf_lfs_hist_entry, NULL)
+}
+
+# The one registry resolution behind pumf_registry_lookup(), pumf_registry()
+# and .statcan_registry_download_format(): the built-in entry for the key, else
+# the shared entry of a longitudinal series, else (with `inherit`) the newest
+# registered sibling's config under this version, announced once per session
+# when `announce`.  With `override`, the active get_pumf(registry = ) patch is
+# merged on top (over an all-default entry when nothing is registered); a
+# get_pumf(borealis = <doi>) on a registered version drops the built-in config
+# unless it names the same DOI, because that config was calibrated for the
+# entry's own source files.  `resolve` canonicalises `version` first.  Returns
+# NULL when nothing applies.
+.pumf_registry_resolve <- function(series, version, resolve = FALSE,
+                                   inherit = TRUE, announce = TRUE,
+                                   override = TRUE) {
+  if (resolve)
+    version <- tryCatch(pumf_resolve_version(series, version),
+                        error = function(e) version)
+  key  <- paste0(series, "/", version)
+  base <- .pumf_registry[[key]]
+  if (is.null(base)) base <- .pumf_longitudinal_entry(series)
+  if (is.null(base) && inherit) {
+    sib <- .pumf_registry_newest_sibling(series, version)
+    if (!is.null(sib)) {
+      if (announce)
+        .pumf_once_per_session(paste0("inherit::", key), message(sprintf(
+          paste0("No %s registry entry; inheriting config from %s/%s. ",
+                 "Verify the new release matches (file layout, codes, BSW ",
+                 "join) and add an explicit entry if it differs."),
+          key, series, sib)))
+      base <- .pumf_registry[[paste0(series, "/", sib)]]
+      base$series  <- series
+      base$version <- version
+    }
+  }
+  ovr <- if (override) .pumf_registry_override_get(series, version) else NULL
+  if (is.null(ovr)) return(base)
+  if (is.null(base)) base <- .make_entry(series, version)
+  if (isTRUE(ovr$borealis$explicit) &&
+      !identical(.borealis_entry_doi(base), .borealis_entry_doi(ovr)))
+    base <- .make_entry(series, version)
+  # series/version always come from the lookup arguments, never from the patch.
+  for (f in setdiff(names(ovr), c("series", "version")))
+    base[[f]] <- ovr[[f]]
+  base$series  <- series
+  base$version <- version
+  base
 }
 
 #' Look up survey registry configuration
@@ -2446,48 +2395,13 @@ pumf_resolve_version <- function(series, version,
 #' @return named list of configuration fields, or `NULL` if not in registry
 #' @keywords internal
 pumf_registry_lookup <- function(series, version) {
-  base <- .pumf_registry[[paste0(series, "/", version)]]
-  if (is.null(base)) base <- .pumf_longitudinal_entry(series)
-  # Inherit config from the newest registered sibling when this exact version
-  # isn't registered (e.g. a freshly released year deposited in the cache).
-  # Now that recent file_masks use a generic \d{4} year, the inherited config
-  # usually applies as-is.  A message fires once per session so the implicit
-  # reuse is discoverable -- a genuinely changed release still needs its own
-  # entry.  Skipped when an override is present (handled below).
-  if (is.null(base)) {
-    sib <- .pumf_registry_newest_sibling(series, version)
-    if (!is.null(sib)) {
-      key <- paste0(series, "/", version)
-      if (is.null(.pumf_registry_inherit_announced[[key]])) {
-        message(sprintf(
-          paste0("No %s registry entry; inheriting config from %s/%s. ",
-                 "Verify the new release matches (file layout, codes, BSW ",
-                 "join) and add an explicit entry if it differs."),
-          key, series, sib))
-        .pumf_registry_inherit_announced[[key]] <- TRUE
-      }
-      base <- .pumf_registry[[paste0(series, "/", sib)]]
-      base$series  <- series
-      base$version <- version
-    }
-  }
-  ovr  <- .pumf_registry_override_get(series, version)
-  if (is.null(ovr)) return(base)
-  # Merge the active override patch over the built-in entry (or an all-default
-  # entry when the survey is not registered).  series/version always come from
-  # the lookup arguments, never from the patch.
-  if (is.null(base)) base <- .make_entry(series, version)
-  # get_pumf(borealis = <doi>) on a registered version: the built-in config was
-  # calibrated for that entry's own source files, not for an arbitrary Borealis
-  # dataset, so it is dropped unless it names the same DOI.
-  if (isTRUE(ovr$borealis$explicit) &&
-      !identical(.borealis_entry_doi(base), .borealis_entry_doi(ovr)))
-    base <- .make_entry(series, version)
-  for (f in setdiff(names(ovr), c("series", "version")))
-    base[[f]] <- ovr[[f]]
-  base$series  <- series
-  base$version <- version
-  base
+  # Inherits the newest registered sibling's config when this exact version is
+  # not registered (a freshly released year deposited in the cache): recent
+  # file_masks use a generic \d{4} year, so the inherited config usually
+  # applies as-is, and the once-per-session message keeps the implicit reuse
+  # discoverable.  A genuinely changed release still needs its own entry.
+  .pumf_registry_resolve(series, version, inherit = TRUE, announce = TRUE,
+                         override = TRUE)
 }
 
 # Fill in variable labels that the source metadata leaves blank, using a
@@ -2516,10 +2430,13 @@ pumf_registry_keys <- function() {
   names(.pumf_registry)
 }
 
-# Tracks (series/version -> inherited-from) pairs already announced this
-# session so the inheritance message fires once per new version, not once
-# per pumf_registry_lookup() call.
-.pumf_registry_inherit_announced <- new.env(parent = emptyenv())
+# The "series/version" keys whose entry downloads from Borealis (a `borealis`
+# field).  They are listed by list_canpumf_collection() and never inherited
+# from by .pumf_registry_newest_sibling().
+.pumf_registry_borealis_keys <- function() {
+  names(.pumf_registry)[!vapply(.pumf_registry, function(e) is.null(e$borealis),
+                                logical(1L))]
+}
 
 #' Find the registered sibling whose config best fits an unregistered year
 #'
@@ -2537,8 +2454,7 @@ pumf_registry_keys <- function() {
   sibs <- names(.pumf_registry)[startsWith(names(.pumf_registry), pre)]
   # An entry with a Borealis source describes that one dataset: its DOI would
   # make any year of the series download the same files (TCP 1881).
-  sibs <- sibs[vapply(.pumf_registry[sibs], function(e) is.null(e$borealis),
-                      logical(1L))]
+  sibs <- setdiff(sibs, .pumf_registry_borealis_keys())
   years <- sub(paste0("^", pre), "", sibs)
   years <- years[grepl("^\\d{4}$", years)]
   if (length(years) == 0L) return(NULL)
@@ -2552,13 +2468,14 @@ pumf_registry_keys <- function() {
 
 # ---- Public registry API ----------------------------------------------------
 
-# Known registry-entry fields (everything .make_entry() accepts except the
-# series/version key, which is supplied to get_pumf() separately).
-.pumf_registry_fields <- c(
-  "layout_mask", "layout_file", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
-  "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
-  "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
-  "doc_mask", "download_format", "csv_reader", "borealis")
+# Known registry-entry fields: everything .make_entry() accepts except the
+# series/version key (supplied to get_pumf() separately) and the module table
+# (modules/primary_module/module_key, built-in entries only).  Derived from the
+# formals so a field added to .make_entry() is known to pumf_registry_entry()
+# and the print method at once.
+.pumf_registry_fields <- setdiff(
+  names(formals(.make_entry)),
+  c("series", "version", "modules", "primary_module", "module_key"))
 
 # Recognised data_fixups sub-fields (for validation warnings).
 .pumf_fixup_fields <- c(
@@ -2793,12 +2710,10 @@ pumf_registry_entry <- function(layout_mask       = NULL,
 #' @export
 pumf_registry <- function(series, version) {
   version <- pumf_resolve_version(series, version)
-  entry   <- .pumf_registry[[paste0(series, "/", version)]]
-  if (is.null(entry) && .is_longitudinal(series)) {
-    entry <- .pumf_longitudinal_entry(series)
-    entry$version <- version
-  }
+  entry   <- .pumf_registry_resolve(series, version, inherit = FALSE,
+                                    override = FALSE)
   if (is.null(entry)) entry <- .make_entry(series, version)
+  entry$version <- version
   structure(entry, class = "pumf_registry_entry")
 }
 
@@ -2835,25 +2750,13 @@ print.pumf_registry_entry <- function(x, ...) {
   cat("<pumf_registry_entry>",
       if (!is.null(x$series)) paste0(" ", x$series, " ", x$version) else "",
       "\n", sep = "")
-  show <- function(label, v) {
+  # Every scalar/vector field in .make_entry() order; a Borealis source shows
+  # its DOI and the data_fixups follow as a block.
+  for (f in setdiff(.pumf_registry_fields, "data_fixups")) {
+    v <- if (f == "borealis") x$borealis$doi else x[[f]]
     if (!is.null(v) && length(v) > 0L)
-      cat(sprintf("  %-18s %s\n", paste0(label, ":"),
-                  paste(v, collapse = ", ")))
+      cat(sprintf("  %-18s %s\n", paste0(f, ":"), paste(v, collapse = ", ")))
   }
-  show("file_mask",         x$file_mask)
-  show("layout_mask",       x$layout_mask)
-  show("data_encoding",     x$data_encoding)
-  show("metadata_encoding", x$metadata_encoding)
-  show("bsw_mask",          x$bsw_mask)
-  show("bsw_file_mask",     x$bsw_file_mask)
-  show("bsw_join_key",      x$bsw_join_key)
-  show("bsw_drop_cols",     x$bsw_drop_cols)
-  show("bsw_strata",        x$bsw_strata)
-  show("bundle_source",     x$bundle_source)
-  show("doc_mask",          x$doc_mask)
-  show("download_format",   x$download_format)
-  show("csv_reader",        x$csv_reader)
-  show("borealis",          x$borealis$doi)
   if (length(x$data_fixups) > 0L) {
     cat("  data_fixups:\n")
     for (nm in names(x$data_fixups)) {

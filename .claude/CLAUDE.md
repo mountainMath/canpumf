@@ -136,11 +136,11 @@ Users set `options(canpumf.cache_path = "<path>")` (typically in `.Rprofile`). W
 - `R/metadata_parsers.R`: all parsers, `detect_formats()`, `merge_metadata()`, `pumf_parse_metadata()`, `read_metadata()`/`write_metadata()`
 - `R/pdf_repair.R`: the PDF cross-check and label repair
 - `R/registry.R`: registry entries, lookup, aliases, `pumf_registry*()`
-- `R/borealis.R`: Borealis Dataverse catalogue, file selection, download, manifest (**downloaded raw data stays compressed**: a CSV data file is fetched as a deflated one-file bundle, `.borealis_download_csv_gz()`, stored and read as `.csv.gz`; never leave or require an uncompressed copy of a large download)
-- `R/statcan_catalogue.R`: StatCan catalogue scraper and adapter, `.pumf_resolve_collection_row()`
-- `R/pumf_collection.R`: curated `list_canpumf_collection()`, `list_gss_collection()`, `list_available_lfs_pumf_versions()`
-- `R/longitudinal.R`: the longitudinal engine and spec registry
-- `R/lfs_pipeline.R`, `R/lfs_helpers.R`: the LFS spec, append helpers and the `add_lfs_*()` helpers
+- `R/borealis.R`: Borealis Dataverse catalogue, file selection, download, manifest (`.borealis_fetch_selected()` downloads a selection, extracts zips and writes the manifest; shared with LFS_HIST). **Downloaded raw data stays compressed**: a CSV data file is fetched as a deflated one-file bundle, `.borealis_download_csv_gz()`, stored and read as `.csv.gz`; never leave or require an uncompressed copy of a large download
+- `R/statcan_catalogue.R`: StatCan catalogue scraper and adapter, `.pumf_resolve_collection_row()`, the persisted-rds helpers both catalogues use (`.pumf_rds_cache_file()`, `.pumf_rds_read()`, `.pumf_rds_write()`, `.pumf_warn_if_stale()`), `.statcan_abs_url()`
+- `R/pumf_collection.R`: curated `list_canpumf_collection()`, `list_gss_collection()`, `list_available_lfs_pumf_versions()` (both LFS lists scrape through `.lfs_scrape_csv_links()`)
+- `R/longitudinal.R`: the longitudinal engine, spec registry, the `(con, spec)` versions-table helpers, `.long_append()` and `.pumf_extdata_csv()`
+- `R/lfs_pipeline.R`, `R/lfs_helpers.R`: the LFS spec (`.lfs_build_version()`, `.lfs_merged_metadata()`) and the `add_lfs_*()` helpers
 - `R/lfs_hist.R`: the LFS_HIST spec (Borealis download, canonical dictionary)
 - `R/lfs_timeline.R`: `get_lfs_timeline()` and its harmonisation tables (`inst/extdata/lfs_timeline/`)
 - `R/cache_mgmt.R`: `list_pumf_cache()`, `remove_pumf_cache()`

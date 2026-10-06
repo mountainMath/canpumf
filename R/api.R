@@ -50,7 +50,7 @@
     if (identical(normalizePath(con@driver@dbdir, mustWork = FALSE), db_path)) {
       message("Closing open connection to '", basename(db_path),
               "' for refresh.")
-      rm(list = key, envir = .pumf_con_registry)
+      .pumf_unregister_con(con)
       DBI::dbDisconnect(con, shutdown = TRUE)
       n_closed <- n_closed + 1L
     }
@@ -63,6 +63,98 @@
 
 .pumf_lookup_con <- function(con) {
   .pumf_con_registry[[format(con@conn_ref)]]
+}
+
+# Drop the provenance entry of a connection, if it has one.  Connections from
+# get_pumf_connection() are never registered, so the removal is guarded.
+.pumf_unregister_con <- function(con) {
+  key <- format(con@conn_ref)
+  if (exists(key, envir = .pumf_con_registry, inherits = FALSE))
+    rm(list = key, envir = .pumf_con_registry, inherits = FALSE)
+  invisible(NULL)
+}
+
+# The provenance record behind a tbl from get_pumf(): the one resolver every
+# accessor uses.  Validates that `tbl` is a DuckDB-backed lazy tbl on a live
+# connection, looks its connection up in the registry, defaults the language
+# and replaces the stored module with the one the tbl's own remote table
+# encodes (.pumf_tbl_module(); the registry remembers one module per
+# connection, and pumf_module() re-registers it for the sibling).  `what`
+# names the argument in the error messages.
+.pumf_tbl_prov <- function(tbl, what = "'tbl'") {
+  if (!inherits(tbl, "tbl_sql"))
+    stop(what, " must be a lazy tbl returned by get_pumf().", call. = FALSE)
+  con <- tbl$src$con
+  if (is.null(con) || !DBI::dbIsValid(con)) .stop_tbl_con_closed()
+  prov <- .pumf_lookup_con(con)
+  if (is.null(prov))
+    stop(what, " has no pumf provenance. Was it created by get_pumf()?",
+         call. = FALSE)
+  prov$lang   <- prov$lang %||% "eng"
+  prov$module <- .pumf_tbl_module(tbl, prov)
+  prov
+}
+
+# The arguments get_pumf() and get_pumf_connection() validate alike.  Returns
+# nothing; every problem is an error.
+.pumf_check_call_args <- function(series, lang, refresh, redownload) {
+  if (is.null(series))
+    stop("'series' must be specified (e.g. get_pumf(\"SFS\", \"2019\")).")
+  stopifnot(lang %in% c("eng", "fra"))
+  if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
+      !identical(refresh, "auto"))
+    stop("'refresh' must be FALSE, TRUE, or \"auto\".")
+  if (identical(refresh, "auto") && !.is_longitudinal(series))
+    stop("refresh = \"auto\" is only valid for longitudinal series (",
+         paste(.pumf_longitudinal_series, collapse = ", "), "). ",
+         "Use refresh = TRUE to rebuild a specific survey version.")
+  if (isTRUE(redownload) && identical(refresh, "auto"))
+    stop("redownload = TRUE is not compatible with refresh = \"auto\". ",
+         "Call get_pumf() per version instead.")
+  invisible(NULL)
+}
+
+# A `registry` argument must be a pumf_registry_entry, and the longitudinal
+# series take none.  Shared by get_pumf() and pumf_metadata().
+.pumf_check_registry_arg <- function(registry, series) {
+  if (is.null(registry)) return(invisible(NULL))
+  if (!inherits(registry, "pumf_registry_entry"))
+    stop("'registry' must be created by pumf_registry_entry() or ",
+         "pumf_registry().", call. = FALSE)
+  if (.is_longitudinal(series))
+    stop("'registry' overrides are not supported for ", series,
+         ", which uses the longitudinal pipeline.", call. = FALSE)
+  invisible(NULL)
+}
+
+# The one version of a single-version series (`version = NULL`), from the
+# collection; an error names the versions when there are several.
+.pumf_single_version <- function(series) {
+  collection <- list_canpumf_collection()
+  rows <- filter(collection, .data$Acronym == series)
+  if (nrow(rows) == 0L)
+    stop("Unknown series '", series,
+         "'. Check list_canpumf_collection() for available series.")
+  if (nrow(rows) > 1L)
+    stop("Series '", series, "' has multiple versions: ",
+         paste(rows$Version, collapse = ", "),
+         ".\nSpecify 'version' (e.g. get_pumf(\"", series, "\", \"",
+         rows$Version[[1L]], "\")).")
+  rows$Version[[1L]]
+}
+
+# The language table of one module of a multi-module survey, on the
+# connection of the primary module's tbl.  `.pumf_table_name()` has validated
+# the module name against the registry, so a missing table means the survey
+# was built without that module; `absent` is the error for that case, and
+# `disconnect = TRUE` shuts the connection down first (get_pumf(), whose
+# connection nobody else holds yet).
+.pumf_open_module <- function(con, table_name, absent, disconnect = FALSE) {
+  if (!DBI::dbExistsTable(con, table_name)) {
+    if (disconnect) DBI::dbDisconnect(con, shutdown = TRUE)
+    stop(absent, call. = FALSE)
+  }
+  dplyr::tbl(con, table_name)
 }
 
 
@@ -85,7 +177,13 @@
             call. = FALSE)
     cache_path <- dots$pumf_cache_path
   }
-  # Silently drop args that no longer apply (guess_numeric, timeout, etc.)
+  # Arguments that no longer apply (layout_mask, file_mask, guess_numeric,
+  # timeout, refresh_layout, ...) are dropped with one warning, as documented.
+  dropped <- setdiff(names(dots), c("pumf_series", "pumf_version", "pumf_cache_path"))
+  dropped <- dropped[nzchar(dropped)]
+  if (length(dropped))
+    warning(fn_name, ": argument(s) ", paste0("'", dropped, "'", collapse = ", "),
+            " no longer apply and are ignored.", call. = FALSE)
   list(series = series, version = version, cache_path = cache_path)
 }
 
@@ -232,32 +330,14 @@ get_pumf <- function(series     = NULL,
   if (is.null(series))
     stop("'series' must be specified (e.g. get_pumf(\"SFS\", \"2019\")).")
   version <- pumf_resolve_version(series, version, cache_path)
-  stopifnot(lang %in% c("eng", "fra"))
+  .pumf_check_call_args(series, lang, refresh, redownload)
 
   if (!is.null(module) && .is_longitudinal(series))
     stop("'module' is not supported for ", series,
          ", which has a single shared table.",
          call. = FALSE)
 
-  if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
-      !identical(refresh, "auto"))
-    stop("'refresh' must be FALSE, TRUE, or \"auto\".")
-  if (identical(refresh, "auto") && !.is_longitudinal(series))
-    stop("refresh = \"auto\" is only valid for longitudinal series (",
-         paste(.pumf_longitudinal_series, collapse = ", "), "). ",
-         "Use refresh = TRUE to rebuild a specific survey version.")
-  if (isTRUE(redownload) && identical(refresh, "auto"))
-    stop("redownload = TRUE is not compatible with refresh = \"auto\". ",
-         "Call get_pumf() per version instead.")
-
-  if (!is.null(registry)) {
-    if (!inherits(registry, "pumf_registry_entry"))
-      stop("'registry' must be created by pumf_registry_entry() or ",
-           "pumf_registry().", call. = FALSE)
-    if (.is_longitudinal(series))
-      stop("'registry' overrides are not supported for ", series,
-           ", which uses the longitudinal pipeline.", call. = FALSE)
-  }
+  .pumf_check_registry_arg(registry, series)
 
   # get_pumf(borealis = ) becomes a registry override carrying an explicit
   # Borealis source (see pumf_locate_or_download()).
@@ -295,19 +375,8 @@ get_pumf <- function(series     = NULL,
   }
 
   # Resolve single-version non-LFS series so table_name and db_path are known.
-  if (!.is_longitudinal(series) && is.null(version)) {
-    collection <- list_canpumf_collection()
-    rows <- filter(collection, .data$Acronym == series)
-    if (nrow(rows) == 0L)
-      stop("Unknown series '", series,
-           "'. Check list_canpumf_collection() for available series.")
-    if (nrow(rows) > 1L)
-      stop("Series '", series, "' has multiple versions: ",
-           paste(rows$Version, collapse = ", "),
-           ".\nSpecify 'version' (e.g. get_pumf(\"", series, "\", \"",
-           rows$Version[[1L]], "\")).")
-    version <- rows$Version[[1L]]
-  }
+  if (!.is_longitudinal(series) && is.null(version))
+    version <- .pumf_single_version(series)
 
   # Install the custom registry override for the duration of this call so every
   # internal pumf_registry_lookup() sees the merged configuration.  The build is
@@ -335,27 +404,17 @@ get_pumf <- function(series     = NULL,
   if (.is_longitudinal(series)) {
     # Degrade gracefully when Statistics Canada is unreachable (see the non-LFS
     # branch / get_pumf_connection): informative message + NULL, not an error.
-    tbl <- tryCatch(
-      suppressMessages(
-        .long_get_pumf(.pumf_longitudinal_spec(series),
-                       version    = version,
-                       lang       = lang,
-                       cache_path = cache_path,
-                       refresh    = refresh,
-                       redownload = redownload,
-                       read_only  = read_only)
-      ),
-      canpumf_network_error = function(e) {
-        message(conditionMessage(e)); NULL
-      })
+    # The engine's progress messages are for lfs_get_pumf(); the column order
+    # of the returned tbl is the spec's `finalize` hook (SEX next to GENDER).
+    tbl <- .pumf_offline_null(suppressMessages(
+      .long_get_pumf(.pumf_longitudinal_spec(series),
+                     version    = version,
+                     lang       = lang,
+                     cache_path = cache_path,
+                     refresh    = refresh,
+                     redownload = redownload,
+                     read_only  = read_only)))
     if (is.null(tbl)) return(invisible(NULL))
-    # ensure nicer column order
-    cn <- colnames(tbl)
-    if ("SEX" %in% cn && "GENDER" %in% cn) {
-      isex    <- which(cn == "SEX"); igender <- which(cn == "GENDER")
-      tbl <- if (isex > igender) relocate(tbl, "SEX",    .before = "GENDER")
-             else                relocate(tbl, "GENDER", .after  = "SEX")
-    }
     .pumf_register_con(tbl$src$con, series, version, cache_path, lang)
     return(tbl)
   }
@@ -368,7 +427,7 @@ get_pumf <- function(series     = NULL,
   # conflicts with concurrent read-only sessions (e.g. rendering a notebook
   # while the interactive session still holds tbls open) — the same reason the
   # LFS branch above calls lfs_get_pumf() directly.
-  pipe_tbl <- tryCatch(
+  pipe_tbl <- .pumf_offline_null(
     suppressMessages(
       pumf_run_pipeline(series, version,
                         lang       = lang,
@@ -376,10 +435,7 @@ get_pumf <- function(series     = NULL,
                         refresh    = refresh,
                         redownload = redownload,
                         read_only  = read_only)
-    ),
-    canpumf_network_error = function(e) {
-      message(conditionMessage(e)); NULL
-    })
+    ))
   if (is.null(pipe_tbl)) return(invisible(NULL))
 
   # Select the language table.  For multi-module surveys (e.g. GSS cycle 16)
@@ -390,16 +446,11 @@ get_pumf <- function(series     = NULL,
   table_name <- .pumf_table_name(series, version, lang, module)
   db_path    <- .pumf_db_path(series, version, cache_path)
 
-  if (is.null(module)) {
-    tbl <- pipe_tbl
-  } else {
-    con <- pipe_tbl$src$con
-    if (!DBI::dbExistsTable(con, table_name)) {
-      DBI::dbDisconnect(con, shutdown = TRUE)
-      stop("Table '", table_name, "' not found in ", db_path, ".")
-    }
-    tbl <- tbl(con, table_name)
-  }
+  tbl <- if (is.null(module)) pipe_tbl
+         else .pumf_open_module(
+           pipe_tbl$src$con, table_name,
+           absent = paste0("Table '", table_name, "' not found in ", db_path, "."),
+           disconnect = TRUE)
 
   # Register provenance so label_pumf_columns() can find it later via the
   # connection's stable C++ pointer address.
@@ -416,56 +467,41 @@ get_pumf <- function(series     = NULL,
   tbl
 }
 
-# Tracks which database tables have already been reported as built by an
-# earlier canpumf, so get_pumf() says it once per session.
-.pumf_stale_announced <- new.env(parent = emptyenv())
-
 # On a cache hit, a table built by canpumf < 0.6.1 has no row in
 # `pumf_build_info` (and no pumf_row_id key, no sentinel companion).  Its
 # values are still those the building version produced, so this is a message
-# and not a warning, shown once per session and table, and silenced with
-# options(canpumf.stale_cache_message = FALSE).  Returns TRUE when it spoke.
+# and not a warning, shown once per session and table (.pumf_once_per_session()
+# under "stale::"), and silenced with options(canpumf.stale_cache_message =
+# FALSE).  Returns TRUE when it spoke.
 .pumf_check_build_stamp <- function(con, series, version, lang, table_name,
                                     db_path) {
   if (!isTRUE(getOption("canpumf.stale_cache_message", TRUE)))
     return(invisible(FALSE))
-  key <- paste(db_path, table_name, sep = "::")
-  if (!is.null(.pumf_stale_announced[[key]])) return(invisible(FALSE))
+  key <- paste("stale", db_path, table_name, sep = "::")
+  if (isTRUE(.pumf_session_state[[key]])) return(invisible(FALSE))
   info <- tryCatch(.read_build_info(con, table_name), error = function(e) NULL)
+  # A stamped table whose metadata has no codes_applied.csv was built by a
+  # 0.6.1 development version before value labels were made unique on the
+  # data: pumf_dictionary() then describes labels the table may not show.
+  applied <- .pumf_codes_applied_path(file.path(dirname(db_path), "metadata"))
+  why <- if (is.null(info)) paste0(
+      "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
+      "and no sentinel companion, so pumf_sidecar() is not available; codes ",
+      "that share a label are merged into one level; and its values are those ",
+      "of the version that built it (see NEWS for fixes since). ")
+    else if (!file.exists(applied)) paste0(
+      "%s %s [%s] was built by a canpumf 0.6.1 development version before ",
+      "value labels were made unique: codes sharing a label may be merged, ",
+      "and pumf_dictionary() may not match the table's levels. ")
+    else return(invisible(FALSE))
   rebuild <- sprintf(paste0(
     "Rebuild with get_pumf(\"%s\", \"%s\", refresh = TRUE); list_pumf_cache() ",
     "shows the canpumf version behind every database (column 'built_with'). ",
     "options(canpumf.stale_cache_message = FALSE) silences this message."),
     series, version)
-  if (is.null(info)) {
-    .pumf_stale_announced[[key]] <- TRUE
-    message(sprintf(paste0(
-      "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
-      "and no sentinel companion, so pumf_sidecar() is not available; codes ",
-      "that share a label are merged into one level; and its values are those ",
-      "of the version that built it (see NEWS for fixes since). "),
-      series, version, lang), rebuild)
-    return(invisible(TRUE))
-  }
-  # A stamped table whose metadata has no codes_applied.csv was built by a
-  # 0.6.1 development version before value labels were made unique on the
-  # data: pumf_dictionary() then describes labels the table may not show.
-  applied <- .pumf_codes_applied_path(file.path(dirname(db_path), "metadata"))
-  if (!file.exists(applied)) {
-    .pumf_stale_announced[[key]] <- TRUE
-    message(sprintf(paste0(
-      "%s %s [%s] was built by a canpumf 0.6.1 development version before ",
-      "value labels were made unique: codes sharing a label may be merged, ",
-      "and pumf_dictionary() may not match the table's levels. "),
-      series, version, lang), rebuild)
-    return(invisible(TRUE))
-  }
-  invisible(FALSE)
+  .pumf_once_per_session(key,
+    message(sprintf(why, series, version, lang), rebuild))
 }
-
-# Tracks which (series/version) multi-module hints have been announced this
-# session so get_pumf() lists the available modules only once per survey.
-.pumf_modules_announced <- new.env(parent = emptyenv())
 
 # Emit a one-time hint, when get_pumf() returns the primary module of a
 # multi-module survey, listing the sibling modules and how to open one on the
@@ -478,18 +514,15 @@ get_pumf <- function(series     = NULL,
   if (is.null(mods) || length(mods) < 2L) return(invisible(NULL))
 
   akey <- paste(series, version, sep = "/")
-  if (!is.null(.pumf_modules_announced[[akey]])) return(invisible(NULL))
-  .pumf_modules_announced[[akey]] <- TRUE
-
   secondary <- names(mods)[!vapply(mods, function(m) isTRUE(m$is_primary),
                                    logical(1L))]
   ex <- secondary[[1L]]
-  message(sprintf(
+  .pumf_once_per_session(paste0("modules::", akey), message(sprintf(
     paste0("%s is a multi-module survey; you loaded the primary module. ",
            "Other linked modules: %s.\n",
            "Open one on the same connection with pumf_module(), e.g.:\n",
            "  %s <- pumf_module(main, \"%s\")"),
-    akey, paste(secondary, collapse = ", "), tolower(ex), ex))
+    akey, paste(secondary, collapse = ", "), tolower(ex), ex)))
   invisible(NULL)
 }
 
@@ -522,17 +555,13 @@ get_pumf <- function(series     = NULL,
 pumf_module <- function(tbl, module) {
   if (is.null(module) || !is.character(module) || length(module) != 1L)
     stop("'module' must be a single module name (e.g. \"CG4\").", call. = FALSE)
-  con <- tbl$src$con
-  prov <- .pumf_lookup_con(con)
-  if (is.null(prov))
-    stop("Could not find survey provenance for this tbl. ",
-         "pumf_module() only works on tbls returned by get_pumf().",
-         call. = FALSE)
+  prov <- .pumf_tbl_prov(tbl)
+  con  <- tbl$src$con
   table_name <- .pumf_table_name(prov$series, prov$version, prov$lang, module)
-  if (!DBI::dbExistsTable(con, table_name))
-    stop("Module table '", table_name, "' not found. The survey may not have ",
-         "been built with this module.", call. = FALSE)
-  out <- dplyr::tbl(con, table_name)
+  out <- .pumf_open_module(
+    con, table_name,
+    absent = paste0("Module table '", table_name, "' not found. The survey ",
+                    "may not have been built with this module."))
   .pumf_register_con(con, prov$series, prov$version, prov$cache_path,
                      prov$lang, module)
   # Surface the shared respondent key so callers know how to join the modules.
@@ -541,56 +570,53 @@ pumf_module <- function(tbl, module) {
   key <- .pumf_module_key(pumf_registry_lookup(prov$series, prov$version))
   if (!is.null(key)) {
     akey <- paste(prov$series, prov$version, sep = "/")
-    if (is.null(.pumf_module_key_announced[[akey]])) {
-      .pumf_module_key_announced[[akey]] <- TRUE
-      message(sprintf("%s modules join on '%s' (e.g. dplyr::inner_join(main, %s, by = \"%s\")).",
-                      akey, key, module, key))
-    }
+    .pumf_once_per_session(paste0("module_key::", akey), message(sprintf(
+      "%s modules join on '%s' (e.g. dplyr::inner_join(main, %s, by = \"%s\")).",
+      akey, key, module, key)))
   }
   out
 }
 
-# Tracks which (series/version) module-key hints have been announced this
-# session so pumf_module() messages the join key only once per survey.
-.pumf_module_key_announced <- new.env(parent = emptyenv())
-
 
 # ---- shared metadata helper -------------------------------------------------
 
-# Read the variables tibble for a tbl returned by get_pumf().
-# Returns a data.frame(name, label_en, label_fr, type, ...) from metadata/.
-.pumf_read_variables_from_prov <- function(prov) {
-  series     <- prov$series
-  version    <- prov$version
-  cache_path <- prov$cache_path
-  if (identical(series, "LFS_TIMELINE"))   # get_lfs_timeline()
-    return(as.data.frame(.lfs_timeline_ref("variables")))
-  if (.is_longitudinal(series)) {
+# The variables table (name, label_en, label_fr, type, ...) behind a
+# provenance record, as every label lookup reads it: label_pumf_columns(),
+# pumf_var_labels(), the bootstrap-weight column resolvers and the dictionary.
+# LFS_TIMELINE (get_lfs_timeline()) has its shipped reference, a longitudinal
+# series the merged variables of its loaded versions, and any other survey its
+# module's metadata/ directory (.pumf_prov_meta()).  `meta` is that
+# directory's read_metadata() result and `versions` the loaded longitudinal
+# versions, when the caller has them already.  Names are upper-cased, and the
+# registry labels_supplement is applied as in the Stage 3 build, so a label
+# supplied for a variable the source leaves blank (CPSS COVID_WT) is visible
+# wherever variables are read.
+.pumf_label_source <- function(prov, meta = NULL, versions = NULL) {
+  series <- prov$series
+  variables <- if (identical(series, "LFS_TIMELINE")) {
+    as.data.frame(.lfs_timeline_ref("variables"))
+  } else if (.is_longitudinal(series)) {
     spec <- .pumf_longitudinal_spec(series)
-    spec$variables(cache_path, .long_versions_from_prov(prov))
+    as.data.frame(spec$variables(prov$cache_path,
+                                 versions %||% .long_versions_from_prov(prov)))
   } else {
-    # Multi-module surveys keep each secondary module's metadata in a
-    # metadata/<module>/ subdir; the primary module uses metadata/.
-    reg      <- pumf_registry_lookup(series, version)
-    mods     <- .pumf_entry_modules(reg)
-    subdir   <- if (!is.null(prov$module) && !is.null(mods) &&
-                    !is.null(mods[[prov$module]]))
-      mods[[prov$module]]$meta_subdir else NULL
-    meta_dir <- if (is.null(subdir))
-      file.path(cache_path, series, version, "metadata")
-    else
-      file.path(cache_path, series, version, "metadata", subdir)
-    if (!dir.exists(meta_dir))
-      stop("Metadata directory not found: '", meta_dir, "'. ",
-           "Run get_pumf(\"", series, "\", \"", version, "\") first.",
-           call. = FALSE)
-    vars <- read_metadata(meta_dir)$variables
+    pm   <- .pumf_prov_meta(prov)
+    vars <- as.data.frame((meta %||% read_metadata(pm$meta_dir))$variables)
     vars$name <- toupper(vars$name)
-    # Apply the same labels_supplement the Stage 3 build uses, so a label
-    # supplied for a variable the source leaves blank (e.g. CPSS COVID_WT) is
-    # visible to label_pumf_columns() and pumf_var_labels().
-    .pumf_apply_labels_supplement(vars, pumf_registry_lookup(series, version))
+    .pumf_apply_labels_supplement(vars, pm$reg)
   }
+  variables$name <- toupper(variables$name)
+  variables
+}
+
+# The variable labels of the derived LFS helper columns (add_lfs_SURVDATE(),
+# add_lfs_GENDER_SEX()) that `known` does not already describe, limited to
+# the names in `only` when given.
+.pumf_derived_var_rows <- function(known, only = NULL) {
+  d <- .lfs_derived_var_labels
+  keep <- !d$name %in% known
+  if (!is.null(only)) keep <- keep & d$name %in% only
+  d[keep, , drop = FALSE]
 }
 
 # Derive which module a tbl points at from its remote DuckDB table name.
@@ -603,7 +629,7 @@ pumf_module <- function(tbl, module) {
 # recently registered.  Falls back to the stored prov$module for tbls whose
 # base table can no longer be recovered (e.g. after a join).
 .pumf_tbl_module <- function(tbl, prov) {
-  if (.is_longitudinal(prov$series) || identical(prov$series, "LFS_TIMELINE"))
+  if (.is_shared_series(prov$series))
     return(prov$module)
   reg  <- pumf_registry_lookup(prov$series, prov$version)
   mods <- .pumf_entry_modules(reg)
@@ -621,12 +647,7 @@ pumf_module <- function(tbl, module) {
 }
 
 .pumf_read_variables <- function(tbl) {
-  prov <- .pumf_lookup_con(tbl$src$con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-  prov$module <- .pumf_tbl_module(tbl, prov)
-  .pumf_read_variables_from_prov(prov)
+  .pumf_label_source(.pumf_tbl_prov(tbl))
 }
 
 
@@ -662,13 +683,9 @@ pumf_module <- function(tbl, module) {
 #' }
 #' @export
 label_pumf_columns <- function(tbl) {
-  prov      <- .pumf_lookup_con(tbl$src$con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-  lang      <- prov$lang %||% "eng"
-  label_col <- if (lang == "eng") "label_en" else "label_fr"
-  variables <- .pumf_read_variables(tbl)
+  prov      <- .pumf_tbl_prov(tbl)
+  label_col <- .pumf_label_col(prov$lang)
+  variables <- .pumf_label_source(prov)
 
   var_labels <- .pumf_var_label_map(variables, label_col)
 
@@ -677,9 +694,7 @@ label_pumf_columns <- function(tbl) {
   var_labels <- var_labels[var_labels$name %in% tbl_cols, , drop = FALSE]
 
   # Inject labels for derived LFS helper columns that are not in the metadata.
-  derived <- .lfs_derived_var_labels
-  derived <- derived[derived$name %in% tbl_cols &
-                       !derived$name %in% var_labels$name, , drop = FALSE]
+  derived <- .pumf_derived_var_rows(var_labels$name, only = tbl_cols)
   if (nrow(derived) > 0L)
     var_labels <- rbind(var_labels,
                         data.frame(name  = derived$name,
@@ -781,10 +796,7 @@ close_pumf <- function(x) {
   con <- if (inherits(x, "DBIConnection")) x else x$src$con
   if (!is.null(con) && DBI::dbIsValid(con)) {
     # Drop the provenance entry if this connection was registered by get_pumf().
-    # Connections from get_pumf_connection() are not registered, so guard the rm.
-    key <- format(con@conn_ref)
-    if (exists(key, envir = .pumf_con_registry, inherits = FALSE))
-      rm(list = key, envir = .pumf_con_registry, inherits = FALSE)
+    .pumf_unregister_con(con)
     DBI::dbDisconnect(con, shutdown = TRUE)
   }
   invisible(NULL)
@@ -969,11 +981,11 @@ add_bootstrap_weights <- function(tbl,
   # may pass a human-readable label (e.g. "Person weight") rather than the
   # coded column name (e.g. "PWEIGHT"). Translate back to the coded name so
   # SQL queries against the raw DuckDB table work correctly.
-  weight_col  <- .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", prov)
+  weight_col  <- .bsw_resolve_col_prov(weight_col, "weight_col", prov, physical_cols)
   id_explicit <- !is.null(id_col)
   if (id_explicit)
     id_col <- unname(vapply(id_col, function(x)
-      .bsw_resolve_col_prov(con, table_name, x, "id_col", prov), character(1L)))
+      .bsw_resolve_col_prov(x, "id_col", prov, physical_cols), character(1L)))
 
   if (is.null(bsw_table))
     bsw_table <- paste0("pumf_bsw_", tolower(weight_col), loc$suffix)
@@ -1055,8 +1067,7 @@ add_bootstrap_weights <- function(tbl,
     if (writable) {
       # 0.6.0 and earlier exposed the weights through a view, which would now
       # describe the table as it was before this write.
-      DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"',
-                                  .bsw_legacy_view(table_name, bsw_table)))
+      .bsw_drop_legacy_view(con, table_name, bsw_table)
     } else {
       message("The bootstrap weights are in a temporary table: 'tbl' is on a ",
               "read-only connection, so they last until it is closed.\n",
@@ -1092,20 +1103,13 @@ add_bootstrap_weights <- function(tbl,
 # primary one, whose weight column may have the same name; `key` and `strata`
 # are the registry's bsw_join_key and bsw_strata for that table.
 .bsw_locate <- function(tbl) {
-  con <- tbl$src$con
-  if (is.null(con) || !DBI::dbIsValid(con)) .stop_tbl_con_closed()
-
-  prov <- .pumf_lookup_con(con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
+  prov <- .pumf_tbl_prov(tbl)
+  con  <- tbl$src$con
   if (identical(prov$series, "LFS_TIMELINE"))
     stop("Bootstrap weights are not available for get_lfs_timeline(), which ",
          "has no table of its own.\ncollect() the rows of interest and pass ",
          "the data frame to add_bootstrap_weights().", call. = FALSE)
 
-  prov$lang   <- prov$lang %||% "eng"
-  prov$module <- .pumf_tbl_module(tbl, prov)
   reg <- pumf_registry_lookup(prov$series, prov$version)
   mod <- if (!is.null(prov$module)) .pumf_entry_modules(reg)[[prov$module]]
   list(con        = con,
@@ -1139,25 +1143,73 @@ add_bootstrap_weights <- function(tbl,
     grepl("^[0-9]+$", substring(cols, nchar(prefix) + 1L))
 }
 
+# The replicate columns of `prefix` among `cols`, in numeric order (CPBSW10
+# after CPBSW9).
+.bsw_rep_cols <- function(cols, prefix) {
+  reps <- cols[.bsw_is_rep(cols, prefix)]
+  reps[order(as.integer(substring(reps, nchar(prefix) + 1L)))]
+}
+
 # Describe a weights table: its key column(s) and its replicate columns of
-# `prefix` in numeric order (CPBSW10 after CPBSW9).  NULL when the table does
-# not exist or holds no replicate of that prefix.
+# `prefix` in numeric order.  NULL when the table does not exist or holds no
+# replicate of that prefix.
 .bsw_state <- function(con, name, prefix) {
   if (!DBI::dbExistsTable(con, name)) return(NULL)
-  cols   <- DBI::dbListFields(con, name)
-  is_rep <- .bsw_is_rep(cols, prefix)
-  reps   <- cols[is_rep]
+  cols <- DBI::dbListFields(con, name)
+  reps <- .bsw_rep_cols(cols, prefix)
   if (length(reps) == 0L) return(NULL)
-  reps <- reps[order(as.integer(substring(reps, nchar(prefix) + 1L)))]
-  list(table = name, key = cols[!is_rep], reps = reps)
+  list(table = name, key = cols[!.bsw_is_rep(cols, prefix)], reps = reps)
 }
 
 # Number of rows of the survey table that have no weights in `st`.
 .bsw_n_missing <- function(con, table_name, st) {
-  on <- paste(sprintf('"m"."%s" = "b"."%s"', st$key, st$key), collapse = " AND ")
+  k  <- .qid(con, st$key)
+  on <- paste(sprintf('"m".%s = "b".%s', k, k), collapse = " AND ")
   DBI::dbGetQuery(con, sprintf(
-    'SELECT COUNT(*) AS n FROM "%s" "m" WHERE NOT EXISTS (SELECT 1 FROM "%s" "b" WHERE %s)',
-    table_name, st$table, on))$n
+    'SELECT COUNT(*) AS n FROM %s "m" WHERE NOT EXISTS (SELECT 1 FROM %s "b" WHERE %s)',
+    .qid(con, table_name), .qid(con, st$table), on))$n
+}
+
+# The survey weights as numbers, NA replaced with 0 (a warning says how many).
+.bsw_clean_weights <- function(w, weight_col) {
+  if (!is.numeric(w)) w <- suppressWarnings(as.numeric(w))
+  if (anyNA(w)) {
+    warning(sum(is.na(w)), " NA weight(s) in '", weight_col,
+            "' replaced with 0.", call. = FALSE)
+    w[is.na(w)] <- 0
+  }
+  w
+}
+
+# The resampling itself: an n x n_new integer matrix of how often each of n
+# rows was drawn in each of n_new replicates, numbered first+1 .. total in the
+# progress messages (about ten, when `show_progress` and there are ten or more
+# replicates to draw).  Unstratified, every replicate is one sample.int() of
+# the n rows; with `strata_key` (a factor over the rows) each replicate
+# resamples every stratum in turn.  The draw order is the seeded output, so it
+# must not change.
+.bsw_draw_counts <- function(n, n_new, first, total, strata_key = NULL,
+                             show_progress = TRUE) {
+  report_at <- if (show_progress && n_new >= 10L)
+    unique(round(seq(n_new / 10, n_new, length.out = 10L)))
+  else
+    integer(0L)
+  counts <- matrix(0L, nrow = n, ncol = n_new)
+  strata_idx <- if (!is.null(strata_key))
+    lapply(levels(strata_key), function(lv) which(strata_key == lv))
+  for (i in seq_len(n_new)) {
+    counts[, i] <- if (is.null(strata_idx)) {
+      tabulate(sample.int(n, n, replace = TRUE), nbins = n)
+    } else {
+      ct <- integer(n)
+      for (idx in strata_idx)
+        ct <- ct + tabulate(sample(idx, length(idx), replace = TRUE), nbins = n)
+      ct
+    }
+    if (i %in% report_at)
+      message(sprintf("  Replicate %d / %d ...", i + first, total))
+  }
+  counts
 }
 
 # One value per row for the key column(s) of a data frame.
@@ -1172,9 +1224,8 @@ add_bootstrap_weights <- function(tbl,
   out  <- key
   gone <- setdiff(key, in_cols)
   if (length(gone) > 0L) {
-    label_col <- if (prov$lang == "eng") "label_en" else "label_fr"
     map <- tryCatch(
-      .pumf_var_label_map(.pumf_read_variables_from_prov(prov), label_col),
+      .pumf_var_label_map(.pumf_label_source(prov), .pumf_label_col(prov$lang)),
       error = function(e) NULL)
     for (k in gone) {
       lab <- map$label[map$name == k]
@@ -1196,6 +1247,13 @@ add_bootstrap_weights <- function(tbl,
 .bsw_legacy_view <- function(table_name, bsw_table)
   paste0(table_name, "_", sub("^pumf_", "", bsw_table))
 
+# Drop that view, if it is still there (write connection only).
+.bsw_drop_legacy_view <- function(con, table_name, bsw_table) {
+  DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s",
+                              .qid(con, .bsw_legacy_view(table_name, bsw_table))))
+  invisible(NULL)
+}
+
 # Generate replicate weights for the whole survey table and write them to
 # `target` on `con`, as a temporary table when `temporary`.
 #   base = NULL: fresh generation.
@@ -1210,9 +1268,9 @@ add_bootstrap_weights <- function(tbl,
   # population, so added rows invalidate -- and require regenerating -- every
   # row in the affected resampling universe, not just the new rows themselves.
   wt <- DBI::dbGetQuery(con, sprintf(
-    'SELECT %s, CAST("%s" AS DOUBLE) AS ".w" FROM "%s"',
-    paste0('"', unique(c(id_col, strata)), '"', collapse = ", "),
-    weight_col, table_name))
+    'SELECT %s, CAST(%s AS DOUBLE) AS ".w" FROM %s',
+    paste(.qid(con, unique(c(id_col, strata))), collapse = ", "),
+    .qid(con, weight_col), .qid(con, table_name)))
   names(wt)[names(wt) == ".w"] <- "w"
 
   key <- .bsw_key(wt, id_col)
@@ -1223,11 +1281,7 @@ add_bootstrap_weights <- function(tbl,
          "missing or repeated for some rows.\n",
          "Name the column(s) that do in 'id_col'.", call. = FALSE)
 
-  if (anyNA(wt$w)) {
-    warning(sum(is.na(wt$w)), " NA weight(s) in '", weight_col,
-            "' replaced with 0.", call. = FALSE)
-    wt$w[is.na(wt$w)] <- 0
-  }
+  wt$w <- .bsw_clean_weights(wt$w, weight_col)
 
   n_existing <- length(base$reps)
   n_target   <- max(n_existing, n_replicates)
@@ -1257,18 +1311,9 @@ add_bootstrap_weights <- function(tbl,
         "Generating %d replicates for %d rows requires ~%.1f GB of memory.",
         n_new, n, mem_gb), call. = FALSE)
     if (!is.null(seed_val)) set.seed(seed_val)
-    # Progress: report at ~10 evenly-spaced checkpoints.
-    report_at <- if (show_progress && n_new >= 10L)
-      unique(round(seq(n_new / 10, n_new, length.out = 10L)))
-    else
-      integer(0L)
-    counts <- matrix(0L, nrow = n, ncol = n_new)
-    for (i in seq_len(n_new)) {
-      counts[, i] <- tabulate(sample.int(n, n, replace = TRUE), nbins = n)
-      if (i %in% report_at)
-        message(sprintf("  Replicate %d / %d ...",
-                        i + n_cols_start, n_cols_end))
-    }
+    counts <- .bsw_draw_counts(n, n_new, first = n_cols_start,
+                               total = n_cols_end,
+                               show_progress = show_progress)
     mat <- wt_df$w * counts
     colnames(mat) <- paste0(prefix, seq(n_cols_start + 1L, n_cols_end))
     cbind(wt_df[id_col], as.data.frame(mat))
@@ -1319,8 +1364,9 @@ add_bootstrap_weights <- function(tbl,
     #     whose resampling universe is unchanged.
     need_more_rows <- base$n_missing > 0L
     old_bsw <- DBI::dbGetQuery(con, sprintf(
-      'SELECT %s FROM "%s"',
-      paste0('"', c(id_col, base$reps), '"', collapse = ", "), base$table))
+      "SELECT %s FROM %s",
+      paste(.qid(con, c(id_col, base$reps)), collapse = ", "),
+      .qid(con, base$table)))
     old_key <- .bsw_key(old_bsw, id_col)
     has_bsw <- key %in% old_key
     n_new   <- sum(!has_bsw)
@@ -1402,38 +1448,34 @@ add_bootstrap_weights <- function(tbl,
 .bsw_index <- function(con, target, id_col, temporary) {
   if (!temporary)
     DBI::dbExecute(con, sprintf(
-      'CREATE INDEX IF NOT EXISTS "idx_%s" ON "%s" (%s)',
-      target, target, paste0('"', id_col, '"', collapse = ", ")))
+      "CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
+      .qid(con, paste0("idx_", target)), .qid(con, target),
+      paste(.qid(con, id_col), collapse = ", ")))
   invisible(NULL)
 }
 
-# Resolve a column name that may be a human-readable label back to the coded
-# column name. For data.frame input: checks if the name is in colnames(df);
-# if not, it must already be the correct name (no provenance available).
+# A column of a data frame, named by the caller: there is no provenance, so
+# the name must be one of its columns.
 .bsw_resolve_col_df <- function(df, col, arg_name) {
-  if (is.null(col) || col %in% names(df)) return(col)
+  if (col %in% names(df)) return(col)
   stop("'", arg_name, "' column '", col, "' not found in the data frame.",
        call. = FALSE)
 }
 
 # Resolve a column name that may be a human-readable label back to the coded
-# column name for DuckDB-backed tables.  Looks up the label in variables.csv
-# using the survey provenance stored in the connection registry.
-.bsw_resolve_col_prov <- function(con, table_name, col, arg_name, prov) {
-  if (is.null(col)) return(col)
-  actual_cols <- DBI::dbListFields(con, table_name)
-  if (col %in% actual_cols) return(col)
-  # col is not a raw column name -- try to find it as a human-readable label.
-  variables  <- .pumf_read_variables_from_prov(prov)
-  lang       <- prov$lang %||% "eng"
-  label_col  <- if (lang == "eng") "label_en" else "label_fr"
-  match_rows <- variables[!is.na(variables[[label_col]]) &
-                            variables[[label_col]] == col, , drop = FALSE]
-  if (nrow(match_rows) == 0L)
+# column name of a DuckDB-backed table (`physical_cols`): after
+# label_pumf_columns() the user may name "Person weight" rather than PWEIGHT.
+# The labels are those label_pumf_columns() gives, duplicates disambiguated
+# as "Label (NAME)" (.pumf_var_label_map()).
+.bsw_resolve_col_prov <- function(col, arg_name, prov, physical_cols) {
+  if (col %in% physical_cols) return(col)
+  map <- .pumf_var_label_map(.pumf_label_source(prov), .pumf_label_col(prov$lang))
+  hit <- map$name[map$label == col]
+  if (length(hit) == 0L)
     stop("'", arg_name, "' value '", col,
          "' is neither a column in the DuckDB table nor a known variable label.",
          call. = FALSE)
-  match_rows$name[1L]
+  hit[[1L]]
 }
 
 # Fast in-memory bootstrap weight generation for data.frame / tibble input.
@@ -1444,11 +1486,7 @@ add_bootstrap_weights <- function(tbl,
   # Detect replicate columns already present for THIS prefix so a second call
   # extends the set instead of regenerating and duplicating column names
   # (mirrors the DuckDB-backed Cases A/C in add_bootstrap_weights()).
-  rep_pat      <- paste0("^", prefix, "[0-9]+$")
-  existing_rep <- grep(rep_pat, names(df), value = TRUE)
-  existing_rep <- existing_rep[order(
-    as.integer(sub(paste0("^", prefix), "", existing_rep)))]
-  n_existing   <- length(existing_rep)
+  n_existing <- length(.bsw_rep_cols(names(df), prefix))
 
   # Case A: enough replicates already present -- reuse silently, no regeneration.
   if (n_existing >= n_replicates) {
@@ -1461,43 +1499,15 @@ add_bootstrap_weights <- function(tbl,
   # Case C: generate only the missing replicates (n_existing+1 .. n_replicates).
   n_new <- n_replicates - n_existing
 
-  w <- df[[weight_col]]
-  if (!is.numeric(w)) w <- suppressWarnings(as.numeric(w))
-  if (anyNA(w)) {
-    warning(sum(is.na(w)), " NA weight(s) in '", weight_col,
-            "' replaced with 0.", call. = FALSE)
-    w[is.na(w)] <- 0
-  }
+  w <- .bsw_clean_weights(df[[weight_col]], weight_col)
   if (n_existing > 0L)
     message(sprintf("Adding replicates %d-%d (data frame already has %d)...",
                     n_existing + 1L, n_replicates, n_existing))
 
   if (!is.null(seed)) set.seed(seed)
-  report_at <- if (n_new >= 10L)
-    unique(round(seq(n_new / 10, n_new, length.out = 10L)))
-  else
-    integer(0L)
-  counts <- matrix(0L, nrow = n, ncol = n_new)
-  if (!is.null(strata_cols)) {
-    strata_key  <- interaction(df[strata_cols], drop = TRUE)
-    strata_lvls <- levels(strata_key)
-    for (i in seq_len(n_new)) {
-      ct <- integer(n)
-      for (lv in strata_lvls) {
-        idx <- which(strata_key == lv)
-        ct <- ct + tabulate(sample(idx, length(idx), replace = TRUE), nbins = n)
-      }
-      counts[, i] <- ct
-      if (i %in% report_at)
-        message(sprintf("  Replicate %d / %d ...", i + n_existing, n_replicates))
-    }
-  } else {
-    for (i in seq_len(n_new)) {
-      counts[, i] <- tabulate(sample.int(n, n, replace = TRUE), nbins = n)
-      if (i %in% report_at)
-        message(sprintf("  Replicate %d / %d ...", i + n_existing, n_replicates))
-    }
-  }
+  counts <- .bsw_draw_counts(
+    n, n_new, first = n_existing, total = n_replicates,
+    strata_key = if (!is.null(strata_cols)) interaction(df[strata_cols], drop = TRUE))
   bsw_matrix <- w * counts
   colnames(bsw_matrix) <- paste0(prefix, seq(n_existing + 1L, n_replicates))
   cbind(df, as.data.frame(bsw_matrix))
@@ -1766,7 +1776,8 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
   if (!is.null(weight_col)) {
     # A variable label is accepted, as in add_bootstrap_weights().
     wc <- tryCatch(
-      .bsw_resolve_col_prov(con, table_name, weight_col, "weight_col", loc$prov),
+      .bsw_resolve_col_prov(weight_col, "weight_col", loc$prov,
+                            DBI::dbListFields(con, table_name)),
       error = function(e) weight_col)
     target <- paste0("pumf_bsw_", tolower(wc), loc$suffix)
     tabs   <- tabs[tabs$table_name %in% c(target, paste0("tmp_", target)), ,
@@ -1802,14 +1813,13 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
 
   for (bt in temp) {
     message("Dropping temporary bootstrap weight table '", bt, "'...")
-    DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", .qid(con, bt)))
   }
   for (bt in stored) {
     # The view through which 0.6.0 and earlier exposed the weights.
-    DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"',
-                                .bsw_legacy_view(table_name, bt)))
+    .bsw_drop_legacy_view(con, table_name, bt)
     message("Dropping bootstrap weight table '", bt, "'...")
-    DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', bt))
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", .qid(con, bt)))
   }
 
   dplyr::tbl(con, table_name)
@@ -1873,39 +1883,28 @@ pumf_metadata <- function(series,
                            redownload = FALSE,
                            registry   = NULL) {
   version     <- pumf_resolve_version(series, version, cache_path)
+  .pumf_check_registry_arg(registry, series)
   if (!is.null(registry)) {
-    if (!inherits(registry, "pumf_registry_entry"))
-      stop("'registry' must be created by pumf_registry_entry() or ",
-           "pumf_registry().", call. = FALSE)
-    if (.is_longitudinal(series))
-      stop("'registry' overrides are not supported for ", series, ".",
-           call. = FALSE)
     .pumf_registry_override_set(series, version, registry)
     on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
   }
   reg         <- pumf_registry_lookup(series, version)
   eff_refresh <- refresh || redownload
+  # Degrade gracefully when Statistics Canada is unreachable: message + NULL
+  # rather than a hard error (consistent with get_pumf()).
   if (.is_longitudinal(series)) {
-    version_dir <- tryCatch(
+    version_dir <- .pumf_offline_null(
       .pumf_longitudinal_spec(series)$prepare(version, cache_path = cache_path,
                                               refresh = eff_refresh,
-                                              redownload = redownload),
-      canpumf_network_error = function(e) {
-        message(conditionMessage(e)); NULL
-      })
+                                              redownload = redownload))
     if (is.null(version_dir)) return(invisible(NULL))
     return(read_metadata(file.path(version_dir, "metadata")))
   }
-  # Degrade gracefully when Statistics Canada is unreachable: message + NULL
-  # rather than a hard error (consistent with get_pumf()).
-  version_dir <- tryCatch(
+  version_dir <- .pumf_offline_null(
     pumf_locate_or_download(series, version,
                             cache_path = cache_path,
                             refresh    = eff_refresh,
-                            redownload = redownload),
-    canpumf_network_error = function(e) {
-      message(conditionMessage(e)); NULL
-    })
+                            redownload = redownload))
   if (is.null(version_dir)) return(invisible(NULL))
   # Parsing is idempotent: with metadata already present and no refresh, a
   # supplied registry has no effect.  This message lives only here (get_pumf()
@@ -1915,10 +1914,11 @@ pumf_metadata <- function(series,
     message("Metadata for ", series, " ", version, " is already parsed; ",
             "the supplied 'registry' is not applied. ",
             "Pass refresh = TRUE to re-parse with it.")
-  pumf_parse_metadata(version_dir,
-                       layout_mask       = reg$layout_mask,
-                       metadata_encoding = reg$metadata_encoding,
-                       refresh           = eff_refresh)
+  # Stage 2 as pumf_run_pipeline() runs it, every module included, so the
+  # metadata on disk is what get_pumf() would build from (a module's
+  # file_mask or layout_file choice is not skipped here).  The primary
+  # module's metadata/ is returned.
+  .pumf_parse_stage2(version_dir, reg, eff_refresh)
   read_metadata(file.path(version_dir, "metadata"))
 }
 
@@ -2013,7 +2013,7 @@ pumf_metadata <- function(series,
 #' }
 #' @export
 pumf_sidecar <- function(tbl, sidecar, join = FALSE) {
-  loc <- .pumf_sidecar_locate(tbl, "pumf_sidecar()")
+  loc <- .pumf_sidecar_locate(tbl)
   if (missing(sidecar) || !is.character(sidecar) || length(sidecar) != 1L ||
       !sidecar %in% names(.pumf_sidecars))
     stop("'sidecar' must be one of ",
@@ -2046,7 +2046,7 @@ pumf_sidecar <- function(tbl, sidecar, join = FALSE) {
 #' @rdname pumf_sidecar
 #' @export
 list_pumf_sidecars <- function(tbl) {
-  loc <- .pumf_sidecar_locate(tbl, "list_pumf_sidecars()")
+  loc <- .pumf_sidecar_locate(tbl)
   out <- tibble::tibble(sidecar = character(0L), table = character(0L),
                         kind = character(0L), n_rows = numeric(0L),
                         description = character(0L))
@@ -2056,8 +2056,7 @@ list_pumf_sidecars <- function(tbl) {
     side_table <- spec$table(loc$table_name)
     if (!DBI::dbExistsTable(loc$con, side_table)) next
     n <- DBI::dbGetQuery(loc$con, sprintf(
-      "SELECT count(*) AS n FROM %s",
-      as.character(DBI::dbQuoteIdentifier(loc$con, side_table))))$n
+      "SELECT count(*) AS n FROM %s", .qid(loc$con, side_table)))$n
     out <- tibble::add_row(out, sidecar = nm, table = side_table,
                            kind = spec$kind, n_rows = as.numeric(n),
                            description = spec$description)
@@ -2094,16 +2093,14 @@ list_pumf_sidecars <- function(tbl) {
   unlist(lapply(.pumf_sidecars, function(s) s$table(table_name)),
          use.names = FALSE)
 
-# Connection, provenance and survey-table name of a get_pumf() tbl.
-.pumf_sidecar_locate <- function(tbl, fn) {
-  if (!inherits(tbl, "tbl_sql"))
-    stop("'tbl' must be a lazy tbl returned by get_pumf().", call. = FALSE)
-  prov <- .pumf_lookup_con(tbl$src$con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
+# Connection, provenance and survey-table name of a get_pumf() tbl.  The
+# module is the one the tbl's own table encodes (.pumf_tbl_prov()), not the
+# one last registered on the connection: after pumf_module() opened a sibling,
+# the primary module's tbl still gets its own sidecars.
+.pumf_sidecar_locate <- function(tbl) {
+  prov <- .pumf_tbl_prov(tbl)
   list(con = tbl$src$con, prov = prov,
        table_name = if (.is_longitudinal(prov$series)) NA_character_
                     else .pumf_table_name(prov$series, prov$version,
-                                          prov$lang %||% "eng", prov$module))
+                                          prov$lang, prov$module))
 }

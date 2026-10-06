@@ -69,53 +69,17 @@
 .long_versions_from_prov <- function(prov) {
   spec    <- .pumf_longitudinal_spec(prov$series)
   db_path <- .long_db_path(spec, prov$cache_path)
-  vt      <- spec$versions_table
   if (!file.exists(db_path))
     stop(prov$series, " database not found at '", db_path, "'.", call. = FALSE)
-  read_versions <- function(con) {
-    if (DBI::dbExistsTable(con, vt))
-      DBI::dbGetQuery(con, sprintf(
-        "SELECT version FROM %s ORDER BY survyear, survmnth", vt))$version
-    else character(0L)
-  }
   existing_con <- prov$con
-  if (!is.null(existing_con) && DBI::dbIsValid(existing_con)) {
-    versions <- read_versions(existing_con)
-  } else {
-    con_tmp <- .duckdb_connect_quiet(db_path, read_only = TRUE)
-    on.exit(DBI::dbDisconnect(con_tmp, shutdown = TRUE))
-    versions <- read_versions(con_tmp)
-  }
+  versions <- if (!is.null(existing_con) && DBI::dbIsValid(existing_con))
+    .long_read_versions(existing_con, spec)$version
+  else
+    .long_with_readonly_con(spec, prov$cache_path, strict = TRUE,
+                            function(con) .long_read_versions(con, spec)$version)
   if (length(versions) == 0L)
     stop("No ", prov$series, " versions found in the database.", call. = FALSE)
   versions
-}
-
-# Code labels across every loaded LFS version, every distinct wording kept:
-# each version was labelled from its own codes.csv when it was appended, so the
-# shared table can hold an older spelling next to the current one.
-.lfs_merged_codes <- function(cache_path, versions) {
-  all_codes <- lapply(versions, function(v) {
-    md <- file.path(cache_path, "LFS", v, "metadata")
-    if (!dir.exists(md)) return(NULL)
-    # Suffixed per version, as each version was when it was labelled.
-    tryCatch(.pumf_unique_code_labels(read_metadata(md)$codes),
-             error = function(e) NULL)
-  })
-  all_codes <- do.call(rbind, all_codes[!vapply(all_codes, is.null, logical(1L))])
-  if (is.null(all_codes) || nrow(all_codes) == 0L)
-    stop("No LFS metadata found in any version directory.", call. = FALSE)
-  all_codes[!duplicated(all_codes[, c("name", "val", "label_en", "label_fr")]), ,
-            drop = FALSE]
-}
-
-# Both the era-free canonical LFS_HIST dictionary and the era-specific code
-# lists (the four-category MARSTAT era), since the shared table holds them all.
-.lfs_hist_all_codes <- function(cache_path, versions) {
-  cols <- c("name", "val", "label_en", "label_fr")
-  h <- .pumf_unique_code_labels(as.data.frame(.lfs_hist_ref("codes"))[, cols])
-  e <- .pumf_unique_code_labels(as.data.frame(.lfs_hist_code_eras())[, cols])
-  unique(rbind(h, e))
 }
 
 # The registry entry, module and metadata directory of a non-longitudinal
@@ -157,56 +121,50 @@
     return(list(series = series, version = version, cache_path = cache_path,
                 module = module))
   }
-  if (!inherits(x, "tbl_lazy"))
+  if (!inherits(x, "tbl_sql"))
     stop("'x' must be a lazy tbl from get_pumf() or a series name.",
          call. = FALSE)
-  prov <- .pumf_lookup_con(x$src$con)
-  if (is.null(prov))
-    stop("'x' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-  prov$module <- .pumf_tbl_module(x, prov)
-  prov
+  .pumf_tbl_prov(x, what = "'x'")
 }
 
 # variables + codes (both languages) for a provenance record, module-aware.
 .pumf_dictionary_from_prov <- function(prov) {
-  series <- prov$series
+  series   <- prov$series
+  meta     <- NULL
+  versions <- NULL
   if (identical(series, "LFS_TIMELINE")) {
-    variables <- as.data.frame(.lfs_timeline_ref("variables"))
-    codes     <- as.data.frame(.lfs_timeline_ref("codes"))
-    sent      <- NULL
+    codes <- as.data.frame(.lfs_timeline_ref("codes"))
+    sent  <- NULL
   } else if (.is_longitudinal(series)) {
-    spec      <- .pumf_longitudinal_spec(series)
-    versions  <- .long_versions_from_prov(prov)
-    variables <- as.data.frame(spec$variables(prov$cache_path, versions))
+    spec     <- .pumf_longitudinal_spec(series)
+    versions <- .long_versions_from_prov(prov)
     if (is.null(spec$codes))
       stop("The ", series, " longitudinal spec has no 'codes' accessor.",
            call. = FALSE)
-    codes     <- as.data.frame(spec$codes(prov$cache_path, versions))
-    sent      <- NULL
+    codes <- as.data.frame(spec$codes(prov$cache_path, versions))
+    sent  <- NULL
   } else {
     pm       <- .pumf_prov_meta(prov)
-    reg      <- pm$reg
     meta_dir <- pm$meta_dir
     fix      <- pm$fix
-    meta      <- read_metadata(meta_dir)
-    variables <- as.data.frame(.pumf_apply_labels_supplement(meta$variables, reg))
+    meta     <- read_metadata(meta_dir)
     # The value labels as Stage 3 applied them (registry code rows, French
     # fallback, the code suffix where the data hold several codes of one
     # label).  A cache built before 0.6.1 has no codes_applied.csv; its
     # table shows the documented labels, so those are returned.
-    codes     <- .read_codes_applied(meta_dir) %||%
+    codes <- .read_codes_applied(meta_dir) %||%
       as.data.frame(.pumf_unique_code_labels(
         .pumf_apply_code_fixups(meta$codes, fix), present = list()))
-    sent      <- .pumf_sentinel_label_rows(fix$sentinel_labels)
+    sent  <- .pumf_sentinel_label_rows(fix$sentinel_labels)
   }
-  variables$name <- toupper(variables$name)
-  codes$name     <- toupper(codes$name)
-  if (.is_longitudinal(series) || identical(series, "LFS_TIMELINE")) {
-    extra     <- .lfs_derived_var_labels[!.lfs_derived_var_labels$name %in%
-                                           variables$name, , drop = FALSE]
-    variables <- rbind(variables[, c("name", "label_en", "label_fr")], extra)
-  }
+  # The variable labels as label_pumf_columns() reads them (the same source,
+  # so the two agree), plus the derived LFS helper columns for the shared
+  # series.
+  variables  <- .pumf_label_source(prov, meta = meta, versions = versions)
+  codes$name <- toupper(codes$name)
+  if (.is_shared_series(series))
+    variables <- rbind(variables[, c("name", "label_en", "label_fr")],
+                       .pumf_derived_var_rows(variables$name))
   vars <- data.frame(name = variables$name, val = NA_character_,
                      label_en = variables$label_en, label_fr = variables$label_fr,
                      stringsAsFactors = FALSE)
@@ -319,7 +277,7 @@ pumf_topcodes <- function(x, version = NULL, module = NULL,
                           cache_path = getOption("canpumf.cache_path",
                                                  tempdir())) {
   prov <- .pumf_prov_from_arg(x, version, module, cache_path)
-  if (.is_longitudinal(prov$series) || identical(prov$series, "LFS_TIMELINE"))
+  if (.is_shared_series(prov$series))
     stop("pumf_topcodes() is not available for the longitudinal series (",
          prov$series, ").", call. = FALSE)
   pm    <- .pumf_prov_meta(prov)

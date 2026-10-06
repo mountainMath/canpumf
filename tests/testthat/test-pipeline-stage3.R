@@ -312,6 +312,52 @@ test_that(".ensure_enum_columns: no-op when factors already stored as ENUM", {
   expect_true(grepl("^ENUM", info$type[info$name == "x"]))
 })
 
+test_that(".ensure_enum_columns: warns about a factor column stored as VARCHAR", {
+  con <- duck_con()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, "t", data.frame(x = c("A", "B"), stringsAsFactors = FALSE))
+  expect_warning(canpumf:::.ensure_enum_columns(con, "t", list(x = c("A", "B"))),
+                 "not written as ENUM: x")
+  # A level list for a column the table does not have is ignored.
+  expect_no_warning(canpumf:::.ensure_enum_columns(con, "t", list(y = "A")))
+})
+
+# ---- integer code normalisation ----------------------------------------------
+
+test_that(".pumf_int_codes: integer strings canonical, everything else verbatim", {
+  expect_equal(canpumf:::.pumf_int_codes(c("01", "1", " 007 ", "-02", "000", "-0")),
+               c("1", "1", "7", "-2", "0", "0"))
+  expect_equal(canpumf:::.pumf_int_codes(c("1.5", "1.0", "A", "", NA)),
+               c("1.5", "1.0", "A", "", NA))
+  # No int32 overflow: the normalisation is on the string.
+  expect_equal(canpumf:::.pumf_int_codes("099999999999"), "99999999999")
+})
+
+test_that(".pumf_int_key: '01' and '1' share a key, '1.5' never collides with '1'", {
+  expect_equal(unique(canpumf:::.pumf_int_key(c("01", "1"))), "1")
+  # A variable with a non-integer code keeps every code verbatim.
+  expect_equal(canpumf:::.pumf_int_key(c("1", "1.5", "01")), c("1", "1.5", "01"))
+  expect_true(canpumf:::.pumf_all_int(c("01", "-2")))
+  expect_false(canpumf:::.pumf_all_int(c("1", "1.5")))
+  expect_false(canpumf:::.pumf_all_int(character()))
+})
+
+test_that(".apply_code_labels: integer matching does not fold '1.5' onto code 1", {
+  codes <- tibble::tibble(name = "V", val = c("1", "1.5", "2"),
+                          label_en = c("one", "one and a half", "two"),
+                          label_fr = NA_character_)
+  data  <- data.frame(V = c("1", "1.5", "2", "01"), stringsAsFactors = FALSE)
+  # Codes are not all integers, so values are matched verbatim: "01" has no code.
+  expect_warning(r <- canpumf:::.apply_code_labels(data, codes, "label_en"),
+                 "unmatched")
+  expect_equal(as.character(r$V), c("one", "one and a half", "two", NA))
+  # All-integer codes: "01" is code 1.
+  codes2 <- codes[codes$val != "1.5", ]
+  r2 <- canpumf:::.apply_code_labels(data.frame(V = c("01", "2"), stringsAsFactors = FALSE),
+                                     codes2, "label_en")
+  expect_equal(as.character(r2$V), c("one", "two"))
+})
+
 # ---- pumf_build_duckdb unit tests -------------------------------------------
 
 # Build a minimal in-directory set: metadata/ + one CSV data file.

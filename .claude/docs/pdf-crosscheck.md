@@ -1,6 +1,6 @@
 # User-guide PDF parser, cross-check and label repair
 
-Back to [CLAUDE.md](../CLAUDE.md). Code: `parse_pdf_freq_codebook()` in `R/metadata_parsers.R`; everything else in `R/pdf_repair.R`.
+Back to [CLAUDE.md](../CLAUDE.md). Code: `parse_pdf_freq_codebook()` and the code normaliser `.pumf_norm_code()` (next to `.code_chr()`) in `R/metadata_parsers.R`; everything else in `R/pdf_repair.R`.
 
 StatCan's command files routinely ship **truncated** value and variable labels: hard cuts at 60 characters, dropped leading text, dropped interior text. The damage happens upstream of the SAS/SPSS/Stata renderers, which carry byte-identical text, so parsing a different flavour does not avoid it. The survey's user guide has the full text, typeset from the metadata before the command files were generated.
 

@@ -51,6 +51,40 @@ test_that(".pumf_emit_override_message: lists the record-level fixups (TCP 1881)
                fixed = TRUE)
 })
 
+test_that(".pumf_fixup_notes: every data_fixups field has a note", {
+  notes <- canpumf:::.pumf_fixup_notes
+  expect_length(setdiff(canpumf:::.pumf_fixup_fields, names(notes)), 0L)
+  expect_length(setdiff(names(notes), canpumf:::.pumf_fixup_fields), 0L)
+  expect_true(all(vapply(notes, is.function, logical(1L))))
+  # A FALSE flag or an empty vector says nothing.
+  expect_length(notes$fix_mojibake(FALSE), 0L)
+  expect_length(notes$na_values(character(0L)), 0L)
+  # The notes for the storage and sentinel fixups.
+  expect_match(notes$force_integer(c("SURVYEAR", "SURVMNTH")),
+               "Stored as INTEGER: SURVYEAR, SURVMNTH.", fixed = TRUE)
+  expect_match(notes$force_bigint("ID"), "BIGINT: ID", fixed = TRUE)
+  expect_match(notes$force_character("PUMFID"), "Kept as text", fixed = TRUE)
+  expect_match(notes$missing_codes(list(AUDE_Q02 = c(-5, 998))), "for: AUDE_Q02.", fixed = TRUE)
+  expect_match(notes$sentinel_labels(list("99" = c(label_en = "Not applicable"))),
+               "sentinel codes (99)", fixed = TRUE)
+  expect_match(notes$str_pad(list(list(cols = c("A", "B"), width = 3L, side = "left", pad = "0"))),
+               "A, B (3).", fixed = TRUE)
+  expect_match(notes$missing_supplement(list(X = c(90000001, 999999999))),
+               "Missing-range overrides applied to: X.", fixed = TRUE)
+})
+
+test_that(".pumf_emit_override_message: takes the entry it is given", {
+  reg <- canpumf:::.make_entry("FAKE", "1",
+    data_fixups = list(force_integer = "REC_NUM", missing_codes = list(HRS = 99)))
+  msg <- tryCatch(canpumf:::.pumf_emit_override_message("FAKE", "1", reg),
+                  message = function(m) conditionMessage(m))
+  expect_match(msg, "^Data import notes for FAKE 1:\n")
+  expect_match(msg, "Stored as INTEGER: REC_NUM.", fixed = TRUE)
+  expect_match(msg, "discrete codes (not a range) for: HRS.", fixed = TRUE)
+  expect_silent(canpumf:::.pumf_emit_override_message("FAKE", "1", NULL))
+  expect_silent(canpumf:::.pumf_emit_override_message("FAKE", NULL, reg))
+})
+
 test_that("open_pumf_documentation: errors on invalid lang", {
   expect_error(
     open_pumf_documentation("SFS", "2019", lang = "deu"),

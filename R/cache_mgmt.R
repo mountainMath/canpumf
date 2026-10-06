@@ -41,30 +41,35 @@
   sum(file.info(paths)$size, na.rm = TRUE) / 1e6
 }
 
-# Describe one non-LFS version directory as a single-row tibble.
-.describe_version_dir <- function(series, version, version_dir) {
-  has_zip <- !is.null(.find_version_zip(version_dir))
-  has_ext <- .version_is_extracted(version_dir)
-
-  has_metadata <- file.exists(
-    file.path(version_dir, "metadata", "variables.csv"))
-
-  db_file <- file.path(
-    version_dir,
-    paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb"))
-  has_duckdb <- file.exists(db_file)
-
-  all_files <- list.files(version_dir, recursive = TRUE, full.names = TRUE)
+# The on-disk state of one version directory (which may not exist): raw
+# download present, metadata parsed, and the size of the raw files (everything
+# but metadata/ and the DuckDB).
+.describe_dir_files <- function(dir) {
+  present <- dir.exists(dir)
+  all_files <- if (present) list.files(dir, recursive = TRUE, full.names = TRUE)
+               else character(0L)
   raw_files <- all_files[!grepl(
     "/metadata(/|$)|\\.duckdb", all_files, ignore.case = TRUE)]
+  list(
+    has_raw      = present && (!is.null(.find_version_zip(dir)) ||
+                                 .version_is_extracted(dir)),
+    has_metadata = file.exists(file.path(dir, "metadata", "variables.csv")),
+    raw_mb       = .path_size_mb(raw_files))
+}
+
+# Describe one non-LFS version directory as a single-row tibble.
+.describe_version_dir <- function(series, version, version_dir) {
+  d          <- .describe_dir_files(version_dir)
+  db_file    <- file.path(version_dir, .pumf_db_file(series, version))
+  has_duckdb <- file.exists(db_file)
 
   tibble::tibble(
     series       = series,
     version      = version,
-    has_raw      = has_zip || has_ext,
-    has_metadata = has_metadata,
+    has_raw      = d$has_raw,
+    has_metadata = d$has_metadata,
     has_duckdb   = has_duckdb,
-    raw_mb       = .path_size_mb(raw_files),
+    raw_mb       = d$raw_mb,
     duckdb_mb    = if (has_duckdb) file.info(db_file)$size / 1e6 else NA_real_,
     built_with   = if (has_duckdb) .duckdb_built_with(db_file) else NA_character_
   )
@@ -73,53 +78,31 @@
 # Describe all versions of a longitudinal series (LFS, LFS_HIST) — combining
 # disk state with the shared DuckDB's tracking table.
 .describe_lfs_cache <- function(lfs_dir, series = "LFS") {
-  spec    <- .pumf_longitudinal_spec(series)
-  vt      <- spec$versions_table
-  db_path <- file.path(lfs_dir, spec$db_file)
-  db_mb   <- if (file.exists(db_path)) file.info(db_path)$size / 1e6 else NA_real_
+  spec       <- .pumf_longitudinal_spec(series)
+  cache_path <- dirname(lfs_dir)
+  db_path    <- .long_db_path(spec, cache_path)
+  db_mb      <- if (file.exists(db_path)) file.info(db_path)$size / 1e6 else NA_real_
 
-  # Loaded versions from the shared DuckDB tracking table
-  loaded <- character(0L)
-  if (file.exists(db_path)) {
-    con <- tryCatch(
-      .duckdb_connect_quiet(db_path, read_only = TRUE),
-      error = function(e) NULL
-    )
-    if (!is.null(con)) {
-      if (DBI::dbExistsTable(con, vt))
-        loaded <- DBI::dbGetQuery(con, paste("SELECT version FROM", vt))$version
-      DBI::dbDisconnect(con, shutdown = TRUE)
-    }
-  }
+  # Loaded versions from the shared DuckDB tracking table (none when the
+  # database is missing or locked).
+  loaded <- .long_loaded_versions(spec, cache_path)
 
   # Version directories present on disk (pattern: YYYY or YYYY-MM)
-  on_disk <- list.dirs(lfs_dir, recursive = FALSE, full.names = FALSE)
-  on_disk <- on_disk[grepl("^[0-9]{4}(-[0-9]{2})?$", on_disk)]
+  on_disk <- .pumf_version_dirs(cache_path, series, pattern = "^[0-9]{4}(-[0-9]{2})?$",
+                                non_empty = FALSE)
 
   all_versions <- sort(union(on_disk, loaded))
   if (length(all_versions) == 0L) return(.empty_cache_tibble())
 
   rows <- lapply(all_versions, function(v) {
-    vdir <- file.path(lfs_dir, v)
-    has_zip <- dir.exists(vdir) && !is.null(.find_version_zip(vdir))
-    has_ext <- dir.exists(vdir) && .version_is_extracted(vdir)
-
-    has_metadata <- dir.exists(vdir) &&
-      file.exists(file.path(vdir, "metadata", "variables.csv"))
-
-    all_files <- if (dir.exists(vdir))
-      list.files(vdir, recursive = TRUE, full.names = TRUE)
-    else character(0L)
-    raw_files <- all_files[!grepl(
-      "/metadata(/|$)|\\.duckdb", all_files, ignore.case = TRUE)]
-
+    d <- .describe_dir_files(file.path(lfs_dir, v))
     tibble::tibble(
       series       = series,
       version      = v,
-      has_raw      = has_zip || has_ext,
-      has_metadata = has_metadata,
+      has_raw      = d$has_raw,
+      has_metadata = d$has_metadata,
       has_duckdb   = v %in% loaded,
-      raw_mb       = .path_size_mb(raw_files),
+      raw_mb       = d$raw_mb,
       # Shared DuckDB: same file backs all versions; show total size in every row.
       duckdb_mb    = db_mb,
       # The longitudinal databases track their versions in their own table
@@ -195,9 +178,7 @@ list_pumf_cache <- function(cache_path = getOption("canpumf.cache_path",
       next
     }
 
-    version_dirs <- list.dirs(series_dir, recursive = FALSE, full.names = FALSE)
-    version_dirs <- version_dirs[nchar(version_dirs) > 0L]
-    for (version in version_dirs)
+    for (version in .pumf_version_dirs(cache_path, series, non_empty = FALSE))
       rows[[length(rows) + 1L]] <- .describe_version_dir(
         series, version, file.path(series_dir, version))
   }
@@ -318,23 +299,21 @@ remove_pumf_cache <- function(series,
   on.exit(if (!done) DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
   objs <- DBI::dbListTables(con)
 
-  reg    <- pumf_registry_lookup(series, version)
-  mods   <- .pumf_entry_modules(reg)
-  mains  <- if (is.null(mods)) .pumf_table_name(series, version, lang)
-            else vapply(names(mods), function(m)
-              .pumf_table_name(series, version, lang, m), character(1L))
-  mains  <- intersect(mains, objs)
+  reg  <- pumf_registry_lookup(series, version)
+  mods <- .pumf_entry_modules(reg)
+  # The main table(s) of a language: one per module for a linked survey.
+  lang_tables <- function(l)
+    if (is.null(mods)) .pumf_table_name(series, version, l)
+    else vapply(names(mods), function(m)
+      .pumf_table_name(series, version, l, m), character(1L))
+  mains <- intersect(lang_tables(lang), objs)
   if (length(mains) == 0L) {
     DBI::dbDisconnect(con, shutdown = TRUE); done <- TRUE
     stop("'", series, " ", version, "' has no '", lang, "' table in ",
          basename(db_path), ".", call. = FALSE)
   }
-  others <- if (is.null(mods)) .pumf_table_name(series, version,
-                                                setdiff(c("eng", "fra"), lang))
-            else vapply(names(mods), function(m)
-              .pumf_table_name(series, version, setdiff(c("eng", "fra"), lang), m),
-              character(1L))
-  other_remains <- length(intersect(others, objs)) > 0L
+  other_remains <- length(intersect(
+    lang_tables(setdiff(c("eng", "fra"), lang)), objs)) > 0L
 
   if (!other_remains) {
     # The last language: the whole file goes, like remove_pumf_cache()
@@ -350,23 +329,22 @@ remove_pumf_cache <- function(series,
 
   views <- objs[grepl(paste0("^(", paste(mains, collapse = "|"), ")_bsw"), objs)]
   for (v in views)
-    DBI::dbExecute(con, sprintf('DROP VIEW IF EXISTS "%s"', v))
+    DBI::dbExecute(con, paste0("DROP VIEW IF EXISTS ", .qid(con, v)))
   for (t in c(mains, intersect(.pumf_sidecar_tables(mains), objs)))
-    DBI::dbExecute(con, sprintf('DROP TABLE IF EXISTS "%s"', t))
+    DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS ", .qid(con, t)))
   if (DBI::dbExistsTable(con, .build_info_table))
     for (t in mains)
-      DBI::dbExecute(con, sprintf(
-        'DELETE FROM "%s" WHERE "table" = ?', .build_info_table),
+      DBI::dbExecute(con, paste0(
+        "DELETE FROM ", .qid(con, .build_info_table), ' WHERE "table" = ?'),
         params = list(t))
 
   # Compact: copy what is left into a new file beside the old one, then swap.
   tmp_path <- paste0(db_path, ".compact")
   unlink(c(tmp_path, paste0(tmp_path, ".wal")))
   dbname <- DBI::dbGetQuery(con, "SELECT current_database() AS d")$d
-  DBI::dbExecute(con, sprintf("ATTACH '%s' AS canpumf_compact",
-                              gsub("'", "''", tmp_path)))
-  DBI::dbExecute(con, sprintf('COPY FROM DATABASE "%s" TO canpumf_compact',
-                              dbname))
+  DBI::dbExecute(con, paste0("ATTACH ", .qstr(con, tmp_path), " AS canpumf_compact"))
+  DBI::dbExecute(con, paste0("COPY FROM DATABASE ", .qid(con, dbname),
+                             " TO canpumf_compact"))
   DBI::dbExecute(con, "DETACH canpumf_compact")
   DBI::dbDisconnect(con, shutdown = TRUE); done <- TRUE
   unlink(paste0(db_path, ".wal"))
@@ -387,11 +365,8 @@ remove_pumf_cache <- function(series,
 
 .remove_non_lfs_cache <- function(series, version, version_dir, keep_raw) {
   if (keep_raw) {
-    db_paths <- list.files(version_dir, pattern = "\\.duckdb",
-                            ignore.case = TRUE, full.names = TRUE)
-    for (p in db_paths) unlink(p)
-    meta_dir <- file.path(version_dir, "metadata")
-    if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
+    # Open connections are the user's to close; a file still held warns.
+    .pumf_clear_built(version_dir, close = FALSE)
     message("Removed DuckDB and metadata for ", series, " ", version,
             ". Raw files kept; use get_pumf() to rebuild.")
   } else {
@@ -402,12 +377,10 @@ remove_pumf_cache <- function(series,
 
 .remove_lfs_cache <- function(version, cache_path, keep_raw, series = "LFS") {
   spec     <- .pumf_longitudinal_spec(series)
-  vt       <- spec$versions_table
-  data_tbl <- paste0(spec$table_prefix, c("_eng", "_fra"))
+  data_tbl <- .long_table_name(spec, c("eng", "fra"))
   lfs_dir  <- file.path(cache_path, series)
-  db_path  <- file.path(lfs_dir, spec$db_file)
+  db_path  <- .long_db_path(spec, cache_path)
   vdir     <- file.path(lfs_dir, version)
-  survyear <- .lfs_survyear(version)
   survmnth <- .lfs_survmnth(version)
 
   if (!dir.exists(lfs_dir))
@@ -417,24 +390,10 @@ remove_pumf_cache <- function(series,
     .assert_duckdb_writable(db_path)
     con <- .duckdb_connect_quiet(db_path)
 
-    for (tbl in data_tbl) {
-      if (!DBI::dbExistsTable(con, tbl)) next
-      if (is.na(survmnth)) {
-        DBI::dbExecute(con, sprintf(
-          'DELETE FROM "%s" WHERE SURVYEAR = %d', tbl, survyear))
-      } else {
-        DBI::dbExecute(con, sprintf(
-          'DELETE FROM "%s" WHERE SURVYEAR = %d AND SURVMNTH = %d',
-          tbl, survyear, survmnth))
-      }
-    }
-
-    # A year also removes its monthly versions (a series without annual
-    # files records only months).
-    if (DBI::dbExistsTable(con, vt))
-      DBI::dbExecute(con, if (is.na(survmnth))
-        sprintf("DELETE FROM %s WHERE survyear = %d", vt, survyear)
-      else sprintf("DELETE FROM %s WHERE version = '%s'", vt, version))
+    # The slice's rows in both language tables and its tracking row(s); a
+    # year also removes its monthly versions (a series without annual files
+    # records only months).
+    .long_delete_slice(con, spec, version, data_tbl)
 
     # Delete the shared DuckDB when ALL data tables are empty, not just when
     # lfs_versions is empty — the two can diverge if data was manipulated
@@ -442,7 +401,7 @@ remove_pumf_cache <- function(series,
     data_tbls <- intersect(data_tbl, DBI::dbListTables(con))
     total_rows <- if (length(data_tbls) == 0L) 0L else {
       sum(vapply(data_tbls, function(t)
-        DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "%s"', t))$n,
+        DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM ", .qid(con, t)))$n,
         numeric(1L)))
     }
     DBI::dbDisconnect(con, shutdown = TRUE)

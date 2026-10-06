@@ -88,6 +88,20 @@ utils::globalVariables(c("name", "val"))
   }, character(1L))
 }
 
+# Normalise a code value for comparison across sources: command files and
+# PDFs print zero-padded codes ("07", "00000") where the flat file may hold
+# "7"/"0", and vice versa.  Anything that parses as a number is rendered back
+# through .code_chr() (which also avoids integer overflow for large sentinels
+# such as 99999999996); everything else is kept as trimmed text.
+.pumf_norm_code <- function(x) {
+  x <- trimws(as.character(x))
+  num <- suppressWarnings(as.numeric(x))
+  ok  <- !is.na(num) & nzchar(x)
+  out <- x
+  out[ok] <- .code_chr(num[ok])
+  out
+}
+
 # Identify variables whose value labels are ALL sentinel labels.
 # Returns a named list: name → c(missing_lo, missing_hi).  The missing range
 # is derived from the TRUE-missing codes only (.missing_pat): zero-value
@@ -108,6 +122,29 @@ utils::globalVariables(c("name", "val"))
                   else c(NA_real_, NA_real_)
     }
   }
+  out
+}
+
+# The sentinel ranges of .detect_sentinel_only() lined up with `names`: a
+# tibble(name, missing_low, missing_high) with NA where a variable has no
+# sentinel-only codes.  Shared by .derive_var_types() (SPSS monolithic fill)
+# and parse_lfs_codebook().
+.sentinel_range <- function(sentinel_info, names) {
+  pick <- function(k) vapply(names, function(v) {
+    r <- sentinel_info[[v]]
+    if (is.null(r)) NA_real_ else as.numeric(r[[k]])
+  }, numeric(1L), USE.NAMES = FALSE)
+  tibble::tibble(name = names, missing_low = pick(1L), missing_high = pick(2L))
+}
+
+# Fill-down: every NA entry of `x` takes the value of the last non-NA entry
+# before it (leading NAs stay NA).  Used where a document lists a variable once
+# and leaves the cells of its following code rows blank (LFS codebook, CPSS
+# CSV).
+.fill_down <- function(x) {
+  idx <- cumsum(!is.na(x))
+  out <- x[!is.na(x)][idx]
+  out[idx == 0L] <- x[idx == 0L]
   out
 }
 
@@ -159,6 +196,27 @@ empty_codes <- function() {
 empty_layout <- function() {
   tibble::tibble(name = character(), start = integer(), end = integer(),
                  decimals = integer())
+}
+
+# Empty frames of the single-language intermediates the command-file parsers
+# accumulate before the eng/fra pairing: variable labels, value labels, the
+# FORMATS / DATA LIST type hints and the MISSING VALUES ranges.
+.empty_var_labels <- function() {
+  tibble::tibble(name = character(), label = character())
+}
+
+.empty_label_codes <- function() {
+  tibble::tibble(name = character(), val = character(), label = character())
+}
+
+.empty_formats <- function() {
+  tibble::tibble(name = character(), fmt_type = character(),
+                 decimals = integer())
+}
+
+.empty_missing <- function() {
+  tibble::tibble(name = character(), missing_low = double(),
+                 missing_high = double())
 }
 
 
@@ -266,7 +324,7 @@ metadata_exists <- function(version_dir, bare = FALSE) {
 #'   \code{variables} and \code{codes}.
 #' @keywords internal
 select_labels <- function(metadata, lang = "eng") {
-  label_col <- if (lang == "eng") "label_en" else "label_fr"
+  label_col <- .pumf_label_col(lang)
 
   vars  <- metadata$variables
   codes <- metadata$codes
@@ -359,6 +417,111 @@ validate_metadata <- function(metadata) {
 
 
 # ============================================================
+# Shared parser plumbing: eng/fra pairing, type derivation, canonical selects
+# ============================================================
+
+# Pair an English label frame with its French counterpart.
+#
+# `eng` has a `label` (or `label_en`) column; `fra` has `label` (or `label_fr`)
+# and the same key columns `by`.  The English rows and their order are kept and
+# `label_fr` is filled by matching on `by`; unmatched rows get NA, and so does
+# everything when `fra` is NULL or empty.  Duplicate keys on the French side
+# keep their first occurrence (some surveys, e.g. GSS 1996, declare the same
+# variable in several VALUE LABELS blocks with inconsistent codes), so one
+# English row never fans out into several.  `dedupe_eng = TRUE` also keeps only
+# the first English row per key.
+.pair_lang <- function(eng, fra, by, dedupe = TRUE, dedupe_eng = FALSE) {
+  if ("label" %in% names(eng)) eng <- rename(eng, label_en = "label")
+  if (dedupe_eng) eng <- eng[!duplicated(eng[by]), , drop = FALSE]
+  if (is.null(fra) || nrow(fra) == 0L) {
+    eng$label_fr <- NA_character_
+    return(eng)
+  }
+  fr_lab <- if ("label_fr" %in% names(fra)) fra$label_fr else fra$label
+  if (dedupe) {
+    keep   <- !duplicated(fra[by])
+    fra    <- fra[keep, , drop = FALSE]
+    fr_lab <- fr_lab[keep]
+  }
+  key <- function(df) do.call(paste, c(unname(as.list(df[by])), sep = "\r"))
+  eng$label_fr <- fr_lab[match(key(eng), key(fra))]
+  eng
+}
+
+# Derive the canonical `type` / `decimals` / `missing_*` columns of a
+# command-file parser from its single-language pieces.
+#
+# `variables`: tibble(name, label); `formats`: tibble(name, fmt_type, decimals)
+# from FORMATS / the reading card; `missing`: tibble(name, missing_low,
+# missing_high); `codes`: the value labels *before* sentinel-only variables are
+# dropped (their names decide `truly_categorical`); `data_list_names`: the
+# variables the reading card declares.  `dl_char` and `dl_has_dec` are the
+# DATA LIST's own (A) / implied-decimal declarations, which outrank everything
+# else; `dl_dec` (name -> decimals) fills `decimals` where FORMATS is silent.
+# With `fill_missing_from_codes = TRUE` a variable whose only declared codes
+# are sentinels and that has no MISSING VALUES range gets the sentinel range
+# as its missing range (the monolithic SPSS parser does this; the split-file
+# parsers do not).
+#
+# Returns list(variables = tibble(name, label, type, decimals, missing_low,
+# missing_high), codes = codes without the sentinel-only variables,
+# sentinel_names).
+.derive_var_types <- function(variables, formats, missing, codes,
+                              data_list_names,
+                              dl_char = character(0L),
+                              dl_has_dec = character(0L),
+                              dl_dec = NULL,
+                              fill_missing_from_codes = FALSE) {
+  sentinel_info     <- .detect_sentinel_only(codes, label_col = "label")
+  sentinel_names    <- names(sentinel_info)
+  truly_categorical <- setdiff(unique(codes$name), sentinel_names)
+  codes             <- codes[!codes$name %in% sentinel_names, ]
+
+  variables <- variables |>
+    left_join(formats, by = "name") |>
+    left_join(missing, by = "name")
+
+  if (fill_missing_from_codes) {
+    snt <- .sentinel_range(sentinel_info, variables$name)
+    variables <- variables |>
+      mutate(
+        missing_low  = coalesce(.data$missing_low,  snt$missing_low),
+        missing_high = coalesce(.data$missing_high, snt$missing_high))
+  }
+
+  variables <- variables |>
+    mutate(
+      type = case_when(
+        .data$name %in% dl_char                          ~ "character",
+        .data$name %in% dl_has_dec                       ~ "numeric",
+        .data$name %in% truly_categorical                ~ "character",
+        toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
+        !is.na(.data$missing_low)                        ~ "numeric",
+        !is.na(.data$fmt_type)                           ~ "numeric",
+        .data$name %in% data_list_names                  ~ "numeric",
+        TRUE                                             ~ "character"
+      ),
+      decimals = if_else(.data$type == "character", NA_integer_,
+                         if (is.null(dl_dec)) .data$decimals
+                         else coalesce(.data$decimals, dl_dec[.data$name]))
+    ) |>
+    select("name", "label", "type", "decimals", "missing_low", "missing_high")
+
+  list(variables = variables, codes = codes, sentinel_names = sentinel_names)
+}
+
+# The canonical column sets of variables.csv and codes.csv.
+.canon_vars <- function(x) {
+  x[, c("name", "label_en", "label_fr", "type", "decimals",
+        "missing_low", "missing_high")]
+}
+
+.canon_codes <- function(x) {
+  x[, c("name", "val", "label_en", "label_fr")]
+}
+
+
+# ============================================================
 # SPSS monolithic parser
 # ============================================================
 
@@ -385,38 +548,19 @@ validate_metadata <- function(metadata) {
 #' @keywords internal
 parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin1") {
   eng <- .spss_mono_single(eng_sps_path, encoding)
+  fra <- if (!is.null(fra_sps_path)) .spss_mono_single(fra_sps_path, encoding)
 
-  if (!is.null(fra_sps_path)) {
-    fra <- .spss_mono_single(fra_sps_path, encoding)
-    # Deduplicate on the key columns before joining: some surveys (e.g. GSS 1996)
-    # define the same variable in multiple VALUE LABELS sub-blocks with
-    # inconsistent codes.  Keep only the first occurrence per (name[,val]).
-    variables <- left_join(
-      dplyr::distinct(rename(eng$variables, label_en = "label"), name, .keep_all = TRUE),
-      dplyr::distinct(select(fra$variables, "name", label_fr = "label"), name, .keep_all = TRUE),
-      by = "name"
-    )
-    codes <- left_join(
-      dplyr::distinct(rename(eng$codes, label_en = "label"), name, val, .keep_all = TRUE),
-      dplyr::distinct(select(fra$codes, "name", "val", label_fr = "label"), name, val, .keep_all = TRUE),
-      by = c("name", "val")
-    )
-  } else {
-    variables <- mutate(
-      rename(eng$variables, label_en = "label"),
-      label_fr = NA_character_
-    )
-    codes <- mutate(
-      rename(eng$codes, label_en = "label"),
-      label_fr = NA_character_
-    )
-  }
+  # With a French file the English side is deduplicated on the key columns
+  # too: some surveys (e.g. GSS 1996) define the same variable in multiple
+  # VALUE LABELS sub-blocks with inconsistent codes.
+  bilingual <- !is.null(fra)
+  variables <- .pair_lang(eng$variables, fra$variables, by = "name",
+                          dedupe_eng = bilingual)
+  codes     <- .pair_lang(eng$codes, fra$codes, by = c("name", "val"),
+                          dedupe_eng = bilingual)
 
-  variables <- variables[, c("name", "label_en", "label_fr", "type", "decimals",
-                              "missing_low", "missing_high")]
-  codes     <- codes[, c("name", "val", "label_en", "label_fr")]
-
-  list(variables = variables, codes = codes, layout = eng$layout)
+  list(variables = .canon_vars(variables), codes = .canon_codes(codes),
+       layout = eng$layout)
 }
 
 
@@ -456,7 +600,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # ---- VARIABLE LABELS ----
   # Aggregate ALL VARIABLE LABELS sections. Most files have one, but some
   # surveys (e.g. GSS 2007) split labels across many small blocks.
-  variable_labels <- tibble::tibble(name = character(), label = character())
+  variable_labels <- .empty_var_labels()
   if (length(var_labels_pos) > 0) {
     blocks <- lapply(var_labels_pos, function(pos)
       .spss_parse_var_labels(section_lines(pos)))
@@ -466,7 +610,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 
   # ---- VALUE LABELS ----
   # Aggregate ALL VALUE LABELS sections for the same reason.
-  codes <- tibble::tibble(name = character(), val = character(), label = character())
+  codes <- .empty_label_codes()
   if (length(val_labels_pos) > 0) {
     blocks <- lapply(val_labels_pos, function(pos)
       .spss_parse_val_labels(section_lines(pos)))
@@ -475,14 +619,12 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   }
 
   # ---- FORMATS ----
-  formats <- tibble::tibble(name = character(), fmt_type = character(),
-                            decimals = integer())
+  formats <- .empty_formats()
   if (length(formats_pos) > 0)
     formats <- .spss_parse_formats(section_lines(formats_pos[1]))
 
   # ---- MISSING VALUES ----
-  missing_vals <- tibble::tibble(name = character(),
-                                 missing_low = double(), missing_high = double())
+  missing_vals <- .empty_missing()
   if (length(missing_pos) > 0) {
     # Older SPS files (e.g. 1976/1981 Census) put the first variable on the same
     # line as the keyword: "MISSING VALUES  CMA  ( 0 )/".  Capture any inline
@@ -550,61 +692,26 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
   # Variables with non-zero decimal annotation in the DATA LIST are continuous;
   # drop their codes early so they are not included in truly_categorical, which
   # would otherwise override the numeric type rule that follows.
-  dl_dec_early <- if (!is.null(layout)) attr(layout, "dl_decimals") else integer(0L)
-  dl_has_dec_early <- names(dl_dec_early)[dl_dec_early > 0L]
-  codes <- codes[!codes$name %in% dl_has_dec_early, ]
-
-  sentinel_info    <- .detect_sentinel_only(codes, label_col = "label")
-  sentinel_names   <- names(sentinel_info)
-  truly_categorical <- setdiff(unique(codes$name), sentinel_names)
-  codes            <- codes[!codes$name %in% sentinel_names, ]
-
-  # Build a missing-range tibble from sentinel detection so that variables with
-  # only sentinel VALUE LABELS (but no MISSING VALUES entry) still get a correct
-  # missing range.  Ranges from the MISSING VALUES section take precedence.
-  # names(list()) returns NULL, not character(0), so guard explicitly.
-  snt_nms <- names(sentinel_info) %||% character(0L)
-  sentinel_ranges <- tibble::tibble(
-    name                  = snt_nms,
-    missing_low_sentinel  = vapply(sentinel_info, function(x) x[[1L]], numeric(1L)),
-    missing_high_sentinel = vapply(sentinel_info, function(x) x[[2L]], numeric(1L))
-  )
-
-  # Variables in DATA LIST without an explicit 'A' format type are numeric in SPSS.
-  in_data_list <- if (!is.null(layout)) layout$name else character(0L)
   # Variables with non-zero decimal places in the DATA LIST annotation are
   # continuous numerics even when they also have categorical VALUE LABELS (e.g.
   # GSS 2007 AGE_*C variables that document integer groupings but store real ages).
   dl_dec   <- if (!is.null(layout)) attr(layout, "dl_decimals") else integer(0L)
   dl_has_dec <- names(dl_dec)[dl_dec > 0L]
+  codes <- codes[!codes$name %in% dl_has_dec, ]
   # Variables the DATA LIST declares with an "(A)" format are strings in SPSS
   # whatever the other sections say: CIUS 2007/2009 declare "PUMFID (A)" and
   # have no FORMATS section, so without this the identifier turned numeric.
   dl_char  <- if (!is.null(layout)) attr(layout, "dl_char") else character(0L)
 
-  variables <- variable_labels |>
-    left_join(formats,         by = "name") |>
-    left_join(missing_vals,    by = "name") |>
-    left_join(sentinel_ranges, by = "name") |>
-    mutate(
-      missing_low  = coalesce(.data$missing_low,  .data$missing_low_sentinel),
-      missing_high = coalesce(.data$missing_high, .data$missing_high_sentinel),
-      type = case_when(
-        # DATA LIST decimal annotation overrides VALUE LABELS classification:
-        # a variable declared with decimal places is continuous, not categorical.
-        .data$name %in% dl_char                          ~ "character",
-        .data$name %in% dl_has_dec                       ~ "numeric",
-        .data$name %in% truly_categorical                ~ "character",
-        toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
-        !is.na(.data$missing_low)                        ~ "numeric",
-        !is.na(.data$fmt_type)                           ~ "numeric",
-        .data$name %in% in_data_list                     ~ "numeric",
-        TRUE                                             ~ "character"
-      ),
-      decimals = if_else(.data$type == "character", NA_integer_,
-                         coalesce(.data$decimals, dl_dec[.data$name]))
-    ) |>
-    select("name", "label", "type", "decimals", "missing_low", "missing_high")
+  # Sentinel-only variables with no MISSING VALUES entry get the sentinel range
+  # as their missing range (fill_missing_from_codes); MISSING VALUES wins.
+  derived   <- .derive_var_types(
+    variable_labels, formats, missing_vals, codes,
+    data_list_names = if (!is.null(layout)) layout$name else character(0L),
+    dl_char = dl_char, dl_has_dec = dl_has_dec, dl_dec = dl_dec,
+    fill_missing_from_codes = TRUE)
+  variables <- derived$variables
+  codes     <- derived$codes
 
   # For DATA LIST-only files (no VARIABLE LABELS at all), populate variables
   # from the layout so that column types are preserved.  Only activate when
@@ -640,6 +747,32 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 .read_cmd_lines <- function(path, encoding) {
   txt <- readr::read_file(path, locale = readr::locale(encoding = encoding))
   strsplit(txt, "\r*\n|\r", perl = TRUE)[[1L]]
+}
+
+# Read an SPSS/SAS command file and return its non-empty lines, tabs replaced
+# by spaces and trimmed.  Shared by the split-file readers.
+.spss_clean_lines <- function(path, encoding) {
+  lines <- trimws(gsub("\\t", " ", .read_cmd_lines(path, encoding)))
+  lines[nchar(lines) > 0L]
+}
+
+# Normalise single-quoted label strings to double quotes.
+# Allow any mix of trailing '.' and '/' after the closing quote, e.g.:
+#   CODE 'label' /          (2006 Census: block separator on same line)
+#   CODE 'label' / .        (2006 Census: last block + section terminator)
+#   CODE 'label' .          (2021 Census: section terminator)
+# An apostrophe inside a single-quoted string is doubled ('Person 1''s son',
+# Census 1986); park it so the quote swap cannot split the label there.
+# Lines that already use double quotes and /* comments are left alone.  A
+# trailing '.' section terminator after the closing quote is then stripped.
+.spss_normalise_quotes <- function(lines) {
+  lines <- gsub("(?<=\\w)''(?=\\w)", "\001", lines, perl = TRUE)
+  sq <- grepl("'[^']*'(\\s*[./])*\\s*$", lines) &
+        !grepl('"', lines, fixed = TRUE) &
+        !grepl("^\\s*/\\*", lines)            # skip comments
+  lines[sq] <- gsub("'", '"', lines[sq])
+  lines <- gsub("\001", "'", lines, fixed = TRUE)
+  gsub('"\\s*\\.$', '"', lines)
 }
 
 # Read and pre-process an SPSS file: tab->space, strip trailing whitespace,
@@ -689,22 +822,9 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     lines <- joined
   }
 
-  # Normalize single-quoted label strings -> double quotes.
-  # Allow any mix of trailing '.' and '/' after the closing quote, e.g.:
-  #   CODE 'label' /          (2006 Census: block separator on same line)
-  #   CODE 'label' / .        (2006 Census: last block + section terminator)
-  #   CODE 'label' .          (2021 Census: section terminator)
-  # An apostrophe inside a single-quoted string is doubled ('Person 1''s son',
-  # Census 1986); park it so the quote swap cannot split the label there.
-  lines <- gsub("(?<=\\w)''(?=\\w)", "\001", lines, perl = TRUE)
-  sq <- grepl("'[^']*'(\\s*[./])*\\s*$", lines) &
-        !grepl('"', lines, fixed = TRUE) &
-        !grepl("^\\s*/\\*", lines)            # skip comments
-  lines[sq] <- gsub("'", '"', lines[sq])
-  lines <- gsub("\001", "'", lines, fixed = TRUE)
-
-  # Strip trailing '.' that some 2021-style lines use as section terminators
-  lines <- gsub('"\\s*\\.$', '"', lines)
+  # Normalize single-quoted label strings -> double quotes and strip the
+  # trailing '.' section terminators of 2021-style lines.
+  lines <- .spss_normalise_quotes(lines)
 
   # Expand trailing-'/' code lines into (code-line, bare-'/') pairs.
   # Census 2006 SPSS files end the last code of each variable block with
@@ -731,7 +851,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 .spss_parse_var_labels <- function(lines) {
   lines <- lines[nchar(trimws(lines)) > 0]
   if (length(lines) == 0)
-    return(tibble::tibble(name = character(), label = character()))
+    return(.empty_var_labels())
 
   tibble::tibble(value = trimws(lines)) |>
     mutate(
@@ -753,7 +873,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 .spss_parse_val_labels <- function(lines) {
   lines <- trimws(lines[nchar(trimws(lines)) > 0])
   if (length(lines) == 0)
-    return(tibble::tibble(name = character(), val = character(), label = character()))
+    return(.empty_label_codes())
 
   # Group boundaries: position 1 (first group starts immediately) plus
   # every line that starts with /
@@ -771,7 +891,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     if (nchar(first_line) == 0L) {
       s <- s + 1L
       if (s > ge)
-        return(tibble::tibble(name = character(), val = character(), label = character()))
+        return(.empty_label_codes())
       first_line <- trimws(lines[s])
     }
 
@@ -791,7 +911,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     var_names <- name_words[grepl("^[A-Za-z][A-Za-z0-9_]*$", name_words)]
 
     if (length(var_names) == 0L || code_start > ge)
-      return(tibble::tibble(name = character(), val = character(), label = character()))
+      return(.empty_label_codes())
 
     # 1991-style XMF: variable name and first code appear on the same header
     # line, e.g. "    SEXP   1  \"Femme\"".  The while loop above never fires
@@ -818,7 +938,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
     code_lines <- sub("^(\\s*)'([^']*)'", '\\1"\\2"', code_lines)
 
     if (length(code_lines) == 0L)
-      return(tibble::tibble(name = character(), val = character(), label = character()))
+      return(.empty_label_codes())
 
     codes_df <- tibble::tibble(line = code_lines) |>
       mutate(
@@ -839,20 +959,11 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
           trimws(stringr::str_replace(sub('".*', "", .data$line),
                                       "[^A-Za-z0-9._-]+$", ""))
         ),
-        # Normalize unquoted (numeric) code values: parse as number then
-        # convert back to string.  This strips leading zeros ("01" → "1")
-        # and avoids integer overflow for large sentinel values (e.g. 99999999996).
-        # .code_chr() renders whole-number doubles without ".0" ("1.0"→"1") and
-        # never in scientific notation ("200000", not "2e+05").
-        # Quoted codes (character variables) are kept verbatim.
-        val = if_else(
-          .data$is_q,
-          .data$raw_val,
-          {
-            num <- suppressWarnings(as.numeric(.data$raw_val))
-            if_else(!is.na(num), .code_chr(num), .data$raw_val)
-          }
-        ),
+        # Normalize unquoted (numeric) code values through .pumf_norm_code():
+        # strips leading zeros ("01" -> "1"), renders whole-number doubles
+        # without ".0" and never in scientific notation.  Quoted codes
+        # (character variables) are kept verbatim.
+        val = if_else(.data$is_q, .data$raw_val, .pumf_norm_code(.data$raw_val)),
         label = gsub('^"|"$', "", .data$last_q)
       ) |>
       filter(!is.na(.data$label), nchar(.data$val) > 0L) |>
@@ -871,8 +982,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 # decimals is the number of decimal places (e.g. F8.2 -> 2, F4.0 -> 0, A6 -> NA).
 .spss_parse_formats <- function(lines) {
   if (length(lines) == 0L)
-    return(tibble::tibble(name = character(), fmt_type = character(),
-                          decimals = integer()))
+    return(.empty_formats())
 
   combined <- paste(trimws(lines), collapse = " ")
   combined <- gsub("\\.\\s*$", "", combined)        # strip terminal period
@@ -897,8 +1007,7 @@ parse_spss_mono <- function(eng_sps_path, fra_sps_path = NULL, encoding = "Latin
 # 1971 on Borealis: "INCWAGES (0)             SELF (0) .") and one group may
 # name several variables ("A B (0)").
 .spss_parse_missing <- function(lines) {
-  empty <- tibble::tibble(name = character(),
-                          missing_low = double(), missing_high = double())
+  empty <- .empty_missing()
   combined <- paste(trimws(lines), collapse = " ")
   # values may be padded inside the parens: "VALUEH  ( 999999 )/"
   groups <- stringr::str_match_all(combined, "([^()]*)\\(([^)]+)\\)")[[1L]]
@@ -1064,14 +1173,13 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   layout_result <- if (!is.null(layout_path))
     .spss_split_parse_layout(layout_path, encoding)
   else
-    list(layout = NULL, formats = tibble::tibble(name = character(), fmt_type = character(),
-                                                  decimals = integer()))
+    list(layout = NULL, formats = .empty_formats())
 
   # ---- Parse variable labels ----
   eng_var <- if (!is.null(eng_var_path))
     .spss_split_read_section(eng_var_path, encoding) |> .spss_parse_var_labels()
   else
-    tibble::tibble(name = character(), label = character())
+    .empty_var_labels()
 
   fra_var <- if (!is.null(fra_var_path))
     .spss_split_read_section(fra_var_path, encoding) |> .spss_parse_var_labels()
@@ -1082,7 +1190,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   eng_val <- if (!is.null(eng_val_path))
     .spss_split_read_section(eng_val_path, encoding) |> .spss_parse_val_labels()
   else
-    tibble::tibble(name = character(), val = character(), label = character())
+    .empty_label_codes()
 
   fra_val <- if (!is.null(fra_val_path))
     .spss_split_read_section(fra_val_path, encoding) |> .spss_parse_val_labels()
@@ -1093,67 +1201,23 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   missing_vals <- if (!is.null(miss_path))
     .spss_split_read_section(miss_path, encoding) |> .spss_parse_missing()
   else
-    tibble::tibble(name = character(), missing_low = double(), missing_high = double())
+    .empty_missing()
 
   # ---- Combine type information ----
-  sentinel_info     <- .detect_sentinel_only(eng_val, label_col = "label")
-  sentinel_names    <- names(sentinel_info)
-  truly_categorical <- setdiff(unique(eng_val$name), sentinel_names)
-  eng_val           <- eng_val[!eng_val$name %in% sentinel_names, ]
-  if (!is.null(fra_val))
-    fra_val         <- fra_val[!fra_val$name %in% sentinel_names, ]
-
-  # Ensure formats tibble has decimals column (defensively)
-  if (!"decimals" %in% names(layout_result$formats))
-    layout_result$formats$decimals <- NA_integer_
-
   # Variables in DATA LIST without an explicit 'A' format type are numeric in SPSS.
-  in_data_list <- if (!is.null(layout_result$layout)) layout_result$layout$name
-                  else character(0L)
-
-  variables <- eng_var |>
-    left_join(layout_result$formats, by = "name") |>
-    left_join(missing_vals,           by = "name") |>
-    mutate(
-      type = case_when(
-        .data$name %in% truly_categorical                ~ "character",
-        toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
-        !is.na(.data$missing_low)                        ~ "numeric",
-        !is.na(.data$fmt_type)                           ~ "numeric",
-        .data$name %in% in_data_list                     ~ "numeric",
-        TRUE                                             ~ "character"
-      ),
-      decimals = if_else(.data$type == "character", NA_integer_, .data$decimals)
-    )
+  derived <- .derive_var_types(
+    eng_var, layout_result$formats, missing_vals, eng_val,
+    data_list_names = if (!is.null(layout_result$layout)) layout_result$layout$name
+                      else character(0L))
+  variables <- derived$variables
+  eng_val   <- derived$codes
 
   # ---- Merge bilingual labels ----
-  if (!is.null(fra_var)) {
-    variables <- left_join(
-      rename(variables, label_en = "label"),
-      select(fra_var, "name", label_fr = "label"),
-      by = "name"
-    )
-  } else {
-    variables <- rename(variables, label_en = "label") |>
-      mutate(label_fr = NA_character_)
-  }
+  variables <- .pair_lang(variables, fra_var, by = "name")
+  codes     <- .pair_lang(eng_val, fra_val, by = c("name", "val"))
 
-  if (!is.null(fra_val)) {
-    codes <- left_join(
-      rename(eng_val, label_en = "label"),
-      select(fra_val, "name", "val", label_fr = "label"),
-      by = c("name", "val")
-    )
-  } else {
-    codes <- rename(eng_val, label_en = "label") |>
-      mutate(label_fr = NA_character_)
-  }
-
-  variables <- variables[, c("name", "label_en", "label_fr", "type", "decimals",
-                              "missing_low", "missing_high")]
-  codes     <- codes[, c("name", "val", "label_en", "label_fr")]
-
-  list(variables = variables, codes = codes, layout = layout_result$layout)
+  list(variables = .canon_vars(variables), codes = .canon_codes(codes),
+       layout = layout_result$layout)
 }
 
 
@@ -1161,9 +1225,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 # line(s) and comment lines stripped.  Does NOT do quote normalisation -- the
 # section parsers handle that via the monolithic preprocessor when needed.
 .spss_split_read_section <- function(path, encoding) {
-  raw   <- .read_cmd_lines(path, encoding)
-  lines <- trimws(gsub("\\t", " ", raw))
-  lines <- lines[nchar(lines) > 0L]
+  lines <- .spss_clean_lines(path, encoding)
 
   # Strip leading keyword / comment lines
   kw <- "^VARIABLE LABELS|^VALUE LABELS|^MISSING VALUES|^DATA LIST|^Comment"
@@ -1171,13 +1233,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
     lines <- lines[-1L]
 
   # Normalise single-quoted label lines to double quotes (same logic as monolithic)
-  sq <- grepl("'[^']*'\\s*\\.?\\s*$", lines) &
-        !grepl('"', lines, fixed = TRUE) &
-        !grepl("^\\s*/\\*", lines)
-  lines[sq] <- gsub("'", '"', lines[sq])
-  lines <- gsub('"\\s*\\.$', '"', lines)
-
-  lines
+  .spss_normalise_quotes(lines)
 }
 
 
@@ -1186,18 +1242,13 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
 # fmt_type: "A" = character, "F" = numeric, NA = unknown.
 # decimals: decimal places from format code (0 = integer, NA = unknown or character).
 .spss_split_parse_layout <- function(path, encoding) {
-  raw   <- .read_cmd_lines(path, encoding)
-  lines <- trimws(gsub("\\t", " ", raw))
-  lines <- lines[nchar(lines) > 0L]
+  lines <- .spss_clean_lines(path, encoding)
 
   # SAS @pos format: if any line starts with @, route to dedicated parser
   if (any(grepl("^@", lines))) {
     fields <- .sas_at_fields(lines)
     if (is.null(fields) || nrow(fields) == 0L)
-      return(list(layout  = NULL,
-                  formats = tibble::tibble(name = character(),
-                                           fmt_type = character(),
-                                           decimals = integer())))
+      return(list(layout = NULL, formats = .empty_formats()))
     return(list(layout  = fields[, c("name", "start", "end", "decimals")],
                 formats = fields[, c("name", "fmt_type", "decimals")]))
   }
@@ -1205,9 +1256,7 @@ parse_spss_split <- function(layout_dir, layout_mask = NULL, encoding = "Latin1"
   # Find DATA LIST keyword and section content
   dl_row <- which(grepl("^DATA LIST|^INPUT\\s*$", lines, ignore.case = TRUE))[1L]
   if (is.na(dl_row))
-    return(list(layout  = NULL,
-                formats = tibble::tibble(name = character(), fmt_type = character(),
-                                         decimals = integer())))
+    return(list(layout = NULL, formats = .empty_formats()))
 
   section <- lines[seq(dl_row + 1L, length(lines))]
   end_idx <- which(grepl("^\\.$|^$", section))[1L]
@@ -1372,8 +1421,7 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
   # Files without "applies to" comments (e.g. Census 2011) yield no codes.
   .applies_pat <- "(?i)(format applies to|s'applique)"
   parse_value_codes <- function(lines) {
-    empty <- tibble::tibble(name = character(), val = character(),
-                            label = character())
+    empty <- .empty_label_codes()
     idx <- grep(.applies_pat, lines, perl = TRUE)
     if (length(idx) == 0L) return(empty)
     fmt_vars <- list()
@@ -1435,27 +1483,14 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
   fra_lines <- read_sas_lines(fra_path)
   fra <- if (length(fra_lines) > 0L) parse_var_labels(fra_lines) else NULL
 
-  variables <- if (!is.null(fra) && nrow(fra) > 0L) {
-    left_join(rename(eng, label_en = "label"),
-              select(fra, "name", label_fr = "label"),
-              by = "name")
-  } else {
-    mutate(rename(eng, label_en = "label"), label_fr = NA_character_)
-  }
+  variables <- .pair_lang(eng, fra, by = "name")
   variables$type         <- NA_character_
   variables$decimals     <- NA_integer_
   variables$missing_low  <- NA_real_
   variables$missing_high <- NA_real_
 
-  codes_en <- parse_value_codes(eng_lines)
-  codes_fr <- parse_value_codes(fra_lines)
-  codes <- rename(codes_en, label_en = "label")
-  codes$label_fr <- NA_character_
-  if (nrow(codes_fr) > 0L && nrow(codes) > 0L) {
-    fr_key <- paste(codes_fr$name, codes_fr$val, sep = "\r")
-    hit    <- match(paste(codes$name, codes$val, sep = "\r"), fr_key)
-    codes$label_fr <- codes_fr$label[hit]
-  }
+  codes <- .pair_lang(parse_value_codes(eng_lines), parse_value_codes(fra_lines),
+                      by = c("name", "val"))
 
   list(
     variables = variables,
@@ -1579,7 +1614,7 @@ parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
 
     # LABEL block: name='label' lines after "LABEL" up to "RUN;"
     lab_start <- grep("^LABEL$", lines, ignore.case = TRUE)
-    labs <- tibble::tibble(name = character(), label = character())
+    labs <- .empty_var_labels()
     if (length(lab_start)) {
       j <- lab_start[1L] + 1L
       rows <- list()
@@ -1647,16 +1682,8 @@ parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
   en$codes <- with_recodes(en)
   if (!is.null(fr)) fr$codes <- with_recodes(fr)
 
-  codes <- if (is.null(en$codes) || !nrow(en$codes)) empty_codes() else {
-    cd <- tibble::tibble(name = en$codes$name, val = en$codes$val,
-                         label_en = en$codes$label, label_fr = NA_character_)
-    if (!is.null(fr$codes) && nrow(fr$codes)) {
-      hit <- match(paste(cd$name, cd$val, sep = "\r"),
-                   paste(fr$codes$name, fr$codes$val, sep = "\r"))
-      cd$label_fr <- fr$codes$label[hit]
-    }
-    cd
-  }
+  codes <- if (is.null(en$codes) || !nrow(en$codes)) empty_codes() else
+    .canon_codes(.pair_lang(en$codes, fr$codes, by = c("name", "val")))
 
   list(variables = variables, codes = codes, layout = en$layout)
 }
@@ -1717,7 +1744,7 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     .spss_split_parse_layout(lay_path, encoding)   # handles both NAME and @pos formats
   else
     list(layout  = NULL,
-         formats = tibble::tibble(name = character(), fmt_type = character()))
+         formats = .empty_formats())
 
   # ---- Variable labels (.lbe / .lbf) ----
   # SAS label files use NAME="label" (no space); SPSS label files use
@@ -1738,7 +1765,7 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
   }
 
   eng_var <- read_var_labels(lbe_path) %||%
-    tibble::tibble(name = character(), label = character())
+    .empty_var_labels()
   fra_var <- read_var_labels(lbf_path)   # NULL when absent
 
   # ---- Value labels (.cde / .cdf) ----
@@ -1748,14 +1775,13 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     # SAS PROC FORMAT files share the .cde extension but use a different syntax
     # that _spss_parse_val_labels cannot handle — skip them silently.
     if (any(grepl("^PROC\\s+FORMAT", lines, ignore.case = TRUE)))
-      return(tibble::tibble(name = character(), val = character(),
-                            label = character()))
+      return(.empty_label_codes())
     df <- .spss_parse_val_labels(lines)
     mutate(df, name = toupper(.data$name))
   }
 
   eng_val <- read_val_labels(cde_path) %||%
-    tibble::tibble(name = character(), val = character(), label = character())
+    .empty_label_codes()
   fra_val <- read_val_labels(cdf_path)
 
   # Drop range-notation codes (e.g. "00:06", "045:095") and empty-label codes.
@@ -1778,74 +1804,33 @@ parse_sas_cards <- function(cards_dir, layout_mask = NULL, encoding = "Latin1") 
     df    <- .spss_parse_missing(lines)
     mutate(df, name = toupper(.data$name))
   } else {
-    tibble::tibble(name = character(), missing_low = double(), missing_high = double())
+    .empty_missing()
   }
 
   # ---- Combine type information ----
-  sentinel_info     <- .detect_sentinel_only(eng_val, label_col = "label")
-  sentinel_names    <- names(sentinel_info)
-  truly_categorical <- setdiff(unique(eng_val$name), sentinel_names)
-  eng_val           <- eng_val[!eng_val$name %in% sentinel_names, ]
-  if (!is.null(fra_val))
-    fra_val         <- fra_val[!fra_val$name %in% sentinel_names, ]
-
-  # Ensure formats tibble has decimals column (defensively)
-  if (!"decimals" %in% names(layout_result$formats))
-    layout_result$formats$decimals <- NA_integer_
   fmt_df <- mutate(layout_result$formats, name = toupper(.data$name))
 
   # Variables with a layout entry but no explicit 'A' format type are numeric.
-  in_data_list <- if (!is.null(layout_result$layout))
-    toupper(layout_result$layout$name) else character(0L)
-
-  variables <- eng_var |>
-    left_join(fmt_df,       by = "name") |>
-    left_join(missing_vals, by = "name") |>
-    mutate(
-      type = case_when(
-        .data$name %in% truly_categorical                ~ "character",
-        toupper(substr(.data$fmt_type, 1L, 1L)) == "A"  ~ "character",
-        !is.na(.data$missing_low)                        ~ "numeric",
-        !is.na(.data$fmt_type)                           ~ "numeric",
-        .data$name %in% in_data_list                     ~ "numeric",
-        TRUE                                             ~ "character"
-      ),
-      decimals = if_else(.data$type == "character", NA_integer_, .data$decimals)
-    )
+  derived <- .derive_var_types(
+    eng_var, fmt_df, missing_vals, eng_val,
+    data_list_names = if (!is.null(layout_result$layout))
+      toupper(layout_result$layout$name) else character(0L))
+  variables <- derived$variables
+  eng_val   <- derived$codes
 
   # ---- Merge bilingual labels ----
-  if (!is.null(fra_var)) {
-    variables <- left_join(
-      rename(variables, label_en = "label"),
-      select(fra_var, "name", label_fr = "label"),
-      by = "name"
-    )
-  } else {
-    variables <- rename(variables, label_en = "label") |>
-      mutate(label_fr = NA_character_)
-  }
-
-  if (!is.null(fra_val)) {
-    codes <- left_join(
-      distinct(rename(eng_val, label_en = "label")),
-      distinct(select(fra_val, "name", "val", label_fr = "label")),
-      by = c("name", "val")
-    )
-  } else {
-    codes <- distinct(rename(eng_val, label_en = "label")) |>
-      mutate(label_fr = NA_character_)
-  }
+  # The English codes are deduplicated on the full row: a card may repeat a
+  # code line verbatim.
+  variables <- .pair_lang(variables, fra_var, by = "name")
+  codes     <- .pair_lang(distinct(eng_val), fra_val, by = c("name", "val"))
 
   layout <- if (!is.null(layout_result$layout))
     mutate(layout_result$layout, name = toupper(.data$name))
   else
     NULL
 
-  variables <- variables[, c("name", "label_en", "label_fr", "type", "decimals",
-                              "missing_low", "missing_high")]
-  codes     <- codes[, c("name", "val", "label_en", "label_fr")]
-
-  list(variables = variables, codes = codes, layout = layout)
+  list(variables = .canon_vars(variables), codes = .canon_codes(codes),
+       layout = layout)
 }
 
 
@@ -1879,11 +1864,8 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
   # Variable rows: Field_Champ is not NA
   is_var <- !is.na(raw$Field_Champ)
 
-  # Fill Field_Champ down into code rows (base-R, avoids tidyr dependency)
-  fc <- raw$Field_Champ
-  for (i in seq_along(fc)) {
-    if (is.na(fc[i]) && i > 1L) fc[i] <- fc[i - 1L]
-  }
+  # Fill Field_Champ down into code rows
+  fc <- .fill_down(raw$Field_Champ)
 
   # Lookup table: Field_Champ value -> uppercase variable name.
   # trimws() handles codebook versions where names carry leading/trailing spaces
@@ -1928,18 +1910,15 @@ parse_lfs_codebook <- function(codebook_path, encoding = "CP1252") {
   sentinel_only      <- names(sentinel_missing)
   truly_categorical  <- setdiff(unique(codes$name), sentinel_only)
 
+  snt <- .sentinel_range(sentinel_missing, var_name)
   variables <- tibble::tibble(
     name         = var_name,
     label_en     = raw$EnglishLabel_EtiquetteAnglais[is_var],
     label_fr     = if (!is.null(fra_col)) raw[[fra_col]][is_var] else NA_character_,
     type         = ifelse(var_name %in% truly_categorical, "character", "numeric"),
     decimals     = NA_integer_,
-    missing_low  = unname(vapply(var_name, function(v) {
-      if (!is.null(sentinel_missing[[v]])) sentinel_missing[[v]][1L] else NA_real_
-    }, numeric(1L))),
-    missing_high = unname(vapply(var_name, function(v) {
-      if (!is.null(sentinel_missing[[v]])) sentinel_missing[[v]][2L] else NA_real_
-    }, numeric(1L)))
+    missing_low  = snt$missing_low,
+    missing_high = snt$missing_high
   )
 
   # SURVMNTH fixup: raw data has 2-digit month codes but codebook often has 1-digit
@@ -1980,10 +1959,7 @@ parse_cpss_csv <- function(variables_path, encoding = "Latin1") {
   is_var <- !is.na(raw$Variable)
 
   # Fill Variable down for code rows
-  var_col <- raw$Variable
-  for (i in seq_along(var_col)) {
-    if (is.na(var_col[i]) && i > 1L) var_col[i] <- var_col[i - 1L]
-  }
+  var_col <- .fill_down(raw$Variable)
 
   variables <- tibble::tibble(
     name         = toupper(raw$Variable[is_var]),
@@ -2041,8 +2017,7 @@ parse_json_value_labels <- function(json_path, data_path = NULL) {
       label_fr = NA_character_)
   }))
   if (nrow(codes) == 0L)
-    codes <- tibble::tibble(name = character(), val = character(),
-                            label_en = character(), label_fr = character())
+    codes <- empty_codes()
   codes$label_en[!is.na(codes$label_en) & !nzchar(trimws(codes$label_en))] <- NA_character_
 
   header <- character(0L)
@@ -2070,6 +2045,41 @@ parse_json_value_labels <- function(json_path, data_path = NULL) {
 # ============================================================
 # Step 7 -- Format detector, merger, dispatcher
 # ============================================================
+
+# Content sniffs used by detect_formats(): the first `n` lines of a file read
+# as latin1 (never an error; character(0) for an unreadable file), and the
+# count of high bytes (>= 0xC0) in its first 100 KB, a cheap proxy for accented
+# text that tells the French half of a bilingual release from the English.
+.sniff_lines <- function(path, n = -1L) {
+  tryCatch(readLines(path, n = n, warn = FALSE, encoding = "latin1"),
+           error = function(e) character(0L))
+}
+
+.count_accented <- function(path) {
+  raw <- tryCatch(readBin(path, "raw", n = 1e5L), error = function(e) raw(0L))
+  sum(raw >= as.raw(0xC0))
+}
+
+# Is a command file or document the French half of a release, judged by its
+# path?  Directory markers: /français/, /french/, /francais/, a bare /FR/ or
+# -Fr segment (PALS ships PUMF/ENG/ and PUMF/FR/).  File suffixes by `ext`:
+#   sps  _F / _Fre / _Fref, bare fre (fam76fre.sps), _SpssF / _SasF (SGVP
+#        2000-2010 mark the language with an E/F letter)
+#   sas  the same with .sas, plus "SPSS Cards(F).sas" / "SAS_cards(f).sas"
+#   pdf  _f / _fr / _fra / _french
+.is_fra_path <- function(paths, ext = c("sps", "sas", "pdf")) {
+  ext  <- match.arg(ext)
+  base <- basename(paths)
+  if (ext == "pdf")
+    return(grepl("/(fran|french)", paths, ignore.case = TRUE) |
+             grepl("(?i)_(f|fr|fra|french)[.]pdf$", base, perl = TRUE))
+  lang_suffix <- if (ext == "sps") "(?i)(spss|sas)[Ff]\\.sps$"
+                 else "(?i)(spss|sas)[_ ]?[Cc]ards?\\([Ff]\\)[.]sas$"
+  grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
+    grepl(paste0("(?i)_[Ff](re?f?)?[.]", ext, "$"), base, perl = TRUE) |
+    grepl(paste0("(?i)fre[.]", ext, "$"), base, perl = TRUE) |
+    grepl(lang_suffix, base, perl = TRUE)
+}
 
 #' Detect parseable metadata formats in a PUMF directory tree
 #'
@@ -2126,9 +2136,7 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   lbe_files <- all_files[grepl("\\.lbe$", all_files, ignore.case = TRUE)]
   if (length(lay_files) > 0L && length(lbe_files) > 0L) {
     spss_lbe <- lbe_files[vapply(lbe_files, function(f) {
-      hdr <- tryCatch(readLines(f, n = 5L, warn = FALSE, encoding = "latin1"),
-                      error = function(e) character(0L))
-      any(grepl("VARIABLE LABELS", hdr, ignore.case = TRUE))
+      any(grepl("VARIABLE LABELS", .sniff_lines(f, 5L), ignore.case = TRUE))
     }, logical(1L))]
     chosen_lbe <- if (length(spss_lbe) > 0L) spss_lbe[[1L]] else lbe_files[[1L]]
     result$sas_cards <- dirname(chosen_lbe)
@@ -2158,17 +2166,8 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
       spss_txt,
       xmf_files
     )
-    # French indicators: /français/, /french/, /francais/, /-Fr/ directories;
-    # file suffixes _F.sps / _Fre.sps / _Fref.sps (underscore + F);
-    # bare fre.sps suffix (e.g. fam76fre.sps, no underscore);
-    # SPSS/SAS language suffix _SpssF.sps / _SPSSF.sps / _SasF.sas (StatCan
-    # bilingual releases like SGVP 2000–2010 use E/F letter to mark language).
-    .is_fra <- function(paths) {
-      grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
-      grepl("(?i)_[Ff](re?f?)?\\.sps$",  basename(paths), perl = TRUE) |
-      grepl("(?i)fre\\.sps$",            basename(paths), perl = TRUE) |
-      grepl("(?i)(spss|sas)[Ff]\\.sps$", basename(paths), perl = TRUE)
-    }
+    # French indicators by path: see .is_fra_path().
+    .is_fra <- function(paths) .is_fra_path(paths, "sps")
     all_spss     <- c(sps_files, spss_txt, xmf_files)
     # Exclude likely-French files from English candidates
     mono_eng     <- mono_candidates[!.is_fra(mono_candidates)]
@@ -2177,16 +2176,10 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
     # first.  Without this, an alphabetically-earlier French file (e.g.
     # "C24_Fichier principal" before "C24_Main File") would be selected as the
     # English candidate and the content-based French fallback would fail.
-    if (length(mono_eng) >= 2L) {
-      .ac_quick <- function(path) {
-        raw <- tryCatch(readBin(path, "raw", n = 1e5L), error = function(e) raw(0L))
-        sum(raw >= as.raw(0xC0))
-      }
-      mono_eng <- mono_eng[order(vapply(mono_eng, .ac_quick, integer(1L)))]
-    }
+    if (length(mono_eng) >= 2L)
+      mono_eng <- mono_eng[order(vapply(mono_eng, .count_accented, integer(1L)))]
     for (sps in head(mono_eng, 8L)) {
-      hdr <- tryCatch(readLines(sps, warn = FALSE, encoding = "latin1"),
-                      error = function(e) character(0L))
+      hdr <- .sniff_lines(sps)
       has_val_labels <- any(grepl("VALUE LABELS", hdr, ignore.case = TRUE, useBytes = TRUE))
       has_data_list  <- any(grepl("DATA LIST",    hdr, ignore.case = TRUE, useBytes = TRUE))
       # Accept VALUE LABELS files always (original behaviour).
@@ -2205,15 +2198,9 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
         # characters is the French file.
         if (length(fra_cands) == 0L) {
           other <- setdiff(mono_candidates[!.is_fra(mono_candidates)], sps)
-          if (length(other) == 1L) {
-            count_accented <- function(path) {
-              raw <- tryCatch(readBin(path, "raw", n = 1e5L),
-                              error = function(e) raw(0L))
-              sum(raw >= as.raw(0xC0))
-            }
-            if (count_accented(other[[1L]]) > count_accented(sps))
-              fra_cands <- other[[1L]]
-          }
+          if (length(other) == 1L &&
+              .count_accented(other[[1L]]) > .count_accented(sps))
+            fra_cands <- other[[1L]]
         }
         # Prefer French candidates that carry VALUE LABELS over DATA LIST-only
         # ones — avoids pairing with a layout-only French file when a richer
@@ -2221,9 +2208,8 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
         # only C21PUMF_Spss_Fre.sps has VALUE LABELS).
         if (length(fra_cands) > 1L) {
           fra_with_labels <- fra_cands[vapply(fra_cands, function(f) {
-            txt <- tryCatch(readLines(f, warn = FALSE, encoding = "latin1"),
-                            error = function(e) character(0L))
-            any(grepl("VALUE LABELS", txt, ignore.case = TRUE, useBytes = TRUE))
+            any(grepl("VALUE LABELS", .sniff_lines(f), ignore.case = TRUE,
+                      useBytes = TRUE))
           }, logical(1L))]
           if (length(fra_with_labels) > 0L) fra_cands <- fra_with_labels
         }
@@ -2297,12 +2283,8 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
                          grepl("codebook|livredescodes", all_files, ignore.case = TRUE) &
                          !grepl("zerofreq", all_files, ignore.case = TRUE)]
     if (length(cb_pdfs) > 0L) {
-      .is_fra_pdf <- function(paths) {
-        grepl("/(fran|french)", paths, ignore.case = TRUE) |
-          grepl("(?i)_(f|fr|fra|french)[.]pdf$", basename(paths), perl = TRUE)
-      }
-      fra_cb <- cb_pdfs[.is_fra_pdf(cb_pdfs)]
-      eng_cb <- cb_pdfs[!.is_fra_pdf(cb_pdfs)]
+      fra_cb <- cb_pdfs[.is_fra_path(cb_pdfs, "pdf")]
+      eng_cb <- cb_pdfs[!.is_fra_path(cb_pdfs, "pdf")]
       if (length(eng_cb) > 0L) {
         if (requireNamespace("pdftools", quietly = TRUE)) {
           # Content-verify before committing: the signature is a "Variable
@@ -2332,22 +2314,11 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   #    files containing "LABEL varname =" lines.
   if (is.null(result$sas_cards)) {
     sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
-    # Same French-indicator logic as for SPSS but for .sas extension.  The
-    # directory pattern is shared with .is_fra: a bare /FR/ path segment marks
-    # the French half of releases that separate the two languages by folder
-    # rather than by filename suffix (e.g. PALS ships PUMF/ENG/ and PUMF/FR/).
-    .is_fra_sas <- function(paths) {
-      grepl("(?i)(/(fran|french)|[/-][Ff]r[^a-z])", paths, perl = TRUE) |
-      grepl("(?i)_[Ff](re?f?)?[.]sas$", basename(paths), perl = TRUE) |
-      grepl("(?i)fre[.]sas$",           basename(paths), perl = TRUE) |
-      grepl("(?i)(spss|sas)[_ ]?[Cc]ards?\\([Ff]\\)[.]sas$",
-            basename(paths), perl = TRUE)
-    }
-    fra_sas   <- sas_files[.is_fra_sas(sas_files)]
-    eng_sas   <- sas_files[!.is_fra_sas(sas_files)]
+    # Same French-indicator logic as for SPSS but for the .sas extension.
+    fra_sas   <- sas_files[.is_fra_path(sas_files, "sas")]
+    eng_sas   <- sas_files[!.is_fra_path(sas_files, "sas")]
     for (sf in head(eng_sas, 4L)) {
-      snippet <- tryCatch(readLines(sf, warn = FALSE, encoding = "latin1"),
-                          error = function(e) character(0L))
+      snippet <- .sniff_lines(sf)
       if (any(grepl("^\\s*LABEL\\s+[A-Za-z]", snippet, useBytes = TRUE))) {
         result$sas_labels <- list(
           eng = sf,
@@ -2370,8 +2341,7 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
       is.null(result$spss_sav) && is.null(result$sas_labels)) {
     sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
     for (sf in head(sas_files, 4L)) {
-      snippet <- tryCatch(readLines(sf, warn = FALSE, encoding = "latin1"),
-                          error = function(e) character(0L))
+      snippet <- .sniff_lines(sf)
       if (any(grepl("^\\s*Value\\s+V[0-9]+_F\\s*$", snippet,
                     ignore.case = TRUE, useBytes = TRUE)) &&
           any(grepl("^\\s*FORMAT\\s+\\S+\\s+V[0-9]+_F[.]\\s*;", snippet,
@@ -2430,9 +2400,8 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
   nbest <- c(eng = 0L, fra = 0L)
   cands <- list()
   for (p in pdfs) {
-    txt <- tryCatch(pdftools::pdf_text(p), error = function(e) NULL)
-    if (is.null(txt)) next
-    lines <- unlist(strsplit(paste(txt, collapse = "\n"), "\n"))
+    lines <- .pdf_lines(p, quiet = TRUE)
+    if (is.null(lines)) next
     hits  <- grep(.pdf_freq_var_rx, lines, perl = TRUE, value = TRUE)
     # Require many blocks and a frequency column: a user guide that merely
     # shows one example table must not qualify.
@@ -2784,7 +2753,6 @@ merge_metadata <- function(parsed_list, layout_override = NULL) {
     stop("layout_file '", basename(files[[1L]]),
          "' declares no record layout (no DATA LIST or @pos INPUT fields).",
          call. = FALSE)
-  if (!"decimals" %in% names(lay)) lay$decimals <- NA_integer_
   dup <- duplicated(toupper(lay$name))
   if (any(dup)) {
     message("Layout file '", basename(files[[1L]]), "' declares ",
@@ -2851,11 +2819,8 @@ pumf_parse_metadata <- function(version_dir,
 
   # For bundled versions the shared raw files are in dirname(version_dir);
   # metadata CSV output always goes to this version's own metadata/ subdir.
-  source_dir <- if (grepl("/", path_version, fixed = TRUE) &&
-                    .version_is_extracted(dirname(version_dir)))
-    dirname(version_dir)
-  else
-    version_dir
+  src        <- .pumf_data_source(version_dir, path_version, reg, file_mask)
+  source_dir <- src$dir
 
   # For bundled archives: bundle_sps_mask filters which SPSS files are visible
   # so Census/LFS year-type combinations don't cross-contaminate.
@@ -2900,10 +2865,7 @@ pumf_parse_metadata <- function(version_dir,
   # is the header of the data file Stage 3 will read.
   if (!is.null(formats$json_labels)) {
     json_data <- tryCatch(
-      .find_pumf_data_file(source_dir,
-                           file_mask %||% reg$file_mask %||%
-                             .borealis_manifest_file_mask(source_dir),
-                           prefer_fwf = FALSE),
+      .find_pumf_data_file(source_dir, src$file_mask, prefer_fwf = FALSE),
       error = function(e) NULL)
     if (!is.null(json_data) && !.is_csv_path(json_data))
       json_data <- NULL
@@ -2986,9 +2948,8 @@ pumf_parse_metadata <- function(version_dir,
       metadata, formats$pdf_freq,
       version_dir   = source_dir,
       metadata_dir  = metadata_dir,
-      file_mask     = file_mask %||% reg$file_mask %||%
-                      .borealis_manifest_file_mask(source_dir),
-      data_encoding = reg$data_encoding %||% "CP1252")
+      file_mask     = src$file_mask,
+      data_encoding = src$encoding)
   }
 
   # A PDF data dictionary was present but pdftools is not installed.  If no other
@@ -3092,6 +3053,59 @@ parse_spss_sav <- function(sav_path) {
 
 
 # ============================================================
+# Shared PDF plumbing
+# ============================================================
+
+# The text lines of a PDF, page breaks folded into line breaks.  With
+# `quiet = TRUE` an unreadable file gives NULL instead of an error.
+.pdf_lines <- function(path, quiet = FALSE) {
+  pages <- if (quiet) tryCatch(pdftools::pdf_text(path), error = function(e) NULL)
+           else pdftools::pdf_text(path)
+  if (is.null(pages)) return(NULL)
+  unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+}
+
+# The label_en / label_fr pair of a single-language parse: `x` goes in the
+# column of `lang`, the other column is NA of the same length.  Splice into a
+# tibble() call with `!!!`.
+.lang_label_cols <- function(lang, x) {
+  na <- rep(NA_character_, length(x))
+  list(label_en = if (lang == "eng") x else na,
+       label_fr = if (lang == "fra") x else na)
+}
+
+# Run a single-language PDF parser on the English guide and, when given, the
+# French one, and fill the French labels into the English frames by key
+# (`.pair_lang()`: first French match wins).  `vkey` / `ckey` are the variable
+# and code keys; either may be a function of the two parses, for guides whose
+# block sequences need to be compared first.  A paired result is sorted by its
+# keys, as the base `merge()` it replaces did; a single-language result keeps
+# document order.  The row order of a sole-parser survey's canonical CSVs
+# (CPSS 1) depends on this.
+.pdf_pair <- function(single_fn, eng_pdf, fra_pdf = NULL,
+                      vkey = "name", ckey = c("name", "val")) {
+  eng <- single_fn(eng_pdf, "eng")
+  if (is.null(eng)) return(NULL)
+  if (is.null(fra_pdf)) return(eng)
+  fra <- single_fn(fra_pdf, "fra")
+  if (is.null(fra)) return(eng)
+  if (is.function(vkey)) vkey <- vkey(eng, fra)
+  if (is.function(ckey)) ckey <- ckey(eng, fra)
+  # merge() orders a single key by its own type and a compound key by the
+  # pasted character key (so an integer `block` sorts as text there).
+  by_key <- function(x, by) {
+    o <- if (length(by) == 1L) order(x[[by]])
+         else order(do.call(paste, c(unname(as.list(x[by])), sep = "\r")))
+    x[o, , drop = FALSE]
+  }
+  eng$variables <- by_key(.pair_lang(eng$variables, fra$variables, by = vkey), vkey)
+  if (nrow(eng$codes) > 0L && nrow(fra$codes) > 0L)
+    eng$codes <- by_key(.pair_lang(eng$codes, fra$codes, by = ckey), ckey)
+  eng
+}
+
+
+# ============================================================
 # StatCan PDF data dictionary parser (e.g. SFS 1999)
 # ============================================================
 
@@ -3103,8 +3117,7 @@ parse_spss_sav <- function(sav_path) {
 # "Range:" with a "lo:hi" value is a numeric range (no codes); "Range:" with
 # value-label pairs is treated like "Codes:".
 .parse_pdf_dict_single <- function(pdf_path, lang) {
-  pages <- pdftools::pdf_text(pdf_path)
-  lines <- unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+  lines <- .pdf_lines(pdf_path)
 
   # Strip page headers, footers, and theme lines
   skip_rx <- paste0(
@@ -3235,8 +3248,7 @@ parse_spss_sav <- function(sav_path) {
 
     vars_list[[i]] <- tibble::tibble(
       name         = name,
-      label_en     = if (lang == "eng") label else NA_character_,
-      label_fr     = if (lang == "fra") label else NA_character_,
+      !!!.lang_label_cols(lang, label),
       type         = type,
       decimals     = NA_integer_,
       missing_low  = if (length(resv_num) > 0L) min(resv_num) else NA_real_,
@@ -3247,12 +3259,7 @@ parse_spss_sav <- function(sav_path) {
       codes_list[[i]] <- tibble::tibble(
         name     = name,
         val      = vapply(code_rows, `[[`, character(1L), "val"),
-        label_en = if (lang == "eng")
-          vapply(code_rows, `[[`, character(1L), "label")
-        else rep(NA_character_, length(code_rows)),
-        label_fr = if (lang == "fra")
-          vapply(code_rows, `[[`, character(1L), "label")
-        else rep(NA_character_, length(code_rows))
+        !!!.lang_label_cols(lang, vapply(code_rows, `[[`, character(1L), "label"))
       )
     }
   }
@@ -3277,35 +3284,7 @@ parse_spss_sav <- function(sav_path) {
 #'   \code{layout} (always \code{NULL}).
 #' @keywords internal
 parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
-  eng <- .parse_pdf_dict_single(eng_pdf, "eng")
-  if (is.null(eng)) return(NULL)
-
-  if (!is.null(fra_pdf)) {
-    fra <- .parse_pdf_dict_single(fra_pdf, "fra")
-    if (!is.null(fra)) {
-      # Merge French variable labels
-      merged_vars <- merge(
-        eng$variables,
-        fra$variables[c("name", "label_fr")],
-        by = "name", all.x = TRUE, suffixes = c("", ".fra")
-      )
-      merged_vars$label_fr     <- merged_vars$label_fr.fra
-      merged_vars$label_fr.fra <- NULL
-      eng$variables <- tibble::as_tibble(merged_vars)
-
-      # Merge French code labels
-      merged_codes <- merge(
-        eng$codes,
-        fra$codes[c("name", "val", "label_fr")],
-        by = c("name", "val"), all.x = TRUE, suffixes = c("", ".fra")
-      )
-      merged_codes$label_fr     <- merged_codes$label_fr.fra
-      merged_codes$label_fr.fra <- NULL
-      eng$codes <- tibble::as_tibble(merged_codes)
-    }
-  }
-
-  eng
+  .pdf_pair(.parse_pdf_dict_single, eng_pdf, fra_pdf)
 }
 
 
@@ -3339,8 +3318,7 @@ parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
 .pdf_cb_answer_hdr_rx <- "(?i)(Answer Categories|Cat.gories de r.ponse)"
 
 .parse_pdf_codebook_single <- function(pdf_path, lang) {
-  pages <- pdftools::pdf_text(pdf_path)
-  lines <- unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+  lines <- .pdf_lines(pdf_path)
 
   # Strip page headers and footers so tables that span a page boundary read as
   # one continuous stream.  Each pattern is anchored to a whole (trimmed) line
@@ -3398,8 +3376,7 @@ parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
     if (is.null(cur_name)) return(invisible())
     vars_list[[length(vars_list) + 1L]] <<- tibble::tibble(
       name         = cur_name,
-      label_en     = if (lang == "eng") cur_label else NA_character_,
-      label_fr     = if (lang == "fra") cur_label else NA_character_,
+      !!!.lang_label_cols(lang, cur_label),
       type         = "character",
       decimals     = NA_integer_,
       missing_low  = NA_real_,
@@ -3409,12 +3386,7 @@ parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
       codes_list[[length(codes_list) + 1L]] <<- tibble::tibble(
         name     = cur_name,
         val      = vapply(code_rows, `[[`, character(1L), "val"),
-        label_en = if (lang == "eng")
-          vapply(code_rows, `[[`, character(1L), "label")
-        else rep(NA_character_, length(code_rows)),
-        label_fr = if (lang == "fra")
-          vapply(code_rows, `[[`, character(1L), "label")
-        else rep(NA_character_, length(code_rows))
+        !!!.lang_label_cols(lang, vapply(code_rows, `[[`, character(1L), "label"))
       )
     }
   }
@@ -3476,8 +3448,7 @@ parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
   list(
     variables = dplyr::bind_rows(vars_list),
     codes     = if (length(codes_list) > 0L) dplyr::bind_rows(codes_list)
-                else tibble::tibble(name = character(), val = character(),
-                                    label_en = character(), label_fr = character()),
+                else empty_codes(),
     layout    = NULL
   )
 }
@@ -3499,35 +3470,7 @@ parse_pdf_dictionary <- function(eng_pdf, fra_pdf = NULL) {
 #'   were found.
 #' @keywords internal
 parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
-  eng <- .parse_pdf_codebook_single(eng_pdf, "eng")
-  if (is.null(eng)) return(NULL)
-
-  if (!is.null(fra_pdf)) {
-    fra <- .parse_pdf_codebook_single(fra_pdf, "fra")
-    if (!is.null(fra)) {
-      merged_vars <- merge(
-        eng$variables,
-        fra$variables[c("name", "label_fr")],
-        by = "name", all.x = TRUE, suffixes = c("", ".fra")
-      )
-      merged_vars$label_fr     <- merged_vars$label_fr.fra
-      merged_vars$label_fr.fra <- NULL
-      eng$variables <- tibble::as_tibble(merged_vars)
-
-      if (nrow(eng$codes) > 0L && nrow(fra$codes) > 0L) {
-        merged_codes <- merge(
-          eng$codes,
-          fra$codes[c("name", "val", "label_fr")],
-          by = c("name", "val"), all.x = TRUE, suffixes = c("", ".fra")
-        )
-        merged_codes$label_fr     <- merged_codes$label_fr.fra
-        merged_codes$label_fr.fra <- NULL
-        eng$codes <- tibble::as_tibble(merged_codes)
-      }
-    }
-  }
-
-  eng
+  .pdf_pair(.parse_pdf_codebook_single, eng_pdf, fra_pdf)
 }
 
 
@@ -3623,9 +3566,8 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
 
 #' @keywords internal
 .parse_pdf_freq_single <- function(pdf_path, lang) {
-  pages <- tryCatch(pdftools::pdf_text(pdf_path), error = function(e) NULL)
-  if (is.null(pages)) return(NULL)
-  x <- unlist(strsplit(paste(pages, collapse = "\n"), "\n"))
+  x <- .pdf_lines(pdf_path, quiet = TRUE)
+  if (is.null(x)) return(NULL)
 
   starts <- grep(.pdf_freq_var_rx, x, perl = TRUE)
   if (length(starts) == 0L) return(NULL)
@@ -3671,8 +3613,7 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
 
     vars_list[[length(vars_list) + 1L]] <- tibble::tibble(
       name         = nm,
-      label_en     = if (lang == "eng") label else NA_character_,
-      label_fr     = if (lang == "fra") label else NA_character_,
+      !!!.lang_label_cols(lang, label),
       type         = .pdf_freq_type(fmt),
       decimals     = .pdf_freq_decimals(fmt),
       missing_low  = NA_real_,
@@ -3805,8 +3746,7 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
       codes_list[[length(codes_list) + 1L]] <- tibble::tibble(
         name     = nm,
         val      = vals,
-        label_en = if (lang == "eng") labels else NA_character_,
-        label_fr = if (lang == "fra") labels else NA_character_,
+        !!!.lang_label_cols(lang, labels),
         block    = k
       )
       freq_list[[length(freq_list) + 1L]] <-
@@ -3872,40 +3812,14 @@ parse_pdf_codebook <- function(eng_pdf, fra_pdf = NULL) {
 #'   variable blocks were found.
 #' @keywords internal
 parse_pdf_freq_codebook <- function(eng_pdf, fra_pdf = NULL) {
-  eng <- .parse_pdf_freq_single(eng_pdf, "eng")
-  if (is.null(eng)) return(NULL)
-
-  if (!is.null(fra_pdf)) {
-    fra <- .parse_pdf_freq_single(fra_pdf, "fra")
-    if (!is.null(fra)) {
-      # The two guides document the same variables in the same order, so when
-      # the block sequences agree we can join on block rather than name.  That
-      # matters for guides covering several linked modules, where a shared key
-      # (RECID, PERSONID) appears once per module and a join by name would
-      # collapse all of them onto the first block's label.
-      aligned <- identical(eng$variables$name, fra$variables$name)
-      vkey <- if (aligned) "block" else "name"
-      ckey <- if (aligned) c("block", "val") else c("name", "val")
-
-      fv <- fra$variables[c(vkey, "label_fr")]
-      fv <- fv[!duplicated(fv[vkey]), , drop = FALSE]
-      mv <- merge(eng$variables, fv, by = vkey, all.x = TRUE,
-                  suffixes = c("", ".fra"))
-      mv$label_fr     <- mv$label_fr.fra
-      mv$label_fr.fra <- NULL
-      eng$variables   <- tibble::as_tibble(mv)
-
-      if (nrow(eng$codes) > 0L && nrow(fra$codes) > 0L) {
-        fc <- fra$codes[c(ckey, "label_fr")]
-        fc <- fc[!duplicated(fc[ckey]), , drop = FALSE]
-        mc <- merge(eng$codes, fc, by = ckey, all.x = TRUE,
-                    suffixes = c("", ".fra"))
-        mc$label_fr     <- mc$label_fr.fra
-        mc$label_fr.fra <- NULL
-        eng$codes       <- tibble::as_tibble(mc)
-      }
-    }
-  }
-
-  eng
+  # The two guides document the same variables in the same order, so when the
+  # block sequences agree we can join on block rather than name.  That matters
+  # for guides covering several linked modules, where a shared key (RECID,
+  # PERSONID) appears once per module and a join by name would collapse all of
+  # them onto the first block's label.
+  aligned <- function(eng, fra) identical(eng$variables$name, fra$variables$name)
+  .pdf_pair(.parse_pdf_freq_single, eng_pdf, fra_pdf,
+            vkey = function(eng, fra) if (aligned(eng, fra)) "block" else "name",
+            ckey = function(eng, fra) if (aligned(eng, fra)) c("block", "val")
+                                      else c("name", "val"))
 }

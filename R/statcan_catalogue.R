@@ -22,6 +22,31 @@
 .statcan_microdata_url <-
   "https://www150.statcan.gc.ca/n1/en/type/data?count=200"
 
+# Absolute URL of a scraped href: already absolute, site-absolute ("/n1/...",
+# resolved against .statcan_base) or page-relative (resolved against `base`,
+# a directory URL ending in "/").  Vectorised; NA stays NA.
+.statcan_abs_url <- function(x, base = .statcan_base) {
+  as.character(ifelse(grepl("^http", x), x,
+                      ifelse(startsWith(x, "/"), paste0(.statcan_base, x),
+                             paste0(base, x))))
+}
+
+# Rank of each download format in the preference order `prefer`; a format not
+# in `prefer` ranks after all of them.
+.statcan_format_rank <- function(format, prefer) {
+  rank <- match(format, prefer)
+  rank[is.na(rank)] <- length(prefer) + 1L
+  rank
+}
+
+# Session-cache key of a catalogue crawl, from the arguments that affect it.
+.statcan_cache_key <- function(prefer, max_surveys = NULL, surveys = NULL) {
+  paste0(
+    "prefer=",  paste(prefer, collapse = ","), ";",
+    "max=",     if (is.null(max_surveys)) "all" else max_surveys, ";",
+    "surveys=", if (is.null(surveys)) "all" else paste(sort(surveys), collapse = ","))
+}
+
 # Format tokens that may appear in a download filename, in canpumf's order of
 # preference: a plain-text/CSV flat file is easiest to ingest, Beyond 20/20
 # (.ivt) the least.  Used both to detect a file's format and to rank choices.
@@ -73,8 +98,7 @@
   out <- tibble::tibble(
     catalogue_id  = ifelse(is_cat, cat_id, pub_code),
     Title         = title,
-    catalogue_url = ifelse(grepl("^http", href), href,
-                           paste0(.statcan_base, href)),
+    catalogue_url = .statcan_abs_url(href),
     .key          = .statcan_norm_id(ifelse(is_cat, cat_id, pub_code)),
     .is_cat       = is_cat
   )
@@ -128,7 +152,7 @@
     if (!any(keep)) replacement <- unique(.statcan_norm_id(code))
     prod <- prod[keep]
   }
-  out <- ifelse(grepl("^http", prod), prod, paste0(.statcan_base, prod))
+  out <- .statcan_abs_url(prod)
   attr(out, "replacement_codes") <- replacement
   out
 }
@@ -210,9 +234,7 @@
   base <- sub("[^/]*$", "", product_url)            # product page directory
   purrr::map_dfr(keep, function(i) {
     h    <- href[i]
-    url  <- if (grepl("^http", h)) h
-            else if (startsWith(h, "/")) paste0(.statcan_base, h)  # site-absolute
-            else paste0(base, h)                                   # page-relative
+    url  <- .statcan_abs_url(h, base = base)
     file <- basename(sub("\\?.*$", "", h))
     tibble::tibble(
       edition = .statcan_detect_edition(text[i], file, url),
@@ -226,9 +248,7 @@
 # Among several format choices for one edition, keep the most-preferred.
 .statcan_pick_format <- function(df, prefer) {
   if (nrow(df) <= 1L) return(df)
-  rank <- match(df$format, prefer)
-  rank[is.na(rank)] <- length(prefer) + 1L
-  df[order(rank), , drop = FALSE][1L, , drop = FALSE]
+  df[order(.statcan_format_rank(df$format, prefer)), , drop = FALSE][1L, , drop = FALSE]
 }
 
 # Identity of a download *modulo its format*: the basename with extension and any
@@ -363,18 +383,14 @@
 # that carry no format token anywhere), are always kept.  Applied per
 # series+version so a survey that changes bundling between editions still works.
 #
-# Reads the registered entry (and any active override) *directly* rather than
-# through pumf_registry_lookup(): this runs over every catalogue row, and the
-# lookup's unregistered-year sibling inheritance would both emit its
+# Resolves the registered entry (and any active override) *without* the
+# unregistered-year sibling inheritance of pumf_registry_lookup(): this runs
+# over every catalogue row, and the inheritance would both emit its
 # once-per-session message for versions nobody asked for and mark them announced,
 # swallowing the message when the user later does ask.
 .statcan_registry_download_format <- function(series, version) {
-  v   <- tryCatch(pumf_resolve_version(series, version),
-                  error = function(e) version)
-  key <- paste0(series, "/", v)
-  ovr <- tryCatch(.pumf_registry_override_get(series, v), error = function(e) NULL)
-  fmt <- ovr$download_format %||% .pumf_registry[[key]]$download_format
-  fmt %||% NA_character_
+  e <- .pumf_registry_resolve(series, version, resolve = TRUE, inherit = FALSE)
+  e$download_format %||% NA_character_
 }
 
 .statcan_apply_format_override <- function(cat) {
@@ -442,8 +458,7 @@
   # One URL per (Acronym, Version): the crawl already collapsed format variants
   # per file-stem, but distinct stems can still map to one derived Version, so
   # keep the highest-preference format.
-  rank <- match(cat$format, prefer)
-  rank[is.na(rank)] <- length(prefer) + 1L
+  rank <- .statcan_format_rank(cat$format, prefer)
   cat <- cat[order(cat$Acronym, cat$Version, rank), , drop = FALSE]
   cat <- cat[!duplicated(cat[, c("Acronym", "Version")]), , drop = FALSE]
 
@@ -500,22 +515,61 @@
 # warns the user to regenerate, and a live crawl that fails (StatCan
 # unreachable) falls back to the last good persisted copy.
 
+# The persisted catalogues (StatCan and Borealis) share one rds format:
+# list(fetched, prefer, data) at <cache_path>/<name>.  These helpers are the
+# source-neutral part; .statcan_catalogue_cache_file() and
+# .borealis_catalogue_cache_file() only supply the file name.
+
+# Path of a persisted rds in the cache, or NULL when no durable cache_path is
+# set.
+.pumf_rds_cache_file <- function(cache_path, name) {
+  if (is.null(cache_path) || !nzchar(cache_path)) return(NULL)
+  file.path(cache_path, name)
+}
+
+# The persisted list(fetched, [prefer,] data), or NULL when the file is
+# missing, unreadable or not of that shape.
+.pumf_rds_read <- function(file) {
+  if (is.null(file) || !file.exists(file)) return(NULL)
+  obj <- tryCatch(readRDS(file), error = function(e) NULL)
+  if (is.list(obj) && all(c("fetched", "data") %in% names(obj))) obj else NULL
+}
+
+.pumf_rds_write <- function(file, data, prefer = NULL) {
+  if (is.null(file)) return(invisible(NULL))
+  dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
+  tryCatch(saveRDS(list(fetched = Sys.time(), prefer = prefer, data = data),
+                   file),
+           error = function(e) NULL)
+  invisible(NULL)
+}
+
+# Warn when a persisted catalogue fetched at `fetched` is older than the
+# staleness threshold; `what` names the catalogue ("StatCan PUMF") and `fn`
+# the function whose refresh = TRUE regenerates it.
+.pumf_warn_if_stale <- function(fetched, what, fn) {
+  age <- suppressWarnings(as.numeric(difftime(Sys.time(), fetched,
+                                              units = "days")))
+  if (is.finite(age) && age > .statcan_catalogue_max_age())
+    warning(sprintf(
+      paste0("Cached ", what, " catalogue is %.0f days old (fetched %s) and ",
+             "may be out of date. Regenerate with ", fn, "(refresh = TRUE)."),
+      age, format(fetched, "%Y-%m-%d")), call. = FALSE)
+  invisible(NULL)
+}
+
 # Path to the persisted catalogue, or NULL when no durable cache_path is set.
 .statcan_catalogue_cache_file <- function(
     cache_path = getOption("canpumf.cache_path")) {
-  if (is.null(cache_path) || !nzchar(cache_path)) return(NULL)
-  file.path(cache_path, "pumf_catalogue.rds")
+  .pumf_rds_cache_file(cache_path, "pumf_catalogue.rds")
 }
 
 # Staleness threshold in days (default 1 month), overridable via option.
 .statcan_catalogue_max_age <- function()
   as.numeric(getOption("canpumf.catalogue_max_age_days", 30))
 
-.statcan_read_persistent <- function(file) {
-  if (is.null(file) || !file.exists(file)) return(NULL)
-  obj <- tryCatch(readRDS(file), error = function(e) NULL)
-  if (is.list(obj) && all(c("fetched", "data") %in% names(obj))) obj else NULL
-}
+.statcan_warn_if_stale <- function(fetched)
+  .pumf_warn_if_stale(fetched, "StatCan PUMF", "list_statcan_pumf_catalogue")
 
 # The catalogue snapshot shipped with the package (inst/extdata/pumf_catalogue.rds),
 # refreshed at each release by tools/refresh_catalogue_snapshot.R.  Acts as the
@@ -527,7 +581,7 @@
 .statcan_shipped_snapshot <- function() {
   f <- system.file("extdata", "pumf_catalogue.rds", package = "canpumf")
   if (!nzchar(f)) return(NULL)
-  .statcan_read_persistent(f)
+  .pumf_rds_read(f)
 }
 
 # Non-crawling catalogue accessor used by the download-URL resolver: returns the
@@ -537,36 +591,13 @@
 # when none of the three exist.  Callers wanting a guaranteed-fresh crawl use
 # list_statcan_pumf_catalogue(refresh = TRUE) instead.
 .statcan_catalogue_cached <- function(cache_path = getOption("canpumf.cache_path")) {
-  key <- paste0(
-    "prefer=",  paste(names(.statcan_format_tokens), collapse = ","), ";",
-    "max=all;surveys=all")
+  key <- .statcan_cache_key(names(.statcan_format_tokens))
   if (!is.null(.statcan_catalogue_cache[[key]]))
     return(.statcan_catalogue_cache[[key]])
-  cached <- .statcan_read_persistent(.statcan_catalogue_cache_file(cache_path))
+  cached <- .pumf_rds_read(.statcan_catalogue_cache_file(cache_path))
   if (is.null(cached)) cached <- .statcan_shipped_snapshot()
   if (is.null(cached)) return(NULL)
   cached$data
-}
-
-.statcan_write_persistent <- function(file, data, prefer) {
-  if (is.null(file)) return(invisible(NULL))
-  dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
-  tryCatch(saveRDS(list(fetched = Sys.time(), prefer = prefer, data = data),
-                   file),
-           error = function(e) NULL)
-  invisible(NULL)
-}
-
-.statcan_warn_if_stale <- function(fetched) {
-  age <- suppressWarnings(as.numeric(difftime(Sys.time(), fetched,
-                                              units = "days")))
-  if (is.finite(age) && age > .statcan_catalogue_max_age())
-    warning(sprintf(
-      paste0("Cached StatCan PUMF catalogue is %.0f days old (fetched %s) and ",
-             "may be out of date. Regenerate with ",
-             "list_statcan_pumf_catalogue(refresh = TRUE)."),
-      age, format(fetched, "%Y-%m-%d")), call. = FALSE)
-  invisible(NULL)
 }
 
 # The live crawl proper (L1 -> L2 -> L3), factored out of the cached wrapper.
@@ -732,10 +763,7 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
                "cached across sessions and will be re-crawled each session")),
         call. = FALSE))
 
-  key <- paste0(
-    "prefer=",  paste(prefer, collapse = ","), ";",
-    "max=",     if (is.null(max_surveys)) "all" else max_surveys, ";",
-    "surveys=", if (is.null(surveys)) "all" else paste(sort(surveys), collapse = ","))
+  key <- .statcan_cache_key(prefer, max_surveys, surveys)
   if (!refresh && !is.null(.statcan_catalogue_cache[[key]]))
     return(.statcan_catalogue_cache[[key]])
 
@@ -745,7 +773,7 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
   cache_file <- .statcan_catalogue_cache_file(cache_path)
 
   if (!refresh && is_full) {
-    cached <- .statcan_read_persistent(cache_file)
+    cached <- .pumf_rds_read(cache_file)
     if (!is.null(cached) && identical(cached$prefer, prefer)) {
       .statcan_warn_if_stale(cached$fetched)
       .statcan_catalogue_cache[[key]] <- cached$data
@@ -760,7 +788,7 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
   out <- tryCatch(
     .statcan_crawl_catalogue(prefer, max_surveys, surveys, verbose),
     error = function(e) {
-      cached <- if (is_full) .statcan_read_persistent(cache_file) else NULL
+      cached <- if (is_full) .pumf_rds_read(cache_file) else NULL
       if (is.null(cached)) cached <- .statcan_shipped_snapshot()
       if (is.null(cached)) stop(e)
       warning("Statistics Canada catalogue unreachable; returning the last ",
@@ -771,6 +799,6 @@ list_statcan_pumf_catalogue <- function(prefer      = names(.statcan_format_toke
     })
 
   .statcan_catalogue_cache[[key]] <- out
-  if (is_full) .statcan_write_persistent(cache_file, out, prefer)
+  if (is_full) .pumf_rds_write(cache_file, out, prefer)
   out
 }

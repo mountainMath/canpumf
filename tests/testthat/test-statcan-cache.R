@@ -17,27 +17,44 @@ test_that("persistent write/read round-trips the catalogue and metadata", {
   data <- tibble::tibble(Acronym = "GSS", Version = "Cycle 21 (2007)",
                          url = "https://x/c21_2007.zip")
 
-  canpumf:::.statcan_write_persistent(file, data, prefer = c("CSV", "SAS"))
+  canpumf:::.pumf_rds_write(file, data, prefer = c("CSV", "SAS"))
   expect_true(file.exists(file))
 
-  got <- canpumf:::.statcan_read_persistent(file)
+  got <- canpumf:::.pumf_rds_read(file)
   expect_identical(got$data, data)
   expect_identical(got$prefer, c("CSV", "SAS"))
   expect_s3_class(got$fetched, "POSIXct")
 })
 
 test_that("persistent read returns NULL for missing / malformed files", {
-  expect_null(canpumf:::.statcan_read_persistent(NULL))
-  expect_null(canpumf:::.statcan_read_persistent(
+  expect_null(canpumf:::.pumf_rds_read(NULL))
+  expect_null(canpumf:::.pumf_rds_read(
     file.path(withr::local_tempdir(), "nope.rds")))
 
   bad <- file.path(withr::local_tempdir(), "bad.rds")
   saveRDS(list(foo = 1), bad)               # wrong shape -> rejected
-  expect_null(canpumf:::.statcan_read_persistent(bad))
+  expect_null(canpumf:::.pumf_rds_read(bad))
 })
 
 test_that("write is a no-op when there is no durable cache file", {
-  expect_silent(canpumf:::.statcan_write_persistent(NULL, data.frame(), "CSV"))
+  expect_silent(canpumf:::.pumf_rds_write(NULL, data.frame(), "CSV"))
+})
+
+test_that("the rds cache file and staleness warning are shared by both catalogues", {
+  expect_null(canpumf:::.pumf_rds_cache_file(NULL, "x.rds"))
+  expect_null(canpumf:::.pumf_rds_cache_file("", "x.rds"))
+  expect_identical(canpumf:::.pumf_rds_cache_file("/c", "x.rds"), "/c/x.rds")
+  expect_identical(basename(canpumf:::.statcan_catalogue_cache_file("/c")),
+                   "pumf_catalogue.rds")
+  expect_identical(basename(canpumf:::.borealis_catalogue_cache_file("/c")),
+                   "borealis_catalogue.rds")
+  withr::local_options(canpumf.catalogue_max_age_days = 30)
+  old <- Sys.time() - as.difftime(45, units = "days")
+  expect_warning(canpumf:::.statcan_warn_if_stale(old),
+                 "Cached StatCan PUMF catalogue is 45 days old .* list_statcan_pumf_catalogue\\(refresh = TRUE\\)")
+  expect_warning(canpumf:::.borealis_warn_if_stale(old),
+                 "Cached Borealis PUMF catalogue is 45 days old .* list_borealis_pumf_catalogue\\(refresh = TRUE\\)")
+  expect_silent(canpumf:::.borealis_warn_if_stale(Sys.time()))
 })
 
 test_that(".statcan_warn_if_stale warns past the threshold, silent when fresh", {
@@ -92,7 +109,7 @@ test_that("an unreachable crawl falls back to the last persisted catalogue", {
                          survey_url = "u", edition = "2007", format = "CSV",
                          url = "https://x/c21_2007.zip", product_url = "p")
   # seed a good persisted copy
-  canpumf:::.statcan_write_persistent(
+  canpumf:::.pumf_rds_write(
     file.path(dir, "pumf_catalogue.rds"), fake,
     prefer = names(canpumf:::.statcan_format_tokens))
 
@@ -184,7 +201,7 @@ test_that(".statcan_catalogue_cached reads cache/snapshot without crawling", {
       expect_identical(got, fake)
 
       # (3) user persisted cache wins over the shipped snapshot
-      canpumf:::.statcan_write_persistent(
+      canpumf:::.pumf_rds_write(
         file.path(dir, "pumf_catalogue.rds"), fake,
         prefer = names(canpumf:::.statcan_format_tokens))
       rm(list = ls(canpumf:::.statcan_catalogue_cache),

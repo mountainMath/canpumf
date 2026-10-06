@@ -1,31 +1,11 @@
 # canpumf collection
 
-
-
-
-
+# Census download rows.  The 98m0001x index page this once scraped is gone
+# (404 since 2026); the StatCan catalogue crawl (session cache, persisted copy
+# or shipped snapshot) lists every Census download, with the hard-coded list
+# as the last resort.
 list_census_collection <- function() {
-  base_url  <- "https://www150.statcan.gc.ca/n1/pub/98m0001x/index-eng.htm"
-  pumf_data <- tryCatch(
-    rvest::read_html(base_url) |> rvest::html_nodes("main div ul li a"),
-    error = function(e) NULL
-  )
-  if (!is.null(pumf_data) && length(pumf_data) > 0L) {
-    tibble::tibble(Title = "Census of population",
-           Acronym = "Census",
-           Version = pumf_data |> rvest::html_text(),
-           `Survey Number` = "3901",
-           url = paste0("https://www150.statcan.gc.ca/n1/pub/98m0001x/",
-                        pumf_data |> rvest::html_attr("href"))) |>
-      mutate(Year    = stringr::str_extract(.data$Version, "\\d{4}")) |>
-      mutate(type    = gsub(" .+", "", .data$Version)) |>
-      mutate(Version = paste0(.data$Year, " (", tolower(.data$type), ")")) |>
-      select(-"Year", -"type")
-  } else {
-    # The 98m0001x index page has moved (404 since 2026); the StatCan catalogue
-    # crawl (persisted or shipped snapshot) still lists every Census download.
-    .census_collection_from_catalogue() %||% .census_collection_fallback()
-  }
+  .census_collection_from_catalogue() %||% .census_collection_fallback()
 }
 
 # Census rows from the StatCan catalogue (98M0001X), or NULL if unavailable.
@@ -113,11 +93,6 @@ list_census_collection <- function() {
   )
 }
 
-list_pumf_collection <- function(){
-  tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
-    stats::na.omit()
-}
-
 # Scrape all GSS PUMF downloads from the shared catalogue index.
 # Returns a tibble with Title, Acronym, Survey Number, Version, url.
 #
@@ -198,17 +173,13 @@ list_gss_collection <- function() {
 #' }
 #' @export
 list_canpumf_collection <- function(){
-  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS","SHS","GSS")
-  pumf_surveys<-list_pumf_collection() %>%
-    filter(.data$Acronym %in% canpumf_conveninence_series)
-
-  ccahs <- tibble(Title = "Canadian COVID-19 Antibody and Health Survey",
+  ccahs <- tibble::tibble(Title = "Canadian COVID-19 Antibody and Health Survey",
                   Acronym = "CCAHS",
                   Version=c("1"),
                   `Survey Number`="5339",
                   url="https://www150.statcan.gc.ca/n1/en/pub/13-25-0007/2022001/CCAHS_ECSAC.zip?st=BPMowORM")
 
-  chss <- tibble(Title = "Canadian Health Survey on Seniors",
+  chss <- tibble::tibble(Title = "Canadian Health Survey on Seniors",
                  Acronym = "CHSS",
                  Version = c("2019-2020"),
                  `Survey Number` = "5267",
@@ -220,14 +191,14 @@ list_canpumf_collection <- function(){
   # Both PALS editions hang off the single 2009001 publication page of catalogue
   # 82M0023X (the 2004001 edition page is gone), so the pair is curated here
   # rather than left to the crawl, which has no edition token to tell them apart.
-  pals <- tibble(Title = "Participation and Activity Limitation Survey",
+  pals <- tibble::tibble(Title = "Participation and Activity Limitation Survey",
                  Acronym = "PALS",
                  Version = c("2001", "2006"),
                  `Survey Number` = "3251",
                  url = paste0("https://www150.statcan.gc.ca/n1/pub/82m0023x/",
                               "2009001/PALS_EPLA_", c("2001", "2006"), ".zip"))
 
-  cpss <- tibble(Title="Canadian Perspectives Survey Series",
+  cpss <- tibble::tibble(Title="Canadian Perspectives Survey Series",
                  Acronym="CPSS",
                  Version=c("1","2","3","4","5","6"),
                  `Survey Number`="5311",
@@ -237,7 +208,7 @@ list_canpumf_collection <- function(){
                        "https://www150.statcan.gc.ca/n1/en/pub/45-25-0009/2020001/CSV.zip",
                        "https://www150.statcan.gc.ca/n1/pub/45-25-0010/2021001/CSV-eng.zip",
                        "https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip"))
-  chs <- tibble(Title="Canadian Housing Survey",
+  chs <- tibble::tibble(Title="Canadian Housing Survey",
                 Acronym="CHS",
                 Version=c("2018","2021","2022"),
                 `Survey Number`="5269",
@@ -245,7 +216,7 @@ list_canpumf_collection <- function(){
                       "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2021.zip",
                       "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2022.zip"))
 
-  shs <- tibble(Title="Survey of Household Spending",
+  shs <- tibble::tibble(Title="Survey of Household Spending",
                 Acronym="SHS",
                 Version=c("2017","2019","2021","2023"),
                 `Survey Number`="3508",
@@ -254,23 +225,22 @@ list_canpumf_collection <- function(){
                       "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2021.zip",
                       "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2023.zip"))
 
-  its_versions <- tibble("Acronym"="ITS",
+  its_versions <- tibble::tibble(Acronym="ITS",
                          Version=c("2019","2018"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2019/SPSS.zip",
                                "https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2018/SPSS.zip"))
 
-  lfs_version_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/71m0001x2021001-eng.htm"
-  lfs_versions <- tryCatch({
-    d <- rvest::read_html(lfs_version_url) %>% rvest::html_nodes(xpath="//a")
-    d <- d[rvest::html_text(d)=="CSV"]
-    tibble(Acronym="LFS", url=rvest::html_attr(d,"href")) %>%
-      mutate(url=ifelse(substr(.data$url,1,4)=="http", url,
-                        paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/", .data$url))) %>%
-      mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}") %>% lapply(first) %>% unlist) %>%
-      mutate(Version=coalesce(.data$Version, stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
-  }, error = function(e) {
-    tibble(Acronym=character(), url=character(), Version=character())
-  })
+  # Version from the download URL ("..._2024-01-CSV.zip" -> "2024-01",
+  # "..._2024-CSV.zip" -> "2024").
+  lfs_links <- .lfs_scrape_csv_links()
+  lfs_versions <- if (is.null(lfs_links)) {
+    tibble::tibble(Acronym = character(), url = character(), Version = character())
+  } else {
+    tibble::tibble(Acronym = "LFS", url = lfs_links$url) |>
+      mutate(Version = stringr::str_match(.data$url, "\\d{4}-\\d{2}")[, 1L]) |>
+      mutate(Version = coalesce(.data$Version,
+                                stringr::str_match(.data$url, "(\\d{4})-CSV")[, 2L]))
+  }
 
   # Pre-2006 LFS PUMF monthly releases are EFT-only.  Scrape the catalogue
   # index to discover which year/month combinations StatCan has published.
@@ -295,7 +265,7 @@ list_canpumf_collection <- function(){
   })
   lfs_versions <- bind_rows(lfs_versions, lfs_eft_versions)
 
-  sfs_versions <- tibble(Acronym="SFS",
+  sfs_versions <- tibble::tibble(Acronym="SFS",
                          Version=c("1999","2005","2012","2016","2019","2023"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS1999-eng.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2005-eng.zip",
@@ -303,7 +273,7 @@ list_canpumf_collection <- function(){
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2016-eng.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2023-eng.zip"))
-  cis_versions <- tibble(Acronym="CIS",
+  cis_versions <- tibble::tibble(Acronym="CIS",
                          Version=c("2022", "2021", "2020", "2019", "2018", "2017"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/72m0003x/2024001/2022.zip",
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2024001/2021.zip",
@@ -336,32 +306,20 @@ list_canpumf_collection <- function(){
   first_year <- if (any(!is.na(first_year))) min(first_year, na.rm = TRUE) else 1991L
   last_eft_year <- first_year - 5
 
-  if (nrow(pumf_surveys)>0) {
-    result <- pumf_surveys %>%
-      left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_all),
-                by="Acronym") %>%
-      bind_rows(chs,cpss,shs,chss,pals)
-  } else {
-    result <- bind_rows(chs,cpss,shs,ccahs,chss,pals) |>
-      bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
-                its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
-                sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
-                cis_versions |> mutate(Title="Canadian Income Survey",`Survey Number`='5200'),
-                gss_all,
-                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(1971,last_eft_year,5)," (individuals)"),
-                       url="(EFT)"),
-                # tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                #        Version=paste0(seq(2006,last_eft_year,5)," (hierarchical)"),
-                #        url="(EFT)"),
-                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(1971,last_eft_year,5)," (households)"),
-                       url="(EFT)"),
-                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(c(1971L, 1976L, seq(1986L, pmin(1996L, last_eft_year), 5L)), " (families)"),
-                       url="(EFT)"))
-  }
-  result |>
+  census_eft <- function(versions)
+    tibble::tibble(Title = "Census of population", Acronym = "Census",
+                   `Survey Number` = "3901", Version = versions, url = "(EFT)")
+
+  bind_rows(chs, cpss, shs, ccahs, chss, pals) |>
+    bind_rows(lfs_versions |> mutate(Title = "Labour Force Survey", `Survey Number` = "3701"),
+              its_versions |> mutate(Title = "International Travel Survey", `Survey Number` = "3152"),
+              sfs_versions |> mutate(Title = "Survey of Financial Securities", `Survey Number` = "2620"),
+              cis_versions |> mutate(Title = "Canadian Income Survey", `Survey Number` = "5200"),
+              gss_all,
+              census_eft(paste0(seq(1971, last_eft_year, 5), " (individuals)")),
+              census_eft(paste0(seq(1971, last_eft_year, 5), " (households)")),
+              census_eft(paste0(c(1971L, 1976L, seq(1986L, pmin(1996L, last_eft_year), 5L)),
+                                " (families)"))) |>
     bind_rows(census_download, .borealis_registry_collection())
 }
 
@@ -369,12 +327,11 @@ list_canpumf_collection <- function(){
 # Census PUMFs, the TCP complete-count census of 1881 and the CCRI census
 # samples); `url` is the Borealis dataset page.
 .borealis_registry_collection <- function() {
-  keys <- names(.pumf_registry)[vapply(.pumf_registry, function(e)
-    !is.null(e$borealis), logical(1L))]
+  keys <- .pumf_registry_borealis_keys()
   if (length(keys) == 0L) return(NULL)
   ents <- .pumf_registry[keys]
   series <- vapply(ents, function(e) e$series, character(1L))
-  tibble(
+  tibble::tibble(
     Title           = dplyr::case_when(
       series == "Census" ~ "Census of population",
       series == "TCP"    ~ "The Canadian Peoples complete-count census",
@@ -410,35 +367,49 @@ list_canpumf_collection <- function(){
 #' }
 #' @export
 list_available_lfs_pumf_versions <- function(){
-  base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
-  url <- paste0(base_url,"71m0001x2021001-eng.htm")
-
   empty <- tibble::tibble(Date = character(0L), version = character(0L),
                           url = character(0L))
 
   # Fail gracefully when StatCan is unreachable: return whatever was scraped
   # (an empty tibble if nothing) with a warning, rather than erroring -- mirrors
   # list_canpumf_collection() / list_statcan_pumf_catalogue().
-  ts <- tryCatch(
-    rvest::read_html(url) %>% rvest::html_elements("a"),
-    error = function(e) NULL)
-  if (is.null(ts)) {
+  links <- .lfs_scrape_csv_links()
+  if (is.null(links)) {
     warning("Statistics Canada website unreachable; no LFS PUMF versions ",
             "could be retrieved.", call. = FALSE)
     return(empty)
   }
-  ts <- ts[rvest::html_text(ts)=="CSV"]
-  if (length(ts) == 0L) return(empty)
+  if (nrow(links) == 0L) return(empty)
 
   lct <- Sys.getlocale("LC_TIME")
   Sys.setlocale("LC_TIME", "C")
   on.exit(Sys.setlocale("LC_TIME", lct), add = TRUE)
 
+  # Version from the link's title ("January 2024 | PUMF: CSV" -> "2024-01",
+  # "2024 | PUMF: CSV" -> "2024").
   tibble::tibble(
-    url  = paste0(base_url, rvest::html_attr(ts,"href")),
-    Date = gsub(" \\| PUMF: CSV","", rvest::html_attr(ts,"title"))) |>
+    url  = links$url,
+    Date = gsub(" \\| PUMF: CSV","", links$title)) |>
     mutate(version = case_when(
       grepl("^\\d{4}$",.data$Date) ~ .data$Date,
       TRUE ~ strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m"))) |>
     select("Date", "version", "url")
+}
+
+# The "CSV" download links of the LFS PUMF publication page, as a tibble with
+# `url` (absolute) and `title` (the anchor's title attribute), or NULL when
+# StatCan is unreachable.  list_canpumf_collection() derives the version from
+# the URL and list_available_lfs_pumf_versions() from the title; the two
+# agree for the links StatCan posts, and each keeps its own derivation.
+.lfs_pumf_page_base <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
+.lfs_scrape_csv_links <- function() {
+  a <- tryCatch(
+    rvest::read_html(paste0(.lfs_pumf_page_base, "71m0001x2021001-eng.htm")) |>
+      rvest::html_elements("a"),
+    error = function(e) NULL)
+  if (is.null(a)) return(NULL)
+  a <- a[rvest::html_text(a) == "CSV"]
+  tibble::tibble(
+    url   = .statcan_abs_url(rvest::html_attr(a, "href"), base = .lfs_pumf_page_base),
+    title = rvest::html_attr(a, "title"))
 }

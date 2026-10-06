@@ -120,28 +120,16 @@ add_lfs_GENDER_SEX <- function(tbl) {
   has_sex    <- sex_col    %in% cols
   after_col  <- if (has_gender) gender_col else sex_col
 
-  if (has_gender && has_sex) {
-    dplyr::mutate(tbl,
-      !!out_col := dplyr::coalesce(
-        !!dplyr::sym(gender_col),
-        dplyr::case_when(
-          !!dplyr::sym(sex_col) == "Male"   ~ "Men+",
-          !!dplyr::sym(sex_col) == "Female" ~ "Women+",
-          TRUE                               ~ NA_character_
-        )
-      ),
-      .after = dplyr::all_of(after_col))
-  } else if (has_gender) {
-    dplyr::mutate(tbl,
-      !!out_col := !!dplyr::sym(gender_col),
-      .after = dplyr::all_of(after_col))
-  } else {
-    dplyr::mutate(tbl,
-      !!out_col := dplyr::case_when(
-        !!dplyr::sym(sex_col) == "Male"   ~ "Men+",
-        !!dplyr::sym(sex_col) == "Female" ~ "Women+",
-        TRUE                               ~ NA_character_
-      ),
-      .after = dplyr::all_of(after_col))
-  }
+  # SEX on the GENDER scale (quoted; evaluated lazily inside mutate()).
+  sex_as_gender <- rlang::expr(dplyr::case_when(
+    !!dplyr::sym(sex_col) == "Male"   ~ "Men+",
+    !!dplyr::sym(sex_col) == "Female" ~ "Women+",
+    TRUE                               ~ NA_character_
+  ))
+  value <- if (has_gender && has_sex)
+    rlang::expr(dplyr::coalesce(!!dplyr::sym(gender_col), !!sex_as_gender))
+  else if (has_gender) dplyr::sym(gender_col)
+  else sex_as_gender
+
+  dplyr::mutate(tbl, !!out_col := !!value, .after = dplyr::all_of(after_col))
 }

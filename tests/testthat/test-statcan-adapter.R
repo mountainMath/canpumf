@@ -213,9 +213,10 @@ test_that("adapter handles empty / all-unsupported input", {
                0L)
 })
 
-test_that("Census collection falls back to the catalogue when the index page is gone", {
-  # The 98m0001x index page 404s; an empty scrape must not leave the Census
-  # version list empty (which broke list_canpumf_collection()'s EFT year range).
+test_that("Census collection comes from the catalogue, never from the gone index page", {
+  # The 98m0001x index page 404s, so list_census_collection() no longer scrapes
+  # it: the Census versions come from the catalogue snapshot (and the
+  # hard-coded list as last resort).  Any scrape attempt would error here.
   local_mocked_bindings(read_html = function(...) stop("HTTP error 404."),
                         .package = "rvest")
   withr::local_options(canpumf.cache_path = NULL)

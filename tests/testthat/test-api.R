@@ -153,16 +153,14 @@ test_that("label_pumf_columns: errors clearly when tbl has no provenance", {
 
 test_that(".pumf_announce_modules: lists sibling modules once per survey", {
   # Reset the once-per-session memo so the message reliably fires.
-  rm(list = ls(canpumf:::.pumf_modules_announced),
-     envir = canpumf:::.pumf_modules_announced)
+  canpumf:::.pumf_session_reset("modules::")
 
   # SHS/2017 is multi-module (Interview primary + Diary): get_pumf() loads the
   # primary, so the hint must name the Diary module and a pumf_module() example.
   expect_message(
     canpumf:::.pumf_announce_modules("SHS", "2017"),
     "multi-module")
-  rm(list = ls(canpumf:::.pumf_modules_announced),
-     envir = canpumf:::.pumf_modules_announced)
+  canpumf:::.pumf_session_reset("modules::")
   expect_message(
     canpumf:::.pumf_announce_modules("SHS", "2017"),
     'pumf_module\\(main, "Diary"\\)')
@@ -694,6 +692,50 @@ test_that("list_pumf_sidecars: one row per sidecar the table has", {
   t <- .sentinel_db(with_companion = FALSE)
   on.exit(close_pumf(t))
   expect_equal(nrow(list_pumf_sidecars(t)), 0L)
+})
+
+test_that("pumf_sidecar: resolves the module from the tbl, not from the connection", {
+  # Two modules share one connection.  pumf_module() re-registers the
+  # connection's provenance with the module it opened, so the sidecar of the
+  # primary tbl must follow the tbl's own table name (via .pumf_tbl_module()),
+  # not the provenance module stored on the connection (regression).
+  cache <- withr::local_tempdir()
+  series <- "SENT"; version <- "2099"
+  .pumf_registry_override_set(series, version, structure(list(
+    modules = list(MAIN = list(layout_mask = "main"),
+                   CG   = list(layout_mask = "cg"))),
+    class = "pumf_registry_entry"))
+  on.exit(.pumf_registry_override_clear(series, version), add = TRUE)
+  db_path <- .pumf_db_path(series, version, cache)
+  dir.create(dirname(db_path), recursive = TRUE, showWarnings = FALSE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+  DBI::dbWriteTable(con, "eng_main",
+    data.frame(pumf_row_id = 1:3, INC = c(10, NA, 30)))
+  DBI::dbWriteTable(con, "pumf_sentinels_eng_main",
+    data.frame(pumf_row_id = 2L, INC = factor("Not available")))
+  DBI::dbWriteTable(con, "eng_cg",
+    data.frame(pumf_row_id = 1:2, HRS = c(NA, 2)))
+  DBI::dbWriteTable(con, "pumf_sentinels_eng_cg",
+    data.frame(pumf_row_id = 1L, HRS = factor("Not applicable")))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path, read_only = TRUE)
+  .pumf_register_con(con, series, version, cache, "eng", NULL)
+  main <- dplyr::tbl(con, "eng_main")
+  on.exit(close_pumf(main), add = TRUE)
+
+  cg <- suppressMessages(pumf_module(main, "CG"))
+  expect_equal(.pumf_lookup_con(con)$module, "CG")   # the connection now says CG
+
+  expect_equal(.pumf_sidecar_locate(main)$table_name, "eng_main")
+  expect_equal(.pumf_sidecar_locate(cg)$table_name,   "eng_cg")
+  expect_equal(list_pumf_sidecars(main)$table, "pumf_sentinels_eng_main")
+  expect_equal(list_pumf_sidecars(cg)$table,   "pumf_sentinels_eng_cg")
+  m <- dplyr::collect(pumf_sidecar(main, "sentinels"))
+  expect_equal(names(m), c("pumf_row_id", "INC"))
+  expect_equal(as.character(m$INC), "Not available")
+  g <- dplyr::collect(pumf_sidecar(cg, "sentinels"))
+  expect_equal(names(g), c("pumf_row_id", "HRS"))
+  expect_equal(as.character(g$HRS), "Not applicable")
 })
 
 

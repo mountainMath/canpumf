@@ -23,23 +23,8 @@ read_pumf_data <- function(pumf_base_path,
       stop("Could not find data file in ", pumf_base_path, ": ", e$message)
   )
 
-  if (is_fwf) {
-    pumf_data <- readr::read_fwf(
-      data_path,
-      col_positions  = readr::fwf_positions(meta$layout$start, meta$layout$end,
-                                             col_names = meta$layout$name),
-      col_types      = readr::cols(.default = "c"),
-      trim_ws        = TRUE,
-      locale         = readr::locale(encoding = enc),
-      show_col_types = FALSE)
-  } else {
-    pumf_data <- readr::read_csv(
-      data_path,
-      col_types      = readr::cols(.default = "c"),
-      locale         = readr::locale(encoding = enc),
-      show_col_types = FALSE)
-    names(pumf_data) <- toupper(names(pumf_data))
-  }
+  pumf_data <- .pumf_read_chr(data_path, enc,
+                              layout = if (is_fwf) meta$layout else NULL)
 
   if (guess_numeric)
     pumf_data <- .apply_numeric_conversion(pumf_data, meta$variables)
@@ -106,42 +91,20 @@ get_pumf_connection <- function(series     = NULL,
   if (is.null(series))
     stop("'series' must be specified.")
   version <- pumf_resolve_version(series, version, cache_path)
-  stopifnot(lang %in% c("eng", "fra"))
+  .pumf_check_call_args(series, lang, refresh, redownload)
 
-  if (!identical(refresh, FALSE) && !identical(refresh, TRUE) &&
-      !identical(refresh, "auto"))
-    stop("'refresh' must be FALSE, TRUE, or \"auto\".")
-  if (identical(refresh, "auto") && !.is_longitudinal(series))
-    stop("refresh = \"auto\" is only valid for longitudinal series (",
-         paste(.pumf_longitudinal_series, collapse = ", "), ").")
-  if (isTRUE(redownload) && identical(refresh, "auto"))
-    stop("redownload = TRUE is not compatible with refresh = \"auto\".")
-
-  if (is.null(version)) {
-    collection <- list_canpumf_collection()
-    rows <- filter(collection, .data$Acronym == series)
-    if (nrow(rows) == 0L)
-      stop("Unknown series '", series,
-           "'. Check list_canpumf_collection() for available series.")
-    if (nrow(rows) > 1L)
-      stop("Series '", series, "' has multiple versions: ",
-           paste(rows$Version, collapse = ", "), ".\nSpecify 'version'.")
-    version <- rows$Version[[1L]]
-  }
+  if (is.null(version)) version <- .pumf_single_version(series)
 
   # Degrade gracefully when Statistics Canada is unreachable: an informative
   # message + NULL rather than a hard error (so get_pumf() examples and callers
   # survive an outage; CRAN policy for packages using Internet resources).
-  tbl <- tryCatch(
+  tbl <- .pumf_offline_null(
     pumf_run_pipeline(series, version,
                       lang       = lang,
                       cache_path = cache_path,
                       refresh    = refresh,
                       redownload = redownload,
-                      read_only  = FALSE),
-    canpumf_network_error = function(e) {
-      message(conditionMessage(e)); NULL
-    })
+                      read_only  = FALSE))
   if (is.null(tbl)) return(invisible(NULL))
   con    <- tbl$src$con
   tables <- sort(DBI::dbListTables(con))

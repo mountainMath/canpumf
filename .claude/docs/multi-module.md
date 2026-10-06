@@ -23,7 +23,7 @@ Some surveys ship several linked files that share a respondent key and have to b
 
 ## Pipeline
 
-`pumf_run_pipeline()` loops over the modules, running Stage 2 (`pumf_parse_metadata(..., layout_mask, meta_subdir, file_mask, layout_file)`) and Stage 3 (`pumf_build_duckdb(..., layout_mask, file_mask, meta_subdir, data_fixups, bsw_override)`) for each. All tables land in the one DuckDB file, and the primary module's tbl is returned.
+`pumf_run_pipeline()` loops over `.pumf_stage_modules(reg)` (the entry's modules, each with its BSW config as `bsw_override`; a single-table survey is one synthetic primary module), running Stage 2 (`.pumf_parse_stage2(version_dir, reg, refresh, modules = list(m))`, which calls `pumf_parse_metadata(..., layout_mask, meta_subdir, file_mask, layout_file)`) and Stage 3 (`pumf_build_duckdb(..., layout_mask, file_mask, meta_subdir, data_fixups, bsw_override)`) for each. `pumf_metadata()` runs `.pumf_parse_stage2()` over all modules too, so both see the same metadata. All tables land in the one DuckDB file, and the primary module's tbl is returned.
 
 Each module joins its **own** bootstrap weights through `bsw_override`, so the Interview replicate weights are not mis-joined onto Diary. An override whose fields are all `NULL` means "this module has no BSW". Table names come from `.pumf_table_name(series, version, lang, module)` (`<lang>_<layout_mask>`), so each module gets a distinct table.
 

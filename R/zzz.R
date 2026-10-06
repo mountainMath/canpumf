@@ -29,12 +29,22 @@
 }
 
 # Emit `expr` (a message()/warning() call) at most once per session, keyed by
-# `id`. Subsequent calls with the same id are no-ops.
+# `id`. Subsequent calls with the same id are no-ops.  Callers namespace their
+# ids as "<kind>::<key>" so .pumf_session_reset() can clear one kind.
 .pumf_once_per_session <- function(id, expr) {
   if (isTRUE(.pumf_session_state[[id]])) return(invisible(FALSE))
   .pumf_session_state[[id]] <- TRUE
   force(expr)
   invisible(TRUE)
+}
+
+# Forget the once-per-session ids starting with `prefix` (all of them when
+# NULL), so the advisories fire again.  Used by the tests.
+.pumf_session_reset <- function(prefix = NULL) {
+  ids <- ls(.pumf_session_state, all.names = TRUE)
+  if (!is.null(prefix)) ids <- ids[startsWith(ids, prefix)]
+  rm(list = ids, envir = .pumf_session_state)
+  invisible(NULL)
 }
 
 # Once-per-session warning fired the first time a download is about to happen
