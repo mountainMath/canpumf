@@ -982,3 +982,160 @@ test_that("pumf_build_duckdb: a survey without sentinels gets an empty companion
   expect_equal(nrow(sent), 0L)
   expect_named(sent, "pumf_row_id")
 })
+
+
+# ---- CCRI-style fixups: split records, mixed encodings, text missing codes --
+
+test_that(".pumf_csv_field_count counts fields with quoted commas", {
+  expect_equal(canpumf:::.pumf_csv_field_count(
+    c("a,b,c", 'a,"b,c",d', "", '"x"', 'a,"",c')), c(3L, 3L, 1L, 1L, 3L))
+})
+
+test_that(".pumf_rejoin_split_records joins the halves of a broken record", {
+  lines <- c("ID,NAME,PLACE,AGE", "1,Ann,Montreal,30", "2,Bob,No 53",
+             "rg 3,41", "3,Cy,Quebec,50")
+  expect_message(
+    out <- canpumf:::.pumf_rejoin_split_records(lines, "x.csv"),
+    "Rejoined 1 record")
+  expect_equal(out, c("ID,NAME,PLACE,AGE", "1,Ann,Montreal,30",
+                      "2,Bob,No 53 rg 3,41", "3,Cy,Quebec,50"))
+  # nothing to join: lines come back unchanged and silently
+  expect_silent(out2 <- canpumf:::.pumf_rejoin_split_records(lines[c(1:2, 5)]))
+  expect_equal(out2, lines[c(1:2, 5)])
+  # a short line that never completes a record is an error, not a guess
+  expect_error(canpumf:::.pumf_rejoin_split_records(c("A,B", "1", "2,3,4")),
+               "record")
+})
+
+test_that(".pumf_decode_bytes decodes one code page per column", {
+  raw <- c("caf\xe9", "Etud", NA)                       # latin-1 bytes
+  Encoding(raw) <- "latin1"
+  u <- enc2utf8(raw)                                    # as read as latin-1
+  expect_equal(canpumf:::.pumf_decode_bytes(u, "CP1252"), c("café", "Etud", NA))
+  # the same byte 0xE9 is "Ú" in CP850
+  expect_equal(canpumf:::.pumf_decode_bytes(u, "CP850"), c("cafÚ", "Etud", NA))
+})
+
+test_that("pumf_build_duckdb: rejoin_split_records, column_encoding and text_missing_codes", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  meta <- file.path(vdir, "metadata")
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "NAME", "JOB", "AGE"),
+    label_en = c("Province", "Name", "Job", "Age"),
+    label_fr = c("Province", "Nom", "Emploi", "Âge"),
+    type = c("character", "character", "character", "numeric"),
+    decimals = NA_integer_, missing_low = c(NA, NA, NA, 99999001),
+    missing_high = c(NA, NA, NA, 99999999)),
+    file.path(meta, "variables.csv"))
+  # PROV has value labels (incl. the missing code), NAME and JOB are free
+  # text; the file is CP1252 except JOB, which is CP850.
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "PROV", "PROV", "AGE"),
+    val = c("10", "35", "99999001", "99999001"),
+    label_en = c("Newfoundland", "Ontario", "Blank", "Blank"),
+    label_fr = NA_character_), file.path(meta, "codes.csv"), na = "")
+  lines <- c("PROV,NAME,JOB,AGE",
+             "10,Ann \xe9t\xe9,caf\x82 prop,30",      # été in CP1252, café in CP850
+             "35,Bob,No 53",                           # record split inside JOB
+             "rg 3,99999001",
+             "99999001,99999001,Etud,41",
+             "10,Dee,99999007,99999007")
+  writeLines(lines, file.path(vdir, "survey.csv"), useBytes = TRUE)
+
+  fx <- list(rejoin_split_records = TRUE,
+             column_encoding = list(CP850 = "JOB"),
+             force_numeric = "AGE",
+             text_missing_codes = c("99999001", "99999007"),
+             sentinel_labels = list(
+               "99999001" = c(label_en = "Blank", label_fr = "En blanc"),
+               "99999007" = c(label_en = "Not Applicable", label_fr = "Sans objet")))
+  for (lang in c("eng", "fra")) {
+    expect_message(
+      r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = lang,
+                                       data_fixups = fx, refresh = lang == "eng"),
+      "Rejoined 1 record")
+  }
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  main <- DBI::dbGetQuery(con, 'SELECT * FROM "eng" ORDER BY pumf_row_id')
+  expect_equal(nrow(main), 4L)
+  expect_equal(main$NAME, c("Ann \u00e9t\u00e9", "Bob", NA, "Dee"))
+  expect_equal(main$JOB,  c("café prop", "No 53 rg 3", "Etud", NA))
+  expect_equal(main$AGE,  c(30, NA, 41, NA))
+  # a labelled variable keeps its missing code as a level
+  expect_equal(as.character(main$PROV),
+               c("Newfoundland", "Ontario", "Blank", "Newfoundland"))
+
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_setequal(names(sent), c("pumf_row_id", "AGE", "NAME", "JOB"))
+  expect_equal(as.numeric(sent$pumf_row_id), c(2, 3, 4))
+  expect_equal(as.character(sent$NAME), c(NA, "Blank", NA))
+  expect_equal(as.character(sent$JOB),  c(NA, NA, "Not Applicable"))
+  expect_equal(as.character(sent$AGE),  c("Blank", NA, "Not Applicable"))
+
+  # the French table and sidecar take the registry's French labels for the
+  # codes the file labels in English only
+  fra <- DBI::dbGetQuery(con, 'SELECT * FROM "fra" ORDER BY pumf_row_id')
+  expect_equal(as.character(fra$PROV)[3L], "En blanc")
+  sent_fr <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_fra" ORDER BY pumf_row_id')
+  expect_equal(as.character(sent_fr$NAME), c(NA, "En blanc", NA))
+  expect_equal(as.character(sent_fr$AGE),  c("En blanc", NA, "Sans objet"))
+  applied <- readr::read_csv(file.path(meta, "codes_applied.csv"),
+                             show_col_types = FALSE)
+  expect_equal(applied$label_fr[applied$name == "PROV" & applied$val == "99999001"],
+               "En blanc")
+})
+
+test_that("pumf_build_duckdb: text_missing_codes must be numeric; not on the native path", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  expect_error(
+    canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                data_fixups = list(text_missing_codes = "Blank"),
+                                refresh = TRUE),
+    "numeric codes")
+  expect_error(
+    canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                data_fixups = list(text_missing_codes = "99"),
+                                csv_reader = "duckdb", refresh = TRUE),
+    "csv_reader")
+})
+
+test_that("pumf_build_duckdb: missing_codes combine with a missing_supplement range", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  meta <- file.path(vdir, "metadata")
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "YEAR"), label_en = c("Province", "Year of naturalization"),
+    label_fr = c("Province", "Année"), type = c("character", "numeric"),
+    decimals = NA_integer_, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(
+    name = "YEAR", val = c("1", "2", "99999001"),
+    label_en = c("Papers", "Naturalized", "Blank"), label_fr = NA_character_),
+    file.path(meta, "codes.csv"), na = "")
+  readr::write_csv(tibble::tibble(PROV = c("10", "35", "10", "35"),
+                                  YEAR = c("1899", "2", "99999001", "1")),
+                   file.path(vdir, "survey.csv"))
+  fx <- list(force_numeric = "YEAR",
+             missing_supplement = list(YEAR = c(90000001, 99999999)),
+             missing_codes = list(YEAR = c(1, 2)))
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                   data_fixups = fx, refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  main <- DBI::dbGetQuery(con, 'SELECT * FROM "eng" ORDER BY pumf_row_id')
+  expect_equal(main$YEAR, c(1899, NA, NA, NA))
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_equal(as.character(sent$YEAR), c("Naturalized", "Blank", "Papers"))
+  # without the range, missing_codes alone would have cleared nothing above
+  fx2 <- list(force_numeric = "YEAR", missing_codes = list(YEAR = c(1, 2)))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  r2 <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                    data_fixups = fx2, refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r2$db_path, read_only = TRUE)
+  expect_equal(DBI::dbGetQuery(con, 'SELECT YEAR FROM "eng" ORDER BY pumf_row_id')$YEAR,
+               c(1899, NA, 99999001, NA))
+})

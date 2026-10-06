@@ -122,7 +122,7 @@ test_that("pumf_metadata: variables has expected columns", {
   m <- pumf_metadata("FAKE", "2099", cache_path = tmp)
   expect_named(m$variables,
                c("name","label_en","label_fr","type","decimals",
-                 "missing_low","missing_high"),
+                 "missing_low","missing_high","description_en","description_fr"),
                ignore.order = TRUE)
 })
 

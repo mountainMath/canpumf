@@ -900,6 +900,21 @@ pumf_locate_or_download <- function(series,
     key
 }
 
+.fill_sentinel_labels_from_registry <- function(codes, label_col, sentinel_labels) {
+  if (length(sentinel_labels) == 0L || nrow(codes) == 0L) return(codes)
+  todo <- which(is.na(codes[[label_col]]))
+  for (i in todo) {
+    num <- suppressWarnings(as.numeric(codes$val[i]))
+    if (is.na(num)) next
+    key <- .sentinel_key(num)
+    lab <- sentinel_labels[[codes$name[i]]][[key]] %||% sentinel_labels[[key]]
+    if (!is.null(names(lab)) && label_col %in% names(lab) &&
+        !is.na(lab[[label_col]]) && nzchar(lab[[label_col]]))
+      codes[[label_col]][i] <- lab[[label_col]]
+  }
+  codes
+}
+
 # Turn every code column of the companion into a factor whose levels are the
 # codes' labels, in code order.  Written to DuckDB the factor becomes an ENUM,
 # so a count() of a sentinel column reads "Not available" / "Not applicable"
@@ -914,6 +929,10 @@ pumf_locate_or_download <- function(series,
   if (is.null(codes)) codes <- tibble::tibble(name = character(), val = character(),
                                               label_en = character(), label_fr = character())
   if (!label_col %in% names(codes)) codes[[label_col]] <- NA_character_
+  # A code the file labels in the other language only (CCRI's English-only
+  # card) takes the registry's label in this language before the fallback
+  # to the file's English below.
+  codes <- .fill_sentinel_labels_from_registry(codes, label_col, sentinel_labels)
   # French fallback and one row per code; no suffix yet -- the companion
   # holds only the sentinel values that occur, deduped below.
   codes <- .pumf_unique_code_labels(codes, present = list())
@@ -1262,6 +1281,114 @@ pumf_locate_or_download <- function(series,
     f <- .fix_mojibake(u)
     if (any(!is.na(u) & u != f)) data[[col]] <- f[match(x, u)]
   }
+  data
+}
+
+# rejoin_split_records / column_encoding: a CSV that cannot be parsed as it is
+# (CCRI 1911).  The file is read byte for byte -- latin1 gives every byte its
+# own character -- so that neither repair depends on the other:
+#   rejoin_split_records  a record broken by a line break inside an unquoted
+#                         field is two lines with fewer fields than the header;
+#                         consecutive short lines that add up to exactly one
+#                         record are joined with a space.
+#   column_encoding       list(<encoding> = <columns>): the columns that are
+#                         not in the file's `encoding`.
+# Only the empty string is NA: transcribed text such as the name "NA" stays.
+.pumf_csv_field_count <- function(lines) {
+  q <- grepl('"', lines, fixed = TRUE)
+  lines[q] <- gsub('"[^"]*"', "", lines[q])
+  nchar(lines, type = "chars") -
+    nchar(gsub(",", "", lines, fixed = TRUE), type = "chars") + 1L
+}
+
+.pumf_rejoin_split_records <- function(lines, file = "the data file") {
+  n      <- .pumf_csv_field_count(lines)
+  width  <- n[1L]
+  short  <- which(n < width)
+  if (!length(short)) return(lines)
+  quotes <- nchar(lines[short], type = "chars") -
+    nchar(gsub('"', "", lines[short], fixed = TRUE), type = "chars")
+  if (any(quotes %% 2L == 1L))
+    stop("rejoin_split_records: ", file, " has line breaks inside quoted ",
+         "fields, which this repair does not handle.", call. = FALSE)
+  drop <- integer(0L)
+  i <- 1L
+  while (i <= length(short)) {
+    first <- short[i]
+    last  <- first
+    total <- n[first]
+    while (total < width && last < length(lines) && n[last + 1L] < width) {
+      last  <- last + 1L
+      total <- total + n[last] - 1L
+    }
+    if (total != width)
+      stop("rejoin_split_records: line ", first, " of ", file, " has ", n[first],
+           " of ", width, " fields and the lines after it do not complete the ",
+           "record.", call. = FALSE)
+    lines[first] <- paste(lines[first:last], collapse = " ")
+    drop <- c(drop, seq.int(first + 1L, last))
+    i <- i + (last - first) + 1L
+  }
+  message("Rejoined ", length(short) - length(drop), " record(s) of ", file,
+          " that a line break inside a field had split.")
+  lines[-drop]
+}
+
+# Characters read as latin1 back to the bytes they stand for, then decoded.
+.pumf_decode_bytes <- function(x, encoding) {
+  u  <- unique(x)
+  hi <- !is.na(u) & grepl("[^\\x01-\\x7f]", u, perl = TRUE)
+  if (!any(hi)) return(x)
+  d <- iconv(iconv(u[hi], "UTF-8", "latin1"), encoding, "UTF-8", sub = "?")
+  i <- match(x, u[hi])
+  x[!is.na(i)] <- d[i[!is.na(i)]]
+  x
+}
+
+.pumf_read_csv_repaired <- function(path, encoding, fx) {
+  lines <- readr::read_lines(path, locale = readr::locale(encoding = "latin1"),
+                             progress = FALSE)
+  if (isTRUE(fx$rejoin_split_records))
+    lines <- .pumf_rejoin_split_records(lines, basename(path))
+  data <- readr::read_csv(I(lines), col_types = readr::cols(.default = "c"),
+                          na = "", show_col_types = FALSE, progress = FALSE)
+  rm(lines)
+  names(data) <- toupper(.pumf_decode_bytes(names(data), encoding))
+  enc <- rep(encoding, ncol(data))
+  for (e in names(fx$column_encoding)) {
+    cols <- toupper(fx$column_encoding[[e]])
+    if (length(absent <- setdiff(cols, names(data))))
+      warning("column_encoding: not in the data: ",
+              paste(absent, collapse = ", "), call. = FALSE)
+    enc[names(data) %in% cols] <- e
+  }
+  for (j in seq_along(data)) data[[j]] <- .pumf_decode_bytes(data[[j]], enc[j])
+  data
+}
+
+# text_missing_codes: missing codes that the source writes into its text
+# columns as well (CCRI 1911 has "99999003" = Illegible in LAST_NAME).  In
+# every column that is still character after the numeric conversion and the
+# code labels, a value that is one of `codes` becomes NA and is returned in
+# the "pumf_sentinels" attribute, like the sentinels of a numeric column; the
+# registry's sentinel_labels name it in the sidecar.  Codes must be numbers.
+.apply_text_missing_codes <- function(data, codes) {
+  sentinels <- list()
+  codes <- trimws(as.character(codes))
+  if (anyNA(suppressWarnings(as.numeric(codes))))
+    stop("text_missing_codes must be numeric codes.", call. = FALSE)
+  for (col in names(data)) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    hit <- !is.na(x) & trimws(x) %in% codes
+    if (!any(hit)) next
+    s <- rep(NA_real_, length(x))
+    s[hit] <- as.numeric(trimws(x[hit]))
+    x[hit] <- NA_character_
+    data[[col]] <- x
+    sentinels[[col]] <- s
+  }
+  attr(data, "pumf_sentinels") <- sentinels
   data
 }
 
@@ -1775,6 +1902,10 @@ pumf_build_duckdb <- function(version_dir,
               " variable(s) have no label in either language: ",
               fmt_vars(neither))
 
+    # A sentinel code the file labels in English only takes the registry's
+    # French label before the fallback (CCRI's English-only card).
+    codes <- .fill_sentinel_labels_from_registry(
+      codes, label_col, reg$data_fixups$sentinel_labels %||% list())
     na_code <- is.na(codes[[label_col]])
     if (any(na_code)) codes[[label_col]][na_code] <- codes$label_en[na_code]
   }
@@ -1821,6 +1952,11 @@ pumf_build_duckdb <- function(version_dir,
     if (!is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key))
       stop("csv_reader = \"duckdb\" does not join a bootstrap-weight file; ",
            "drop csv_reader for ", series, " ", version, ".", call. = FALSE)
+    if (isTRUE(fx0$rejoin_split_records) || length(fx0$column_encoding) ||
+        length(fx0$text_missing_codes))
+      stop("csv_reader = \"duckdb\" does not apply rejoin_split_records, ",
+           "column_encoding or text_missing_codes; drop csv_reader for ",
+           series, " ", version, ".", call. = FALSE)
     message("Reading CSV data from ", basename(data_path), " with DuckDB ...")
     .assert_duckdb_writable(db_path)
     con    <- .duckdb_connect_quiet(db_path)
@@ -1851,6 +1987,8 @@ pumf_build_duckdb <- function(version_dir,
       locale         = readr::locale(encoding = data_enc),
       show_col_types = FALSE
     )
+  } else if (isTRUE(fx0$rejoin_split_records) || length(fx0$column_encoding)) {
+    data <- .pumf_read_csv_repaired(data_path, data_enc, fx0)
   } else {
     data <- readr::read_csv(
       data_path,
@@ -2008,9 +2146,12 @@ pumf_build_duckdb <- function(version_dir,
   # sentinels sit on both sides of the valid data (PALS 2006 AUDE_Q02 declares
   # -5/-6/-7 and 998/999 around hours worked 1-97, so the [-7, 999] range a
   # single min/max pair yields would NA the whole column).  The discrete set
-  # replaces any range derived or parsed for the variable.
+  # replaces any range derived or parsed for the variable, unless the registry
+  # also gives the variable a missing_supplement range: then both apply (CCRI
+  # 1911 YEAR_OF_NATURALIZATION, where 1-3 are coded answers below the years
+  # and the 9xxxxxxx missing codes sit above them).
   miss_codes <- if (is.null(reg)) list() else reg$data_fixups$missing_codes %||% list()
-  for (v in names(miss_codes)) {
+  for (v in setdiff(names(miss_codes), names(reg$data_fixups$missing_supplement))) {
     i <- which(variables$name == v)
     if (length(i) == 1L) {
       variables$missing_low[i]  <- NA_real_
@@ -2083,6 +2224,11 @@ pumf_build_duckdb <- function(version_dir,
   data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
   sentinels <- c(sentinels, attr(data, "pumf_sentinels") %||% list())
   attr(data, "pumf_sentinels") <- NULL
+  if (length(fx$text_missing_codes) > 0L) {
+    data <- .apply_text_missing_codes(data, fx$text_missing_codes)
+    sentinels <- c(sentinels, attr(data, "pumf_sentinels") %||% list())
+    attr(data, "pumf_sentinels") <- NULL
+  }
   applied <- as.data.frame(.pumf_unique_code_labels(codes_full, present_all))
   applied$applied_as <- .pumf_codes_applied_as(applied, data, conv_vars, na_vals,
                                                miss_codes)

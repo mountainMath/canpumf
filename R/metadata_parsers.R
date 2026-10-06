@@ -111,15 +111,23 @@ utils::globalVariables(c("name", "val"))
   out
 }
 
+# `description_en` / `description_fr` (optional; absent from most caches) hold
+# a longer explanation of a variable, where the source documents one beside
+# the short label (the CCRI census samples' SAS card has sentences for every
+# variable, moved here by the registry's `labels_as_description`).  They are
+# never used as column names; read_metadata() adds them as NA when absent.
 .metadata_variables_cols <- readr::cols(
-  name         = readr::col_character(),
-  label_en     = readr::col_character(),
-  label_fr     = readr::col_character(),
-  type         = readr::col_character(),
-  decimals     = readr::col_integer(),
-  missing_low  = readr::col_double(),
-  missing_high = readr::col_double()
+  name           = readr::col_character(),
+  label_en       = readr::col_character(),
+  label_fr       = readr::col_character(),
+  type           = readr::col_character(),
+  decimals       = readr::col_integer(),
+  missing_low    = readr::col_double(),
+  missing_high   = readr::col_double(),
+  description_en = readr::col_character(),
+  description_fr = readr::col_character()
 )
+.metadata_description_cols <- c("description_en", "description_fr")
 
 .metadata_codes_cols <- readr::cols(
   name     = readr::col_character(),
@@ -167,7 +175,12 @@ write_metadata <- function(metadata, metadata_dir) {
   validate_metadata(metadata)
   check_bilingual_coverage(metadata)
 
-  readr::write_csv(metadata$variables, file.path(metadata_dir, "variables.csv"), na = "")
+  # The description columns are written only when a source filled them.
+  variables <- metadata$variables
+  desc <- intersect(.metadata_description_cols, names(variables))
+  if (length(desc) && all(is.na(unlist(variables[desc]))))
+    variables <- variables[, setdiff(names(variables), desc), drop = FALSE]
+  readr::write_csv(variables, file.path(metadata_dir, "variables.csv"), na = "")
   readr::write_csv(metadata$codes,     file.path(metadata_dir, "codes.csv"),     na = "")
   if (!is.null(metadata$layout) && nrow(metadata$layout) > 0)
     readr::write_csv(metadata$layout,  file.path(metadata_dir, "layout.csv"),    na = "")
@@ -197,11 +210,20 @@ read_metadata <- function(metadata_dir) {
     df
   }
 
-  variables <- strip_spec(readr::read_csv(vars_path,  col_types = .metadata_variables_cols,
+  # Name only the columns the file has in the spec (readr warns about the
+  # others), then add the optional ones as NA so every variables frame has
+  # the same shape.
+  vars_spec <- .metadata_variables_cols
+  vars_hdr  <- names(readr::read_csv(vars_path, n_max = 0L, col_types = readr::cols(),
+                                     show_col_types = FALSE))
+  vars_spec$cols <- vars_spec$cols[intersect(names(vars_spec$cols), vars_hdr)]
+  variables <- strip_spec(readr::read_csv(vars_path,  col_types = vars_spec,
                                           show_col_types = FALSE))
   # Backward-compat: old cached files may not have a decimals column
   if (!"decimals" %in% names(variables))
     variables$decimals <- NA_integer_
+  for (d in setdiff(.metadata_description_cols, names(variables)))
+    variables[[d]] <- rep(NA_character_, nrow(variables))
   codes     <- strip_spec(readr::read_csv(codes_path, col_types = .metadata_codes_cols,
                                           show_col_types = FALSE))
   layout    <- if (file.exists(layout_path))
@@ -1470,11 +1492,30 @@ parse_sas_data_labels <- function(eng_path, fra_path = NULL,
 #' French program (same format names, same variables) supplies `label_fr` by
 #' position-independent `(name, val)` matching.
 #'
+#' A program may also declare missing values the SAS way (the CCRI census
+#' samples): the format labels special missing values (`.D='Blank'`) and the
+#' DATA step recodes the data value to them:
+#'
+#' ```
+#'   Value  V37_F
+#'     1='Male'
+#'     .D='Blank'
+#'   ;
+#'   IF  SEX = 99999001  THEN  SEX = .D ;
+#' ```
+#'
+#' Each recode becomes a code row under the data value (`99999001`, "Blank"),
+#' and the span of a variable's recoded values its missing range.  A recode
+#' whose target has no label (a variable without a format) contributes to the
+#' range only.
+#'
 #' @param eng_path English SAS program.
 #' @param fra_path Optional French SAS program for the same dataset.
 #' @param encoding Encoding of the programs (ODESI writes Windows-1252).
 #' @return `list(variables, codes, layout)` in the canonical schema. Variables
-#'   with a value format are typed `"character"`, the rest `"numeric"`.
+#'   read with `$` or carrying a value label are typed `"character"`, the rest
+#'   (including those whose format labels special missing values only)
+#'   `"numeric"`.
 #' @keywords internal
 parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
   one <- function(path) {
@@ -1484,24 +1525,30 @@ parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
 
     # PROC FORMAT value blocks
     fmt_idx <- grep("^Value\\s+\\S+$", lines, ignore.case = TRUE)
+    # A value is a number or a special missing value (".D").
     vals <- lapply(fmt_idx, function(i) {
       fmt <- toupper(sub("^Value\\s+", "", lines[i], ignore.case = TRUE))
       j   <- i + 1L
       out <- list()
       while (j <= length(lines) && lines[j] != ";") {
-        m <- regmatches(lines[j], regexec("^(-?[0-9][0-9.]*)='(.*)'$", lines[j]))[[1L]]
+        m <- regmatches(lines[j], regexec("^(-?[0-9][0-9.]*|[.][A-Za-z_])='(.*)'$",
+                                          lines[j]))[[1L]]
         if (length(m) == 3L)
           out[[length(out) + 1L]] <- c(m[2L], unq(m[3L]))
         j <- j + 1L
       }
       if (!length(out)) return(NULL)
-      tibble::tibble(fmt = fmt,
-                     val = .code_chr(as.numeric(vapply(out, `[`, "", 1L))),
+      tibble::tibble(fmt = fmt, val = vapply(out, `[`, "", 1L),
                      label = vapply(out, `[`, "", 2L))
     })
     vals <- do.call(rbind, vals)
     if (is.null(vals))
       vals <- tibble::tibble(fmt = character(), val = character(), label = character())
+    special <- startsWith(vals$val, ".")
+    miss <- vals[special, , drop = FALSE]
+    miss$val <- toupper(miss$val)
+    vals <- vals[!special, , drop = FALSE]
+    vals$val <- .code_chr(as.numeric(vals$val))
 
     # FORMAT var fmt. ;  -> variable/format association
     fm <- regmatches(lines, regexec("^FORMAT\\s+(\\S+)\\s+(\\S+?)\\.\\s*;$", lines,
@@ -1509,20 +1556,25 @@ parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
     fm <- do.call(rbind, lapply(fm[lengths(fm) == 3L], function(m)
       tibble::tibble(name = toupper(m[2L]), fmt = toupper(m[3L]))))
 
-    # INPUT block: name start-end pairs up to the terminating ";"
+    # INPUT block: name start-end pairs up to the terminating ";", with a "$"
+    # after the name of a character variable
     in_start <- grep("^INPUT$", lines, ignore.case = TRUE)
     layout <- empty_layout()
+    chr    <- character()
     if (length(in_start)) {
       in_end <- in_start[1L] - 1L + grep(";\\s*$", lines[in_start[1L]:length(lines)])[1L]
       txt <- paste(lines[(in_start[1L] + 1L):in_end], collapse = " ")
-      pm  <- regmatches(txt, gregexpr("([A-Za-z_][A-Za-z0-9_]*)\\s+([0-9]+)(-([0-9]+))?", txt))[[1L]]
-      parts <- regmatches(pm, regexec("^(\\S+)\\s+([0-9]+)(-([0-9]+))?$", pm))
+      pm  <- regmatches(txt, gregexpr(
+        "([A-Za-z_][A-Za-z0-9_]*)\\s+([$]\\s*)?([0-9]+)(-([0-9]+))?", txt))[[1L]]
+      parts <- regmatches(pm, regexec(
+        "^(\\S+)\\s+([$]\\s*)?([0-9]+)(-([0-9]+))?$", pm))
       layout <- tibble::tibble(
         name  = toupper(vapply(parts, `[`, "", 2L)),
-        start = as.integer(vapply(parts, `[`, "", 3L)),
+        start = as.integer(vapply(parts, `[`, "", 4L)),
         end   = as.integer(vapply(parts, function(p)
-          if (nzchar(p[5L])) p[5L] else p[3L], "")),
+          if (nzchar(p[6L])) p[6L] else p[4L], "")),
         decimals = NA_integer_)
+      chr <- layout$name[nzchar(vapply(parts, `[`, "", 3L))]
     }
 
     # LABEL block: name='label' lines after "LABEL" up to "RUN;"
@@ -1543,14 +1595,35 @@ parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
 
     codes <- if (is.null(fm)) NULL else
       inner_join(fm, vals, by = "fmt", relationship = "many-to-many")
-    list(layout = layout, labels = labs, codes = codes)
+
+    # IF var = value THEN var = .X ;  -> the data value is the special missing
+    # value .X, labelled by the variable's format
+    rc <- regmatches(lines, regexec(
+      "^IF\\s+(\\S+)\\s*=\\s*(-?[0-9][0-9.]*)\\s+THEN\\s+(\\S+)\\s*=\\s*([.][A-Za-z_])\\s*;$",
+      lines, ignore.case = TRUE))
+    rc <- rc[lengths(rc) == 5L]
+    rc <- rc[vapply(rc, function(m) identical(toupper(m[2L]), toupper(m[4L])), NA)]
+    recodes <- tibble::tibble(
+      name   = toupper(vapply(rc, `[`, "", 2L)),
+      num    = as.numeric(vapply(rc, `[`, "", 3L)),
+      letter = toupper(vapply(rc, `[`, "", 5L)))
+    recodes$val   <- .code_chr(recodes$num)
+    recodes$label <- if (is.null(fm)) NA_character_ else
+      miss$label[match(paste(fm$fmt[match(recodes$name, fm$name)], recodes$letter),
+                       paste(miss$fmt, miss$val))]
+
+    list(layout = layout, labels = labs, codes = codes, recodes = recodes, chr = chr)
   }
 
   en <- one(eng_path)
   fr <- if (!is.null(fra_path)) one(fra_path) else NULL
 
   names_all <- unique(c(en$layout$name, en$labels$name))
-  coded     <- unique(en$codes$name)
+  coded     <- union(unique(en$codes$name), en$chr)
+  rng       <- function(f) {
+    r <- tapply(en$recodes$num, en$recodes$name, f)
+    as.numeric(r[match(names_all, names(r))])
+  }
   variables <- tibble::tibble(
     name         = names_all,
     label_en     = en$labels$label[match(names_all, en$labels$name)],
@@ -1558,8 +1631,21 @@ parse_sas_odesi <- function(eng_path, fra_path = NULL, encoding = "CP1252") {
                      fr$labels$label[match(names_all, fr$labels$name)],
     type         = ifelse(names_all %in% coded, "character", "numeric"),
     decimals     = ifelse(names_all %in% coded, NA_integer_, 0L),
-    missing_low  = NA_real_,
-    missing_high = NA_real_)
+    missing_low  = if (nrow(en$recodes)) rng(min) else NA_real_,
+    missing_high = if (nrow(en$recodes)) rng(max) else NA_real_)
+
+  # The labelled recodes are code rows of their variable, after its value labels
+  with_recodes <- function(x) {
+    if (is.null(x)) return(NULL)
+    lab <- x$recodes[!is.na(x$recodes$label), , drop = FALSE]
+    if (!nrow(lab)) return(x$codes)
+    out <- dplyr::bind_rows(
+      if (!is.null(x$codes)) x$codes[c("name", "val", "label")],
+      lab[c("name", "val", "label")])
+    out[order(match(out$name, names_all)), , drop = FALSE]
+  }
+  en$codes <- with_recodes(en)
+  if (!is.null(fr)) fr$codes <- with_recodes(fr)
 
   codes <- if (is.null(en$codes) || !nrow(en$codes)) empty_codes() else {
     cd <- tibble::tibble(name = en$codes$name, val = en$codes$val,
@@ -2272,6 +2358,30 @@ detect_formats <- function(pumf_dir, sps_mask = NULL) {
     }
   }
 
+  # 7b. ODESI-generated SAS program (the CCRI census samples on Borealis): PROC
+  #     FORMAT blocks named V<n>_F tied to variables by FORMAT statements, plus
+  #     the INPUT layout, labels and missing-value recodes.  The StatCan Census
+  #     programs have the same statements under other format names and always
+  #     come with an SPSS file, so this is a source of last resort: only when
+  #     no other command file or dictionary was found.
+  if (is.null(result$lfs_csv) && is.null(result$cpss_csv) &&
+      is.null(result$json_labels) && is.null(result$sas_cards) &&
+      is.null(result$spss_split) && is.null(result$spss_mono) &&
+      is.null(result$spss_sav) && is.null(result$sas_labels)) {
+    sas_files <- all_files[grepl("\\.sas$", all_files, ignore.case = TRUE)]
+    for (sf in head(sas_files, 4L)) {
+      snippet <- tryCatch(readLines(sf, warn = FALSE, encoding = "latin1"),
+                          error = function(e) character(0L))
+      if (any(grepl("^\\s*Value\\s+V[0-9]+_F\\s*$", snippet,
+                    ignore.case = TRUE, useBytes = TRUE)) &&
+          any(grepl("^\\s*FORMAT\\s+\\S+\\s+V[0-9]+_F[.]\\s*;", snippet,
+                    ignore.case = TRUE, useBytes = TRUE))) {
+        result$sas_odesi <- sf
+        break
+      }
+    }
+  }
+
   # 10. StatCan PDF *frequency data dictionary* — the appendix inside the PUMF
   #     user guide (GSS, SGVP, PALS, SFS).  Unlike the two PDF sources above
   #     this one is detected even when a command file is present, because its
@@ -2427,7 +2537,8 @@ merge_metadata <- function(parsed_list, layout_override = NULL) {
   }
 
   priority_order <- c("spss_mono", "spss_split", "sas_cards", "spss_sav",
-                      "lfs_csv", "cpss_csv", "json_labels", "sas_labels", "pdf_dict",
+                      "lfs_csv", "cpss_csv", "json_labels", "sas_labels", "sas_odesi",
+                      "pdf_dict",
                       "pdf_codebook", "pdf_freq")
   ordered  <- c(intersect(priority_order, names(parsed_list)),
                 setdiff(names(parsed_list), priority_order))
@@ -2620,6 +2731,33 @@ merge_metadata <- function(parsed_list, layout_override = NULL) {
 }
 
 
+# A source whose "variable labels" are sentences (the CCRI census samples'
+# SAS card: "The census year in which the individual's information was
+# captured.") documents the variable rather than naming it.  With the registry
+# fixup `labels_as_description = TRUE` those sentences move to
+# `description_en` / `description_fr` and the labels are blanked, so the short
+# labels come from `labels_supplement` as for any source without labels.
+# The '?' the card shows for every character outside its code page (curly
+# apostrophes and quotes, dashes) is repaired on the way.
+.pumf_labels_as_description <- function(metadata) {
+  v <- metadata$variables
+  for (lang in c("en", "fr")) {
+    lab <- v[[paste0("label_", lang)]]
+    v[[paste0("description_", lang)]] <- .repair_lost_punctuation(lab)
+    v[[paste0("label_", lang)]] <- rep(NA_character_, nrow(v))
+  }
+  metadata$variables <- v
+  metadata
+}
+
+.repair_lost_punctuation <- function(x) {
+  x <- gsub("(\\w)\\?(s|t|re|ve|ll|d)\\b", "\\1'\\2", x, perl = TRUE)  # individual?s
+  x <- gsub("(^|\\s|\\()\\?(\\w[^?]*?\\w)\\?(?=[\\s.,;:)]|$)", "\\1\"\\2\"", x,
+            perl = TRUE)                                                # ?schedule?
+  gsub("(\\S) \\? (\\S)", "\\1 \u2013 \\2", x, perl = TRUE)              # (UU) ? Undefined
+}
+
+
 # The record layout read from one named command file.  A release can ship
 # reading cards that disagree about the record layout: the GSS Cycle 36 (2022)
 # Episode SPSS DATA LIST orders the variables differently from the SAS INPUT
@@ -2796,6 +2934,10 @@ pumf_parse_metadata <- function(version_dir,
                                                 fra_path = formats$sas_labels$fra,
                                                 encoding = metadata_encoding %||% "CP1252")
 
+  if (!is.null(formats$sas_odesi))
+    parsed$sas_odesi <- parse_sas_odesi(formats$sas_odesi,
+                                        encoding = metadata_encoding %||% "CP1252")
+
   if (!is.null(formats$pdf_dict))
     parsed$pdf_dict <- parse_pdf_dictionary(formats$pdf_dict$eng,
                                              fra_pdf = formats$pdf_dict$fra)
@@ -2835,6 +2977,8 @@ pumf_parse_metadata <- function(version_dir,
 
   metadata <- .fix_metadata_mojibake(
     merge_metadata(parsed, layout_override = layout_override))
+  if (isTRUE(reg$data_fixups$labels_as_description))
+    metadata <- .pumf_labels_as_description(metadata)
 
   if (!is.null(formats$pdf_freq) && is.null(parsed$pdf_freq)) {
     dir.create(metadata_dir, showWarnings = FALSE, recursive = TRUE)

@@ -52,7 +52,9 @@ CSV vs fixed-width).}
 `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
 `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
 `missing_supplement`, `missing_codes`, `labels_supplement`,
-`fix_mojibake`, `removed_records`, `keep_unlabelled_codes`.
+`fix_mojibake`, `removed_records`, `keep_unlabelled_codes`,
+`rejoin_split_records`, `column_encoding`, `text_missing_codes`,
+`labels_as_description`, `sentinel_labels`.
 The `force_character`/`force_integer`/`force_bigint` fields take character
 vectors of variable names and override the DuckDB storage type (VARCHAR /
 INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
@@ -71,7 +73,17 @@ columns of the data. `removed_records = list(var = , values = )` moves the
 records whose raw value of `var` is one of `values` to the `"removed"`
 sidecar (see [pumf_sidecar()]). `keep_unlabelled_codes` (`TRUE` or a character
 vector of variables) keeps data values without a value label as a level
-named by the code instead of turning them into `NA`.}
+named by the code instead of turning them into `NA`.
+`rejoin_split_records = TRUE` repairs a CSV in which a line break inside a
+field has split records over two lines; `column_encoding = list(CP850 =
+c(...))` decodes the named columns with a code page other than
+`data_encoding`; `text_missing_codes` (numeric codes, as strings) blanks
+those codes where they occur in text columns and records them in the
+`"sentinels"` sidecar under the labels `sentinel_labels` gives them;
+`labels_as_description = TRUE` keeps a source's sentence-long variable
+labels as the `description_en`/`description_fr` columns of the metadata
+and takes the short labels from `labels_supplement` (the CCRI census
+samples).}
 
 \item{bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask}{Advanced
 bundled-archive and documentation options.}

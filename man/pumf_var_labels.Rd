@@ -11,8 +11,10 @@ pumf_var_labels(tbl)
 }
 \value{
 A tibble with columns `name` (coded column name), `label_en`
-  (English label), and `label_fr` (French label).  Rows follow
-  survey-metadata order.
+  (English label), `label_fr` (French label), `description_en` and
+  `description_fr` (a longer explanation of the variable where the source
+  documents one beside the short label, as the CCRI census samples do;
+  `NA` otherwise).  Rows follow survey-metadata order.
 }
 \description{
 Returns a tibble mapping short coded column names to their bilingual

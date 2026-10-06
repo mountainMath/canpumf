@@ -381,8 +381,8 @@ test_that("EFT entries point at their Borealis twin", {
 
 test_that("every Borealis registry entry has a valid, unique DOI", {
   keys <- .borealis_keys()
-  # 14 Census PUMFs (1971-1986) and TCP 1881
-  expect_length(keys, 15L)
+  # 14 Census PUMFs (1971-1986), TCP 1881 and CCRI 1911
+  expect_length(keys, 16L)
   dois <- vapply(canpumf:::.pumf_registry[keys], canpumf:::.borealis_entry_doi,
                  character(1L))
   expect_true(all(grepl("^doi:10\\.5683/SP3/[A-Z0-9]{6}$", dois)))
@@ -391,8 +391,12 @@ test_that("every Borealis registry entry has a valid, unique DOI", {
 
 test_that("list_canpumf_collection rows for Borealis entries", {
   rows <- canpumf:::.borealis_registry_collection()
-  expect_equal(nrow(rows), 15L)
+  expect_equal(nrow(rows), 16L)
   expect_equal(sum(rows$Acronym == "Census"), 14L)
+  ccri <- rows[rows$Acronym == "CCRI", ]
+  expect_equal(unname(ccri$Version), "1911")
+  expect_equal(unname(ccri$Title),
+               "Canadian Century Research Infrastructure census sample")
   tcp <- rows[rows$Acronym == "TCP", ]
   expect_equal(unname(tcp$Version), "1881")
   expect_equal(unname(tcp$Title), "The Canadian Peoples complete-count census")
@@ -460,7 +464,84 @@ test_that("list_borealis_pumf_catalogue lists the Census PUMFs", {
                   canpumf_network_error = function(e) skip(conditionMessage(e)))
   expect_true(all(c("title", "year", "language", "doi", "url") %in% names(cat)))
   expect_gt(nrow(cat), 1000L)
-  dois <- vapply(canpumf:::.pumf_registry[.borealis_keys()],
+  # The catalogue scrapes the "pumfs" and "census" subtrees and keeps only
+  # PUMF-titled Census datasets.  TCP 1881 (dataverse TCPCensusData) and
+  # CCRI 1911 (odesi-1911census, titled "Census of Population, 1911 [Canada]")
+  # live outside that net and are reached through the registry alone.
+  keys <- grep("^Census/", .borealis_keys(), value = TRUE)
+  expect_length(keys, 14L)
+  dois <- vapply(canpumf:::.pumf_registry[keys],
                  canpumf:::.borealis_entry_doi, character(1L))
   expect_true(all(dois %in% cat$doi))
+})
+
+test_that(".borealis_pinned_role: a pinned file takes the role of its kind", {
+  expect_equal(canpumf:::.borealis_pinned_role(
+    c("card.sas", "card.SPS", "labels.json", "guide.pdf", "page.jpg",
+      "table.xlsx", "data.csv", "data.txt", "data.INDIV")),
+    c("metadata", "metadata", "metadata", "doc", "doc", "doc",
+      "data", "data", "data"))
+})
+
+test_that(".borealis_download_dataset: pinned files outrank the automatic choice", {
+  # The CCRI 1911 shape: the automatic selection takes the .sav for its
+  # labels and the largest CSV; the registry pins another CSV and the SAS
+  # card in the deposit's SAS folder.
+  skip_if(!nzchar(Sys.which("zip")), "no zip utility")
+  vdir <- file.path(withr::local_tempdir(), "FAKE", "2098")
+  listing <- .fake_listing(c("survey.sav", "survey_wide.csv", "survey.csv",
+                             "survey.sas", "guide.pdf"),
+                           size      = c(9e6, 9e7, 8, 100, 100),
+                           directory = c(NA, NA, NA, "SAS", NA))
+  listing$md5 <- c("aaa", "bbb", "ccc", "ddd", "eee")
+  attr(listing, "doi")   <- "doi:10.5683/SP3/FAKE02"
+  attr(listing, "title") <- "Fake sample"
+  sel0 <- canpumf:::.borealis_select_files(listing)
+  expect_equal(sel0$filename[sel0$role == "data"], "survey_wide.csv")
+  expect_equal(sel0$role[sel0$filename == "survey.sav"], "metadata")
+  expect_equal(sel0$role[sel0$filename %in% c("survey.csv", "survey.sas")],
+               c("skip", "skip"))
+
+  direct <- character(0L)
+  local_mocked_bindings(
+    .borealis_dataset_files = function(doi) listing,
+    .borealis_download_bundle = function(file_ids, dest, original = FALSE)
+      .fake_bundle(dest, list(survey.csv = c("a,b", "1,2"))),
+    .borealis_download_file = function(file_id, dest, original = FALSE) {
+      direct <<- c(direct, basename(dest))
+      writeLines("x", dest)
+    },
+    .pumf_warn_cache_path_on_download = function(...) invisible(NULL))
+  suppressMessages(canpumf:::.borealis_download_dataset(
+    "doi:10.5683/SP3/FAKE02", vdir,
+    files = c("survey.csv", "survey.sas", "guide.pdf")))
+  # neither the .sav nor the wide CSV is downloaded; the pinned card is
+  # metadata and the pinned CSV the one data file
+  expect_setequal(direct, c("survey.sas", "guide.pdf"))
+  expect_setequal(list.files(vdir),
+                  c("survey.csv.gz", "survey.sas", "guide.pdf",
+                    "borealis_manifest.csv"))
+  m <- readr::read_csv(file.path(vdir, "borealis_manifest.csv"),
+                       col_types = readr::cols(.default = "c"))
+  expect_equal(m$filename[m$role == "data"], "survey.csv.gz")
+  expect_equal(m$role[m$filename == "survey.sas"], "metadata")
+})
+
+test_that(".borealis_download_csv_gz: a bundle with a folder entry still yields the file", {
+  skip_if(!nzchar(Sys.which("zip")), "no zip utility")
+  d    <- withr::local_tempdir()
+  dest <- file.path(d, "data.csv")
+  local_mocked_bindings(
+    .borealis_download_bundle = function(file_ids, dest, original = FALSE) {
+      src <- withr::local_tempdir()
+      dir.create(file.path(src, "Data"))
+      writeLines(c("a,b", "1,2"), file.path(src, "Data", "data.csv"))
+      writeLines("manifest", file.path(src, "MANIFEST.TXT"))
+      withr::with_dir(src, utils::zip(dest, c("Data/", "Data/data.csv", "MANIFEST.TXT"),
+                                      flags = "-q"))
+    },
+    .borealis_download_file = function(...) stop("should not fall back"))
+  gz <- canpumf:::.borealis_download_csv_gz(1L, dest, size = 8)
+  expect_equal(gz, paste0(dest, ".gz"))
+  expect_equal(readLines(gz), c("a,b", "1,2"))
 })

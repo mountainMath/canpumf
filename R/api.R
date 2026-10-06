@@ -704,8 +704,10 @@ label_pumf_columns <- function(tbl) {
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
 #'
 #' @return A tibble with columns `name` (coded column name), `label_en`
-#'   (English label), and `label_fr` (French label).  Rows follow
-#'   survey-metadata order.
+#'   (English label), `label_fr` (French label), `description_en` and
+#'   `description_fr` (a longer explanation of the variable where the source
+#'   documents one beside the short label, as the CCRI census samples do;
+#'   `NA` otherwise).  Rows follow survey-metadata order.
 #'
 #' @seealso [label_pumf_columns()], [get_pumf()]
 #'
@@ -720,7 +722,10 @@ label_pumf_columns <- function(tbl) {
 #' @export
 pumf_var_labels <- function(tbl) {
   variables <- .pumf_read_variables(tbl)
-  tibble::as_tibble(variables[, c("name", "label_en", "label_fr"), drop = FALSE])
+  for (d in setdiff(.metadata_description_cols, names(variables)))
+    variables[[d]] <- rep(NA_character_, nrow(variables))
+  tibble::as_tibble(variables[, c("name", "label_en", "label_fr",
+                                  .metadata_description_cols), drop = FALSE])
 }
 
 
@@ -1837,7 +1842,10 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
 #' @return A named list with three elements:
 #'   \describe{
 #'     \item{`variables`}{Tibble with columns `name`, `label_en`, `label_fr`,
-#'       `type`, `decimals`, `missing_low`, `missing_high`.}
+#'       `type`, `decimals`, `missing_low`, `missing_high`, `description_en`,
+#'       `description_fr`.  The descriptions are the longer text some
+#'       documentation carries beside the short label (the CCRI census
+#'       samples); `NA` for the surveys that document a label only.}
 #'     \item{`codes`}{Tibble with columns `name`, `val`, `label_en`,
 #'       `label_fr`, mapping numeric codes to their labels.}
 #'     \item{`layout`}{Tibble with columns `name`, `start`, `end` for

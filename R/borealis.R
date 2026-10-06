@@ -678,7 +678,10 @@ list_borealis_pumf_files <- function(doi) {
   on.exit(unlink(zip), add = TRUE)
   ok <- tryCatch({
     .borealis_download_bundle(file_id, zip, original = original)
+    # A file in a dataset folder comes as "<folder>/<name>" after an entry for
+    # the folder itself.
     entry <- setdiff(utils::unzip(zip, list = TRUE)$Name, "MANIFEST.TXT")
+    entry <- entry[!endsWith(entry, "/")]
     length(entry) == 1L && {
       n <- .zip_entry_to_gzip(zip, entry, gz)
       n > 0 && (is.na(size) || n == size)
@@ -692,6 +695,17 @@ list_borealis_pumf_files <- function(doi) {
     gz <- .gzip_file(dest)
   }
   gz
+}
+
+# Role of a file the automatic selection skips but the caller pins by name or
+# id: a command file is metadata (a SAS card inside the deposit's "SAS" data
+# folder, which the selection passes over for the .sav), a document or image
+# is documentation, anything else is the data file.
+.borealis_pinned_role <- function(filename) {
+  ext <- tolower(tools::file_ext(filename))
+  ifelse(ext %in% c("sas", "sps", "json"), "metadata",
+         ifelse(ext %in% c("pdf", "html", "htm", "jpg", "jpeg", "png", "xls",
+                           "xlsx", "doc", "docx"), "doc", "data"))
 }
 
 #' @keywords internal
@@ -710,7 +724,11 @@ list_borealis_pumf_files <- function(doi) {
       stop("None of the requested Borealis files (", paste(files, collapse = ", "),
            ") are in ", doi, ". See list_borealis_pumf_files().", call. = FALSE)
     listing$selected <- hit
-    listing$role[hit & listing$role == "skip"] <- "data"
+    pinned <- hit & listing$role == "skip"
+    listing$role[pinned] <- .borealis_pinned_role(listing$filename[pinned])
+    # One data file: a pin that names one outranks the automatic choice.
+    if (any(pinned & listing$role == "data"))
+      listing$selected[!pinned & listing$role == "data"] <- FALSE
   }
   sel <- listing[listing$selected, , drop = FALSE]
   if (!any(sel$role == "data"))

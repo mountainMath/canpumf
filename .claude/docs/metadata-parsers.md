@@ -3,7 +3,7 @@
 Back to [CLAUDE.md](../CLAUDE.md). The PDF user-guide parser (#9) and everything downstream of it are covered in [pdf-crosscheck.md](pdf-crosscheck.md).
 
 Ten parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
-- `variables.csv`: one row per variable (name, label_en, label_fr, type, decimals, missing_low, missing_high)
+- `variables.csv`: one row per variable (name, label_en, label_fr, type, decimals, missing_low, missing_high), plus the optional pair `description_en`, `description_fr` for the longer text some documentation carries beside the label. `read_metadata()` always adds the pair (NA when the file lacks it); `write_metadata()` writes it only when either column carries text (`.metadata_variables_cols` marks it optional), so the files of every other survey are unchanged. `pumf_var_labels()` and `pumf_metadata()$variables` pass the columns through. The registry fixup `labels_as_description = TRUE` (CCRI 1911) fills them in Stage 2 from a source whose "labels" are sentences: `.pumf_labels_as_description()` moves the labels to the descriptions and blanks the labels, so the short labels come from `labels_supplement`; on the way `.repair_lost_punctuation()` repairs the `?` a CP1252 card shows for a curly apostrophe or quote and for a dash (`individual?s` → `individual's`, `?schedule?` → `"schedule"`, `(UU) ? Undefined` → an en dash; a `?` before a space or at the end of a sentence is a question mark and is kept).
 - `codes.csv`: one row per code value (name, val, label_en, label_fr)
 - `layout.csv`: one row per fixed-width column (name, start, end). Absent for CSV-format data.
 
@@ -59,6 +59,7 @@ Parsers 7–9 need `pdftools`, which is in Suggests, and are skipped when it is 
 
 ## SAS details
 
+- **ODESI SAS programs** (`parse_sas_odesi()`, `detect_formats()` key `sas_odesi`): the programs ODESI generates for its Borealis deposits (the historical LFS months, the CCRI census samples) declare `Value V<n>_F` formats, tie them to variables with `FORMAT var V<n>_F.` statements, read the file with an `INPUT` statement, label the variables with `LABEL` and recode the missing codes to SAS special missing values (`IF SEX = 99999001 THEN SEX = .D ;`). The parser types `$` columns character and the rest numeric, keeps the format's numeric codes as code rows, turns a special-missing letter whose label the format gives (`.D='Blank'`) into a code row for the value the recode maps to it, and takes the smallest and largest recoded values of a variable as its missing range (a recode whose letter has no label still widens the range). Detection is a last resort: the StatCan Census SAS programs carry the same statements under other format names and always come with an SPSS file, so `detect_formats()` looks for a `.sas` file with both a `Value V<n>_F` block and a `FORMAT x V<n>_F.` statement only when no other command file or dictionary was found. The LFS_HIST spec calls the parser directly on its monthly pair of cards (see [longitudinal.md](longitudinal.md)).
 - **PROC FORMAT codes**: `parse_sas_data_labels()` (the `sas_labels` format, e.g. GSS 2007) parses `VALUE VnnnF` blocks. It links them to variables through the StatCan-style `/* VnnnF format applies to: VAR1 VAR2 */` comments, which may span lines. Files without such comments (Census 2011) yield labels only, no codes.
 
 ## PDF dictionary / codebook details
@@ -79,6 +80,7 @@ Parsers 7–9 need `pdftools`, which is in Suggests, and are skipped when it is 
 
 ## Encoding
 
+- **Data in two code pages** (CCRI 1911): the file is CP1252 but two standardized text columns are DOS CP850. The registry's `column_encoding = list(CP850 = c(...))` has Stage 3 read the file as latin1 (bytes preserved) and decode each column with its own code page through `.pumf_decode_bytes()` (`.pumf_read_csv_repaired()` in `R/pipeline.R`); a byte invalid in the named code page becomes `?`. See `data_fixups` in [registry.md](registry.md).
 - **`metadata_encoding`** defaults to `"CP1252"`, a superset of Latin-1 that handles en-dashes and curly quotes. Exceptions:
   - Census 2021 → `"UTF-8"`
   - Census 1991 (all three file types) and GSS Cycles 8/10/11 (1993/1995/1996), which are DOS-era files → `"CP850"`

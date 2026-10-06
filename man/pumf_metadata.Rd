@@ -36,7 +36,10 @@ that is.  Not supported for LFS.}
 A named list with three elements:
   \describe{
     \item{`variables`}{Tibble with columns `name`, `label_en`, `label_fr`,
-      `type`, `decimals`, `missing_low`, `missing_high`.}
+      `type`, `decimals`, `missing_low`, `missing_high`, `description_en`,
+      `description_fr`.  The descriptions are the longer text some
+      documentation carries beside the short label (the CCRI census
+      samples); `NA` for the surveys that document a label only.}
     \item{`codes`}{Tibble with columns `name`, `val`, `label_en`,
       `label_fr`, mapping numeric codes to their labels.}
     \item{`layout`}{Tibble with columns `name`, `start`, `end` for

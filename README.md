@@ -201,6 +201,21 @@ census_1881 <- get_pumf("TCP", "1881")
 pumf_sidecar(census_1881, "removed")
 ```
 
+### The 1911 Census, 5% sample (CCRI)
+
+The Canadian Century Research Infrastructure (CCRI) project's 5% sample of the 1911 Census is available as series `"CCRI"`, from the ODESI deposit [on Borealis](https://doi.org/10.5683/SP3/MDTWGJ): 371,373 persons in a sample of dwellings, with the transcribed names, places and occupations next to the project's coded variables and census geography. It is the only CCRI vintage with an openly downloadable file (1921 to 1951 require access through CCRI). The documentation describes each variable with a sentence; it is kept as the variable's description, and the short labels are supplied in both languages.
+
+```r
+census_1911 <- get_pumf("CCRI", "1911")
+
+# labels and descriptions
+pumf_var_labels(census_1911)
+
+# the enumerator's "Blank", "Illegible", ... entries are kept out of the data,
+# in the sentinel sidecar
+pumf_sidecar(census_1911, "sentinels")
+```
+
 ## Verified datasets
 
 The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or unexpected warnings. Known, benign warnings (e.g. no French translation for the 2021 Census individuals file) are documented in `tests/TEST_COVERAGE.md`. Versions marked **direct download** can be fetched automatically by `get_pumf()` (from Statistics Canada, or from Borealis where marked); others must be placed in the cache directory via Statistics Canada's EFT portal.
@@ -213,6 +228,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
 | Census of Canada 1881, complete count (The Canadian Peoples) | TCP | 1881 | ✓ (Borealis) |
+| Census of Canada 1911, 5% sample (CCRI) | CCRI | 1911 | ✓ (Borealis) |
 | General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
 | General Social Survey — Caregiving (Aging and Social Support) | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
 | General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |

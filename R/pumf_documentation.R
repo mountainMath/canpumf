@@ -411,6 +411,27 @@ open_pumf_documentation <- function(series          = NULL,
       "."
     ))
 
+  if (isTRUE(fx$rejoin_split_records))
+    lines <- c(lines,
+      "  Records split over two lines by a line break inside a field are rejoined.")
+
+  if (length(fx$column_encoding) > 0L)
+    lines <- c(lines, paste0(
+      "  Columns decoded with their own code page: ",
+      paste(vapply(names(fx$column_encoding), function(e)
+        paste0(paste(fx$column_encoding[[e]], collapse = ", "), " (", e, ")"),
+        ""), collapse = "; "), "."))
+
+  if (length(fx$text_missing_codes) > 0L)
+    lines <- c(lines, paste0(
+      "  Missing codes in text columns (", paste(fx$text_missing_codes, collapse = ", "),
+      ") become NA; see pumf_sidecar(tbl, \"sentinels\")."))
+
+  if (isTRUE(fx$labels_as_description))
+    lines <- c(lines, paste0(
+      "  The source's variable labels are sentences; they are kept as the ",
+      "variable descriptions (pumf_var_labels())."))
+
   if (length(fx$labels_supplement) > 0L)
     lines <- c(lines, paste0(
       "  Variable labels supplied by canpumf where the source metadata has none: ",

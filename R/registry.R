@@ -62,6 +62,24 @@
 #               dictionaries that are incomplete by construction (TCP 1881
 #               occupation codes).  Decided on the data: only codes that occur
 #               are added.
+#   labels_as_description: TRUE moves the source's variable labels to the
+#               optional `description_en`/`description_fr` columns of
+#               variables.csv in Stage 2 and blanks the labels, for a source
+#               whose labels are sentences (the CCRI SAS card).  The short
+#               labels then come from labels_supplement.
+#   rejoin_split_records: TRUE joins, before parsing a CSV data file, the
+#               consecutive short lines that a line break inside a field has
+#               split and that together make exactly one record (CCRI 1911,
+#               15 records).  readr path only.
+#   column_encoding: named list c(<encoding> = <columns>) for a CSV whose
+#               columns are not all in data_encoding (CCRI 1911: two CP850
+#               columns in a CP1252 file).  readr path only.
+#   text_missing_codes: character vector of numeric codes that the source
+#               writes into its free-text columns as strings (CCRI's
+#               99999001 "Blank" in a name field).  In every column that is
+#               still character after labelling, those values become NA and
+#               go to the sentinel sidecar, labelled through sentinel_labels.
+#               Columns with value labels are not affected.  readr path only.
 #
 # csv_reader (a top-level field, not a fixup): "duckdb" reads a CSV data file
 #   with DuckDB's own reader instead of readr, so the records never pass
@@ -507,6 +525,294 @@
   VOLUME                       = c(label_en = "Volume number",
                                    label_fr = "Num\u00e9ro du volume")
 )
+
+# ---- CCRI: Canadian Century Research Infrastructure -------------------------
+# The files canpumf takes from the ODESI deposit of the 1911 sample
+# (doi:10.5683/SP3/MDTWGJ): the CSV, the SAS card and the documentation.  The
+# deposit also holds the same data as .sav, .dta, .tab and fixed-width text
+# (1.8 GB together), the schedule images and the published-table spreadsheets.
+.ccri_1911_files <- c(
+  "ccri-census-G-E-1911_F1.csv",
+  "ccri_census_G_E_1911_F1.sas",
+  "en1911ManualUVIC_v19_final.pdf",
+  "1911variables-combined.pdf",
+  "1911Codes-Combined.pdf",
+  "1911CodingBkgrd.pdf",
+  "1911CodesLayout.txt",
+  "1911 enumerator instructions - english.pdf",
+  "1911 enumerator instructions - north - bilingue.pdf",
+  "CCRI-Read-and-Edit-Summary-table.pdf",
+  "CCRI-Read-and-Edit-Core-variables-table.pdf",
+  "CCRI-Read-and-Edit-Non-Core-variables-table.pdf",
+  "CCRI-Read-and-Edit-Interpreted-Nominal-variables-table.pdf",
+  "CCRI-Read-and-Edit-Overall-RE-Rate-table.pdf",
+  "CCRI-Read-and-Edit-Variables-by-Sub-Group-table.pdf")
+
+# The CCRI missing-value codes (1911CodingBkgrd.pdf; the SAS card declares
+# them as special-missing values .A-.Q of every coded variable and as labelled
+# codes of the numeric ones).  The free-text columns hold them as strings,
+# where `text_missing_codes` blanks them; the labels name them in the sentinel
+# sidecar.  The English labels are the card's; the French ones are canpumf's.
+.ccri_missing_codes <- c(
+  "99999001", "99999002", "99999003", "99999004", "99999005", "99999006",
+  "99999007", "99999008", "99999009", "99999010", "99999011", "99999012",
+  "99999901", "99999902", "99999903", "99999904", "99999999")
+.ccri_sentinel_labels <- list(
+  "99999001" = c(label_en = "Blank",
+                 label_fr = "En blanc"),
+  "99999002" = c(label_en = "Damaged",
+                 label_fr = "Endommagé"),
+  "99999003" = c(label_en = "Illegible",
+                 label_fr = "Illisible"),
+  "99999004" = c(label_en = "In Error",
+                 label_fr = "Erroné"),
+  "99999005" = c(label_en = "Suspicious",
+                 label_fr = "Douteux"),
+  "99999006" = c(label_en = "Missing -- Mandatory Field",
+                 label_fr = "Manquant -- champ obligatoire"),
+  "99999007" = c(label_en = "Not Applicable",
+                 label_fr = "Sans objet"),
+  "99999008" = c(label_en = "Not Mapped",
+                 label_fr = "Non apparié"),
+  "99999009" = c(label_en = "Correction",
+                 label_fr = "Correction"),
+  "99999010" = c(label_en = "Suggestion",
+                 label_fr = "Suggestion"),
+  "99999011" = c(label_en = "Unknown - Suggestion",
+                 label_fr = "Inconnu - suggestion"),
+  "99999012" = c(label_en = "Multiple Response - Suggestion",
+                 label_fr = "Réponses multiples - suggestion"),
+  "99999901" = c(label_en = "None",
+                 label_fr = "Aucun"),
+  "99999902" = c(label_en = "Not Given",
+                 label_fr = "Non fourni"),
+  "99999903" = c(label_en = "Unknown",
+                 label_fr = "Inconnu"),
+  "99999904" = c(label_en = "Invalid Value",
+                 label_fr = "Valeur invalide"),
+  "99999999" = c(label_en = "Uncodable",
+                 label_fr = "Non codable"))
+
+# Short bilingual variable labels for CCRI 1911.  The SAS card documents each
+# variable with a sentence, which `labels_as_description` keeps as the
+# variable's description; these labels name the variables (English wording
+# after the card and the CCRI user guide, French by canpumf).
+.ccri_1911_var_labels <- list(
+  CENSUS_YEAR                      = c(label_en = "Census year",
+                                       label_fr = "Année du recensement"),
+  UNIVERSITY_ID                    = c(label_en = "CCRI data entry centre",
+                                       label_fr = "Centre de saisie de l'IRCS"),
+  DWELLING_ID                      = c(label_en = "Dwelling identifier",
+                                       label_fr = "Identifiant du logement"),
+  HOUSEHOLD_ID                     = c(label_en = "Household identifier",
+                                       label_fr = "Identifiant du ménage"),
+  INDIVIDUAL_ID                    = c(label_en = "Individual identifier",
+                                       label_fr = "Identifiant de l'individu"),
+  CCRIUID_1911                     = c(label_en = "CCRI geographic location identifier, 1911",
+                                       label_fr = "Identifiant géographique de l'IRCS, 1911"),
+  DERIVED_DWELLING_ID              = c(label_en = "Derived dwelling identifier",
+                                       label_fr = "Identifiant dérivé du logement"),
+  DERIVED_HOUSEHOLD_ID             = c(label_en = "Derived household identifier",
+                                       label_fr = "Identifiant dérivé du ménage"),
+  DERIVED_INDIVIDUAL_ID            = c(label_en = "Derived individual identifier",
+                                       label_fr = "Identifiant dérivé de l'individu"),
+  DERIVED_HOUSEHOLD_ID_IN_DWELLING = c(label_en = "Household sequence number within dwelling",
+                                       label_fr = "Numéro de séquence du ménage dans le logement"),
+  DERIVED_PERSON_NUM_IN_HOUSEHOLD  = c(label_en = "Person sequence number within household",
+                                       label_fr = "Numéro de séquence de la personne dans le ménage"),
+  DERIVED_PERSON_NUM_IN_DWELLING   = c(label_en = "Person sequence number within dwelling",
+                                       label_fr = "Numéro de séquence de la personne dans le logement"),
+  DERIVED_SURNAME_NUMBER           = c(label_en = "Surname (family) number within household",
+                                       label_fr = "Numéro de famille (patronyme) dans le ménage"),
+  DERIVED_AGE_IN_YEARS             = c(label_en = "Age in years (derived)",
+                                       label_fr = "Âge en années (dérivé)"),
+  POPULATION_SIZE                  = c(label_en = "Dwelling population size (large or regular)",
+                                       label_fr = "Taille de la population du logement (grand ou ordinaire)"),
+  DWELLING_UNIT_TYPE               = c(label_en = "Dwelling unit type",
+                                       label_fr = "Type d'unité de logement"),
+  PROVINCE                         = c(label_en = "Province (schedule header)",
+                                       label_fr = "Province (en-tête du tableau)"),
+  DISTRICT_NUMBER                  = c(label_en = "Enumeration district number",
+                                       label_fr = "Numéro du district de recensement"),
+  SUB_DISTRICT_NUMBER              = c(label_en = "Enumeration sub-district number",
+                                       label_fr = "Numéro du sous-district de recensement"),
+  CENSUS_FORM_ID                   = c(label_en = "Census form (schedule)",
+                                       label_fr = "Formulaire de recensement (tableau)"),
+  DISTRICT_NAME                    = c(label_en = "Enumeration district name",
+                                       label_fr = "Nom du district de recensement"),
+  SUB_DISTRICT_NAME                = c(label_en = "Enumeration sub-district name",
+                                       label_fr = "Nom du sous-district de recensement"),
+  ENUMERATOR_FIRST_NAME            = c(label_en = "Enumerator's first name",
+                                       label_fr = "Prénom du recenseur"),
+  ENUMERATOR_LAST_NAME             = c(label_en = "Enumerator's last name",
+                                       label_fr = "Nom de famille du recenseur"),
+  REGION                           = c(label_en = "City, town, village, township or parish",
+                                       label_fr = "Cité, ville, village, canton ou paroisse"),
+  HABITATION                       = c(label_en = "House and street number, or parish or township",
+                                       label_fr = "Numéro de maison et rue, ou paroisse ou canton"),
+  DWELLING_NUMBER                  = c(label_en = "Dwelling number in sub-district",
+                                       label_fr = "Numéro du logement dans le sous-district"),
+  HOUSEHOLD_NUMBER                 = c(label_en = "Household number in sub-district",
+                                       label_fr = "Numéro du ménage dans le sous-district"),
+  INSTITUTION_TYPE                 = c(label_en = "Institution type",
+                                       label_fr = "Type d'institution"),
+  INSTITUTION_NAME                 = c(label_en = "Institution name",
+                                       label_fr = "Nom de l'institution"),
+  TITLE                            = c(label_en = "Title",
+                                       label_fr = "Titre"),
+  FIRST_NAME                       = c(label_en = "First name",
+                                       label_fr = "Prénom"),
+  LAST_NAME                        = c(label_en = "Last name",
+                                       label_fr = "Nom de famille"),
+  PAGE_NUMBER                      = c(label_en = "Schedule page number",
+                                       label_fr = "Numéro de page du tableau"),
+  LINE_NUMBER                      = c(label_en = "Schedule line number",
+                                       label_fr = "Numéro de ligne du tableau"),
+  RELATIONSHIP                     = c(label_en = "Relationship to head of household",
+                                       label_fr = "Lien avec le chef du ménage"),
+  SEX                              = c(label_en = "Sex",
+                                       label_fr = "Sexe"),
+  MARITAL_STATUS                   = c(label_en = "Marital status",
+                                       label_fr = "État matrimonial"),
+  AGE_AMOUNT                       = c(label_en = "Age (amount)",
+                                       label_fr = "Âge (valeur)"),
+  AGE_UNIT                         = c(label_en = "Age (unit)",
+                                       label_fr = "Âge (unité)"),
+  MONTH_OF_BIRTH                   = c(label_en = "Month of birth",
+                                       label_fr = "Mois de naissance"),
+  YEAR_OF_BIRTH                    = c(label_en = "Year of birth",
+                                       label_fr = "Année de naissance"),
+  INDIVIDUAL_BIRTH_COUNTRY         = c(label_en = "Country or province of birth",
+                                       label_fr = "Pays ou province de naissance"),
+  YEAR_OF_IMMIGRATION              = c(label_en = "Year of immigration",
+                                       label_fr = "Année d'immigration"),
+  YEAR_OF_NATURALIZATION           = c(label_en = "Year of naturalization",
+                                       label_fr = "Année de naturalisation"),
+  NATIONALITY                      = c(label_en = "Nationality",
+                                       label_fr = "Nationalité"),
+  RACIAL_OR_TRIBAL_ORIGIN          = c(label_en = "Racial or tribal origin",
+                                       label_fr = "Origine raciale ou tribale"),
+  LANGUAGE_SPOKEN_1                = c(label_en = "Language commonly spoken (first)",
+                                       label_fr = "Langue couramment parlée (première)"),
+  LANGUAGE_SPOKEN_2                = c(label_en = "Language commonly spoken (second)",
+                                       label_fr = "Langue couramment parlée (deuxième)"),
+  LANGUAGE_SPOKEN_3                = c(label_en = "Language commonly spoken (third)",
+                                       label_fr = "Langue couramment parlée (troisième)"),
+  CAN_READ_INDICATOR               = c(label_en = "Can read",
+                                       label_fr = "Sait lire"),
+  CAN_WRITE_INDICATOR              = c(label_en = "Can write",
+                                       label_fr = "Sait écrire"),
+  IN_SCHOOL_MONTHS_AMOUNT          = c(label_en = "Months at school",
+                                       label_fr = "Mois de fréquentation scolaire"),
+  RELIGION                         = c(label_en = "Religion",
+                                       label_fr = "Religion"),
+  BLIND                            = c(label_en = "Blind (age of onset)",
+                                       label_fr = "Aveugle (âge au début)"),
+  DEAF_AND_DUMB                    = c(label_en = "Deaf and dumb (age of onset)",
+                                       label_fr = "Sourd-muet (âge au début)"),
+  IDIOTIC_OR_SILLY                 = c(label_en = "Idiotic or silly (age of onset)",
+                                       label_fr = "Idiot ou faible d'esprit (âge au début)"),
+  CRAZY_OR_LUNATIC                 = c(label_en = "Crazy or lunatic (age of onset)",
+                                       label_fr = "Fou ou aliéné (âge au début)"),
+  OCCUPATION_CHIEF_OCC_IND_CL      = c(label_en = "Chief occupation (standardized)",
+                                       label_fr = "Occupation principale (normalisée)"),
+  OCCUPATION_CHIEF_OCC_IND         = c(label_en = "Chief occupation (as enumerated)",
+                                       label_fr = "Occupation principale (telle que recensée)"),
+  HISCO_CODES                      = c(label_en = "HISCO occupation code",
+                                       label_fr = "Code d'occupation HISCO"),
+  OTHER_EMPLOYMENT                 = c(label_en = "Other employment",
+                                       label_fr = "Autre emploi"),
+  CHIEF_OCCUPATION_CODE_1          = c(label_en = "1911 occupation code, part 1",
+                                       label_fr = "Code d'occupation de 1911, partie 1"),
+  OCC1                             = c(label_en = "1911 occupation code, part 1 (numeric)",
+                                       label_fr = "Code d'occupation de 1911, partie 1 (numérique)"),
+  CHIEF_OCCUPATION_CODE_2          = c(label_en = "1911 occupation code, part 2",
+                                       label_fr = "Code d'occupation de 1911, partie 2"),
+  OCC2                             = c(label_en = "1911 occupation code, part 2 (numeric)",
+                                       label_fr = "Code d'occupation de 1911, partie 2 (numérique)"),
+  CHIEF_OCCUPATION_CODE_3          = c(label_en = "1911 occupation code, part 3",
+                                       label_fr = "Code d'occupation de 1911, partie 3"),
+  OCC3A                            = c(label_en = "1911 occupation code, part 3 (numeric)",
+                                       label_fr = "Code d'occupation de 1911, partie 3 (numérique)"),
+  OCC3B                            = c(label_en = "1911 occupation code, parts 1 and 3 combined",
+                                       label_fr = "Code d'occupation de 1911, parties 1 et 3 combinées"),
+  PLACE_OF_EMPLOYMENT_CL           = c(label_en = "Place of employment (standardized)",
+                                       label_fr = "Lieu de travail (normalisé)"),
+  PLACE_OF_EMPLOYMENT              = c(label_en = "Place of employment (as enumerated)",
+                                       label_fr = "Lieu de travail (tel que recensé)"),
+  EMPLOYEE                         = c(label_en = "Employee",
+                                       label_fr = "Employé"),
+  EMPLOYER                         = c(label_en = "Employer",
+                                       label_fr = "Employeur"),
+  WORKING_ON_OWN_ACCOUNT           = c(label_en = "Working on own account",
+                                       label_fr = "Travaille à son compte"),
+  HOURS_WORKED_CHIEF_OCC           = c(label_en = "Hours worked per week, chief occupation",
+                                       label_fr = "Heures travaillées par semaine, occupation principale"),
+  HOURS_WORKED_OTHER_OCC           = c(label_en = "Hours worked per week, other occupation",
+                                       label_fr = "Heures travaillées par semaine, autre occupation"),
+  WEEKS_WORKING_CHIEF_OCC          = c(label_en = "Weeks worked in 1910, chief occupation",
+                                       label_fr = "Semaines travaillées en 1910, occupation principale"),
+  WEEKS_WORKING_OTHER_OCC          = c(label_en = "Weeks worked in 1910, other occupation",
+                                       label_fr = "Semaines travaillées en 1910, autre occupation"),
+  RATE_OF_EARNINGS_PER_HOUR        = c(label_en = "Hourly rate of earnings (cents)",
+                                       label_fr = "Taux de rémunération horaire (cents)"),
+  EARNINGS_AT_CHIEF_OCC            = c(label_en = "Earnings in 1910, chief occupation",
+                                       label_fr = "Gains en 1910, occupation principale"),
+  EARNINGS_AT_OTHER_OCC            = c(label_en = "Earnings in 1910, other occupation",
+                                       label_fr = "Gains en 1910, autre occupation"),
+  HEALTH_INSURANCE                 = c(label_en = "Accident or sickness insurance held",
+                                       label_fr = "Assurance accident ou maladie détenue"),
+  LIFE_INSURANCE                   = c(label_en = "Life insurance held",
+                                       label_fr = "Assurance vie détenue"),
+  COST_OF_EDUCATION                = c(label_en = "Cost of education",
+                                       label_fr = "Coût de l'éducation"),
+  COST_OF_INSURANCE                = c(label_en = "Cost of insurance",
+                                       label_fr = "Coût de l'assurance"),
+  CCRIUID_CD_1911                  = c(label_en = "CCRI census division identifier, 1911",
+                                       label_fr = "Identifiant de la division de recensement de l'IRCS, 1911"),
+  CCRIUID_CSD_1911                 = c(label_en = "CCRI census subdivision identifier, 1911",
+                                       label_fr = "Identifiant de la subdivision de recensement de l'IRCS, 1911"),
+  PR_1911                          = c(label_en = "Province identifier, 1911",
+                                       label_fr = "Identifiant de la province, 1911"),
+  CCRICD_NO_1911                   = c(label_en = "Census division code, 1911",
+                                       label_fr = "Code de la division de recensement, 1911"),
+  CCRICSD_NO_1911                  = c(label_en = "Census subdivision code, 1911",
+                                       label_fr = "Code de la subdivision de recensement, 1911"),
+  CCRICSD_PART_NO_1911             = c(label_en = "Census subdivision part code, 1911",
+                                       label_fr = "Code de la partie de subdivision de recensement, 1911"),
+  CCRICD_1911                      = c(label_en = "Census division name, 1911",
+                                       label_fr = "Nom de la division de recensement, 1911"),
+  CCRINAME_1911                    = c(label_en = "Census subdivision name, 1911",
+                                       label_fr = "Nom de la subdivision de recensement, 1911"),
+  CCRIUIDNAME_1911                 = c(label_en = "Census subdivision part name, 1911",
+                                       label_fr = "Nom de la partie de subdivision de recensement, 1911"),
+  CCRITYPE_1911                    = c(label_en = "Geographic location type, 1911",
+                                       label_fr = "Type de lieu géographique, 1911"),
+  CCRI_URBAN_RURAL_1911            = c(label_en = "Urban or rural, 1911",
+                                       label_fr = "Urbain ou rural, 1911"),
+  V1T1_1911                        = c(label_en = "Match code, 1911 census volume 1 table 1",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 1, tableau 1"),
+  V1T2_1911                        = c(label_en = "Match code, 1911 census volume 1 table 2",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 1, tableau 2"),
+  V2T2_1911                        = c(label_en = "Match code, 1911 census volume 2 table 2",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 2, tableau 2"),
+  V2T7_1911                        = c(label_en = "Match code, 1911 census volume 2 table 7",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 2, tableau 7"),
+  V2T28_1911                       = c(label_en = "Match code, 1911 census volume 2 table 28",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 2, tableau 28")
+)
+
+# CCRI 1911 columns that mix numbers with coded answers (the card labels
+# 90000001-90000012 "On Strike", "Full Time", "Free", "Paid", ... and the 1-3
+# of YEAR_OF_NATURALIZATION "Papers", "Naturalized", "Alien").  They stay
+# numeric; every coded answer and missing code goes to the sentinel sidecar
+# with its label.
+.ccri_1911_measures <- c(
+  "HOURS_WORKED_CHIEF_OCC", "HOURS_WORKED_OTHER_OCC",
+  "WEEKS_WORKING_CHIEF_OCC", "WEEKS_WORKING_OTHER_OCC",
+  "RATE_OF_EARNINGS_PER_HOUR", "EARNINGS_AT_CHIEF_OCC", "EARNINGS_AT_OTHER_OCC",
+  "HEALTH_INSURANCE", "LIFE_INSURANCE", "COST_OF_EDUCATION", "COST_OF_INSURANCE",
+  "IN_SCHOOL_MONTHS_AMOUNT", "YEAR_OF_NATURALIZATION")
 
 .pumf_registry <- list(
 
@@ -1854,7 +2160,70 @@
       fix_mojibake          = TRUE,
       removed_records       = list(var = "REMOVE_TCP", values = "1"),
       keep_unlabelled_codes = TRUE,
-      labels_supplement     = .tcp_1881_var_labels))
+      labels_supplement     = .tcp_1881_var_labels)),
+
+  # ---- CCRI: Canadian Century Research Infrastructure census samples --------
+  # 1911 (5% sample of dwellings).  The ODESI deposit is the only complete open
+  # copy: the CCRI dataverse's own .sav is truncated, and 1921-1951 are not
+  # openly downloadable.  The files are pinned because the automatic selection
+  # would take the 344 MB .sav for its labels; the SAS card carries the same
+  # labels plus the missing-value codes.
+  #
+  # Fixups (evidence in tests/testthat/override_verification.csv):
+  #   - rejoin_split_records: 15 records are split over two lines by a line
+  #     break inside a field (HABITATION).
+  #   - column_encoding: the two standardized text columns (_CL) are CP850,
+  #     the rest of the file CP1252.
+  #   - force_character + str_pad: the record identifiers stay character; the
+  #     four within-dwelling/household sequence numbers are zero-padded to a
+  #     common width (2, 3, 3, 3).
+  #   - force_numeric: the columns the card attaches a format to although
+  #     they are measures (coded answers 9000000x beside the numbers) or
+  #     years (the format lists only the missing values); missing_supplement
+  #     puts the coded answers and the missing codes (9999xxxx) of the
+  #     measures, AGE_AMOUNT and MONTH_OF_BIRTH (no card recode) in the
+  #     sentinel sidecar, missing_codes the 1-3 of YEAR_OF_NATURALIZATION and
+  #     the 1 = "Yes" of the two insurance amounts.
+  #   - text_missing_codes: the free-text columns (names, places, titles,
+  #     occupation strings) hold the 17 missing codes as strings.
+  #   - keep_unlabelled_codes: the occupation and place codes occur in the
+  #     data beyond the value-label dictionary (OCC3B "100" in 4,552 records).
+  #   - labels_as_description + labels_supplement: the card's variable
+  #     labels are sentences; they become the descriptions, and canpumf
+  #     supplies short bilingual labels.
+  "CCRI/1911" = .make_entry("CCRI", "1911",
+    borealis          = list(doi = "doi:10.5683/SP3/MDTWGJ", files = .ccri_1911_files),
+    data_encoding     = "CP1252",
+    metadata_encoding = "CP1252",
+    data_fixups       = list(
+      rejoin_split_records  = TRUE,
+      column_encoding       = list(CP850 = c("PLACE_OF_EMPLOYMENT_CL",
+                                             "OCCUPATION_CHIEF_OCC_IND_CL")),
+      str_pad               = list(
+        list(cols = "DERIVED_HOUSEHOLD_ID_IN_DWELLING", width = 2L, side = "left", pad = "0"),
+        list(cols = c("DERIVED_PERSON_NUM_IN_HOUSEHOLD", "DERIVED_PERSON_NUM_IN_DWELLING",
+                      "DERIVED_SURNAME_NUMBER"),
+             width = 3L, side = "left", pad = "0")),
+      force_character       = c("DWELLING_ID", "HOUSEHOLD_ID", "INDIVIDUAL_ID",
+                                "DERIVED_DWELLING_ID", "DERIVED_HOUSEHOLD_ID",
+                                "DERIVED_INDIVIDUAL_ID",
+                                "DERIVED_HOUSEHOLD_ID_IN_DWELLING",
+                                "DERIVED_PERSON_NUM_IN_HOUSEHOLD",
+                                "DERIVED_PERSON_NUM_IN_DWELLING",
+                                "DERIVED_SURNAME_NUMBER"),
+      force_numeric         = c(.ccri_1911_measures, "YEAR_OF_BIRTH",
+                                "YEAR_OF_IMMIGRATION"),
+      missing_supplement    = c(
+        stats::setNames(rep(list(c(90000001, 999999999)), length(.ccri_1911_measures) + 1L),
+                        c(.ccri_1911_measures, "AGE_AMOUNT")),
+        list(MONTH_OF_BIRTH = c(99999001, 99999999))),
+      missing_codes         = list(YEAR_OF_NATURALIZATION = c(1, 2, 3),
+                                   HEALTH_INSURANCE = 1, LIFE_INSURANCE = 1),
+      text_missing_codes    = .ccri_missing_codes,
+      sentinel_labels       = .ccri_sentinel_labels,
+      keep_unlabelled_codes = TRUE,
+      labels_as_description = TRUE,
+      labels_supplement     = .ccri_1911_var_labels))
 )
 
 #' Resolve version aliases
@@ -2196,8 +2565,9 @@ pumf_registry_keys <- function() {
   "str_pad", "rename", "rename_regex", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
   "codes_supplement", "codes_override", "missing_supplement", "missing_codes",
-  "labels_supplement", "sentinel_labels",
-  "fix_mojibake", "removed_records", "keep_unlabelled_codes")
+  "labels_supplement", "labels_as_description", "sentinel_labels",
+  "fix_mojibake", "removed_records", "keep_unlabelled_codes",
+  "rejoin_split_records", "column_encoding", "text_missing_codes")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.
@@ -2304,7 +2674,9 @@ pumf_registry_keys <- function() {
 #'   `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
 #'   `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
 #'   `missing_supplement`, `missing_codes`, `labels_supplement`,
-#'   `fix_mojibake`, `removed_records`, `keep_unlabelled_codes`.
+#'   `fix_mojibake`, `removed_records`, `keep_unlabelled_codes`,
+#'   `rejoin_split_records`, `column_encoding`, `text_missing_codes`,
+#'   `labels_as_description`, `sentinel_labels`.
 #'   The `force_character`/`force_integer`/`force_bigint` fields take character
 #'   vectors of variable names and override the DuckDB storage type (VARCHAR /
 #'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
@@ -2324,6 +2696,16 @@ pumf_registry_keys <- function() {
 #'   sidecar (see [pumf_sidecar()]). `keep_unlabelled_codes` (`TRUE` or a character
 #'   vector of variables) keeps data values without a value label as a level
 #'   named by the code instead of turning them into `NA`.
+#'   `rejoin_split_records = TRUE` repairs a CSV in which a line break inside a
+#'   field has split records over two lines; `column_encoding = list(CP850 =
+#'   c(...))` decodes the named columns with a code page other than
+#'   `data_encoding`; `text_missing_codes` (numeric codes, as strings) blanks
+#'   those codes where they occur in text columns and records them in the
+#'   `"sentinels"` sidecar under the labels `sentinel_labels` gives them;
+#'   `labels_as_description = TRUE` keeps a source's sentence-long variable
+#'   labels as the `description_en`/`description_fr` columns of the metadata
+#'   and takes the short labels from `labels_supplement` (the CCRI census
+#'   samples).
 #' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
 #'   bundled-archive and documentation options.
 #' @param download_format Format bundle to download when Statistics Canada

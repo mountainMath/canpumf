@@ -27,6 +27,14 @@
 #   layout_file        — one row per entry or module that names its record
 #                        layout's command file (variable = module id, "" for a
 #                        single-table survey; value = the pattern)
+#   str_pad            — one row per padded column (value = "width/side/pad")
+#   text_missing_codes — one row per code blanked from the text columns
+#                        (variable = ""); its sentinel label is the survey-wide
+#                        convention, as for na_values
+#   rejoin_split_records, labels_as_description
+#                      — one row per entry (variable = "", value = "TRUE")
+#   column_encoding    — one row per column read in its own code page
+#                        (value = the encoding)
 enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
   rows <- list()
   add <- function(series, version, type, variable = "", value = "") {
@@ -114,6 +122,19 @@ enumerate_registry_overrides <- function(registry = canpumf:::.pumf_registry) {
       add(series, version, "keep_unlabelled_codes", "", "TRUE")
     else for (v in fx$keep_unlabelled_codes)
       add(series, version, "keep_unlabelled_codes", v)
+    for (sp in fx$str_pad)
+      for (v in sp$cols)
+        add(series, version, "str_pad", v,
+            paste(sp$width, sp$side, sp$pad, sep = "/"))
+    for (code in fx$text_missing_codes)
+      add(series, version, "text_missing_codes", "", as.character(code))
+    if (isTRUE(fx$rejoin_split_records))
+      add(series, version, "rejoin_split_records", "", "TRUE")
+    if (isTRUE(fx$labels_as_description))
+      add(series, version, "labels_as_description", "", "TRUE")
+    for (enc in names(fx$column_encoding))
+      for (v in fx$column_encoding[[enc]])
+        add(series, version, "column_encoding", v, enc)
   }
   for (entry in registry) {
     # Top-level data_fixups (for multi-module surveys this is the primary

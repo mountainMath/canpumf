@@ -255,6 +255,71 @@ test_that("parse_sas_odesi reads formats, layout and labels in both languages", 
   expect_equal(m$layout$end[m$layout$name == "FWEIGHT"], 17)
 })
 
+test_that("parse_sas_odesi: $ columns, special-missing labels and recodes (CCRI)", {
+  d  <- withr::local_tempdir()
+  en <- file.path(d, "e.sas")
+  writeLines(c(
+    "LIBNAME LIBRARY '';",
+    "PROC FORMAT LIBRARY=LIBRARY ;",
+    "  Value  V37_F",
+    "    1='Male'",
+    "    2='Female'",
+    "    .D='Blank'",
+    "    .E='Illegible'",
+    "  ;",
+    "  Value  V40_F",
+    "    .D='Blank'",
+    "  ;",
+    "RUN;",
+    "DATA  OUT.ccri;",
+    " INFILE 'ccri.txt' LRECL = 40;",
+    " INPUT",
+    "  DWELLING_ID $ 1-5  LAST_NAME $ 6-25  SEX 26-33  AGE_AMOUNT 34-42",
+    ";",
+    "  FORMAT  SEX V37_F. ;",
+    "  FORMAT  AGE_AMOUNT V40_F. ;",
+    "  IF  SEX = 99999001  THEN  SEX = .D ;",
+    "  IF  SEX = 99999003  THEN  SEX = .E ;",
+    "  IF  AGE_AMOUNT = 99999001  THEN  AGE_AMOUNT = .D ;",
+    "  IF  AGE_AMOUNT = 99999009  THEN  AGE_AMOUNT = .Z ;",
+    "  LABEL",
+    "    DWELLING_ID='Dwelling ID'",
+    "    LAST_NAME='Last name'",
+    "    SEX='Sex'",
+    "    AGE_AMOUNT='Age amount'",
+    "  ;",
+    "RUN;"), en)
+  m <- parse_sas_odesi(en, encoding = "UTF-8")
+  v <- m$variables
+  expect_equal(v$type[match(c("DWELLING_ID", "LAST_NAME", "SEX", "AGE_AMOUNT"), v$name)],
+               c("character", "character", "character", "numeric"))
+  # the recodes become code rows under the data value...
+  sex <- m$codes[m$codes$name == "SEX", ]
+  expect_equal(sex$val, c("1", "2", "99999001", "99999003"))
+  expect_equal(sex$label_en, c("Male", "Female", "Blank", "Illegible"))
+  # ...and span the missing range; an unlabelled target still extends it
+  expect_equal(unname(unlist(v[v$name == "SEX", c("missing_low", "missing_high")])),
+               c(99999001, 99999003))
+  expect_equal(unname(unlist(v[v$name == "AGE_AMOUNT", c("missing_low", "missing_high")])),
+               c(99999001, 99999009))
+  expect_equal(m$codes$val[m$codes$name == "AGE_AMOUNT"], "99999001")
+  expect_false("LAST_NAME" %in% m$codes$name)
+  expect_equal(m$layout$end[m$layout$name == "LAST_NAME"], 25)
+})
+
+test_that("detect_formats: an ODESI SAS program is a source of last resort", {
+  d <- withr::local_tempdir()
+  writeLines(.odesi_sas(c("Employed", "Unemployed", "Record")),
+             file.path(d, "ccri_1911.sas"))
+  f <- detect_formats(d)
+  expect_equal(basename(f$sas_odesi), "ccri_1911.sas")
+  # a StatCan Census program (no V<n>_F formats) is not mistaken for one
+  writeLines(c("PROC FORMAT;", "  Value  SEXF", "    1='Male'", "  ;",
+               "DATA x; INPUT SEX 1-1; FORMAT SEX SEXF.; RUN;"),
+             file.path(d, "ccri_1911.sas"))
+  expect_null(detect_formats(d)$sas_odesi)
+})
+
 test_that("LFS_HIST MARSTAT uses the four-category labels until 1999-10", {
   old <- .lfs_hist_codes_for("1988-01")
   new <- .lfs_hist_codes_for("1999-11")

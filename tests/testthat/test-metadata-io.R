@@ -35,9 +35,44 @@ test_that("full bilingual round-trip (variables, codes, layout)", {
   expect_setequal(sort(dir(mdir)), c("codes.csv", "layout.csv", "variables.csv"))
 
   back <- canpumf:::read_metadata(mdir)
-  expect_identical(back$variables, meta$variables)
+  # the optional description columns are not written when empty but are
+  # always present after a read
+  expect_identical(back$variables[names(meta$variables)], meta$variables)
+  expect_true(all(is.na(back$variables$description_en)))
+  expect_true(all(is.na(back$variables$description_fr)))
   expect_identical(back$codes,     meta$codes)
   expect_identical(back$layout,    meta$layout)
+})
+
+test_that("round-trip keeps the description columns when they carry text", {
+  meta <- mk_meta()
+  meta$variables$description_en <- c("Labour force status of the respondent in the reference week.", NA, NA)
+  meta$variables$description_fr <- NA_character_
+  mdir <- withr::local_tempdir()
+  canpumf:::write_metadata(meta, mdir)
+  hdr <- names(readr::read_csv(file.path(mdir, "variables.csv"), n_max = 0,
+                               show_col_types = FALSE))
+  expect_true(all(c("description_en", "description_fr") %in% hdr))   # as a pair
+  back <- canpumf:::read_metadata(mdir)
+  expect_identical(back$variables$description_en, meta$variables$description_en)
+  expect_true(all(is.na(back$variables$description_fr)))
+})
+
+test_that(".pumf_labels_as_description moves labels and repairs lost punctuation", {
+  meta <- mk_meta(with_french = FALSE)
+  meta$variables$label_en <- c(
+    "The individual?s labour force status (UU) ? Undefined Unit",
+    "Age as entered on the ?schedule? by the enumerator. What? Yes.",
+    "Province")
+  out <- canpumf:::.pumf_labels_as_description(meta)
+  expect_true(all(is.na(out$variables$label_en)))
+  expect_true(all(is.na(out$variables$label_fr)))
+  expect_equal(out$variables$description_en, c(
+    "The individual's labour force status (UU) \u2013 Undefined Unit",
+    "Age as entered on the \"schedule\" by the enumerator. What? Yes.",
+    "Province"))
+  expect_true(all(is.na(out$variables$description_fr)))
+  expect_identical(out$codes, meta$codes)
 })
 
 test_that("round-trip without layout returns NULL layout", {
@@ -47,7 +82,7 @@ test_that("round-trip without layout returns NULL layout", {
 
   back <- canpumf:::read_metadata(mdir)
   expect_null(back$layout)
-  expect_identical(back$variables, meta$variables)
+  expect_identical(back$variables[names(meta$variables)], meta$variables)
   expect_identical(back$codes,     meta$codes)
 })
 
