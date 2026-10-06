@@ -27,11 +27,18 @@
 
 BOREALIS_SERVER <- "https://borealisdata.ca"
 
-# Dataverse subtrees holding StatCan PUMFs.  Everything under "pumfs" is a
-# PUMF; the "census" dataverse also holds aggregate products, so only titles
-# that name a PUMF/FMGD are kept from it.
-.borealis_subtrees <- c("pumfs", "census")
+# Dataverse subtrees holding census and survey microdata.  Everything under
+# "pumfs" is a PUMF.  The "census" dataverse also holds aggregate products
+# (profiles, GIS layers, tables), so a dataset is kept from it only when its
+# title names a PUMF/FMGD or it ships an SPSS data file, which the historical
+# samples StatCan never published do (the ODESI 1871-1901 census samples and
+# the CCRI 1911 sample, titled "Census of Population, 1911 [Canada]").
+# "TCPCensusData" is The Canadian Peoples project's complete-count censuses
+# 1871-1921; only the datasets whose data file is open are listed (1881, the
+# others are restricted and cannot be tested).
+.borealis_subtrees <- c("pumfs", "census", "TCPCensusData")
 .borealis_census_pumf_rx <- "(?i)(PUMF|FMGD|microdata|microdonn)"
+.borealis_microdata_file_fq <- "fileType:\"SPSS Binary\""
 
 .borealis_manifest_file <- "borealis_manifest.csv"
 
@@ -101,7 +108,7 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 
 # Year and language heuristics from a dataset title.
 .borealis_title_year <- function(title) {
-  y <- stringr::str_extract(title, "(?<![0-9])(19|20)[0-9]{2}(?![0-9])")
+  y <- stringr::str_extract(title, "(?<![0-9])(1[89]|20)[0-9]{2}(?![0-9])")
   as.integer(y)
 }
 
@@ -218,6 +225,51 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
                        integer(1L)))
 }
 
+# The files of a subtree, one row per file: `doi` of the dataset, `name`,
+# `file_type` (Dataverse's friendly type), `restricted` and `size`.  `fq`
+# is a Solr filter on the file fields; the SPSS filter above narrows the
+# ~8000 files of "census" to the 60-odd microdata deposits, so the listing
+# fits in one page.  Pages of 1000 are fetched sequentially (a few at most).
+.borealis_subtree_files <- function(subtree, fq = NULL, per_page = 1000L) {
+  query <- function(start) {
+    q <- list(q = "*", type = "file", subtree = subtree, sort = "name",
+              order = "asc", per_page = per_page, start = start)
+    if (!is.null(fq)) q$fq <- fq
+    q
+  }
+  first <- .borealis_api("/api/search", query(0L))
+  total <- as.integer(first$total_count)
+  pages <- list(first)
+  for (st in if (total > per_page) seq(per_page, total - 1L, by = per_page) else integer())
+    pages <- c(pages, list(.borealis_api("/api/search", query(st))))
+  items <- unlist(lapply(pages, `[[`, "items"), recursive = FALSE)
+  chr <- function(x) if (is.null(x)) NA_character_ else as.character(x)[[1L]]
+  tibble::tibble(
+    doi        = vapply(items, function(i) chr(i$dataset_persistent_id), character(1L)),
+    name       = vapply(items, function(i) chr(i$name), character(1L)),
+    file_type  = vapply(items, function(i) chr(i$file_type), character(1L)),
+    restricted = vapply(items, function(i) isTRUE(i$restricted), logical(1L)),
+    size       = vapply(items, function(i)
+                   if (is.null(i$size_in_bytes)) NA_real_ else as.numeric(i$size_in_bytes),
+                   numeric(1L)))
+}
+
+# The datasets of the "census" subtree that are microdata: PUMF titles, plus
+# any dataset with an SPSS data file (the historical census samples).
+.borealis_census_microdata <- function(census) {
+  by_title <- grepl(.borealis_census_pumf_rx, census$title, perl = TRUE)
+  spss     <- .borealis_subtree_files("census", fq = .borealis_microdata_file_fq)
+  census[by_title | census$doi %in% spss$doi, , drop = FALSE]
+}
+
+# The TCP datasets with an open data file.  The others need a Borealis key
+# entitled to them (the ODESI deposits are all open).
+.borealis_tcp_open <- function(tcp) {
+  files <- .borealis_subtree_files("TCPCensusData")
+  data  <- files[grepl("\\.(csv|zip|txt|dat|tab)$", files$name, ignore.case = TRUE), ]
+  tcp[tcp$doi %in% data$doi[!data$restricted], , drop = FALSE]
+}
+
 # ---- Matching against the StatCan catalogue ------------------------------------
 
 # Normalise a survey title for series matching: lower case, ASCII letters and
@@ -309,10 +361,8 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 .borealis_crawl_catalogue <- function(verbose = TRUE) {
   parts <- lapply(.borealis_subtrees, .borealis_search_subtree, verbose = verbose)
   names(parts) <- .borealis_subtrees
-  if (!is.null(parts$census))
-    parts$census <- parts$census[grepl(.borealis_census_pumf_rx,
-                                       parts$census$title, perl = TRUE), ,
-                                 drop = FALSE]
+  parts$census        <- .borealis_census_microdata(parts$census)
+  parts$TCPCensusData <- .borealis_tcp_open(parts$TCPCensusData)
   out <- dplyr::bind_rows(parts)
   out <- out[!duplicated(out$doi), , drop = FALSE]
   out$year         <- .borealis_title_year(out$title)
@@ -349,10 +399,16 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 #'
 #' Lists the Statistics Canada Public Use Microdata File datasets held in the
 #' [Borealis](https://borealisdata.ca) Dataverse (the ODESI PUMF collection
-#' and the Census PUMFs). Borealis carries vintages that Statistics Canada no
-#' longer posts, such as the 1971--1986 Census PUMFs. Any dataset listed here
-#' can be loaded with `get_pumf(series, version, borealis = <doi or row>)`;
-#' see [list_borealis_pumf_files()] to inspect a dataset's files first.
+#' and the Census PUMFs), together with the census microdata Statistics Canada
+#' has never published: the historical census samples deposited by ODESI
+#' (1871, 1881, 1891, 1901 and the CCRI 1911 sample) and the open
+#' complete-count censuses of The Canadian Peoples project (dataverse
+#' `TCPCensusData`; 1881 at the time of writing, the other years are
+#' restricted and left out). Borealis also carries vintages that Statistics
+#' Canada no longer posts, such as the 1971--1986 Census PUMFs. Any dataset
+#' listed here can be loaded with
+#' `get_pumf(series, version, borealis = <doi or row>)`; see
+#' [list_borealis_pumf_files()] to inspect a dataset's files first.
 #'
 #' Where Statistics Canada also posts a dataset for direct download, the
 #' `statcan` column is `TRUE`. Prefer StatCan's copy in that case (via

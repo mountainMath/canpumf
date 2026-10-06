@@ -464,15 +464,26 @@ test_that("list_borealis_pumf_catalogue lists the Census PUMFs", {
                   canpumf_network_error = function(e) skip(conditionMessage(e)))
   expect_true(all(c("title", "year", "language", "doi", "url") %in% names(cat)))
   expect_gt(nrow(cat), 1000L)
-  # The catalogue scrapes the "pumfs" and "census" subtrees and keeps only
-  # PUMF-titled Census datasets.  TCP 1881 (dataverse TCPCensusData) and
-  # CCRI 1911 (odesi-1911census, titled "Census of Population, 1911 [Canada]")
-  # live outside that net and are reached through the registry alone.
-  keys <- grep("^Census/", .borealis_keys(), value = TRUE)
-  expect_length(keys, 14L)
+  # Every registry DOI is listed: the 14 Census PUMFs, TCP 1881 (dataverse
+  # TCPCensusData) and CCRI 1911 (odesi-1911census, titled "Census of
+  # Population, 1911 [Canada]", kept for its SPSS data file).
+  keys <- .borealis_keys()
+  expect_length(keys, 16L)
   dois <- vapply(canpumf:::.pumf_registry[keys],
                  canpumf:::.borealis_entry_doi, character(1L))
   expect_true(all(dois %in% cat$doi))
+  # The historical census samples StatCan never published (ODESI 1871, 1881
+  # East, 1891, 1901), and only the open TCP complete count (1881); the
+  # restricted TCP years are left out.
+  expect_true(all(c("doi:10.5683/SP3/RTXRZA", "doi:10.5683/SP3/IQCNSZ",
+                    "doi:10.5683/SP3/VKA5RS", "doi:10.5683/SP3/RL4ROU")
+                  %in% cat$doi))
+  tcp <- cat[cat$dataverse == "TCPCensusData", ]
+  expect_equal(tcp$year, 1881L)
+  # Aggregate census products stay out of the census dataverses.
+  census <- cat[grepl("census", cat$dataverse, ignore.case = TRUE), ]
+  expect_false(any(grepl("Population and Dwelling Counts|Profile|GIS",
+                         census$title)))
 })
 
 test_that(".borealis_pinned_role: a pinned file takes the role of its kind", {

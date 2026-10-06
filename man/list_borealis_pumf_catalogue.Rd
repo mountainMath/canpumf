@@ -31,10 +31,16 @@ A tibble with one row per dataset: `title`, `year` (the first year
 \description{
 Lists the Statistics Canada Public Use Microdata File datasets held in the
 [Borealis](https://borealisdata.ca) Dataverse (the ODESI PUMF collection
-and the Census PUMFs). Borealis carries vintages that Statistics Canada no
-longer posts, such as the 1971--1986 Census PUMFs. Any dataset listed here
-can be loaded with `get_pumf(series, version, borealis = <doi or row>)`;
-see [list_borealis_pumf_files()] to inspect a dataset's files first.
+and the Census PUMFs), together with the census microdata Statistics Canada
+has never published: the historical census samples deposited by ODESI
+(1871, 1881, 1891, 1901 and the CCRI 1911 sample) and the open
+complete-count censuses of The Canadian Peoples project (dataverse
+`TCPCensusData`; 1881 at the time of writing, the other years are
+restricted and left out). Borealis also carries vintages that Statistics
+Canada no longer posts, such as the 1971--1986 Census PUMFs. Any dataset
+listed here can be loaded with
+`get_pumf(series, version, borealis = <doi or row>)`; see
+[list_borealis_pumf_files()] to inspect a dataset's files first.
 }
 \details{
 Where Statistics Canada also posts a dataset for direct download, the

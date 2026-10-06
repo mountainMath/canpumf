@@ -76,7 +76,7 @@ The snapshot is regenerated with `tools/refresh_catalogue_snapshot.R`, and `list
 
 ## Borealis Dataverse source
 
-Code: `R/borealis.R`. [Borealis](https://borealisdata.ca) hosts the ODESI PUMF collection (the `pumfs` dataverse, plus PUMF titles in `census`). StatCan stays primary; Borealis is used when:
+Code: `R/borealis.R`. [Borealis](https://borealisdata.ca) hosts the ODESI PUMF collection (the `pumfs` dataverse, plus the PUMFs and historical census samples in `census`) and the TCP complete-count censuses (`TCPCensusData`). StatCan stays primary; Borealis is used when:
 - a registry entry carries `borealis` and StatCan has no download for it (the 14 Census 1971–1986 keys; these have no `list_canpumf_collection()` row, and `.borealis_registry_collection()` lists them), or
 - the user passes `get_pumf(series, version, borealis = <doi or catalogue row>)`. This becomes a registry override: when the version's built-in entry points at the same DOI its fixups are kept, otherwise the entry is replaced by auto-detection (combine with `registry =` to supply fixups). An already-cached version from another source is only replaced with `redownload = TRUE`.
 
@@ -85,7 +85,7 @@ Stage 1 (`pumf_locate_or_download()`) downloads via `/api/access/datafile/<id>` 
 Browsing: `list_borealis_pumf_catalogue()` (Dataverse search API, session-cached and persisted to `<cache_path>/borealis_catalogue.rds`, staleness warning like the StatCan catalogue) and `list_borealis_pumf_files(doi)`. `BOREALIS_DATAVERSE_KEY`, when set, is sent as `X-Dataverse-key` to `BOREALIS_SERVER` only.
 
 Catalogue fetch and the StatCan flag (`R/borealis.R`):
-- It is a search, not a crawl (`/api/search`, `q=*`, subtrees `pumfs` and `census`, `sort=name` for stable paging). The cost is Borealis rendering about 0.07 s per result, so pages of 100 are fetched concurrently with `curl` multi (`canpumf.borealis_parallel`, default 8). A full fetch takes about 70 s instead of about 4.5 min.
+- It is a search, not a crawl (`/api/search`, `q=*`, subtrees `pumfs`, `census` and `TCPCensusData`, `sort=name` for stable paging). Everything under `pumfs` is kept. From `census` (which also holds profiles, counts and GIS layers) `.borealis_census_microdata()` keeps a dataset whose title matches `.borealis_census_pumf_rx` or that ships an SPSS data file (one `type=file` search filtered with `.borealis_microdata_file_fq`, `fileType:"SPSS Binary"`, ~60 files in one page via `.borealis_subtree_files()`); that admits the ODESI historical census samples (1871, 1881 ×4, 1891, 1901, CCRI 1911 `MDTWGJ` and the CCRI dataverse's own `2TJGSV`). From `TCPCensusData` `.borealis_tcp_open()` keeps only the datasets whose data file is not `restricted` in the file listing (1881; the other TCP years need a project application and are deliberately not listed, since they cannot be tested). `restricted` is not a searchable Solr field, so this is the only subtree whose files are listed. The cost is Borealis rendering about 0.07 s per result, so pages of 100 are fetched concurrently with `curl` multi (`canpumf.borealis_parallel`, default 8). A full fetch takes about 70 s instead of about 4.5 min.
   - `multiplex = FALSE`: over HTTP/2 Borealis answers multiplexed streams serially.
   - Requests are submitted as slots free up, because curl's connect timeout starts at queue time.
   - Failed pages are retried sequentially through `.borealis_api()`.
