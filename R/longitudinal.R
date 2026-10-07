@@ -43,7 +43,7 @@
 #                   loaded versions (oldest first)
 #   codes(cache_path, versions)
 #                   code labels of every loaded version (pumf_dictionary())
-#   timeline        optional: how get_lfs_timeline() maps the series (see
+#   timeline        optional: how get_pumf("LFS_TIMELINE") maps the series (see
 #                   R/lfs_timeline.R)
 #
 # LFS (R/lfs_pipeline.R) and LFS_HIST (R/lfs_hist.R) are the two instances.
@@ -189,7 +189,7 @@
 }
 
 # TRUE when `table` exists in the connection's current database or, with
-# `db`, in the database attached under that alias (get_lfs_timeline()).
+# `db`, in the database attached under that alias (get_pumf("LFS_TIMELINE")).
 .duckdb_table_exists_in <- function(con, table, db = NULL) {
   if (is.null(db)) return(DBI::dbExistsTable(con, table))
   DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM duckdb_tables()

@@ -1,4 +1,4 @@
-# canpumf 0.6.1
+# canpumf 0.7.0
 
 This is an update to the version currently on CRAN (0.6.0, published
 2026-09-25).
@@ -10,7 +10,7 @@ versions handed the existing instance back. With canpumf 0.6.0 and duckdb
 1.5.6, `get_pumf()` therefore fails for a file the session holds read-write
 (`get_pumf_connection()`, `get_pumf(read_only = FALSE)`), and a write to a file
 held by a read-only table reports duckdb's error instead of the advice to
-close the table. 0.6.1 works with duckdb before and after 1.5.6. The CRAN
+close the table. 0.7.0 works with duckdb before and after 1.5.6. The CRAN
 checks of 0.6.0 are not affected, because the tests that exercise this need
 downloaded data and do not run on CRAN.
 

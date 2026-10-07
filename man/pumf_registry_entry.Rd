@@ -128,7 +128,7 @@ as a starting template.
 
 The custom registry covers parsing and building configuration, plus an
 optional Borealis source (`borealis`); it does not provide a StatCan
-download URL.  For a survey not in [list_canpumf_collection()], either point
+download URL.  For a survey not in [list_pumf_catalogue()], either point
 `borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
 files) under `<cache_path>/<series>/<version>/` first, then call
 `get_pumf(series, version, registry = ...)`.
@@ -143,5 +143,5 @@ get_pumf("NEWSURVEY", "2025", registry = entry)
 }
 }
 \seealso{
-[pumf_registry()], [get_pumf()], [list_pumf_registry()]
+[pumf_registry()], [get_pumf()]
 }

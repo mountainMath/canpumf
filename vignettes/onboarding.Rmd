@@ -83,7 +83,7 @@ file.copy("~/Downloads/2025.zip", "~/data/pumf.data/CHS/2025/")
 
 For surveys that `canpumf` knows how to download, you can skip the manual copy
 entirely and let `get_pumf()` fetch the zip (see
-`list_canpumf_collection()` / `list_pumf_registry()`). Manual deposit is for
+`list_pumf_catalogue()` / `pumf_registry()`). Manual deposit is for
 the case where the file is brand-new, EFT-only, or otherwise not yet wired into
 the collection table.
 
@@ -198,7 +198,7 @@ the starting point:
 
 ```{r template, eval = FALSE}
 pumf_registry("CHS", "2022")   # inspect a known entry
-list_pumf_registry()           # see everything that is registered
+pumf_registry()                # see everything that is registered
 ```
 
 Build a candidate configuration with `pumf_registry_entry()`. Only the fields you

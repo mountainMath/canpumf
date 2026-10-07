@@ -318,23 +318,26 @@ test_that("pumf_translate: a shared label is left alone when only one of its cod
 })
 
 
-# ---- pumf_topcodes ----------------------------------------------------------
+# ---- pumf_dictionary(what = "topcodes") -------------------------------------
 
-test_that("pumf_topcodes: a factor variable's codes are levels, not top codes", {
+test_that("pumf_dictionary topcodes: a factor variable's codes are levels, not top codes", {
   tmp <- withr::local_tempdir()
   tbl <- .fake_tbl(tmp)
   on.exit(close_pumf(tbl))
   ca <- canpumf:::.read_codes_applied(file.path(tmp, "FAKE", "2099", "metadata"))
   expect_equal(ca$applied_as[ca$name == "PROV"], c("level", "level"))
-  tc <- pumf_topcodes(tbl)
+  tc <- pumf_dictionary(tbl, what = "topcodes")
   expect_equal(nrow(tc), 0L)
-  expect_equal(names(tc), c("name", "val", "label_en", "label_fr"))
-  expect_equal(tc, pumf_topcodes("FAKE", "2099", cache_path = tmp))
-  expect_error(pumf_topcodes("FAKE", cache_path = tmp), "version")
-  expect_error(pumf_topcodes("LFS", cache_path = tmp), "longitudinal")
+  expect_equal(names(tc), names(pumf_dictionary(tbl)))
+  expect_equal(tc, pumf_dictionary("FAKE", "2099", cache_path = tmp,
+                                   what = "topcodes"))
+  expect_error(pumf_dictionary("FAKE", cache_path = tmp, what = "topcodes"),
+               "version")
+  expect_error(pumf_dictionary("LFS", cache_path = tmp, what = "topcodes"),
+               "longitudinal")
 })
 
-test_that("pumf_dictionary, pumf_topcodes: resolve the version aliases of get_pumf()", {
+test_that("pumf_dictionary: resolves the version aliases of get_pumf()", {
   tmp  <- withr::local_tempdir()
   fake <- file.path(make_e2e_version_dir(tmp), "metadata")
   # The FAKE metadata under the canonical keys an alias resolves to, with a
@@ -352,21 +355,23 @@ test_that("pumf_dictionary, pumf_topcodes: resolve the version aliases of get_pu
                pumf_dictionary("Census", "2021 (individuals)", cache_path = tmp))
   expect_equal(pumf_dictionary("GSS", "2017", cache_path = tmp),
                pumf_dictionary("GSS", "Cycle 31 (2017)", cache_path = tmp))
-  for (tc in list(pumf_topcodes("Census", "2021", cache_path = tmp),
-                  pumf_topcodes("GSS", "Cycle 31", cache_path = tmp))) {
+  for (tc in list(pumf_dictionary("Census", "2021", cache_path = tmp,
+                                  what = "topcodes"),
+                  pumf_dictionary("GSS", "Cycle 31", cache_path = tmp,
+                                  what = "topcodes"))) {
     expect_equal(tc$name, "WEIGHT")
-    expect_equal(tc$val, 75)
+    expect_equal(tc$val, "75")
   }
 })
 
-test_that("pumf_topcodes: asks for a rebuild when the side-car predates it", {
+test_that("pumf_dictionary topcodes: asks for a rebuild when the side-car predates it", {
   tmp <- withr::local_tempdir()
   tbl <- .fake_tbl(tmp)
   on.exit(close_pumf(tbl))
   f  <- file.path(tmp, "FAKE", "2099", "metadata", "codes_applied.csv")
   ca <- readr::read_csv(f, col_types = readr::cols(.default = "c"))
   readr::write_csv(ca[, c("name", "val", "label_en", "label_fr")], f)
-  expect_error(pumf_topcodes(tbl), "refresh = TRUE")
+  expect_error(pumf_dictionary(tbl, what = "topcodes"), "refresh = TRUE")
   file.remove(f)
-  expect_error(pumf_topcodes(tbl), "refresh = TRUE")
+  expect_error(pumf_dictionary(tbl, what = "topcodes"), "refresh = TRUE")
 })

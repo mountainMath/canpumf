@@ -144,7 +144,7 @@ row is needed. With `id_col = NULL` (the default):
 
 * the survey registry's `bsw_join_key` is used when one is defined (e.g.
   `PEFAMID` for the SFS); otherwise
-* the `pumf_row_id` column that every table built by canpumf 0.6.1 or later
+* the `pumf_row_id` column that every table built by canpumf 0.7.0 or later
   carries;
 * for the longitudinal series (`"LFS"`, `"LFS_HIST"`), `SURVYEAR`, `SURVMNTH`
   and `REC_NUM` together.

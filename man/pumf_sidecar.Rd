@@ -2,17 +2,15 @@
 % Please edit documentation in R/api.R
 \name{pumf_sidecar}
 \alias{pumf_sidecar}
-\alias{list_pumf_sidecars}
 \title{Sidecar tables of a PUMF: sentinel codes, removed records}
 \usage{
-pumf_sidecar(tbl, sidecar, join = FALSE)
-
-list_pumf_sidecars(tbl)
+pumf_sidecar(tbl, sidecar = NULL, join = FALSE)
 }
 \arguments{
 \item{tbl}{A lazy `dplyr::tbl()` returned by [get_pumf()].}
 
-\item{sidecar}{The sidecar's name: `"sentinels"` or `"removed"`.}
+\item{sidecar}{The sidecar's name: `"sentinels"` or `"removed"`.  `NULL`
+(the default) lists the sidecars the table has instead.}
 
 \item{join}{If `TRUE`, return `tbl` combined with the sidecar instead of
 the sidecar: for `"sentinels"` a left join on `pumf_row_id` with the
@@ -22,13 +20,13 @@ sentinel columns suffixed `_sentinel` (`INCTAX_sentinel`), for
 the columns.}
 }
 \value{
-`pumf_sidecar()`: a lazy `dplyr::tbl()` on the same connection as
-  `tbl`.  An error is raised when the table has no such sidecar; for
-  `"sentinels"` that means it was built by canpumf before 0.6.1 and needs
-  `refresh = TRUE`.
+With a `sidecar` name: a lazy `dplyr::tbl()` on the same
+  connection as `tbl`.  An error is raised when the table has no such
+  sidecar; for `"sentinels"` that means it was built by canpumf before
+  0.7.0 and needs `refresh = TRUE`.
 
-  `list_pumf_sidecars()`: a tibble with one row per sidecar the table has
-  and the columns `sidecar` (the name to pass to `pumf_sidecar()`),
+  With `sidecar = NULL`: a tibble with one row per sidecar the table has
+  and the columns `sidecar` (the name to pass as `sidecar`),
   `table` (the DuckDB table), `kind` (`"values"`: columns annotating the
   survey table's records; `"records"`: records left out of it), `n_rows`
   and `description`.
@@ -37,8 +35,9 @@ the columns.}
 Besides the survey table that [get_pumf()] returns, a database holds
 record-level tables that belong to it, each linked by the permanent
 `pumf_row_id` column (the record's 1-based position in the data file).
-`list_pumf_sidecars()` says which ones a table has, and `pumf_sidecar()`
-returns one of them as a lazy tbl, or the survey table combined with it.
+`pumf_sidecar(tbl)` says which ones a table has, and
+`pumf_sidecar(tbl, sidecar)` returns one of them as a lazy tbl, or the
+survey table combined with it.
 (Bootstrap weights are kept apart: see [add_bootstrap_weights()] and
 [bsw_info()].)
 }
@@ -61,7 +60,7 @@ returns one of them as a lazy tbl, or the survey table combined with it.
     registry's `na_values` / `missing_codes` fixups (see
     `vignette("pipeline")`).  Values the data file could not parse as
     numbers, and unlabelled values of a categorical variable, are not
-    sentinels and are not recorded.  Every table built by canpumf 0.6.1 or
+    sentinels and are not recorded.  Every table built by canpumf 0.7.0 or
     later has this sidecar.}
   \item{`"removed"`}{Records the producer of the file flags as not
     belonging to the data.  The 1881 census of The Canadian Peoples project
@@ -79,13 +78,13 @@ returns one of them as a lazy tbl, or the survey table combined with it.
 
 Sidecars are not available for the longitudinal series (`"LFS"`,
 `"LFS_HIST"`), whose shared databases are appended month by month:
-`list_pumf_sidecars()` returns no rows for them.
+`pumf_sidecar(tbl)` returns no rows for them.
 }
 
 \examples{
 \dontrun{
 census <- get_pumf("Census", "2011 (individuals)")
-list_pumf_sidecars(census)
+pumf_sidecar(census)
 
 # how many NA incomes are "Not available" vs "Not applicable"?
 pumf_sidecar(census, "sentinels") |> dplyr::count(TOTINC) |> dplyr::collect()

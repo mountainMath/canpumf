@@ -300,7 +300,7 @@
 # Both the era-free canonical dictionary and the era-specific code lists (the
 # four-category MARSTAT era), since the shared table holds them all.  With
 # `sources = TRUE` a `source` column tells them apart ("LFS_HIST" /
-# "LFS_HIST_ERA"), as recodes.csv of get_lfs_timeline() needs.
+# "LFS_HIST_ERA"), as recodes.csv of get_pumf("LFS_TIMELINE") needs.
 .lfs_hist_all_codes <- function(sources = FALSE) {
   cols <- c("name", "val", "label_en", "label_fr")
   h <- .pumf_unique_code_labels(as.data.frame(.lfs_hist_ref("codes"))[, cols])
@@ -329,7 +329,7 @@
                       int_cols = entry$data_fixups$force_integer),
     variables    = function(cache_path, versions) .lfs_hist_variables(),
     codes        = function(cache_path, versions) .lfs_hist_all_codes(),
-    # get_lfs_timeline(): the recodes.csv sources, the column of the
+    # get_pumf("LFS_TIMELINE"): the recodes.csv sources, the column of the
     # harmonisation tables holding this series' variable names, and the
     # column with the first version a harmonised variable exists from.
     timeline     = list(col = "lfs_hist", scale = NULL, from = "hist_from",

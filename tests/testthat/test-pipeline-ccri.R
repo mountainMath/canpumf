@@ -222,14 +222,14 @@ test_that("CCRI 1911: dictionary, descriptions and top codes from the cache", {
 
   tbl <- get_pumf("CCRI", "1911")
   on.exit(close_pumf(tbl), add = TRUE)
-  labs <- pumf_var_labels(tbl)
-  expect_named(labs, c("name", "label_en", "label_fr", "description_en",
-                       "description_fr"))
+  labs <- pumf_dictionary(tbl, what = "variables")
+  expect_named(labs, c("name", "val", "label_en", "label_fr", "description_en",
+                       "description_fr", "applied_as"))
   expect_equal(nrow(labs), 101L)
   expect_false(any(is.na(labs$label_en) | is.na(labs$label_fr) |
                      is.na(labs$description_en)))
 
-  top <- pumf_topcodes(tbl)
+  top <- pumf_dictionary(tbl, what = "topcodes")
   expect_setequal(unique(top$name), "IN_SCHOOL_MONTHS_AMOUNT")
 
   d <- pumf_dictionary(tbl)

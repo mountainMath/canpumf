@@ -95,7 +95,7 @@ test_that("pumf_locate_or_download: errors for unknown series/version", {
       canpumf:::pumf_locate_or_download("NOSUCHSERIES", "9999", cache_path = tmp),
       regexp = "not found in the canpumf collection"
     ),
-    # If list_canpumf_collection() fails (StatCan unreachable), skip gracefully
+    # If list_pumf_catalogue() fails (StatCan unreachable), skip gracefully
     error = function(e) skip(paste("StatCan unreachable:", conditionMessage(e)))
   )
 })
@@ -237,7 +237,7 @@ test_that("pumf_locate_or_download: skips download+extract when already done", {
   vdir <- make_fake_version_dir(tmp)
 
   # Should not attempt any network access (no mocking needed — zip exists and
-  # is extracted, so list_canpumf_collection() is never called)
+  # is extracted, so list_pumf_catalogue() is never called)
   result <- canpumf:::pumf_locate_or_download("FAKE", "2099", cache_path = tmp)
 
   expect_equal(result, vdir)

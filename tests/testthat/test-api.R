@@ -174,25 +174,26 @@ test_that(".pumf_announce_modules: lists sibling modules once per survey", {
 
 # ---- get_pumf end-to-end (uses synthetic fixture) ---------------------------
 
-test_that("get_pumf_connection: returns a DBI connection with table list message", {
+test_that("get_pumf_connection (deprecated): returns a DBI connection with table list message", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
 
-  con <- expect_message(
+  con <- expect_warning(expect_message(
     get_pumf_connection("FAKE", "2099", cache_path = tmp),
     regexp = "Available tables"
-  )
+  ), "deprecated")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   expect_true(inherits(con, "duckdb_connection"))
   expect_true(length(DBI::dbListTables(con)) > 0L)
 })
 
-test_that("get_pumf_connection: connection is read-write (can create a table)", {
+test_that("get_pumf_connection (deprecated): connection is read-write (can create a table)", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
 
-  con <- suppressMessages(get_pumf_connection("FAKE", "2099", cache_path = tmp))
+  con <- suppressWarnings(suppressMessages(
+    get_pumf_connection("FAKE", "2099", cache_path = tmp)))
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   DBI::dbWriteTable(con, "derived", data.frame(x = 1L))
@@ -356,13 +357,15 @@ test_that("close_pumf: is idempotent on already-closed connection", {
   expect_no_error(close_pumf(tbl))
 })
 
-test_that("close_pumf: closes a raw DuckDB connection (get_pumf_connection)", {
+test_that("close_pumf: closes a raw DuckDB connection", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)
 
-  # get_pumf_connection() hands back a DBIConnection, not a tbl; close_pumf()
-  # must accept it directly even though it was never registered by get_pumf().
-  con <- suppressMessages(get_pumf_connection("FAKE", "2099", cache_path = tmp))
+  # The deprecated get_pumf_connection() hands back a DBIConnection, not a
+  # tbl; close_pumf() must accept it directly even though it was never
+  # registered by get_pumf().
+  con <- suppressWarnings(suppressMessages(
+    get_pumf_connection("FAKE", "2099", cache_path = tmp)))
   expect_true(inherits(con, "DBIConnection"))
   expect_true(DBI::dbIsValid(con))
 
@@ -552,7 +555,7 @@ test_that("add_bootstrap_weights: never takes a write lock on a read-only tbl", 
 })
 
 
-# ---- pumf_sidecar / list_pumf_sidecars ---------------------------------------
+# ---- pumf_sidecar ----------------------------------------------------------
 
 # A DuckDB with a labelled main table, its sentinel sidecar and (optionally)
 # a removed-records sidecar, registered with provenance as get_pumf() would.
@@ -649,19 +652,19 @@ test_that("pumf_sidecar: a dataset that sets no records aside has no \"removed\"
 test_that("pumf_sidecar: the sidecar must be a known name", {
   t <- .sentinel_db()
   on.exit(close_pumf(t))
-  expect_error(pumf_sidecar(t, "weights"), "list_pumf_sidecars")
-  expect_error(pumf_sidecar(t), "list_pumf_sidecars")
-  expect_error(pumf_sidecar(t, c("sentinels", "removed")), "list_pumf_sidecars")
+  expect_error(pumf_sidecar(t, "weights"), "lists the ones")
+  expect_error(pumf_sidecar(t, 1), "lists the ones")
+  expect_error(pumf_sidecar(t, c("sentinels", "removed")), "lists the ones")
 })
 
 test_that("pumf_sidecar: errors on a data.frame or a tbl without provenance", {
   expect_error(pumf_sidecar(data.frame(x = 1), "sentinels"), "lazy tbl")
-  expect_error(list_pumf_sidecars(data.frame(x = 1)), "lazy tbl")
+  expect_error(pumf_sidecar(data.frame(x = 1)), "lazy tbl")
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbWriteTable(con, "t", data.frame(X = 1L))
   expect_error(pumf_sidecar(dplyr::tbl(con, "t"), "sentinels"), "provenance")
-  expect_error(list_pumf_sidecars(dplyr::tbl(con, "t")), "provenance")
+  expect_error(pumf_sidecar(dplyr::tbl(con, "t")), "provenance")
 })
 
 test_that("pumf_sidecar: refuses the longitudinal series, which list none", {
@@ -671,12 +674,12 @@ test_that("pumf_sidecar: refuses the longitudinal series, which list none", {
   .pumf_register_con(con, "LFS", "2024-01", tempdir(), "eng")
   expect_error(pumf_sidecar(dplyr::tbl(con, "lfs_eng"), "sentinels"),
                "longitudinal")
-  expect_equal(nrow(list_pumf_sidecars(dplyr::tbl(con, "lfs_eng"))), 0L)
+  expect_equal(nrow(pumf_sidecar(dplyr::tbl(con, "lfs_eng"))), 0L)
 })
 
-test_that("list_pumf_sidecars: one row per sidecar the table has", {
+test_that("pumf_sidecar(tbl): one row per sidecar the table has", {
   t <- .sentinel_db(with_removed = TRUE)
-  l <- list_pumf_sidecars(t)
+  l <- pumf_sidecar(t)
   expect_named(l, c("sidecar", "table", "kind", "n_rows", "description"))
   expect_equal(l$sidecar, c("sentinels", "removed"))
   expect_equal(l$table, c("pumf_sentinels_eng", "pumf_removed_eng"))
@@ -687,11 +690,11 @@ test_that("list_pumf_sidecars: one row per sidecar the table has", {
   close_pumf(t)
 
   t <- .sentinel_db()
-  expect_equal(list_pumf_sidecars(t)$sidecar, "sentinels")
+  expect_equal(pumf_sidecar(t)$sidecar, "sentinels")
   close_pumf(t)
   t <- .sentinel_db(with_companion = FALSE)
   on.exit(close_pumf(t))
-  expect_equal(nrow(list_pumf_sidecars(t)), 0L)
+  expect_equal(nrow(pumf_sidecar(t)), 0L)
 })
 
 test_that("pumf_sidecar: resolves the module from the tbl, not from the connection", {
@@ -728,8 +731,8 @@ test_that("pumf_sidecar: resolves the module from the tbl, not from the connecti
 
   expect_equal(.pumf_sidecar_locate(main)$table_name, "eng_main")
   expect_equal(.pumf_sidecar_locate(cg)$table_name,   "eng_cg")
-  expect_equal(list_pumf_sidecars(main)$table, "pumf_sentinels_eng_main")
-  expect_equal(list_pumf_sidecars(cg)$table,   "pumf_sentinels_eng_cg")
+  expect_equal(pumf_sidecar(main)$table, "pumf_sentinels_eng_main")
+  expect_equal(pumf_sidecar(cg)$table,   "pumf_sentinels_eng_cg")
   m <- dplyr::collect(pumf_sidecar(main, "sentinels"))
   expect_equal(names(m), c("pumf_row_id", "INC"))
   expect_equal(as.character(m$INC), "Not available")
@@ -739,9 +742,9 @@ test_that("pumf_sidecar: resolves the module from the tbl, not from the connecti
 })
 
 
-# ---- build stamp: tables built before 0.6.1 ---------------------------------
+# ---- build stamp: tables built before 0.7.0 ---------------------------------
 
-# A table with no pumf_build_info row is one built before 0.6.1.  get_pumf()
+# A table with no pumf_build_info row is one built before 0.7.0.  get_pumf()
 # says so once per session and table, through .pumf_check_build_stamp().
 test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped one", {
   t <- .sentinel_db(with_companion = FALSE)   # written without a stamp
@@ -753,7 +756,7 @@ test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped o
     spoke <- do.call(.pumf_check_build_stamp, args),
     message = function(m) { msg <<- conditionMessage(m); invokeRestart("muffleMessage") })
   expect_true(spoke)
-  expect_match(msg, "SENT 2099 \\[eng\\] was built by canpumf before 0.6.1")
+  expect_match(msg, "SENT 2099 \\[eng\\] was built by canpumf before 0.7.0")
   expect_match(msg, "codes that share a label are merged")
   expect_match(msg, "refresh = TRUE.*list_pumf_cache\\(\\).*canpumf.stale_cache_message")
   # the second time the same table is opened it is silent
@@ -763,7 +766,7 @@ test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped o
   expect_message(.pumf_check_build_stamp(con, "SENT", "2099", "fra", "fra",
                                          "/tmp/stamp-b.duckdb"),
                  "SENT 2099 \\[fra\\]")
-  # a stamped table without metadata/codes_applied.csv was built by a 0.6.1
+  # a stamped table without metadata/codes_applied.csv was built by a 0.7.0
   # development version before value labels were made unique: it speaks once
   vdir <- withr::local_tempdir()
   db3  <- file.path(vdir, "stamped.duckdb")
@@ -776,7 +779,7 @@ test_that(".pumf_check_build_stamp: speaks once per table, never for a stamped o
   rcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db3, read_only = TRUE)
   on.exit(DBI::dbDisconnect(rcon, shutdown = TRUE), add = TRUE)
   expect_message(res <- .pumf_check_build_stamp(rcon, "S", "v", "eng", "eng", db3),
-                 "S v \\[eng\\] was built by a canpumf 0.6.1 development version.*refresh = TRUE")
+                 "S v \\[eng\\] was built by a canpumf 0.7.0 development version.*refresh = TRUE")
   expect_true(res)
   # a stamped table with the side-car is silent (a fresh key: another table)
   dir.create(file.path(vdir, "metadata"))
@@ -821,18 +824,18 @@ test_that("get_pumf: a freshly built table is silent, one without a stamp is ann
   tmp <- withr::local_tempdir()
   .stamp_version_dir(tmp)
   expect_no_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
-                    message = "before 0.6.1")
+                    message = "before 0.7.0")
   db_path <- DBI::dbGetInfo(t$src$con)$dbname
   close_pumf(t)
 
-  # strip the stamp: the table now looks like a pre-0.6.1 build
+  # strip the stamp: the table now looks like a pre-0.7.0 build
   wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
   DBI::dbRemoveTable(wcon, "pumf_build_info")
   DBI::dbDisconnect(wcon, shutdown = TRUE)
   expect_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
-                 "FAKE 2099 \\[eng\\] was built by canpumf before 0.6.1")
+                 "FAKE 2099 \\[eng\\] was built by canpumf before 0.7.0")
   close_pumf(t)
   expect_no_message(t <- get_pumf("FAKE", "2099", cache_path = tmp),
-                    message = "before 0.6.1")
+                    message = "before 0.7.0")
   close_pumf(t)
 })

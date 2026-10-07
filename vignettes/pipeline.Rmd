@@ -201,7 +201,7 @@ content before any parsing begins.
    subdirectory (other than `metadata/`) or non-zip non-duckdb file is present.
    If `TRUE`, the zip step is skipped even when the zip is still on disk.
 
-4. **Download** — the URL is looked up in `list_canpumf_collection()`.  Surveys
+4. **Download** — the URL is looked up in `list_pumf_catalogue()`.  Surveys
    distributed only via Statistics Canada's EFT portal have the marker `"(EFT)"`
    instead of a URL; the function stops with instructions to deposit the zip
    manually.
@@ -487,7 +487,7 @@ not injected**: that is a registry `codes_supplement` decision.
 
 The whole step is skipped when `pdftools` is not installed, and can be turned
 off with `options(canpumf.pdf_crosscheck = FALSE)`.  Both side-car CSVs are
-exposed to users by `pumf_label_repairs()` and `pumf_freq_validation()`.
+exposed to users by `pumf_pdf_crosscheck()`.
 
 ---
 
@@ -614,7 +614,7 @@ label mapping:
   supplying *variable* labels the source metadata leaves blank (e.g. CPSS 1
   ships only a PDF codebook whose weight variable `COVID_WT` has an empty
   `Concept:` line in both languages).  Applied in both Stage 3 and
-  `label_pumf_columns()` / `pumf_var_labels()`, and fills only `NA` labels, so
+  `label_pumf_columns()` / `pumf_dictionary()`, and fills only `NA` labels, so
   genuine source labels always win.
 - **`sentinel_labels`** — labels for sentinel codes the command file does not
   label, shown in the sentinel sidecar table (see below).  Keyed by code
@@ -690,20 +690,20 @@ where the main table has a value.  The columns are `ENUM`s holding the
 sentinel's *label*: the command file's label for the code where it has one,
 otherwise the registry's `sentinel_labels`, otherwise the digits.  The
 table is always written, so an empty one means "no sentinels", and a
-missing one means the cache predates canpumf 0.6.1.  `pumf_sidecar(tbl, "sentinels")` returns it,
+missing one means the cache predates canpumf 0.7.0.  `pumf_sidecar(tbl, "sentinels")` returns it,
 and `pumf_sidecar(tbl, "sentinels", join = TRUE)` joins it onto the data.
 
 A survey whose registry entry declares `removed_records` has a second
 sidecar, `pumf_removed_<table>`: the records set aside, with the columns of
 the main table and their own `pumf_row_id` (so the key of the main table has
 gaps where they were).  `pumf_sidecar(tbl, "removed")` returns them and
-`join = TRUE` appends them to the data.  `list_pumf_sidecars(tbl)` lists the
+`join = TRUE` appends them to the data.  `pumf_sidecar(tbl)` lists the
 sidecar tables a survey has, with their row counts.
 
 Stage 3 finally stamps the table: `pumf_build_info` records, per table, the
 canpumf and duckdb versions that built it and when.  `list_pumf_cache()`
 shows the stamp in its `built_with` column, and `get_pumf()` says once per
-session when it opens a table that has none (a build from before 0.6.1),
+session when it opens a table that has none (a build from before 0.7.0),
 pointing to `refresh = TRUE`.
 
 ### Code labels → factors
@@ -769,7 +769,7 @@ user-facing workflow in full.
 ## LFS pipeline
 
 The LFS is handled by `lfs_get_pumf()` (delegated directly from `get_pumf()`
-without going through `get_pumf_connection()`).  Instead of one DuckDB per
+without going through `pumf_run_pipeline()`).  Instead of one DuckDB per
 version, all LFS versions share a single `<cache_path>/LFS/LFS.duckdb` with
 accumulating tables `lfs_eng` and `lfs_fra`.
 

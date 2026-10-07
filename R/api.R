@@ -66,7 +66,8 @@
 }
 
 # Drop the provenance entry of a connection, if it has one.  Connections from
-# get_pumf_connection() are never registered, so the removal is guarded.
+# the deprecated get_pumf_connection() are never registered, so the removal is
+# guarded.
 .pumf_unregister_con <- function(con) {
   key <- format(con@conn_ref)
   if (exists(key, envir = .pumf_con_registry, inherits = FALSE))
@@ -95,7 +96,8 @@
   prov
 }
 
-# The arguments get_pumf() and get_pumf_connection() validate alike.  Returns
+# The arguments get_pumf() and the deprecated get_pumf_connection() validate
+# alike.  Returns
 # nothing; every problem is an error.
 .pumf_check_call_args <- function(series, lang, refresh, redownload) {
   if (is.null(series))
@@ -130,11 +132,11 @@
 # The one version of a single-version series (`version = NULL`), from the
 # collection; an error names the versions when there are several.
 .pumf_single_version <- function(series) {
-  collection <- list_canpumf_collection()
+  collection <- .canpumf_collection()
   rows <- filter(collection, .data$Acronym == series)
   if (nrow(rows) == 0L)
     stop("Unknown series '", series,
-         "'. Check list_canpumf_collection() for available series.")
+         "'. Check list_pumf_catalogue() for available series.")
   if (nrow(rows) > 1L)
     stop("Series '", series, "' has multiple versions: ",
          paste(rows$Version, collapse = ", "),
@@ -206,9 +208,11 @@
 #' months, and its labels are harmonised across months.
 #' `refresh = "auto"` loads every available version that is not yet in the
 #' database; this is only valid for `"LFS"` and `"LFS_HIST"`.
+#' `"LFS_TIMELINE"` stacks the two into one harmonised table, 1976 onward (see
+#' [lfs_timeline]).
 #'
 #' @param series Survey series acronym, e.g. `"SFS"`, `"CHS"`, `"LFS"`,
-#'   `"Census"`, `"CPSS"`.  See [list_canpumf_collection()] for all supported
+#'   `"Census"`, `"CPSS"`.  See [list_pumf_catalogue()] for all supported
 #'   series and versions.
 #' @param version Version string (e.g. `"2019"`, `"2021 (individuals)"`,
 #'   `"2023-06"`).  For series with a single version omit or pass `NULL`.
@@ -237,12 +241,12 @@
 #'   that is.  Applied only when a build actually happens -- on an
 #'   already-imported survey it has no effect unless `refresh = TRUE` is also
 #'   passed (a message is emitted in that case).  Not supported for LFS.  For a
-#'   survey not in [list_canpumf_collection()], deposit the raw files under
+#'   survey not in [list_pumf_catalogue()], deposit the raw files under
 #'   `<cache_path>/<series>/<version>/` first (there is no download URL).
 #' @param borealis Load the data from the [Borealis](https://borealisdata.ca)
 #'   Dataverse instead of Statistics Canada: a dataset DOI (e.g.
 #'   `"doi:10.5683/SP3/LG7WKC"`) or a one-row tibble from
-#'   [list_borealis_pumf_catalogue()]. canpumf downloads the dataset's CSV data
+#'   `list_pumf_catalogue("borealis")`. canpumf downloads the dataset's CSV data
 #'   file, its command files and documentation (see
 #'   [list_borealis_pumf_files()]). Without this argument Borealis is used
 #'   automatically only for versions StatCan does not post, such as the
@@ -266,9 +270,11 @@
 #'   spammed.  Defaults to `getOption("canpumf.register_connection", TRUE)`, so
 #'   you can disable it globally with
 #'   `options(canpumf.register_connection = FALSE)`.
-#' @param ... Accepts deprecated parameter names (`pumf_series`,
-#'   `pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,
-#'   `guess_numeric`, `timeout`, `refresh_layout`) with a warning.
+#' @param ... For `"LFS_TIMELINE"`, `sources`: the series to stack (see
+#'   [lfs_timeline]).  Otherwise accepts deprecated parameter names
+#'   (`pumf_series`, `pumf_version`, `pumf_cache_path`, `layout_mask`,
+#'   `file_mask`, `guess_numeric`, `timeout`, `refresh_layout`) with a
+#'   warning.
 #'
 #' @return A lazy `dplyr::tbl()` backed by a DuckDB connection.  Data values
 #'   are pre-labeled as factors.  Call `dplyr::collect()` to materialise a
@@ -277,14 +283,14 @@
 #'   Returns `invisible(NULL)` with an informative message if the data must be
 #'   downloaded but Statistics Canada is unreachable.
 #'
-#'   A database built by canpumf before 0.6.1 carries no build stamp, no
+#'   A database built by canpumf before 0.7.0 carries no build stamp, no
 #'   `pumf_row_id` key and no sentinel companion.  `get_pumf()` says so once
 #'   per session when it opens one; rebuild with `refresh = TRUE`, or silence
 #'   the message with `options(canpumf.stale_cache_message = FALSE)`.
 #'   [list_pumf_cache()] reports the building version of every database.
 #'
-#' @seealso [label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
-#'   [close_pumf()], [list_canpumf_collection()], [list_pumf_cache()]
+#' @seealso [label_pumf_columns()], [pumf_dictionary()], [pumf_metadata()],
+#'   [close_pumf()], [list_pumf_catalogue()], [list_pumf_cache()]
 #'
 #' @examples
 #' \donttest{
@@ -322,6 +328,9 @@ get_pumf <- function(series     = NULL,
                        getOption("canpumf.register_connection", TRUE),
                      ...) {
   dots <- list(...)
+  if (identical(series, "LFS_TIMELINE"))
+    return(.get_pumf_timeline(version, lang, cache_path, refresh, redownload,
+                              read_only, registry, module, borealis, dots))
   resolved <- .api_resolve_deprecated(series, version, cache_path, dots, "get_pumf")
   series     <- resolved$series
   version    <- resolved$version
@@ -457,7 +466,7 @@ get_pumf <- function(series     = NULL,
   .pumf_register_con(tbl$src$con, series, version, cache_path, lang, module)
 
   # Say once per session when the table predates the build stamp (canpumf
-  # < 0.6.1) and so lacks pumf_row_id and the sentinel companion.
+  # < 0.7.0) and so lacks pumf_row_id and the sentinel companion.
   .pumf_check_build_stamp(tbl$src$con, series, version, lang, table_name, db_path)
 
   # When the user loaded the survey's primary module (module = NULL) and the
@@ -467,7 +476,29 @@ get_pumf <- function(series     = NULL,
   tbl
 }
 
-# On a cache hit, a table built by canpumf < 0.6.1 has no row in
+# get_pumf("LFS_TIMELINE"): the harmonised LFS_HIST + LFS view.  It has no
+# version, module or source of its own and is always read-only; `sources` is
+# its one extra argument.
+.get_pumf_timeline <- function(version, lang, cache_path, refresh, redownload,
+                               read_only, registry, module, borealis, dots) {
+  unused <- c(version = !is.null(version), module = !is.null(module),
+              registry = !is.null(registry), borealis = !is.null(borealis),
+              redownload = isTRUE(redownload),
+              read_only = !isTRUE(read_only))
+  if (any(unused))
+    stop("Argument(s) ", paste0("'", names(unused)[unused], "'",
+                                collapse = ", "),
+         " do not apply to \"LFS_TIMELINE\".", call. = FALSE)
+  other <- setdiff(names(dots), "sources")
+  if (length(other))
+    stop("Unknown argument(s) for \"LFS_TIMELINE\": ",
+         paste0("'", other, "'", collapse = ", "), ".", call. = FALSE)
+  .lfs_timeline_open(lang = lang,
+                     sources = dots$sources %||% .lfs_timeline_series,
+                     refresh = refresh, cache_path = cache_path)
+}
+
+# On a cache hit, a table built by canpumf < 0.7.0 has no row in
 # `pumf_build_info` (and no pumf_row_id key, no sentinel companion).  Its
 # values are still those the building version produced, so this is a message
 # and not a warning, shown once per session and table (.pumf_once_per_session()
@@ -481,16 +512,16 @@ get_pumf <- function(series     = NULL,
   if (isTRUE(.pumf_session_state[[key]])) return(invisible(FALSE))
   info <- tryCatch(.read_build_info(con, table_name), error = function(e) NULL)
   # A stamped table whose metadata has no codes_applied.csv was built by a
-  # 0.6.1 development version before value labels were made unique on the
+  # 0.7.0 development version before value labels were made unique on the
   # data: pumf_dictionary() then describes labels the table may not show.
   applied <- .pumf_codes_applied_path(file.path(dirname(db_path), "metadata"))
   why <- if (is.null(info)) paste0(
-      "%s %s [%s] was built by canpumf before 0.6.1: it has no pumf_row_id key ",
+      "%s %s [%s] was built by canpumf before 0.7.0: it has no pumf_row_id key ",
       "and no sentinel companion, so pumf_sidecar() is not available; codes ",
       "that share a label are merged into one level; and its values are those ",
       "of the version that built it (see NEWS for fixes since). ")
     else if (!file.exists(applied)) paste0(
-      "%s %s [%s] was built by a canpumf 0.6.1 development version before ",
+      "%s %s [%s] was built by a canpumf 0.7.0 development version before ",
       "value labels were made unique: codes sharing a label may be merged, ",
       "and pumf_dictionary() may not match the table's levels. ")
     else return(invisible(FALSE))
@@ -582,8 +613,8 @@ pumf_module <- function(tbl, module) {
 
 # The variables table (name, label_en, label_fr, type, ...) behind a
 # provenance record, as every label lookup reads it: label_pumf_columns(),
-# pumf_var_labels(), the bootstrap-weight column resolvers and the dictionary.
-# LFS_TIMELINE (get_lfs_timeline()) has its shipped reference, a longitudinal
+# the bootstrap-weight column resolvers and pumf_dictionary().
+# LFS_TIMELINE (get_pumf("LFS_TIMELINE")) has its shipped reference, a longitudinal
 # series the merged variables of its loaded versions, and any other survey its
 # module's metadata/ directory (.pumf_prov_meta()).  `meta` is that
 # directory's read_metadata() result and `versions` the loaded longitudinal
@@ -609,9 +640,9 @@ pumf_module <- function(tbl, module) {
   variables
 }
 
-# The variable labels of the derived LFS helper columns (add_lfs_SURVDATE(),
-# add_lfs_GENDER_SEX()) that `known` does not already describe, limited to
-# the names in `only` when given.
+# The variable labels of the derived LFS helper columns (add_lfs_columns())
+# that `known` does not already describe, limited to the names in `only` when
+# given.
 .pumf_derived_var_rows <- function(known, only = NULL) {
   d <- .lfs_derived_var_labels
   keep <- !d$name %in% known
@@ -662,15 +693,15 @@ pumf_module <- function(tbl, module) {
 #'
 #' The `tbl` must have been produced by [get_pumf()]; the function reads survey
 #' provenance (series, version, cache path, language) from the underlying
-#' DuckDB connection.  Use [pumf_var_labels()] to inspect the name-to-label
-#' mapping without renaming.
+#' DuckDB connection.  Use `pumf_dictionary(tbl, what = "variables")` to
+#' inspect the name-to-label mapping without renaming.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
 #'
 #' @return A lazy `dplyr::tbl()` with column names replaced by human-readable
 #'   variable labels.  Columns with no metadata label are left unchanged.
 #'
-#' @seealso [pumf_var_labels()], [get_pumf()]
+#' @seealso [pumf_dictionary()], [get_pumf()]
 #'
 #' @examples
 #' \donttest{
@@ -708,50 +739,14 @@ label_pumf_columns <- function(tbl) {
 }
 
 
-# ---- pumf_var_labels --------------------------------------------------------
-
-#' Retrieve variable labels as a tibble
-#'
-#' Returns a tibble mapping short coded column names to their bilingual
-#' human-readable variable labels.  Use this as a quick reference without
-#' renaming the table itself; to rename, use [label_pumf_columns()].
-#'
-#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#'
-#' @return A tibble with columns `name` (coded column name), `label_en`
-#'   (English label), `label_fr` (French label), `description_en` and
-#'   `description_fr` (a longer explanation of the variable where the source
-#'   documents one beside the short label, as the CCRI census samples do;
-#'   `NA` otherwise).  Rows follow survey-metadata order.
-#'
-#' @seealso [label_pumf_columns()], [get_pumf()]
-#'
-#' @examples
-#' \donttest{
-#' sfs <- get_pumf("SFS", "2019")
-#' if (!is.null(sfs)) {
-#'   pumf_var_labels(sfs)
-#'   close_pumf(sfs)
-#' }
-#' }
-#' @export
-pumf_var_labels <- function(tbl) {
-  variables <- .pumf_read_variables(tbl)
-  for (d in setdiff(.metadata_description_cols, names(variables)))
-    variables[[d]] <- rep(NA_character_, nrow(variables))
-  tibble::as_tibble(variables[, c("name", "label_en", "label_fr",
-                                  .metadata_description_cols), drop = FALSE])
-}
-
-
 # ---- close_pumf -------------------------------------------------------------
 
 #' Close the DuckDB connection backing a PUMF lazy table
 #'
 #' Disconnects the DuckDB connection associated with `x`.  `x` may be either a
 #' lazy `dplyr::tbl()` returned by [get_pumf()] (the connection embedded in the
-#' tbl is closed) or a DuckDB connection object returned by
-#' [get_pumf_connection()] (closed directly).  After calling this function the
+#' tbl is closed) or a DuckDB connection object, for instance
+#' `dbplyr::remote_con()` of such a tbl (closed directly).  After calling this function the
 #' table or connection can no longer be queried.
 #'
 #' All lazy tables and sibling modules opened from one [get_pumf()] call share a
@@ -763,13 +758,13 @@ pumf_var_labels <- function(tbl) {
 #' (the default) do not block other readers.
 #'
 #' @param x A lazy `dplyr::tbl()` returned by [get_pumf()], or a DuckDB
-#'   connection returned by [get_pumf_connection()].  `NULL` is accepted and is
+#'   connection.  `NULL` is accepted and is
 #'   a no-op, so `close_pumf()` can be called unconditionally on a [get_pumf()]
 #'   result that may be `NULL` (e.g. when Statistics Canada was unreachable).
 #'
 #' @return Invisibly `NULL`.
 #'
-#' @seealso [get_pumf()], [get_pumf_connection()]
+#' @seealso [get_pumf()]
 #'
 #' @examples
 #' \donttest{
@@ -779,9 +774,10 @@ pumf_var_labels <- function(tbl) {
 #'   close_pumf(sfs)
 #' }
 #'
-#' # Also accepts a raw connection from get_pumf_connection()
-#' con <- get_pumf_connection("SHS", "2017")
-#' if (!is.null(con)) {
+#' # Also accepts the connection itself
+#' shs <- get_pumf("SHS", "2017", read_only = FALSE)
+#' if (!is.null(shs)) {
+#'   con <- dbplyr::remote_con(shs)
 #'   DBI::dbListTables(con)
 #'   close_pumf(con)
 #' }
@@ -792,7 +788,7 @@ close_pumf <- function(x) {
   # of a get_pumf() that returned NULL because Statistics Canada was unreachable.
   if (is.null(x)) return(invisible(NULL))
   # Accept either a lazy tbl (connection lives in x$src$con) or a DuckDB/DBI
-  # connection object handed in directly (e.g. from get_pumf_connection()).
+  # connection object handed in directly (e.g. dbplyr::remote_con() of a tbl).
   con <- if (inherits(x, "DBIConnection")) x else x$src$con
   if (!is.null(con) && DBI::dbIsValid(con)) {
     # Drop the provenance entry if this connection was registered by get_pumf().
@@ -869,7 +865,7 @@ close_pumf <- function(x) {
 #'   * The survey registry `bsw_join_key` is used when available (e.g.
 #'     `"PEFAMID"` for SFS 2016-2023).
 #'   * Otherwise the `pumf_row_id` column that every table built by canpumf
-#'     0.6.1 or later carries (see [pumf_sidecar()]) is used.
+#'     0.7.0 or later carries (see [pumf_sidecar()]) is used.
 #'   * The longitudinal series (`"LFS"`, `"LFS_HIST"`) use `SURVYEAR`,
 #'     `SURVMNTH` and `REC_NUM` together.
 #' A table built by an earlier version that has none of these needs a rebuild
@@ -994,7 +990,7 @@ add_bootstrap_weights <- function(tbl,
 
   # --- Default row key --------------------------------------------------------
   # Registry key first, then the permanent pumf_row_id that Stage 3 has written
-  # since 0.6.1.  The longitudinal tables have neither: their records are
+  # since 0.7.0.  The longitudinal tables have neither: their records are
   # identified by month and record number.
   if (!id_explicit) {
     long_key <- c("SURVYEAR", "SURVMNTH", "REC_NUM")
@@ -1057,7 +1053,7 @@ add_bootstrap_weights <- function(tbl,
     if (!is.null(base)) id_col <- base$key
     if (is.null(id_col))
       stop("Table '", table_name, "' has no column that identifies its rows: ",
-           "it was built by canpumf before 0.6.1.\n",
+           "it was built by canpumf before 0.7.0.\n",
            "Rebuild it with get_pumf(..., refresh = TRUE), or name a column ",
            "with unique values in 'id_col'.", call. = FALSE)
     .bsw_generate(con, table_name, weight_col, id_col, eff_strata,
@@ -1106,7 +1102,7 @@ add_bootstrap_weights <- function(tbl,
   prov <- .pumf_tbl_prov(tbl)
   con  <- tbl$src$con
   if (identical(prov$series, "LFS_TIMELINE"))
-    stop("Bootstrap weights are not available for get_lfs_timeline(), which ",
+    stop("Bootstrap weights are not available for \"LFS_TIMELINE\", which ",
          "has no table of its own.\ncollect() the rows of interest and pass ",
          "the data frame to add_bootstrap_weights().", call. = FALSE)
 
@@ -1864,7 +1860,7 @@ remove_bootstrap_weights <- function(tbl, weight_col = NULL) {
 #'   Returns `invisible(NULL)` with an informative message if the data must be
 #'   downloaded but Statistics Canada is unreachable.
 #'
-#' @seealso [get_pumf()], [pumf_var_labels()]
+#' @seealso [get_pumf()], [pumf_dictionary()]
 #'
 #' @examples
 #' \donttest{
@@ -1923,15 +1919,16 @@ pumf_metadata <- function(series,
 }
 
 
-# ---- sidecar tables: pumf_sidecar(), list_pumf_sidecars() ---------------
+# ---- sidecar tables: pumf_sidecar() -------------------------------------------
 
 #' Sidecar tables of a PUMF: sentinel codes, removed records
 #'
 #' Besides the survey table that [get_pumf()] returns, a database holds
 #' record-level tables that belong to it, each linked by the permanent
 #' `pumf_row_id` column (the record's 1-based position in the data file).
-#' `list_pumf_sidecars()` says which ones a table has, and `pumf_sidecar()`
-#' returns one of them as a lazy tbl, or the survey table combined with it.
+#' `pumf_sidecar(tbl)` says which ones a table has, and
+#' `pumf_sidecar(tbl, sidecar)` returns one of them as a lazy tbl, or the
+#' survey table combined with it.
 #' (Bootstrap weights are kept apart: see [add_bootstrap_weights()] and
 #' [bsw_info()].)
 #'
@@ -1953,7 +1950,7 @@ pumf_metadata <- function(series,
 #'     registry's `na_values` / `missing_codes` fixups (see
 #'     `vignette("pipeline")`).  Values the data file could not parse as
 #'     numbers, and unlabelled values of a categorical variable, are not
-#'     sentinels and are not recorded.  Every table built by canpumf 0.6.1 or
+#'     sentinels and are not recorded.  Every table built by canpumf 0.7.0 or
 #'     later has this sidecar.}
 #'   \item{`"removed"`}{Records the producer of the file flags as not
 #'     belonging to the data.  The 1881 census of The Canadian Peoples project
@@ -1971,10 +1968,11 @@ pumf_metadata <- function(series,
 #'
 #' Sidecars are not available for the longitudinal series (`"LFS"`,
 #' `"LFS_HIST"`), whose shared databases are appended month by month:
-#' `list_pumf_sidecars()` returns no rows for them.
+#' `pumf_sidecar(tbl)` returns no rows for them.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @param sidecar The sidecar's name: `"sentinels"` or `"removed"`.
+#' @param sidecar The sidecar's name: `"sentinels"` or `"removed"`.  `NULL`
+#'   (the default) lists the sidecars the table has instead.
 #' @param join If `TRUE`, return `tbl` combined with the sidecar instead of
 #'   the sidecar: for `"sentinels"` a left join on `pumf_row_id` with the
 #'   sentinel columns suffixed `_sentinel` (`INCTAX_sentinel`), for
@@ -1982,13 +1980,13 @@ pumf_metadata <- function(series,
 #'   [label_pumf_columns()], and for `"removed"` before any verb that changes
 #'   the columns.
 #'
-#' @return `pumf_sidecar()`: a lazy `dplyr::tbl()` on the same connection as
-#'   `tbl`.  An error is raised when the table has no such sidecar; for
-#'   `"sentinels"` that means it was built by canpumf before 0.6.1 and needs
-#'   `refresh = TRUE`.
+#' @return With a `sidecar` name: a lazy `dplyr::tbl()` on the same
+#'   connection as `tbl`.  An error is raised when the table has no such
+#'   sidecar; for `"sentinels"` that means it was built by canpumf before
+#'   0.7.0 and needs `refresh = TRUE`.
 #'
-#'   `list_pumf_sidecars()`: a tibble with one row per sidecar the table has
-#'   and the columns `sidecar` (the name to pass to `pumf_sidecar()`),
+#'   With `sidecar = NULL`: a tibble with one row per sidecar the table has
+#'   and the columns `sidecar` (the name to pass as `sidecar`),
 #'   `table` (the DuckDB table), `kind` (`"values"`: columns annotating the
 #'   survey table's records; `"records"`: records left out of it), `n_rows`
 #'   and `description`.
@@ -1996,7 +1994,7 @@ pumf_metadata <- function(series,
 #' @examples
 #' \dontrun{
 #' census <- get_pumf("Census", "2011 (individuals)")
-#' list_pumf_sidecars(census)
+#' pumf_sidecar(census)
 #'
 #' # how many NA incomes are "Not available" vs "Not applicable"?
 #' pumf_sidecar(census, "sentinels") |> dplyr::count(TOTINC) |> dplyr::collect()
@@ -2012,13 +2010,14 @@ pumf_metadata <- function(series,
 #' pumf_sidecar(tcp, "removed") |> dplyr::count(REMOVE_WHY_TCP)
 #' }
 #' @export
-pumf_sidecar <- function(tbl, sidecar, join = FALSE) {
+pumf_sidecar <- function(tbl, sidecar = NULL, join = FALSE) {
   loc <- .pumf_sidecar_locate(tbl)
-  if (missing(sidecar) || !is.character(sidecar) || length(sidecar) != 1L ||
+  if (is.null(sidecar)) return(.pumf_sidecar_list(loc))
+  if (!is.character(sidecar) || length(sidecar) != 1L ||
       !sidecar %in% names(.pumf_sidecars))
     stop("'sidecar' must be one of ",
          paste0('"', names(.pumf_sidecars), '"', collapse = ", "),
-         "; see list_pumf_sidecars().", call. = FALSE)
+         "; pumf_sidecar(tbl) lists the ones a table has.", call. = FALSE)
   if (.is_longitudinal(loc$prov$series))
     stop("pumf_sidecar() is not available for the longitudinal series (",
          loc$prov$series, ").", call. = FALSE)
@@ -2043,10 +2042,8 @@ pumf_sidecar <- function(tbl, sidecar, join = FALSE) {
   dplyr::union_all(tbl, dplyr::select(side, dplyr::all_of(colnames(tbl))))
 }
 
-#' @rdname pumf_sidecar
-#' @export
-list_pumf_sidecars <- function(tbl) {
-  loc <- .pumf_sidecar_locate(tbl)
+# The listing pumf_sidecar(tbl) returns: one row per sidecar table present.
+.pumf_sidecar_list <- function(loc) {
   out <- tibble::tibble(sidecar = character(0L), table = character(0L),
                         kind = character(0L), n_rows = numeric(0L),
                         description = character(0L))

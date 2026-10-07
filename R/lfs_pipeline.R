@@ -144,7 +144,7 @@
     annual_files = TRUE,
     example      = "2024",
     validate     = .lfs_version_type,
-    available    = function() list_available_lfs_pumf_versions()$version,
+    available    = function() .lfs_pumf_versions()$version,
     prepare      = function(version, cache_path, refresh, redownload) {
       version_dir <- pumf_locate_or_download("LFS", version,
                                              cache_path = cache_path,
@@ -161,7 +161,7 @@
       .lfs_merged_metadata(cache_path, versions, "variables"),
     codes        = function(cache_path, versions)
       .lfs_merged_metadata(cache_path, versions, "codes"),
-    # get_lfs_timeline(): the recodes.csv source and the column of the
+    # get_pumf("LFS_TIMELINE"): the recodes.csv source and the column of the
     # harmonisation tables holding this series' variable names and scale.
     timeline     = list(col = "lfs", scale = "lfs_scale", from = NULL))
 }

@@ -244,7 +244,7 @@ pumf_locate_or_download <- function(series,
         # Check if the bundle year has a download URL (most EFT years do not).
         bundle_year <- sub("/.*", "", version)
         src_row <- tryCatch(
-          filter(list_canpumf_collection(),
+          filter(.canpumf_collection(),
                  .data$Acronym == series, .data$Version == bundle_year),
           error = function(e) tibble::tibble()
         )
@@ -325,9 +325,9 @@ pumf_locate_or_download <- function(series,
         if (is.null(bor_doi) && is.null(url))
           stop(series, " version '", version, "' was not found in the canpumf ",
                "collection. Check available versions with ",
-               "list_canpumf_collection(), or load a Borealis copy with ",
+               "list_pumf_catalogue(), or load a Borealis copy with ",
                "get_pumf(..., borealis = <doi>) (see ",
-               "list_borealis_pumf_catalogue()).")
+               "list_pumf_catalogue(\"borealis\")).")
         if (is.null(bor_doi))
           stop(series, " ", version, " is distributed via Statistics Canada's ",
                "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",
@@ -850,7 +850,7 @@ pumf_locate_or_download <- function(series,
 # Stage 3 records, per table it writes, which canpumf version built it and
 # when, in the small table `pumf_build_info` (columns `table`,
 # `canpumf_version`, `duckdb_version`, `built`).  A table without a row there
-# was built before the stamp existed (canpumf < 0.6.1), and so also lacks the
+# was built before the stamp existed (canpumf < 0.7.0), and so also lacks the
 # pumf_row_id key and the sentinel companion.  get_pumf() says so once per
 # session (.pumf_check_build_stamp()), and list_pumf_cache() reports the
 # version in its `built_with` column.  The longitudinal series keep their own
@@ -1128,7 +1128,8 @@ pumf_locate_or_download <- function(series,
 #   "level"    the code is a level of the variable's factor (ENUM) column;
 #   "value"    the variable is numeric and the code stays a number in the
 #              table: a top code ("75 and more"), a bottom code or another
-#              boundary label ("None" on 0).  pumf_topcodes() lists these;
+#              boundary label ("None" on 0).  pumf_dictionary(what =
+#              "topcodes") lists these;
 #   "sentinel" the code becomes NA in the table and is labelled in the
 #              sentinel companion.
 # NA for a variable the table does not hold, or a code that is not a number
@@ -2263,7 +2264,7 @@ pumf_build_duckdb <- function(version_dir,
     # The sentinel companion: one row per record in which at least one value
     # was a sentinel, one ENUM column per such variable holding the sentinel's
     # label.  It is always written, so an empty table means "no sentinels", and
-    # a missing one means a cache built before 0.6.1.
+    # a missing one means a cache built before 0.7.0.
     .pumf_write_keyed(con, sent_table, sent_df)
     sent_factor <- names(sent_df)[vapply(sent_df, is.factor, logical(1L))]
     if (length(sent_factor) > 0L)

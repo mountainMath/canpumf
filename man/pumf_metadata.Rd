@@ -65,5 +65,5 @@ if (!is.null(meta)) {
 }
 }
 \seealso{
-[get_pumf()], [pumf_var_labels()]
+[get_pumf()], [pumf_dictionary()]
 }

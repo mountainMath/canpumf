@@ -2,27 +2,37 @@
 % Please edit documentation in R/registry.R
 \name{pumf_registry}
 \alias{pumf_registry}
-\title{Inspect a survey's registry configuration}
+\title{Inspect the registry configuration}
 \usage{
-pumf_registry(series, version)
+pumf_registry(series = NULL, version = NULL)
 }
 \arguments{
-\item{series}{Survey series acronym, e.g. `"SFS"`.}
+\item{series}{Survey series acronym, e.g. `"SFS"`.  `NULL` (default) with
+no `version` gives the overview of every registered series.}
 
-\item{version}{Version string, e.g. `"2019"`.}
+\item{version}{Version string, e.g. `"2019"`.  `NULL` (default) gives the
+overview of the registered versions of `series`.}
 }
 \value{
-A classed `"pumf_registry_entry"` list of all configuration fields.
+With a `version`: a classed `"pumf_registry_entry"` list of all
+  configuration fields.  Without: a tibble with one row per registered
+  `(series, version)` and columns summarising the key configuration:
+  `file_mask`, `layout_mask`, `bsw_join_key`, and `data_fixups`
+  (comma-separated fixup types present).
 }
 \description{
-Returns the resolved configuration entry for a `(series, version)` pair: the
-built-in registry entry when one exists, otherwise an all-default entry.
-Useful for understanding the parsing strategy and overrides applied to a
-survey, and as a template for [pumf_registry_entry()].
+With a `series` and `version`, returns the resolved configuration entry for
+that pair: the built-in registry entry when one exists, otherwise an
+all-default entry.  Useful for understanding the parsing strategy and
+overrides applied to a survey, and as a template for
+[pumf_registry_entry()].  Without a `version`, returns an overview of the
+built-in registry entries instead, of every series or of the one named.
 }
 \examples{
 pumf_registry("SFS", "2019")
+pumf_registry("GSS")   # every registered GSS cycle
+pumf_registry()        # the whole registry
 }
 \seealso{
-[pumf_registry_entry()], [list_pumf_registry()], [get_pumf()]
+[pumf_registry_entry()], [get_pumf()]
 }

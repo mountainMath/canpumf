@@ -397,7 +397,7 @@ test_that("every Borealis registry entry has a valid, unique DOI", {
   expect_false(anyDuplicated(dois) > 0L)
 })
 
-test_that("list_canpumf_collection rows for Borealis entries", {
+test_that("list_pumf_catalogue rows for Borealis entries", {
   rows <- canpumf:::.borealis_registry_collection()
   expect_equal(nrow(rows), 16L)
   expect_equal(sum(rows$Acronym == "Census"), 14L)
@@ -465,10 +465,10 @@ test_that("list_borealis_pumf_files classifies a live Census dataset", {
   expect_true(any(grepl("\\.sps$", files$filename[files$role == "metadata"])))
 })
 
-test_that("list_borealis_pumf_catalogue lists the Census PUMFs", {
+test_that("list_pumf_catalogue(\"borealis\") lists the Census PUMFs", {
   skip_on_cran()
   skip_if_offline("borealisdata.ca")
-  cat <- tryCatch(list_borealis_pumf_catalogue(verbose = FALSE, cache_path = NULL),
+  cat <- tryCatch(list_pumf_catalogue("borealis", verbose = FALSE, cache_path = NULL),
                   canpumf_network_error = function(e) skip(conditionMessage(e)))
   expect_true(all(c("title", "year", "language", "doi", "url") %in% names(cat)))
   expect_gt(nrow(cat), 1000L)

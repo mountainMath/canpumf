@@ -365,7 +365,7 @@ open_pumf_documentation <- function(series          = NULL,
     ") become NA; see pumf_sidecar(tbl, \"sentinels\")."),
   labels_as_description = function(v) if (isTRUE(v)) paste0(
     "  The source's variable labels are sentences; they are kept as the ",
-    "variable descriptions (pumf_var_labels())."),
+    "variable descriptions (pumf_dictionary(tbl, what = \"variables\"))."),
   labels_supplement = function(v) if (length(v) > 0L) paste0(
     "  Variable labels supplied by canpumf where the source metadata has none: ",
     length(v), " variable", if (length(v) != 1L) "s", ".")

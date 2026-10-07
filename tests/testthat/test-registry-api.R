@@ -1,5 +1,5 @@
-# Tests for the public registry API: pumf_registry_entry(), pumf_registry(),
-# list_pumf_registry(), the override merge in pumf_registry_lookup(), and the
+# Tests for the public registry API: pumf_registry_entry(), pumf_registry()
+# (one entry or the overview), the override merge in pumf_registry_lookup(), and the
 # get_pumf(registry=) custom-import path.
 
 # ---- pumf_registry_entry() --------------------------------------------------
@@ -27,7 +27,7 @@ test_that("pumf_registry_entry: warns on unrecognised data_fixups field", {
   )
 })
 
-# ---- pumf_registry() / list_pumf_registry() ---------------------------------
+# ---- pumf_registry() --------------------------------------------------------
 
 test_that("pumf_registry: returns full entry for a known survey", {
   e <- pumf_registry("SFS", "2019")
@@ -45,13 +45,16 @@ test_that("pumf_registry: returns default entry for an unknown survey", {
   expect_equal(e$data_encoding, "CP1252")  # pipeline default
 })
 
-test_that("list_pumf_registry: tibble overview of registered surveys", {
-  tb <- list_pumf_registry()
+test_that("pumf_registry: tibble overview of registered surveys", {
+  tb <- pumf_registry()
   expect_s3_class(tb, "tbl_df")
   expect_true(all(c("series", "version", "file_mask", "layout_mask",
                     "bsw_join_key", "data_fixups") %in% names(tb)))
   expect_gt(nrow(tb), 0L)
   expect_true("SFS" %in% tb$series)
+  gss <- pumf_registry("GSS")
+  expect_true(nrow(gss) > 0L && all(gss$series == "GSS"))
+  expect_error(pumf_registry(version = "2019"), "series")
 })
 
 # ---- override merge in pumf_registry_lookup() -------------------------------

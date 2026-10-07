@@ -53,10 +53,10 @@ The labels that come out of StatCan's command files are frequently **truncated**
 
 ```{r}
 # what the cross-check concluded about this survey's data
-table(pumf_freq_validation(chs_pumf)$status)
+table(pumf_pdf_crosscheck(chs_pumf, "validation")$status)
 
 # every divergence found, repaired or not
-pumf_label_repairs(chs_pumf) |> head()
+pumf_pdf_crosscheck(chs_pumf) |> head()
 ```
 
 Both return zero rows here — the CHS ships no user-guide appendix, so there is nothing to cross-check against. Surveys that do carry one, such as GSS Cycle 16, look very different:
@@ -64,7 +64,7 @@ Both return zero rows here — the CHS ships no user-guide appendix, so there is
 ```{r eval=FALSE}
 gss <- get_pumf("GSS", "Cycle 16 (2002)")
 
-pumf_label_repairs(gss, action = "repaired") |>
+pumf_pdf_crosscheck(gss, action = "repaired") |>
   select(name, label_command_file, label_pdf)
 #> # A tibble: 1,679 x 3
 #>   name      label_command_file                                            label_pdf

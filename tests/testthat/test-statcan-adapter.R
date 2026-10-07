@@ -1,5 +1,5 @@
 # Offline tests for the catalogue adapter that maps the StatCan crawl frame
-# (list_statcan_pumf_catalogue()) onto the curated-collection contract.
+# (list_pumf_catalogue("statcan")) onto the curated-collection contract.
 # These use synthetic input -- no network.
 
 # A small synthetic crawl frame covering the cases the adapter must handle:

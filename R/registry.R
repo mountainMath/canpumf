@@ -2431,7 +2431,7 @@ pumf_registry_keys <- function() {
 }
 
 # The "series/version" keys whose entry downloads from Borealis (a `borealis`
-# field).  They are listed by list_canpumf_collection() and never inherited
+# field).  They are listed by list_pumf_catalogue() and never inherited
 # from by .pumf_registry_newest_sibling().
 .pumf_registry_borealis_keys <- function() {
   names(.pumf_registry)[!vapply(.pumf_registry, function(e) is.null(e$borealis),
@@ -2566,7 +2566,7 @@ pumf_registry_keys <- function() {
 #'
 #' The custom registry covers parsing and building configuration, plus an
 #' optional Borealis source (`borealis`); it does not provide a StatCan
-#' download URL.  For a survey not in [list_canpumf_collection()], either point
+#' download URL.  For a survey not in [list_pumf_catalogue()], either point
 #' `borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
 #' files) under `<cache_path>/<series>/<version>/` first, then call
 #' `get_pumf(series, version, registry = ...)`.
@@ -2646,7 +2646,7 @@ pumf_registry_keys <- function() {
 #' @return A classed `"pumf_registry_entry"` list containing only the supplied
 #'   fields.
 #'
-#' @seealso [pumf_registry()], [get_pumf()], [list_pumf_registry()]
+#' @seealso [pumf_registry()], [get_pumf()]
 #'
 #' @examples
 #' \dontrun{
@@ -2691,24 +2691,37 @@ pumf_registry_entry <- function(layout_mask       = NULL,
   structure(out, class = "pumf_registry_entry")
 }
 
-#' Inspect a survey's registry configuration
+#' Inspect the registry configuration
 #'
-#' Returns the resolved configuration entry for a `(series, version)` pair: the
-#' built-in registry entry when one exists, otherwise an all-default entry.
-#' Useful for understanding the parsing strategy and overrides applied to a
-#' survey, and as a template for [pumf_registry_entry()].
+#' With a `series` and `version`, returns the resolved configuration entry for
+#' that pair: the built-in registry entry when one exists, otherwise an
+#' all-default entry.  Useful for understanding the parsing strategy and
+#' overrides applied to a survey, and as a template for
+#' [pumf_registry_entry()].  Without a `version`, returns an overview of the
+#' built-in registry entries instead, of every series or of the one named.
 #'
-#' @param series Survey series acronym, e.g. `"SFS"`.
-#' @param version Version string, e.g. `"2019"`.
+#' @param series Survey series acronym, e.g. `"SFS"`.  `NULL` (default) with
+#'   no `version` gives the overview of every registered series.
+#' @param version Version string, e.g. `"2019"`.  `NULL` (default) gives the
+#'   overview of the registered versions of `series`.
 #'
-#' @return A classed `"pumf_registry_entry"` list of all configuration fields.
+#' @return With a `version`: a classed `"pumf_registry_entry"` list of all
+#'   configuration fields.  Without: a tibble with one row per registered
+#'   `(series, version)` and columns summarising the key configuration:
+#'   `file_mask`, `layout_mask`, `bsw_join_key`, and `data_fixups`
+#'   (comma-separated fixup types present).
 #'
-#' @seealso [pumf_registry_entry()], [list_pumf_registry()], [get_pumf()]
+#' @seealso [pumf_registry_entry()], [get_pumf()]
 #'
 #' @examples
 #' pumf_registry("SFS", "2019")
+#' pumf_registry("GSS")   # every registered GSS cycle
+#' pumf_registry()        # the whole registry
 #' @export
-pumf_registry <- function(series, version) {
+pumf_registry <- function(series = NULL, version = NULL) {
+  if (is.null(version)) return(.pumf_registry_overview(series))
+  if (is.null(series))
+    stop("'series' must be given with 'version'.", call. = FALSE)
   version <- pumf_resolve_version(series, version)
   entry   <- .pumf_registry_resolve(series, version, inherit = FALSE,
                                     override = FALSE)
@@ -2717,18 +2730,9 @@ pumf_registry <- function(series, version) {
   structure(entry, class = "pumf_registry_entry")
 }
 
-#' Overview of all built-in registry entries
-#'
-#' @return A tibble with one row per registered `(series, version)` and columns
-#'   summarising the key configuration: `file_mask`, `layout_mask`,
-#'   `bsw_join_key`, and `data_fixups` (comma-separated fixup types present).
-#'
-#' @seealso [pumf_registry()], [pumf_registry_entry()]
-#'
-#' @examples
-#' list_pumf_registry()
-#' @export
-list_pumf_registry <- function() {
+# One row per built-in registry entry (of `series` when given), summarising
+# its configuration: what pumf_registry() returns without a version.
+.pumf_registry_overview <- function(series = NULL) {
   keys <- names(.pumf_registry)
   rows <- lapply(keys, function(k) {
     e <- .pumf_registry[[k]]
@@ -2742,7 +2746,9 @@ list_pumf_registry <- function() {
         paste(names(e$data_fixups), collapse = ", ") else NA_character_
     )
   })
-  do.call(rbind, rows)
+  out <- do.call(rbind, rows)
+  if (!is.null(series)) out <- out[out$series == series, , drop = FALSE]
+  out
 }
 
 #' @export

@@ -2,7 +2,7 @@
 # (2006 onward).
 #
 # The two series stay in their own DuckDB files (separate write locks, see
-# issue #18).  get_lfs_timeline() opens an in-memory DuckDB, ATTACHes both
+# issue #18).  get_pumf("LFS_TIMELINE") opens an in-memory DuckDB, ATTACHes both
 # files READ_ONLY, and defines a view that maps each series onto a curated
 # common schema (inst/extdata/lfs_timeline/, built by
 # tools/build_lfs_timeline_reference.R):
@@ -126,12 +126,12 @@
 
 #' Harmonised Labour Force Survey timeline, 1976 onward
 #'
-#' Stacks the historical monthly LFS files (`"LFS_HIST"`, 1976 to 2005) and the
-#' current LFS files (`"LFS"`, 2006 onward) into one lazy table with a curated
-#' common set of variables, so that long time series can be pulled with a
-#' single query.
+#' `get_pumf("LFS_TIMELINE")` stacks the historical monthly LFS files
+#' (`"LFS_HIST"`, 1976 to 2005) and the current LFS files (`"LFS"`, 2006
+#' onward) into one lazy table with a curated common set of variables, so that
+#' long time series can be pulled with a single query.
 #'
-#' The two series keep their own DuckDB files. This function attaches both
+#' The two series keep their own DuckDB files. `get_pumf()` attaches both
 #' **read-only** to an in-memory DuckDB and returns a view over them, so it
 #' never blocks (and is never blocked by) other readers. By default it reads
 #' only what is already loaded. Load data first with, for example,
@@ -150,7 +150,7 @@
 #' * Recoded variables:
 #'   - `LFSSTAT`: the three unemployed categories of LFS_HIST are collapsed.
 #'   - `GENDER_SEX`: LFS_HIST `SEX` and the current `SEX`/`GENDER`, on the
-#'     `GENDER` scale, as in [add_lfs_GENDER_SEX()].
+#'     `GENDER` scale, as in [add_lfs_columns()].
 #'   - `MARSTAT`: four categories (married or common-law, single, widowed,
 #'     separated or divorced). The files before November 1999 only have these
 #'     four.
@@ -174,9 +174,11 @@
 #' not rebased). Levels can therefore jump at the seams between periods and at
 #' 2006.
 #'
-#' @param lang `"eng"` (default) or `"fra"` for the labels.
-#' @param sources The series to include, by default both.
-#' @param refresh `FALSE` (default) opens what is already loaded. `"auto"`
+#' The arguments of [get_pumf()] that apply:
+#' * `lang`: `"eng"` (default) or `"fra"` for the labels.
+#' * `sources` (passed through `...`): the series to include, by default both
+#'   (`c("LFS_HIST", "LFS")`).
+#' * `refresh`: `FALSE` (default) opens what is already loaded. `"auto"`
 #'   first calls `get_pumf(<source>, refresh = "auto")` for each series in
 #'   `sources`, which loads every available version not yet in its database
 #'   (for example a newly released LFS month), then opens the timeline. When
@@ -184,18 +186,19 @@
 #'   first call loads all of LFS_HIST (360 monthly files from Borealis) and all
 #'   LFS years from StatCan, which takes hours. If a version fails to load, the
 #'   warning says so and the timeline opens with what is there.
-#' @param cache_path Root cache directory. Defaults to
-#'   `getOption("canpumf.cache_path", tempdir())`.
+#' * `cache_path`.
 #'
-#' @return A lazy `dplyr::tbl()` over the view `lfs_timeline`. Categorical
-#'   columns are factors. [label_pumf_columns()] and [pumf_var_labels()] work on
-#'   it. Release it with [close_pumf()].
+#' `version`, `module`, `registry`, `borealis`, `redownload` and
+#' `read_only = FALSE` do not apply. The result is a lazy `dplyr::tbl()` over
+#' the view `lfs_timeline`. Categorical columns are factors.
+#' [label_pumf_columns()] and [pumf_dictionary()] work on it. Release it with
+#' [close_pumf()].
 #'
-#' @seealso [get_pumf()], [add_lfs_SURVDATE()]
+#' @seealso [get_pumf()], [add_lfs_columns()]
 #'
 #' @examples
 #' \donttest{
-#' tl <- get_lfs_timeline()
+#' tl <- get_pumf("LFS_TIMELINE")
 #' if (!is.null(tl)) {
 #'   tl |>
 #'     dplyr::filter(SURVMNTH == 6L) |>
@@ -205,12 +208,15 @@
 #'   close_pumf(tl)
 #' }
 #' }
-#' @export
-get_lfs_timeline <- function(lang = c("eng", "fra"),
-                             sources = .lfs_timeline_series,
-                             refresh = FALSE,
-                             cache_path = getOption("canpumf.cache_path",
-                                                    tempdir())) {
+#' @name lfs_timeline
+NULL
+
+# The LFS_TIMELINE view behind get_pumf("LFS_TIMELINE") (see ?lfs_timeline).
+.lfs_timeline_open <- function(lang = c("eng", "fra"),
+                               sources = .lfs_timeline_series,
+                               refresh = FALSE,
+                               cache_path = getOption("canpumf.cache_path",
+                                                      tempdir())) {
   lang    <- match.arg(lang)
   sources <- match.arg(sources, .lfs_timeline_series, several.ok = TRUE)
   if (!identical(refresh, FALSE) && !identical(refresh, "auto"))

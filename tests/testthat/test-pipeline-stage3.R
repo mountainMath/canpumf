@@ -605,16 +605,16 @@ test_that("pumf_build_duckdb: labelled missing codes of numeric variables become
 
   # codes_applied.csv records how each code was applied: the labelled values
   # that stay numbers ("value": IDX 1 "Full health", HRS 0 "None") against the
-  # sentinels, and pumf_topcodes() lists the former.
+  # sentinels, and pumf_dictionary(what = "topcodes") lists the former.
   ca <- canpumf:::.read_codes_applied(meta)
   expect_equal(ca$applied_as[ca$name == "AGE"], c("sentinel", "sentinel"))
   expect_equal(ca$applied_as[ca$name == "IDX"], c("value", "sentinel", "sentinel"))
   expect_equal(ca$applied_as[ca$name == "HRS"], c("value", "sentinel"))
-  tc <- pumf_topcodes("FAKE", "2099", cache_path = tmp)
+  tc <- pumf_dictionary("FAKE", "2099", cache_path = tmp, what = "topcodes")
   expect_s3_class(tc, "tbl_df")
-  expect_equal(names(tc), c("name", "val", "label_en", "label_fr"))
   expect_equal(tc$name, c("HRS", "IDX"))
-  expect_equal(tc$val, c(0, 1))
+  expect_equal(tc$val, c("0", "1"))
+  expect_equal(tc$applied_as, c("value", "value"))
   expect_equal(tc$label_en, c("None", "Full health"))
   expect_equal(tc$label_fr, c("Aucun", "Pleine sant\u00e9"))
 })

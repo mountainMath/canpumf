@@ -11,7 +11,7 @@
 # dictionary carries the suffixed labels).
 
 # Variable labels of derived LFS helper columns that are not in any
-# variables.csv (add_lfs_SURVDATE(), add_lfs_GENDER_SEX()).
+# variables.csv (add_lfs_columns()).
 .lfs_derived_var_labels <- data.frame(
   name     = c("SURVDATE", "GENDER_SEX"),
   label_en = c("Survey date", "Gender/sex of respondent"),
@@ -103,7 +103,7 @@
 }
 
 # The provenance record behind the (x, version, module, cache_path) arguments
-# shared by pumf_dictionary() and pumf_topcodes(): a get_pumf() tbl carries
+# of pumf_dictionary(): a get_pumf() tbl carries
 # its own; a series name needs the version (except the longitudinal series).
 .pumf_prov_from_arg <- function(x, version, module, cache_path) {
   if (is.character(x)) {
@@ -150,7 +150,7 @@
     meta     <- read_metadata(meta_dir)
     # The value labels as Stage 3 applied them (registry code rows, French
     # fallback, the code suffix where the data hold several codes of one
-    # label).  A cache built before 0.6.1 has no codes_applied.csv; its
+    # label).  A cache built before 0.7.0 has no codes_applied.csv; its
     # table shows the documented labels, so those are returned.
     codes <- .read_codes_applied(meta_dir) %||%
       as.data.frame(.pumf_unique_code_labels(
@@ -161,16 +161,33 @@
   # so the two agree), plus the derived LFS helper columns for the shared
   # series.
   variables  <- .pumf_label_source(prov, meta = meta, versions = versions)
+  for (d in setdiff(.metadata_description_cols, names(variables)))
+    variables[[d]] <- rep(NA_character_, nrow(variables))
   codes$name <- toupper(codes$name)
-  if (.is_shared_series(series))
-    variables <- rbind(variables[, c("name", "label_en", "label_fr")],
-                       .pumf_derived_var_rows(variables$name))
+  if (.is_shared_series(series)) {
+    derived <- .pumf_derived_var_rows(variables$name)
+    for (d in .metadata_description_cols)
+      derived[[d]] <- rep(NA_character_, nrow(derived))
+    variables <- rbind(variables[, c("name", "label_en", "label_fr",
+                                     .metadata_description_cols)], derived)
+  }
   vars <- data.frame(name = variables$name, val = NA_character_,
                      label_en = variables$label_en, label_fr = variables$label_fr,
-                     stringsAsFactors = FALSE)
+                     description_en = variables$description_en,
+                     description_fr = variables$description_fr,
+                     applied_as = NA_character_, stringsAsFactors = FALSE)
   cds  <- data.frame(name = codes$name, val = as.character(codes$val),
                      label_en = codes$label_en, label_fr = codes$label_fr,
+                     description_en = NA_character_,
+                     description_fr = NA_character_,
+                     applied_as = if ("applied_as" %in% names(codes))
+                       as.character(codes$applied_as) else NA_character_,
                      stringsAsFactors = FALSE)
+  if (!is.null(sent)) {
+    sent$description_en <- rep(NA_character_, nrow(sent))
+    sent$description_fr <- rep(NA_character_, nrow(sent))
+    sent$applied_as     <- rep(NA_character_, nrow(sent))
+  }
   out <- rbind(vars, cds, sent)
   # The build falls back to label_en where label_fr is missing (and to the
   # digits where neither exists), so the dictionary says what the table shows.
@@ -181,6 +198,21 @@
   out <- out[!is.na(out$label_en), , drop = FALSE]
   rownames(out) <- NULL
   tibble::as_tibble(out)
+}
+
+# The labelled values a non-longitudinal table keeps as numbers (top codes,
+# bottom codes, labelled zeros): the dictionary's value rows applied as
+# "value", which Stage 3 records in metadata/codes_applied.csv.
+.pumf_dictionary_topcodes <- function(prov, dict) {
+  codes <- .read_codes_applied(.pumf_prov_meta(prov)$meta_dir)
+  if (is.null(codes) || !"applied_as" %in% names(codes))
+    stop(prov$series, " ", prov$version, " was built by a canpumf version ",
+         "that did not record how it applied the value labels. Rebuild it ",
+         "with get_pumf(\"", prov$series, "\", \"", prov$version,
+         "\", refresh = TRUE).", call. = FALSE)
+  out <- dict[!is.na(dict$applied_as) & dict$applied_as == "value", ,
+              drop = FALSE]
+  out[order(out$name, suppressWarnings(as.numeric(out$val))), , drop = FALSE]
 }
 
 
@@ -204,8 +236,25 @@
 #' Where the source documents a label in one language only, that label is
 #' repeated in the other column, which is what the built table shows.
 #'
+#' @section Top codes:
+#' Some count, age and amount variables carry a label on one or two of their
+#' values only: the top code ("75 and more" on hours worked, "85 years and
+#' over" on age), sometimes a bottom code or a labelled zero ("None").
+#' canpumf keeps such a variable numeric, so that its unlabelled values are
+#' not lost, and drops the label from the table: a 75 is a plain 75 although
+#' it stands for 75 or more.  These are the rows with `applied_as` `"value"`,
+#' and `what = "topcodes"` returns just them, so that a mean or a range can be
+#' read with the ceiling in mind.  Sentinel codes of the same variables ("Not
+#' stated", "Don't know") have `applied_as` `"sentinel"`: they become `NA` in
+#' the table and are reported, with their labels, by [pumf_sidecar()].
+#' `applied_as` is read from `metadata/codes_applied.csv`, which the build
+#' writes; for a database built by an earlier canpumf version it is `NA`, and
+#' `what = "topcodes"` asks for a rebuild with `get_pumf(..., refresh = TRUE)`.
+#' The longitudinal series have no such variables, and `what = "topcodes"` is
+#' an error for them.
+#'
 #' @param x A lazy `dplyr::tbl()` returned by [get_pumf()] or
-#'   [get_lfs_timeline()], or a series name (`"SFS"`).
+#'   `get_pumf("LFS_TIMELINE")` ([lfs_timeline]), or a series name (`"SFS"`).
 #' @param version The version, when `x` is a series name; the aliases
 #'   [get_pumf()] accepts work here too (`"2021"` for the Census individuals
 #'   file, `"Cycle 31"` or `"2017"` for a GSS cycle).  Ignored for a tbl.
@@ -213,87 +262,56 @@
 #'   dictionary to return (default: the primary module).  A tbl carries its
 #'   module.
 #' @param cache_path Root cache directory, when `x` is a series name.
+#' @param what Which rows to return: `"all"` (default), `"variables"` (the
+#'   variable labels, one row per variable), `"values"` (the value labels) or
+#'   `"topcodes"` (the labelled values the table keeps as numbers, sorted by
+#'   variable and value; see the section below).
 #'
-#' @return A tibble with columns `name`, `val`, `label_en` and `label_fr`.
-#'   Rows with `val` `NA` are variable labels; the other rows are value labels.
-#'   A row with `name` `NA` is a value label that applies to every variable
-#'   (the registry's labels for Census sentinel codes).
+#' @return A tibble with columns `name`, `val`, `label_en`, `label_fr`,
+#'   `description_en`, `description_fr` and `applied_as`.  Rows with `val` `NA`
+#'   are variable labels; the other rows are value labels.  A row with `name`
+#'   `NA` is a value label that applies to every variable (the registry's
+#'   labels for Census sentinel codes).  `description_en` and `description_fr`
+#'   hold, on variable rows, a longer explanation of the variable where the
+#'   source documents one beside the short label (the CCRI census samples),
+#'   `NA` otherwise.  `applied_as` says, on value rows, how the build applied
+#'   the label: `"level"` of a factor column, `"value"` kept as a number (a
+#'   top code), `"sentinel"` blanked to `NA`; `NA` where that was not
+#'   recorded.
 #'
-#' @seealso [pumf_translate()], [pumf_var_labels()]
+#' @seealso [pumf_translate()], [label_pumf_columns()], [pumf_sidecar()]
 #' @examples
 #' \donttest{
 #' sfs <- get_pumf("SFS", "2019")
 #' if (!is.null(sfs)) {
 #'   d <- pumf_dictionary(sfs)
 #'   d[d$name == "PREGION", ]
+#'   pumf_dictionary(sfs, what = "variables")
 #'   close_pumf(sfs)
+#' }
+#' gss <- get_pumf("GSS", "Cycle 17 (2003)")
+#' if (!is.null(gss)) {
+#'   pumf_dictionary(gss, what = "topcodes")   # WKWEHR 75 "75 and more", ...
+#'   close_pumf(gss)
 #' }
 #' }
 #' @export
 pumf_dictionary <- function(x, version = NULL, module = NULL,
                             cache_path = getOption("canpumf.cache_path",
-                                                   tempdir())) {
-  .pumf_dictionary_from_prov(.pumf_prov_from_arg(x, version, module, cache_path))
-}
-
-
-#' Labelled values that stay numeric: top codes and other boundary labels
-#'
-#' Some count, age and amount variables carry a label on one or two of their
-#' values only: the top code ("75 and more" on hours worked, "85 years and
-#' over" on age), sometimes a bottom code or a labelled zero ("None").
-#' canpumf keeps such a variable numeric, so that its unlabelled values are
-#' not lost, and drops the label from the table: a 75 is a plain 75 although
-#' it stands for 75 or more.  `pumf_topcodes()` lists these values, so that a
-#' mean or a range can be read with the ceiling in mind.
-#'
-#' Sentinel codes of the same variables ("Not stated", "Don't know") are not
-#' listed: they become `NA` in the table and are reported, with their labels,
-#' by [pumf_sidecar()].  The list is read from `metadata/codes_applied.csv`,
-#' which the build writes; a database built by an earlier canpumf version has
-#' to be rebuilt with `get_pumf(..., refresh = TRUE)` first.  The longitudinal
-#' series (`"LFS"`, `"LFS_HIST"`) have no such variables and are not
-#' supported.
-#'
-#' @inheritParams pumf_dictionary
-#'
-#' @return A tibble with columns `name`, `val` (the numeric value as the table
-#'   holds it), `label_en` and `label_fr`, one row per labelled value the
-#'   table keeps as a number, sorted by variable and value.  Zero rows when
-#'   the survey has none.
-#'
-#' @seealso [pumf_dictionary()] for every documented code, [pumf_sidecar()]
-#'   for the codes that became `NA`.
-#' @examples
-#' \donttest{
-#' gss <- get_pumf("GSS", "Cycle 17 (2003)")
-#' if (!is.null(gss)) {
-#'   pumf_topcodes(gss)          # WKWEHR 75 "75 and more", ...
-#'   close_pumf(gss)
-#' }
-#' }
-#' @export
-pumf_topcodes <- function(x, version = NULL, module = NULL,
-                          cache_path = getOption("canpumf.cache_path",
-                                                 tempdir())) {
+                                                   tempdir()),
+                            what = c("all", "variables", "values", "topcodes")) {
+  what <- match.arg(what)
   prov <- .pumf_prov_from_arg(x, version, module, cache_path)
-  if (.is_shared_series(prov$series))
-    stop("pumf_topcodes() is not available for the longitudinal series (",
+  if (what == "topcodes" && .is_shared_series(prov$series))
+    stop("what = \"topcodes\" is not available for the longitudinal series (",
          prov$series, ").", call. = FALSE)
-  pm    <- .pumf_prov_meta(prov)
-  codes <- .read_codes_applied(pm$meta_dir)
-  if (is.null(codes) || !"applied_as" %in% names(codes))
-    stop(prov$series, " ", prov$version, " was built by a canpumf version ",
-         "that did not record how it applied the value labels. Rebuild it ",
-         "with get_pumf(\"", prov$series, "\", \"", prov$version,
-         "\", refresh = TRUE).", call. = FALSE)
-  keep <- !is.na(codes$applied_as) & codes$applied_as == "value"
-  out  <- codes[keep, c("name", "val", "label_en", "label_fr"), drop = FALSE]
-  out$name <- toupper(out$name)
-  out$val  <- suppressWarnings(as.numeric(out$val))
-  out  <- out[order(out$name, out$val), , drop = FALSE]
-  rownames(out) <- NULL
-  tibble::as_tibble(out)
+  dict <- .pumf_dictionary_from_prov(prov)
+  out  <- switch(what,
+    all       = dict,
+    variables = dict[is.na(dict$val) & !is.na(dict$name), , drop = FALSE],
+    values    = dict[!is.na(dict$val), , drop = FALSE],
+    topcodes  = .pumf_dictionary_topcodes(prov, dict))
+  out
 }
 
 

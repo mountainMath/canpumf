@@ -338,7 +338,7 @@ test_that("GSS 2002: the guide's frequencies reconcile against the data file", {
   main <- get_pumf("GSS", "Cycle 16")
   on.exit(close_pumf(main), add = TRUE)
 
-  v <- pumf_freq_validation(main)
+  v <- pumf_pdf_crosscheck(main, "validation")
   expect_gt(nrow(v), 100L)
   expect_named(v, c("block", "name", "status", "n_codes", "n_matched", "note"))
   # Every documented variable resolves to exactly one guide block.
@@ -355,7 +355,7 @@ test_that("GSS 2002: truncated labels are repaired from the guide", {
   main <- get_pumf("GSS", "Cycle 16")
   on.exit(close_pumf(main), add = TRUE)
 
-  r <- pumf_label_repairs(main)
+  r <- pumf_pdf_crosscheck(main)
   expect_gt(nrow(r), 100L)
   expect_named(r, c("kind", "name", "val", "lang", "label_command_file",
                     "label_pdf", "action", "reason", "validation"))
@@ -367,7 +367,7 @@ test_that("GSS 2002: truncated labels are repaired from the guide", {
   expect_true(all(nchar(rep$label_pdf) > nchar(rep$label_command_file)))
 
   # The delivered variable label is the guide's, not the 60-char command-file cut.
-  lab <- pumf_var_labels(main)
+  lab <- pumf_dictionary(main, what = "variables")
   expect_equal(lab$label_en[lab$name == "CG4_FR_Q100_C"],
                "Relationship of the Long Term Care Receiver to respondent - collapsed.")
 
@@ -398,7 +398,7 @@ test_that("GSS 2002: substantive divergences are flagged, not silently applied",
   main <- get_pumf("GSS", "Cycle 16")
   on.exit(close_pumf(main), add = TRUE)
 
-  flagged <- pumf_label_repairs(main, action = "flagged")
+  flagged <- pumf_pdf_crosscheck(main, action = "flagged")
   expect_gt(nrow(flagged), 0L)
 
   # The guide says "long term provider", the command file "long term receiver".
@@ -411,7 +411,7 @@ test_that("GSS 2002: substantive divergences are flagged, not silently applied",
   expect_match(q220$label_command_file, "receiver")
   expect_match(q220$label_pdf, "provider")
 
-  lab <- pumf_var_labels(main)
+  lab <- pumf_dictionary(main, what = "variables")
   expect_match(lab$label_en[lab$name == "CG4_FR_Q220"], "receiver")
 })
 
@@ -449,7 +449,7 @@ test_that("GSS 2012: every documented variable reconciles with the data", {
   tbl <- get_pumf("GSS", "Cycle 26 (2012)")
   on.exit(close_pumf(tbl), add = TRUE)
 
-  v <- pumf_freq_validation(tbl)
+  v <- pumf_pdf_crosscheck(tbl, "validation")
   expect_gt(nrow(v), 500L)
   expect_equal(sum(v$status == "mismatch"), 0L)
   expect_equal(sum(v$status == "unchecked"), 0L)

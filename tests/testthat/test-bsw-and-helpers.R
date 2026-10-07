@@ -1,5 +1,5 @@
 # Tests for add_bootstrap_weights(), remove_bootstrap_weights(), bsw_info(),
-# pumf_var_labels(), list_canpumf_collection(), list_available_lfs_pumf_versions().
+# pumf_dictionary(what = "variables"), list_pumf_catalogue() ("canpumf", "lfs").
 
 .bsw_cache <- function() getOption("canpumf.cache_path", "")
 
@@ -617,7 +617,7 @@ test_that("add_bootstrap_weights (DuckDB): pumf_row_id is the default key", {
 })
 
 test_that("add_bootstrap_weights (DuckDB): a table without a row key needs id_col", {
-  s <- .bsw_db(data.frame(ID = 101:106, wt = c(1, 2, 3, 4, 5, 6)))  # pre-0.6.1
+  s <- .bsw_db(data.frame(ID = 101:106, wt = c(1, 2, 3, 4, 5, 6)))  # pre-0.7.0
   t <- .bsw_open(s, read_only = TRUE)
   on.exit(try(close_pumf(t), silent = TRUE))
   expect_error(add_bootstrap_weights(t, weight_col = "wt", n_replicates = 3L),
@@ -932,26 +932,28 @@ test_that("remove_bootstrap_weights: errors on data.frame input", {
 
 
 # ============================================================
-# pumf_var_labels()
+# pumf_dictionary(what = "variables")
 # ============================================================
 
-test_that("pumf_var_labels: errors when tbl has no provenance", {
+test_that("pumf_dictionary variables: errors when tbl has no provenance", {
   tmp  <- withr::local_tempdir()
   con  <- DBI::dbConnect(duckdb::duckdb(), dbdir = file.path(tmp, "x.duckdb"))
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbWriteTable(con, "t", data.frame(x = 1L))
   tbl <- dplyr::tbl(con, "t")
-  expect_error(pumf_var_labels(tbl), regexp = "provenance")
+  expect_error(pumf_dictionary(tbl), regexp = "provenance")
 })
 
-test_that("pumf_var_labels: returns tibble with name/label_en/label_fr columns", {
+test_that("pumf_dictionary variables: one row per variable with its labels", {
   tmp <- withr::local_tempdir()
   .make_bsw_dir(tmp)
   tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
   on.exit(close_pumf(tbl))
 
-  vl <- pumf_var_labels(tbl)
+  vl <- pumf_dictionary(tbl, what = "variables")
   expect_s3_class(vl, "tbl_df")
+  expect_true(all(is.na(vl$val)))
+  expect_false(anyDuplicated(vl$name) > 0)
   expect_true(all(c("name", "label_en", "label_fr") %in% names(vl)))
   expect_true("WEIGHT" %in% vl$name)
   expect_equal(vl$label_en[vl$name == "WEIGHT"], "Survey weight")
@@ -959,13 +961,13 @@ test_that("pumf_var_labels: returns tibble with name/label_en/label_fr columns",
 
 
 # ============================================================
-# list_canpumf_collection() and list_available_lfs_pumf_versions()
+# list_pumf_catalogue("canpumf") and list_pumf_catalogue("lfs")
 # — require network; skip offline
 # ============================================================
 
-test_that("list_canpumf_collection: returns tibble with expected columns", {
+test_that("list_pumf_catalogue: returns tibble with expected columns", {
   # Works offline via hardcoded fallback (emits a warning when scraping fails)
-  result <- suppressWarnings(list_canpumf_collection())
+  result <- suppressWarnings(list_pumf_catalogue())
   expect_s3_class(result, "tbl_df")
   expect_true(all(c("Title", "Acronym", "Version") %in% names(result)))
   expect_gt(nrow(result), 0L)
@@ -973,13 +975,13 @@ test_that("list_canpumf_collection: returns tibble with expected columns", {
   expect_true("Census" %in% result$Acronym)
 })
 
-test_that("list_canpumf_collection: warns and returns fallback when StatCan unreachable", {
+test_that("list_pumf_catalogue: warns and returns fallback when StatCan unreachable", {
   with_mocked_bindings(
     read_html = function(...) stop("simulated network error"),
     .package  = "rvest",
     {
       expect_warning(
-        result <- list_canpumf_collection(),
+        result <- list_pumf_catalogue(),
         regexp = "unreachable"
       )
       expect_true("Census" %in% result$Acronym)
@@ -988,10 +990,10 @@ test_that("list_canpumf_collection: warns and returns fallback when StatCan unre
   )
 })
 
-test_that("list_available_lfs_pumf_versions: returns tibble with date/version/url", {
+test_that("list_pumf_catalogue(\"lfs\"): returns tibble with date/version/url", {
   skip_if_offline()
   tryCatch({
-    result <- list_available_lfs_pumf_versions()
+    result <- list_pumf_catalogue("lfs")
     expect_s3_class(result, "tbl_df")
     expect_true(all(c("Date", "version", "url") %in% names(result)))
     expect_gt(nrow(result), 0L)

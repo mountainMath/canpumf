@@ -24,6 +24,8 @@ remotes::install_github("mountainmath/canpumf")
 ## Documentation
 Please consult the [documentation and example articles](https://mountainmath.github.io/canpumf/) for further information.
 
+Version 0.7.0 consolidated the exported functions: the catalogue listings are now `list_pumf_catalogue(source)`, the LFS timeline is `get_pumf("LFS_TIMELINE")`, and the label lookups and PDF cross-check reports are `pumf_dictionary()` and `pumf_pdf_crosscheck()`. The old names still work with a deprecation warning; `NEWS.md` lists each replacement.
+
 StatCan publishes an [official guide to the Labour Force Survey](https://www150.statcan.gc.ca/n1/en/catalogue/71-543-G) for different vintages of the [LFS](https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&SDDS=3701).
 
 ## Cache path
@@ -38,7 +40,7 @@ On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connect
 options("canpumf.register_connection" = TRUE)
 ```
 
-Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its sidecar tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a sidecar table: `pumf_sidecar(tbl, "sentinels")` returns it, with one labelled column per affected variable, and `pumf_sidecar(tbl, "sentinels", join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns. `list_pumf_sidecars(tbl)` lists the sidecar tables a survey has. A variable whose only labels sit on a top code ("75 and more" hours) is kept numeric with the label dropped; `pumf_topcodes(tbl)` lists such values, so a mean or a range can be read with the ceiling in mind.
+Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its sidecar tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a sidecar table: `pumf_sidecar(tbl, "sentinels")` returns it, with one labelled column per affected variable, and `pumf_sidecar(tbl, "sentinels", join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns. `pumf_sidecar(tbl)` lists the sidecar tables a survey has. A variable whose only labels sit on a top code ("75 and more" hours) is kept numeric with the label dropped; `pumf_dictionary(tbl, what = "topcodes")` lists such values, so a mean or a range can be read with the ceiling in mind.
 
 ```r
 census <- get_pumf("Census", "2011 (individuals)")
@@ -52,7 +54,7 @@ Some PUMF data is available from StatCan via direct download and can be accessed
 PUMF data can also be loaded from the [Borealis](https://borealisdata.ca) Dataverse, which hosts the ODESI collection of Statistics Canada PUMFs. Statistics Canada stays the primary source; Borealis is used automatically for vintages StatCan does not post (the 1971–1986 Census PUMFs), and any other Borealis PUMF dataset can be loaded by its DOI:
 
 ```r
-cat <- list_borealis_pumf_catalogue()                 # browse the Borealis PUMF collection
+cat <- list_pumf_catalogue("borealis")             # browse the Borealis PUMF collection
 list_borealis_pumf_files("doi:10.5683/SP3/EZXFNL")   # inspect a dataset's files
 shs_1997 <- get_pumf("SHS", "1997", borealis = "doi:10.5683/SP3/EZXFNL")
 ```
@@ -96,11 +98,11 @@ For surveys whose user guide includes a data-dictionary appendix, `canpumf` pars
 gss <- get_pumf("GSS", "Cycle 16 (2002)")
 
 # per-variable: did the guide's frequencies reconcile with the data?
-table(pumf_freq_validation(gss)$status)
+table(pumf_pdf_crosscheck(gss, "validation")$status)
 
 # every divergence found, repaired or not
-pumf_label_repairs(gss, action = "repaired")
-pumf_label_repairs(gss, action = "flagged")
+pumf_pdf_crosscheck(gss, action = "repaired")
+pumf_pdf_crosscheck(gss, action = "flagged")
 ```
 
 `flagged` rows are divergences that were recorded but *not* acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. Nothing is repaired silently. Set `options(canpumf.pdf_crosscheck = FALSE)` to turn the whole step off.
@@ -139,10 +141,10 @@ ODESI labelled the same codes differently in different years ("Unemployed, tempo
 
 ### One LFS timeline, 1976 onward
 
-`get_lfs_timeline()` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. `get_lfs_timeline(refresh = "auto")` first loads any newly released months, so an analysis script built on it stays up to date.
+`get_pumf("LFS_TIMELINE")` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. `get_pumf("LFS_TIMELINE", refresh = "auto")` first loads any newly released months, so an analysis script built on it stays up to date.
 
 ```r
-tl <- get_lfs_timeline()
+tl <- get_pumf("LFS_TIMELINE")
 tl |>
   dplyr::filter(SURVMNTH == 6L) |>
   dplyr::summarise(employed = sum(FINALWT[LFSSTAT %in% c("Employed, at work",
@@ -209,7 +211,7 @@ The Canadian Century Research Infrastructure (CCRI) project's 5% sample of the 1
 census_1911 <- get_pumf("CCRI", "1911")
 
 # labels and descriptions
-pumf_var_labels(census_1911)
+pumf_dictionary(census_1911, what = "variables")
 
 # the enumerator's "Blank", "Illegible", ... entries are kept out of the data,
 # in the sentinel sidecar
@@ -272,7 +274,7 @@ The [**cancensus** package](https://mountainmath.github.io/cancensus/index.html)
 
 If you wish to cite the `canpumf` package in your work:
 
-  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.6.0. DOI 	10.32614/CRAN.package.canpumf
+  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.7.0. DOI 	10.32614/CRAN.package.canpumf
 
 A BibTeX entry for LaTeX users is
 ```
@@ -281,7 +283,7 @@ A BibTeX entry for LaTeX users is
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
     doi = {10.32614/CRAN.package.canpumf},
-    note = {R package version 0.6.0},
+    note = {R package version 0.7.0},
     url = {https://mountainmath.github.io/canpumf/},
   }
 ```

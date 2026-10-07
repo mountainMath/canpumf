@@ -384,66 +384,13 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 }
 
 .borealis_warn_if_stale <- function(fetched)
-  .pumf_warn_if_stale(fetched, "Borealis PUMF", "list_borealis_pumf_catalogue")
+  .pumf_warn_if_stale(fetched, "Borealis PUMF", "borealis")
 
-#' Browse the Statistics Canada PUMF collection on Borealis
-#'
-#' Lists the Statistics Canada Public Use Microdata File datasets held in the
-#' [Borealis](https://borealisdata.ca) Dataverse (the ODESI PUMF collection
-#' and the Census PUMFs), together with the census microdata Statistics Canada
-#' has never published: the historical census samples deposited by ODESI
-#' (1871, 1881, 1891, 1901 and the CCRI 1911 sample) and the open
-#' complete-count censuses of The Canadian Peoples project (dataverse
-#' `TCPCensusData`; 1881 at the time of writing, the other years are
-#' restricted and left out). Borealis also carries vintages that Statistics
-#' Canada no longer posts, such as the 1971--1986 Census PUMFs. Any dataset
-#' listed here can be loaded with
-#' `get_pumf(series, version, borealis = <doi or row>)`; see
-#' [list_borealis_pumf_files()] to inspect a dataset's files first.
-#'
-#' Where Statistics Canada also posts a dataset for direct download, the
-#' `statcan` column is `TRUE`. Prefer StatCan's copy in that case (via
-#' `get_pumf(series, version)` without `borealis =`): the Borealis files are
-#' re-deposits and can carry transcription errors. `get_pumf()` warns when an
-#' explicitly requested Borealis dataset is flagged this way. The flag is a
-#' heuristic match on catalogue number, series title, years and cycle number
-#' against [list_statcan_pumf_catalogue()], so check `statcan_title` before
-#' relying on it.
-#'
-#' The catalogue is fetched from the public Dataverse search API. There are
-#' several thousand datasets and Borealis renders them slowly, so pages are
-#' requested concurrently (`getOption("canpumf.borealis_parallel", 8)`), and a
-#' full fetch takes about a minute. The result is cached for the session and,
-#' when `canpumf.cache_path` is set, persisted to
-#' `<cache_path>/borealis_catalogue.rds`. A persisted copy older than
-#' `getOption("canpumf.catalogue_max_age_days", 30)` days triggers a warning.
-#' If Borealis is unreachable the last persisted copy is returned with a
-#' warning.
-#'
-#' @param refresh Logical, re-fetch the catalogue even when a cached copy
-#'   exists.
-#' @param verbose Logical, report paging progress.
-#' @param cache_path Directory for the persisted catalogue; defaults to
-#'   `getOption("canpumf.cache_path")`.
-#'
-#' @return A tibble with one row per dataset: `title`, `year` (the first year
-#'   in the title), `language` (`"eng"`/`"fra"`, guessed from the title),
-#'   `statcan` (logical, the dataset is also available from Statistics
-#'   Canada), `statcan_series` and `statcan_title` (the matching StatCan
-#'   catalogue entry, `NA` when none), `series` (the Borealis series name),
-#'   `doi`, `dataverse`, `file_count`, `published_at` and `url`. English and
-#'   French versions of a PUMF are separate datasets.
-#' @seealso [list_borealis_pumf_files()], [get_pumf()]
-#' @examples
-#' \donttest{
-#' # needs internet access; fails gracefully when Borealis is unreachable
-#' cat <- tryCatch(list_borealis_pumf_catalogue(), error = function(e) NULL)
-#' if (!is.null(cat)) dplyr::filter(cat, grepl("1971 Census", title))
-#' }
-#' @export
-list_borealis_pumf_catalogue <- function(refresh    = FALSE,
-                                         verbose    = TRUE,
-                                         cache_path = getOption("canpumf.cache_path")) {
+# The Borealis catalogue behind list_pumf_catalogue("borealis"), cached for
+# the session and persisted to <cache_path>/borealis_catalogue.rds.
+.borealis_pumf_catalogue <- function(refresh    = FALSE,
+                                     verbose    = TRUE,
+                                     cache_path = getOption("canpumf.cache_path")) {
   if (!refresh && !is.null(.borealis_catalogue_cache$data))
     return(.borealis_catalogue_cache$data)
 
@@ -489,7 +436,7 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
   if (!nrow(row)) return(invisible(FALSE))
   warning(doi, " (", row$title[[1L]], ") is also available directly from ",
           "Statistics Canada as \"", row$statcan_title[[1L]], "\". StatCan's ",
-          "copy is preferred; see list_canpumf_collection() for the matching ",
+          "copy is preferred; see list_pumf_catalogue() for the matching ",
           row$statcan_series[[1L]], " version.", call. = FALSE)
   invisible(TRUE)
 }
@@ -608,13 +555,13 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
 #'
 #' @param doi The dataset DOI, e.g. `"doi:10.5683/SP3/LG7WKC"` (the `doi:`
 #'   prefix, a bare `10.5683/...` or a doi.org URL all work), or a one-row
-#'   tibble from [list_borealis_pumf_catalogue()].
+#'   tibble from `list_pumf_catalogue("borealis")`.
 #'
 #' @return A tibble with one row per file: `file_id`, `filename`, `directory`,
 #'   `size` (bytes), `md5`, `content_type`, `original` (the uploaded file
 #'   behind a Dataverse `.tab` ingest), `restricted`, `role` and `selected`.
 #'   The dataset DOI and title are attached as attributes.
-#' @seealso [list_borealis_pumf_catalogue()], [get_pumf()]
+#' @seealso [list_pumf_catalogue()], [get_pumf()]
 #' @examples
 #' \donttest{
 #' tryCatch(list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC"),
@@ -629,7 +576,7 @@ list_borealis_pumf_files <- function(doi) {
 .borealis_doi_arg <- function(x) {
   if (is.data.frame(x)) {
     if (nrow(x) != 1L || !"doi" %in% names(x))
-      stop("Pass a single row of list_borealis_pumf_catalogue() (with a `doi` ",
+      stop("Pass a single row of list_pumf_catalogue(\"borealis\") (with a `doi` ",
            "column) or a DOI string.", call. = FALSE)
     x <- x$doi[[1L]]
   }

@@ -882,7 +882,7 @@ test_that("lfs_get_pumf: refresh='auto' with NULL version runs auto-refresh, not
   # Regression test: refresh='auto' must take priority over version=NULL so that
   # lfs_get_pumf(refresh="auto") actually triggers .lfs_auto_refresh, not .lfs_status.
   tmp <- withr::local_tempdir()
-  # .lfs_auto_refresh calls list_available_lfs_pumf_versions() which requires
+  # .lfs_auto_refresh calls list_pumf_catalogue("lfs") which requires
   # network; intercept by checking the error is network-related, not a status message.
   result <- tryCatch(
     canpumf:::lfs_get_pumf(version = NULL, cache_path = tmp, refresh = "auto"),

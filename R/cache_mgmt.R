@@ -17,9 +17,9 @@
 }
 
 # The canpumf version(s) that built the tables of one DuckDB file, read from
-# its `pumf_build_info` stamp: one string ("0.6.1", or "0.6.1, 0.6.2" when
+# its `pumf_build_info` stamp: one string ("0.7.0", or "0.7.0, 0.6.2" when
 # tables were built by different versions), or NA when the file has no stamp
-# (built before 0.6.1) or cannot be opened (e.g. locked by a writer).  The
+# (built before 0.7.0) or cannot be opened (e.g. locked by a writer).  The
 # connection is read-only and released without shutting the instance down, so
 # a tbl the user holds open on the same file is unaffected.
 .duckdb_built_with <- function(db_path) {
@@ -141,8 +141,8 @@
 #'     \item{`duckdb_mb`}{Disk size of the DuckDB file in MB.  For LFS this is
 #'       the total shared `LFS.duckdb` size, repeated for each version row.}
 #'     \item{`built_with`}{The canpumf version that built the DuckDB tables,
-#'       from the build stamp Stage 3 writes since 0.6.1.  `NA` when there is
-#'       no DuckDB, when it was built before 0.6.1 (no stamp: no `pumf_row_id`
+#'       from the build stamp Stage 3 writes since 0.7.0.  `NA` when there is
+#'       no DuckDB, when it was built before 0.7.0 (no stamp: no `pumf_row_id`
 #'       key and no sentinel companion, so `pumf_sidecar()` needs a rebuild
 #'       with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
 #'       and when the file is locked by a writer.  Tables built by different

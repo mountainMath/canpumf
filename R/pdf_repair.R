@@ -19,7 +19,7 @@
 #                                  └─→ metadata/label_repairs.csv (the ledger)
 #
 # Nothing is repaired silently: every divergence, repaired or not, lands in the
-# ledger, readable with pumf_label_repairs().
+# ledger, readable with pumf_pdf_crosscheck().
 
 # Statuses assigned by .pumf_validate_pdf_freqs():
 #   "validated"  every PDF code's count matches the data, and the data holds no
@@ -761,7 +761,7 @@
   n_ok  <- sum(validation$status %in% .pumf_pdf_status_ok)
   if (n_rep > 0L || n_flag > 0L)
     message(sprintf(
-      "PDF data dictionary '%s': %d/%d variables frequency-validated against the data%s; %s. See pumf_label_repairs().",
+      "PDF data dictionary '%s': %d/%d variables frequency-validated against the data%s; %s. See pumf_pdf_crosscheck().",
       basename(pdf_paths$eng), n_ok, nrow(validation),
       if (!freq_ok) sprintf(", %d/%d field positions agree", pa$agree, pa$n) else "",
       paste(c(if (n_rep)  sprintf("%d labels repaired", n_rep),
@@ -786,7 +786,7 @@
   .pumf_prov_meta(prov)$meta_dir
 }
 
-#' Inspect label repairs and divergences found against the PDF data dictionary
+#' Inspect the cross-check against the PDF data dictionary
 #'
 #' Statistics Canada's PUMF command files routinely ship truncated value and
 #' variable labels -- hard cuts at 60 characters, dropped leading text, dropped
@@ -797,11 +797,14 @@
 #' For surveys that ship such a guide, `canpumf` parses it during metadata
 #' preparation, validates it against the microdata using the per-code
 #' frequencies the guide prints, and then repairs labels the guide demonstrably
-#' extends.  This function returns the ledger of what it found: every
-#' divergence between the command file and the guide, whether or not it was
-#' acted on.
+#' extends.  `pumf_pdf_crosscheck()` returns one of the two reports of that
+#' cross-check: the ledger of label repairs (`report = "repairs"`), or the
+#' frequency validation that decides which of the guide's labels may be
+#' trusted (`report = "validation"`).
 #'
-#' `action` is one of:
+#' @section Label repairs (`report = "repairs"`):
+#' Every divergence between the command file and the guide, whether or not it
+#' was acted on.  `action` is one of:
 #' \describe{
 #'   \item{`repaired`}{The command-file label was replaced, because the guide's
 #'     text extends it *and* the command-file label carries a damage signature:
@@ -817,48 +820,13 @@
 #'     a code the command file never declared.  Read `reason` for which.}
 #' }
 #'
-#' The `validation` column carries the variable's frequency-check status
-#' (`validated`, `continuous`, `unchecked`, `mismatch`, or `not documented`), so
-#' a repair corroborated against the microdata can be told apart from one the
-#' check simply could not reach.  See [pumf_freq_validation()].
+#' The `validation` column carries the variable's frequency-check status (next
+#' section), so a repair corroborated against the microdata can be told apart
+#' from one the check simply could not reach.
 #'
-#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @param action Optional filter, e.g. `"repaired"` or `c("repaired", "filled")`.
-#'
-#' @return A tibble with columns `kind` (`"variable"`/`"code"`), `name`, `val`,
-#'   `lang`, `label_command_file`, `label_pdf`, `action`, `reason` and
-#'   `validation`.  Zero rows when the survey ships no parseable PDF dictionary
-#'   or nothing diverged.
-#'
-#' @seealso [pumf_var_labels()], [pumf_freq_validation()]
-#'
-#' @examples
-#' \donttest{
-#' gss <- get_pumf("GSS", "Cycle 16 (2002)")
-#' if (!is.null(gss)) {
-#'   pumf_label_repairs(gss, action = "repaired")
-#'   close_pumf(gss)
-#' }
-#' }
-#' @export
-pumf_label_repairs <- function(tbl, action = NULL) {
-  meta_dir <- .pumf_meta_dir_from_tbl(tbl)
-  path <- if (is.null(meta_dir)) NULL else file.path(meta_dir, "label_repairs.csv")
-  if (is.null(path) || !file.exists(path)) return(.pumf_empty_repairs())
-  out <- readr::read_csv(path, col_types = readr::cols(.default = "c"),
-                         show_col_types = FALSE)
-  if (!is.null(action)) out <- out[out$action %in% action, , drop = FALSE]
-  tibble::as_tibble(out)
-}
-
-#' Inspect the PDF-versus-microdata frequency validation
-#'
-#' Companion to [pumf_label_repairs()].  Reports, per variable, whether the
-#' frequencies printed in the survey's PDF data dictionary reconcile against a
-#' tabulation of the actual data file.  This is the evidence `canpumf` uses to
-#' decide whether a label from the guide may be trusted.
-#'
-#' `status` is one of:
+#' @section Frequency validation (`report = "validation"`):
+#' Per variable, whether the frequencies printed in the guide reconcile against
+#' a tabulation of the actual data file.  `status` is one of:
 #' \describe{
 #'   \item{`validated`}{Every documented code's count matches the data exactly,
 #'     and the data holds no undocumented values.}
@@ -883,23 +851,54 @@ pumf_label_repairs <- function(tbl, action = NULL) {
 #' empty and no label from it is used.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @return A tibble with columns `block` (the guide block the check ran on),
-#'   `name`, `status`, `n_codes`, `n_matched` and `note`; zero rows when the
-#'   survey ships no parseable PDF dictionary.
+#' @param report `"repairs"` (default) for the ledger of label repairs and
+#'   divergences, `"validation"` for the frequency validation.
+#' @param action For `report = "repairs"`, an optional filter on `action`,
+#'   e.g. `"repaired"` or `c("repaired", "filled")`.
 #'
-#' @seealso [pumf_label_repairs()]
+#' @return For `report = "repairs"`: a tibble with columns `kind`
+#'   (`"variable"`/`"code"`), `name`, `val`, `lang`, `label_command_file`,
+#'   `label_pdf`, `action`, `reason` and `validation`.
+#'
+#'   For `report = "validation"`: a tibble with columns `block` (the guide
+#'   block the check ran on), `name`, `status`, `n_codes`, `n_matched` and
+#'   `note`.
+#'
+#'   Zero rows when the survey ships no parseable PDF dictionary (or, for the
+#'   repairs, nothing diverged).
+#'
+#' @seealso [pumf_dictionary()], [open_pumf_documentation()]
 #'
 #' @examples
 #' \donttest{
 #' gss <- get_pumf("GSS", "Cycle 16 (2002)")
 #' if (!is.null(gss)) {
-#'   table(pumf_freq_validation(gss)$status)
+#'   pumf_pdf_crosscheck(gss, action = "repaired")
+#'   table(pumf_pdf_crosscheck(gss, "validation")$status)
 #'   close_pumf(gss)
 #' }
 #' }
 #' @export
-pumf_freq_validation <- function(tbl) {
+pumf_pdf_crosscheck <- function(tbl, report = c("repairs", "validation"),
+                                action = NULL) {
+  report   <- match.arg(report)
   meta_dir <- .pumf_meta_dir_from_tbl(tbl)
+  if (report == "repairs") .pumf_label_repairs(meta_dir, action)
+  else .pumf_freq_validation(meta_dir)
+}
+
+# The label_repairs.csv side-car of a metadata directory (NULL: none).
+.pumf_label_repairs <- function(meta_dir, action = NULL) {
+  path <- if (is.null(meta_dir)) NULL else file.path(meta_dir, "label_repairs.csv")
+  if (is.null(path) || !file.exists(path)) return(.pumf_empty_repairs())
+  out <- readr::read_csv(path, col_types = readr::cols(.default = "c"),
+                         show_col_types = FALSE)
+  if (!is.null(action)) out <- out[out$action %in% action, , drop = FALSE]
+  tibble::as_tibble(out)
+}
+
+# The pdf_validation.csv side-car of a metadata directory (NULL: none).
+.pumf_freq_validation <- function(meta_dir) {
   path <- if (is.null(meta_dir)) NULL else file.path(meta_dir, "pdf_validation.csv")
   if (is.null(path) || !file.exists(path))
     return(tibble::tibble(block = integer(), name = character(),
