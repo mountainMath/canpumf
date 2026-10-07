@@ -178,10 +178,11 @@
                      applied_as = NA_character_, stringsAsFactors = FALSE)
   cds  <- data.frame(name = codes$name, val = as.character(codes$val),
                      label_en = codes$label_en, label_fr = codes$label_fr,
-                     description_en = NA_character_,
-                     description_fr = NA_character_,
+                     description_en = rep(NA_character_, nrow(codes)),
+                     description_fr = rep(NA_character_, nrow(codes)),
                      applied_as = if ("applied_as" %in% names(codes))
-                       as.character(codes$applied_as) else NA_character_,
+                       as.character(codes$applied_as)
+                     else rep(NA_character_, nrow(codes)),
                      stringsAsFactors = FALSE)
   if (!is.null(sent)) {
     sent$description_en <- rep(NA_character_, nrow(sent))

@@ -17,7 +17,8 @@ test_that("pumf_dictionary: variable and code rows in both languages", {
 
   d <- pumf_dictionary(tbl)
   expect_s3_class(d, "tbl_df")
-  expect_named(d, c("name", "val", "label_en", "label_fr"))
+  expect_named(d, c("name", "val", "label_en", "label_fr",
+                    "description_en", "description_fr", "applied_as"))
   vars  <- d[is.na(d$val), ]
   codes <- d[!is.na(d$val), ]
   expect_setequal(vars$name, c("PROV", "WEIGHT"))

@@ -39,7 +39,7 @@
 #'     dplyr::select(SURVYEAR, SURVMNTH, SURVDATE) |>
 #'     dplyr::distinct() |> dplyr::collect()
 #'   lfs |> add_lfs_columns("GENDER_SEX") |>
-#'     dplyr::count(SEX, GENDER, GENDER_SEX) |> dplyr::collect()
+#'     dplyr::count(GENDER, GENDER_SEX) |> dplyr::collect()
 #'
 #'   # Labelled
 #'   lfs |> label_pumf_columns() |> add_lfs_columns() |>
