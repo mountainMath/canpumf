@@ -32,7 +32,8 @@
 #'
 #' @examples
 #' \donttest{
-#' lfs <- get_pumf("LFS", "2023")   # NULL if StatCan is unreachable
+#' # NULL if StatCan is unreachable
+#' lfs <- tryCatch(get_pumf("LFS", "2023"), error = function(e) NULL)
 #' if (!is.null(lfs)) {
 #'   # Unlabelled
 #'   lfs |> add_lfs_columns("SURVDATE") |>

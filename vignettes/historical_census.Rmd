@@ -2,7 +2,7 @@
 title: "Historical Census Data"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Working with canpumf}
+  %\VignetteIndexEntry{Historical Census Data}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
