@@ -106,11 +106,9 @@ census_1911 |>
                        AGE_UNIT=="Week" ~ floor(AGE_AMOUNT*7/365),
                        AGE_UNIT=="Month" ~ floor(AGE_AMOUNT*12/365),
                        AGE_UNIT=="Year" ~ floor(AGE_AMOUNT),
-                       TRUE ~ NA_integer_)) |>
-  mutate(AGE=case_when(is.na(AGE) & !is.na(YEAR_OF_BIRTH) ~ 1911L-YEAR_OF_BIRTH, 
-                       TRUE ~ AGE)) |>
-  mutate(AGE=case_when(AGE>1000L ~ 1911L-AGE, 
-                       TRUE ~ AGE)) |>
+                       TRUE ~ NA_integer_) |>
+           coalesce(YEAR_OF_BIRTH)) |>
+  mutate(AGE=case_when(AGE>1000L ~ 1911L-AGE,  TRUE ~ AGE)) |>
   count(AGE,SEX) |>
   filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
   mutate(n=if_else(SEX=="Female",-n,n)) |>
