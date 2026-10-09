@@ -1,0 +1,196 @@
+---
+title: "Historical Census Data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Working with canpumf}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = nzchar(Sys.getenv("COMPILE_VIG_CANPUMF"))
+)
+```
+
+```{r setup}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(canpumf)
+options(canpumf.cache_path = Sys.getenv("COMPILE_VIG_CANPUMF"))
+```
+
+There are two sets of historical census data that **canpumf** has registry entry for automatic ingenstion, one is the 1881 full sample curated by the TCP, and the other is the 1991 5% sample curated by CCRI. This vignette gives a quick overview how to work with the data.
+
+
+These census data come from transcribed scanned handwritten census forms, and they contain problems and might need cleaning and imputation when used for specific purposes.
+
+## TCP 1881 census
+
+```{r}
+census_1881 <- get_pumf("TCP","1881")
+```
+
+A simple application is to look at the distribution of household sizes. Households are distinguished by DIVNO, DISTNO, SDISTLET, and HHNBR.
+
+```{r}
+census_1881 |>
+  summarise(hh_size=n(),.by=c(DIVNO, DISTNO, SDISTLET,HHNBR)) |>
+  count(hh_size) |>
+  ggplot(aes(x=hh_size,y=n, group=hh_size)) +
+  geom_col() +
+  coord_cartesian(xlim = c(0,20)) +
+  scale_x_continuous(breaks=seq(0,150,10)) +
+  labs(title="Household size in Canada",
+       x="Size of household (scale truncated at 20)",
+       y="Number of households",
+       caption="Canada census 1881 (TCP full samele")
+```
+
+
+When interested in household level data we might want to filter down to the oldest member in each household so we have one person per household. 
+
+```{r}
+census_1881 |>
+  slice_max(n=1,order_by=AGE, with_ties=FALSE,
+            by=c(DIVNO, DISTNO, SDISTLET,HHNBR)) |>
+  count(AGE) |>
+  ggplot(aes(x=AGE,y=n, group=AGE)) +
+  geom_col() +
+  scale_x_continuous(breaks=seq(0,150,10)) +
+  labs(title="Age of oldest person in each household",
+       x="Age of oldest person in each household",
+       y="Number of households",
+       caption="Canada census 1881 (TCP full samele")
+```
+
+The high number of households with oldest person aged below 20 is quite remarkable and likely a data parsing artefact that is worth investigating further before overly relying on this data for analysis.
+
+The clustering at round ages is interesting and also quite visible when just looking at the overall age distribution.
+
+```{r}
+census_1881 |>
+  count(AGE,SEX) |>
+  mutate(n=if_else(SEX=="Female",-n,n)) |>
+  collect() |>
+  filter(!is.na(AGE), SEX %in% c("Male","Female")) |>
+  ggplot(aes(y=factor(AGE),x=n,fill=as.character(SEX))) +
+  geom_col() +
+  scale_y_discrete(breaks=seq(0,150,5)) +
+  scale_x_continuous(labels=\(x)scales::comma(abs(x))) +
+  labs(title="Age pyramid in 1881",
+       x="Number of people",y="Age",fill="Sex",
+       caption="Canada census 1881 (TCP full samele")
+```
+
+```{r}
+close_pumf(census_1881)
+```
+
+
+## CCRI 1911 census 5% sample
+
+```{r}
+census_1911 <- get_pumf("CCRI","1911")
+```
+
+The CCIR data is somewhat messy and requires some imputation.
+
+
+```{r}
+census_1911 |>
+  mutate(AGE=case_when(AGE_UNIT=="Day" ~ floor(AGE_AMOUNT/365),
+                       AGE_UNIT=="Week" ~ floor(AGE_AMOUNT*7/365),
+                       AGE_UNIT=="Month" ~ floor(AGE_AMOUNT*12/365),
+                       AGE_UNIT=="Year" ~ floor(AGE_AMOUNT),
+                       TRUE ~ NA_integer_)) |>
+  mutate(AGE=case_when(is.na(AGE) & !is.na(YEAR_OF_BIRTH) ~ 1911L-YEAR_OF_BIRTH, 
+                       TRUE ~ AGE)) |>
+  mutate(AGE=case_when(AGE>1000L ~ 1911L-AGE, 
+                       TRUE ~ AGE)) |>
+  count(AGE,SEX) |>
+  filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
+  mutate(n=if_else(SEX=="Female",-n,n)) |>
+  collect() |>
+  ggplot(aes(y=factor(AGE),x=n*20,fill=SEX)) +
+  geom_col() +
+  scale_y_discrete(breaks=seq(0,150,5)) +
+  scale_x_continuous(labels=\(x)scales::comma(abs(x))) +
+  labs(title="Age pyramid in 1911",
+       x="Number of people",y="Age",fill="Sex",
+       caption="Canada census 1991 (CCIR 5% samele")
+```
+
+The bump for males around the age of 25 is curious, splitting the population into immigrants and non-immigrants reveals that this is caused by selection on males in the immigrant population.
+
+```{r}
+census_1911 |>
+  mutate(Immigrant = if_else(!is.na(YEAR_OF_IMMIGRATION),"Immigrant","Non-immigrant")) |>
+  mutate(AGE=case_when(AGE_UNIT=="Day" ~ floor(AGE_AMOUNT/365),
+                       AGE_UNIT=="Week" ~ floor(AGE_AMOUNT*7/365),
+                       AGE_UNIT=="Month" ~ floor(AGE_AMOUNT*12/365),
+                       AGE_UNIT=="Year" ~ floor(AGE_AMOUNT),
+                       TRUE ~ NA_integer_)) |>
+  mutate(AGE=case_when(is.na(AGE) & !is.na(YEAR_OF_BIRTH) ~ 1911L-YEAR_OF_BIRTH, 
+                       TRUE ~ AGE)) |>
+  mutate(AGE=case_when(AGE>1000L ~ 1911L-AGE, 
+                       TRUE ~ AGE)) |>
+  count(AGE,SEX,Immigrant) |>
+  filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
+  mutate(n=if_else(SEX=="Female",-n,n)) |>
+  collect() |>
+  ggplot(aes(y=factor(AGE),x=n*20,fill=SEX)) +
+  geom_col() +
+  facet_wrap(~Immigrant) +
+  scale_y_discrete(breaks=seq(0,150,5)) +
+  scale_x_continuous(labels=\(x)scales::comma(abs(x))) +
+  labs(title="Age pyramid in 1911",
+       x="Number of people",y="Age",fill="Sex",
+       caption="Canada census 1991 (CCIR 5% samele")
+```
+
+Checking in by place of birth in the immigrant population, just taking the top 9 immigrant countries, shows that immigrants from all countries tended to be male-heavy with total volumne clusterd around the 25 year age group. For Italy this pattern was particularly strong.
+
+```{r}
+top_births <- census_1911 |> 
+  filter(!is.na(YEAR_OF_IMMIGRATION)) |>
+  count(INDIVIDUAL_BIRTH_COUNTRY) |>
+  slice_max(n=9,order_by = n) |>
+  arrange(-n) |>
+  pull(INDIVIDUAL_BIRTH_COUNTRY)
+
+census_1911 |>
+  filter(INDIVIDUAL_BIRTH_COUNTRY %in% top_births) |>
+  mutate(AGE=case_when(AGE_UNIT=="Day" ~ floor(AGE_AMOUNT/365),
+                       AGE_UNIT=="Week" ~ floor(AGE_AMOUNT*7/365),
+                       AGE_UNIT=="Month" ~ floor(AGE_AMOUNT*12/365),
+                       AGE_UNIT=="Year" ~ floor(AGE_AMOUNT),
+                       TRUE ~ NA_integer_)) |>
+  mutate(AGE=case_when(is.na(AGE) & !is.na(YEAR_OF_BIRTH) ~ 1911L-YEAR_OF_BIRTH, 
+                       TRUE ~ AGE)) |>
+  mutate(AGE=case_when(AGE>1000L ~ 1911L-AGE, 
+                       TRUE ~ AGE)) |>
+  count(AGE,SEX,INDIVIDUAL_BIRTH_COUNTRY) |>
+  filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
+  mutate(n=if_else(SEX=="Female",-n,n)) |>
+  collect() |>
+  mutate(INDIVIDUAL_BIRTH_COUNTRY=factor(INDIVIDUAL_BIRTH_COUNTRY,
+                                         levels=top_births)) |>
+  ggplot(aes(y=factor(AGE),x=n*20,fill=SEX)) +
+  geom_col() +
+  facet_wrap(~INDIVIDUAL_BIRTH_COUNTRY,scales="free_x") +
+  scale_y_discrete(breaks=seq(0,150,10s)) +
+  scale_x_continuous(labels=\(x)scales::comma(abs(x))) +
+  labs(title="Age pyramid in 1911",
+       x="Number of people",y="Age",fill="Sex",
+       caption="Canada census 1991 (CCIR 5% samele")
+```
+
+
+```{r}
+close_pumf(census_1911)
+```
+
