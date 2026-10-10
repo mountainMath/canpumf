@@ -1,43 +1,25 @@
 # R/registry.R -- Survey-specific configuration registry.
 #
-# Each entry captures the non-derivable per-(series, version) configuration
-# needed by the three-stage pipeline: layout/BSW masks, file masks, encoding
-# overrides, and raw-data fixups applied before label mapping in Stage 3.
+# One entry per (series, version) holds the configuration the three-stage
+# pipeline cannot derive from the files themselves: layout/BSW/file masks,
+# encodings, download source and the `data_fixups` applied to the raw data in
+# Stage 3.  Surveys not listed fall back to auto-detection, which also covers
+# read_pumf_data() on manually deposited directories.
 #
-# Surveys not listed here fall back to auto-detection with no special handling.
-# That covers the generic read_pumf_data() path for manually-deposited directories.
-#
-# data_fixups structure (applied to raw character data before label mapping):
-#   str_pad:    list of list(cols, width, side, pad) -- left/right-pad raw values
-#   rename:     named character vector c(old_name = "new_name") -- column renames
-#               (applied only when the old column exists; safe for conditional renames)
-#   rename_regex: named character vector c(pattern = "replacement") rewriting
-#               many column names at once (sub() semantics).  A rewrite is only
-#               applied when it lands on a name the metadata declares and the
-#               current name is not itself declared, so it cannot collide with a
-#               correctly-named column.  For releases that decorate the
-#               documented names wholesale (PALS 2001's "A" collection prefix).
-#   na_values:  character vector of raw values that should become NA for all
-#               numeric columns (applied in .apply_numeric_conversion)
-#   force_character/force_integer/force_bigint: character vectors of variable
-#               names whose DuckDB storage type is overridden.  force_character
-#               keeps raw VARCHAR (leading zeros, geo/ID codes); force_integer
-#               and force_bigint keep the raw values and set the column type to
-#               INTEGER / BIGINT after the table is written (large IDs survive).
-#               A variable may appear in at most one force_* set.
-#   missing_codes: named list VAR = c(codes) of discrete missing values, for
-#               variables whose sentinels do not form a single contiguous range
-#               (PALS 2006 AUDE_Q02: -5/-6/-7 and 998/999 straddle hours 1-97,
-#               so the derived [-7, 999] range would NA the whole column).
-#               Replaces any range derived or parsed for that variable.
-#   labels_supplement: named list c(VAR = c(label_en=, label_fr=)) supplying
-#               variable labels the source metadata leaves blank (e.g. a weight
-#               variable with an empty Concept line in the PDF codebook).  Fills
-#               only NA labels, so genuine source labels always win.
+# The fields, every data_fixups entry (str_pad, rename, rename_regex,
+# na_values, force_*, codes_supplement/codes_override, missing_codes,
+# sentinel_labels, labels_supplement, fix_mojibake, removed_records,
+# keep_unlabelled_codes, labels_as_description, rejoin_split_records,
+# column_encoding, text_missing_codes), the DuckDB-native CSV build
+# (csv_reader), sibling inheritance, version aliases and the override
+# verification workflow are documented in .claude/docs/registry.md.  Every
+# manual override needs a verified row in
+# tests/testthat/override_verification.csv.
 
 .make_entry <- function(series,
                         version,
                         layout_mask       = NULL,
+                        layout_file       = NULL,
                         bsw_mask          = NULL,
                         bsw_file_mask     = NULL,
                         bsw_join_key      = NULL,
@@ -52,6 +34,7 @@
                         bundle_sps_mask   = NULL,
                         doc_mask          = NULL,
                         download_format   = NULL,
+                        csv_reader        = NULL,
                         modules           = NULL,
                         primary_module    = NULL,
                         module_key        = NULL,
@@ -60,7 +43,7 @@
   # share a respondent key (RECID) and must be linked for analysis because the
   # survey weight lives only in the primary file.  `modules` is a named list
   # keyed by module id; each element is list(layout_mask=, file_mask=,
-  # data_fixups=).  Every module becomes its own table in the one DuckDB file so
+  # data_fixups=, and optionally layout_file= and the bsw_* fields).  Every module becomes its own table in the one DuckDB file so
   # callers can join them (see pumf_module()).  The primary module supplies the
   # top-level layout_mask/file_mask/data_fixups (and BSW config) so all default
   # code paths (table name, single-table build) return it unchanged.
@@ -74,6 +57,7 @@
       stop("primary_module '", primary_module, "' not found in modules for ",
            series, "/", version)
     if (is.null(layout_mask))      layout_mask <- pm$layout_mask
+    if (is.null(layout_file))      layout_file <- pm$layout_file
     if (is.null(file_mask))        file_mask   <- pm$file_mask
     if (length(data_fixups) == 0L) data_fixups <- pm$data_fixups %||% list()
     # Bootstrap-weight config can live per-module (e.g. SHS Interview and Diary
@@ -90,6 +74,7 @@
     series            = series,
     version           = version,
     layout_mask       = layout_mask,
+    layout_file       = layout_file,
     bsw_mask          = bsw_mask,
     bsw_file_mask     = bsw_file_mask,
     bsw_join_key      = bsw_join_key,
@@ -104,6 +89,7 @@
     bundle_sps_mask   = bundle_sps_mask,
     doc_mask          = doc_mask,
     download_format   = download_format,
+    csv_reader        = csv_reader,
     modules           = modules,
     primary_module    = primary_module,
     module_key        = module_key,
@@ -111,15 +97,46 @@
   )
 }
 
-# Expand one (val, label_en, label_fr) triple into a codes_supplement fragment
-# covering many variables at once.  Some releases omit the *same* reserved code
-# from dozens of formats (PALS 2001 leaves 93 = "Not applicable" out of every
-# format whose universe is the disabled sub-population), and spelling each one
-# out would bury the single fact being asserted in a hundred lines of noise.
+# A codes_supplement / codes_override fragment: the code table (val,
+# label_en, label_fr) for each of `vars`.  Usually one variable; some releases
+# omit the *same* reserved code from dozens of formats (PALS 2001 leaves 93 =
+# "Not applicable" out of every format whose universe is the disabled
+# sub-population), and spelling each one out would bury the single fact being
+# asserted in a hundred lines of noise.
 .codes_for <- function(vars, val, label_en, label_fr) {
   df <- data.frame(val = val, label_en = label_en, label_fr = label_fr,
                    stringsAsFactors = FALSE)
   stats::setNames(rep(list(df), length(vars)), vars)
+}
+
+# Several versions of a series whose releases share one configuration, as the
+# named list of entries ("series/version" keys) spliced into .pumf_registry.
+# For releases that are literally identical year to year; a release that
+# differs in any field gets its own entry.
+.entries_for <- function(series, versions, ...) {
+  stats::setNames(lapply(versions, function(v) .make_entry(series, v, ...)),
+                  paste0(series, "/", versions))
+}
+
+# The three 1976 Census files: from the EFT bundle (keyed "1976/<type>", one
+# SPSS card and data file per type) and from Borealis (keyed "1976 (<type>)",
+# one dataset DOI per type).
+.census_1976_eft_entries <- function() {
+  stems <- c(individuals = "indiv76", households = "hhld76", families = "fam76")
+  stats::setNames(lapply(names(stems), function(t)
+    .make_entry("Census", paste0("1976/", t),
+                bundle_sps_mask = stems[[t]],
+                file_mask       = paste0("^", stems[[t]], "\\.txt$"))),
+    paste0("Census/1976/", names(stems)))
+}
+.census_1976_borealis_entries <- function() {
+  dois <- c(individuals = "doi:10.5683/SP3/ZX0MPJ",
+            households  = "doi:10.5683/SP3/QDJL7W",
+            families    = "doi:10.5683/SP3/5LWCXB")
+  stats::setNames(lapply(names(dois), function(t)
+    .make_entry("Census", paste0("1976 (", t, ")"),
+                borealis = list(doi = dois[[t]]))),
+    paste0("Census/1976 (", names(dois), ")"))
 }
 
 # The shared respondent key on which a multi-module survey's tables join (e.g.
@@ -127,15 +144,14 @@
 # key is discoverable from one source of truth rather than only documented in
 # tests. Returns NULL for single-table surveys (or modular entries that predate
 # the field). pumf_module() surfaces it in a message so callers know how to join.
-.pumf_module_key <- function(reg) {
-  if (is.null(reg)) return(NULL)
-  reg$module_key
-}
+.pumf_module_key <- function(reg) reg$module_key
 
 # Return the uniform module table for a registry entry as a named list keyed by
-# module id, each element list(layout_mask, file_mask, data_fixups, is_primary,
-# meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
-# unset), so callers can branch on is.null() to keep the legacy path untouched.
+# module id, each element list(layout_mask, layout_file, file_mask, data_fixups,
+# is_primary, meta_subdir).  Returns NULL for ordinary single-table surveys (reg$modules
+# unset), so callers can branch on is.null(); the pipeline itself runs every
+# entry through `.pumf_stage_modules()`, which supplies a synthetic primary
+# module for single-table surveys.
 # The primary module's metadata stays in `metadata/` (meta_subdir = NULL) for
 # backward compatibility; secondary modules use `metadata/<id>/`.
 .pumf_entry_modules <- function(reg) {
@@ -147,6 +163,7 @@
     list(
       id            = id,
       layout_mask   = m$layout_mask,
+      layout_file   = m$layout_file,
       file_mask     = m$file_mask,
       data_fixups   = m$data_fixups %||% list(),
       bsw_mask      = m$bsw_mask,
@@ -188,8 +205,107 @@
 # categorical), 2010 and earlier use different names (e.g. DH1GHHSZ) that are
 # fully labeled categoricals needing no fixup.
 
-.census_fixup_8 <- list(na_values = c("99999999", "88888888"))
-.census_fixup_7 <- list(na_values = c("9999999",  "8888888"))
+# Census convention, stated in every user guide: a dollar field of all 9s is
+# "Not applicable" and all 8s is "Not available".  The command files declare
+# none of these, so the companion table's labels come from here (sized 2-8
+# digits so that the missing_codes below and the na_values share one list).
+.census_sentinel_labels <- c(
+  stats::setNames(
+    rep(list(c(label_en = "Not applicable", label_fr = "Sans objet")), 7L),
+    strrep("9", 2:8)),
+  stats::setNames(
+    rep(list(c(label_en = "Not available", label_fr = "Non disponible")), 7L),
+    strrep("8", 2:8)))
+.census_fixup_8 <- list(na_values = c("99999999", "88888888"),
+                        sentinel_labels = .census_sentinel_labels)
+.census_fixup_7 <- list(na_values = c("9999999",  "8888888"),
+                        sentinel_labels = .census_sentinel_labels)
+
+# Census 2006/2011: sentinels narrower than the 7-char income fields.  The
+# SPSS command files declare no MISSING VALUES and label none of these, so the
+# 7-digit na_values guard above leaves them in place (issue #24).  The user
+# guides document each one, sized to its field: "Not applicable" (all 9s) and
+# "Not available" (all 8s) for the 6-, 5-, 4- and 3-char dollar amounts, and
+# the 2006 individuals' hours (999 = not applicable, under 15 years) and weeks
+# worked (99).  2006 FCOND has no code list in its guide, but is reported for
+# condominium owners only and carries 999/888 exactly where the 2011 guide
+# documents them.  Each (variable, code) pair has a row in
+# tests/testthat/override_verification.csv pointing at the guide page.
+.census_2006_ind_missing <- list(
+  GROSRT = c(8888, 9999), OMP = c(8888, 9999),
+  HRSWRK = 999, WKSWRK = 99
+)
+.census_2006_hier_missing <- list(
+  GROSRT = c(8888, 9999), OMP = c(8888, 9999), FCOND = c(888, 999)
+)
+.census_2011_ind_missing <- c(
+  lapply(stats::setNames(nm = c("INCTAX", "INVST", "OTINC", "RETIR", "SEMPI",
+                                "TOTINC_AT")),
+         function(v) c(888888, 999999)),
+  lapply(stats::setNames(nm = c("CHDBN", "CHLDC", "CQPPB", "EICBN", "GOVTI",
+                                "GTRFS", "OASGI")),
+         function(v) c(88888, 99999)),
+  list(GROSRT = c(8888, 9999), OMP = c(8888, 9999))
+)
+.census_2011_hier_missing <- list(
+  EFDIMBM = 888888,
+  INCTAX = c(888888, 999999), TOTINC_AT = c(888888, 999999),
+  GTRFS = c(88888, 99999),
+  FCOND = c(888, 999),
+  GROSRT = c(8888, 9999), OMP = c(8888, 9999)
+)
+
+# Census 1981: the numeric variables whose codes the codebooks flag M, and
+# what happens to each (every codebook line is cited in the override ledger).
+#  * "NOT APPLICABLE" (hours 999, weeks 99, incomes 999999 / 99999, ages 0 in
+#    the individuals file and 99 in the household file) is a non-response: NA,
+#    labelled in the sentinel companion.
+#  * "ZERO", "ZERO HOURS", "ZERO WEEKS" (the 0 of every income and hours/weeks
+#    variable) is flagged M and declared missing in the SPSS files
+#    ("TOTINC ( 0,999999 )", "HHINC ( 0 )") because it is excluded from the
+#    codebook means, but a zero income or zero hours is a value.  It stays 0:
+#    the missing_codes below replace the parsed [0, 0] range with the NOT
+#    APPLICABLE code alone, or with no code at all (numeric(0)) where the ZERO
+#    code is the only one declared.
+# (.spss_parse_missing() keeps only the first value of a two-value list, so
+# without the override the 0 was blanked and the 999 survived as hours.)
+# The data files code the income NOT APPLICABLE (persons under 15 and
+# institutional residents; family members a census family does not have) as
+# 0, not as the codebook's 999999 / 99999, in the EFT fixed-width files as in
+# the Borealis CSVs.  Those codes never occur, so the income variables carry 0
+# for both "zero" and "not applicable" and have no sentinels.  The EFT and
+# Borealis command files declare the same lists.
+.census_1981_ind_na <- c(
+  HRSWK = 999, WKSWK = 99,
+  TOTINC = 999999, WAGES = 999999, SELFEMP = 999999, INVST = 999999,
+  OASGI = 99999, FAMAL = 99999, UICBN = 99999, GOVTI = 99999, RETIR = 99999,
+  AGEHMLP = 0, AGEWFLP = 0, AGEHHM = 0
+)
+.census_1981_hhld_na <- c(
+  HRSWKHMP = 999, HRSWKWFP = 999, WKSWKHMP = 99, WKSWKWFP = 99,
+  AGEHMLP = 99, AGEWFLP = 99,
+  CFHTOTIN = 999999, CFWTOTIN = 999999, CFLTOTIN = 999999,
+  CFHWAGES = 999999, CFHSEINC = 999999, CFWWAGES = 999999, CFWSEINC = 999999,
+  CFLWAGES = 999999, CFLSEINC = 999999
+)
+# Household-file incomes whose only declared missing value is the ZERO code.
+.census_1981_hhld_zero <- c("HHINC", "CFINC", "CFWAGES", "CFSELFEM", "CFINVST",
+                            "CFGOVTI", "CFRETIR")
+.census_1981_fixups <- function(na, zero_only = character(0L)) {
+  list(
+    missing_codes = c(
+      as.list(na),
+      stats::setNames(rep(list(numeric(0L)), length(zero_only)), zero_only)),
+    # The codebook's wording, in its upper case like the rest of the 1981
+    # labels.  English only, as is the 1981 release.
+    sentinel_labels = lapply(as.list(na), function(code)
+      stats::setNames(list(c(label_en = "NOT APPLICABLE")),
+                      format(code, scientific = FALSE)))
+  )
+}
+.census_1981_ind_fixups  <- .census_1981_fixups(.census_1981_ind_na)
+.census_1981_hhld_fixups <- .census_1981_fixups(.census_1981_hhld_na,
+                                                .census_1981_hhld_zero)
 
 # 1971: SUBSAMPL is a sub-sample index, 1-5 for individuals/families and 0 for
 # households.  The household files hold only the unlabelled 0, so it is forced
@@ -200,12 +316,9 @@
 # 1971 CMA individuals: TYPE66/TYPE71 value 0 ("Data not available") is absent
 # from the SPSS VALUE LABELS (EFT and Borealis alike); confirmed from the PDF
 # documentation.
-.census_1971_type_na <- local({
-  df <- data.frame(val = "0", label_en = "Data not available",
-                   label_fr = "Donn\u00e9es non disponibles",
-                   stringsAsFactors = FALSE)
-  list(TYPE66 = df, TYPE71 = df)
-})
+.census_1971_type_na <- .codes_for(c("TYPE66", "TYPE71"), "0",
+                                   "Data not available",
+                                   "Donn\u00e9es non disponibles")
 
 # 1986: continuous variables whose SPSS value labels declare only boundary
 # codes ("<$20,000", "85 yrs or more", "100 hours or more"); shared by the EFT
@@ -218,6 +331,17 @@
   "VALUEH", "GROSRTH", "RENTH", "OMPH", "MPPIT",
   "HMAGE", "HMWKSWK", "HMTOTINC", "SPAGE", "SPWKSWK", "SPTOTINC"
 )
+
+# Census 1986 household file: both command files (EFT hhld86_eng.sps and the
+# ODESI pumf86h.sps) label HHMOTG 3 and 6 "Other".  The user guide
+# (cen86_gid_pumf_hhldhsg.pdf, field 48) lists 3 under "Single responses" and
+# 6 under "Multiple responses", and the spouse variable SPMOTG spells the same
+# two categories out as "Other single responses" / "Other multiple responses".
+# The French is the standard Census wording (reponses uniques / multiples).
+.census_1986_hhmotg <- .codes_for(
+  "HHMOTG", c("3", "6"),
+  c("Other single responses", "Other multiple responses"),
+  c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples"))
 
 # GSS cycle 16 (2002) per-module force_numeric: count/age/date variables whose
 # SPSS value-label blocks declare only boundary/sentinel codes (e.g. a top-code
@@ -240,7 +364,413 @@
 )
 
 
-.pumf_registry <- list(
+# ---- TCP: The Canadian Peoples / Les populations canadiennes ----------------
+# The 1881 Census of Canada, complete count (4,277,810 records), from the
+# Borealis dataverse TCPCensusData.  The dataset ships one UTF-8 CSV, a JSON
+# value-label dictionary for 15 coded fields (English only) and a
+# documentation PDF that lists the 52 fields but describes only five of them
+# (TCPUID_CSD_1881, comment, remove_TCP, remove_why_TCP, unique_identifier).
+# The variable labels below are therefore canpumf's own, written from the
+# field names, the 1881 schedule and the values the fields hold; the French
+# ones are translations.  A label the dictionary ever supplies wins.
+.tcp_1881_var_labels <- list(
+  TCPUID_CSD_1881              = c(label_en = "Census subdivision identifier, 1881 (TCP/HGIS)",
+                                   label_fr = "Identifiant de la subdivision de recensement, 1881 (TCP/HGIS)"),
+  AGE                          = c(label_en = "Age in years",
+                                   label_fr = "\u00c2ge en ann\u00e9es"),
+  AGEMONTH                     = c(label_en = "Age in months",
+                                   label_fr = "\u00c2ge en mois"),
+  COMMENT                      = c(label_en = "Comments by data processing staff or enumerators",
+                                   label_fr = "Commentaires du personnel de traitement des donn\u00e9es ou des recenseurs"),
+  DBIRTHMO                     = c(label_en = "Month of birth, if born within the last twelve months",
+                                   label_fr = "Mois de naissance, si n\u00e9(e) dans les douze derniers mois"),
+  DBIRTHPL                     = c(label_en = "Birthplace (as transcribed)",
+                                   label_fr = "Lieu de naissance (transcription)"),
+  DBIRTHPL_EVALUATION_FLAG_TCP = c(label_en = "Birthplace: coding evaluation flag (TCP)",
+                                   label_fr = "Lieu de naissance : indicateur d'\u00e9valuation du codage (TCP)"),
+  DBIRTHPL_TCP                 = c(label_en = "Birthplace (TCP code)",
+                                   label_fr = "Lieu de naissance (code TCP)"),
+  DBIRTHPL_2_TCP               = c(label_en = "Birthplace, second code (TCP)",
+                                   label_fr = "Lieu de naissance, second code (TCP)"),
+  DISTNAM                      = c(label_en = "Census district name",
+                                   label_fr = "Nom du district de recensement"),
+  DISTNO                       = c(label_en = "Census district number",
+                                   label_fr = "Num\u00e9ro du district de recensement"),
+  DIVNAM                       = c(label_en = "Name of the division of the sub-district",
+                                   label_fr = "Nom de la division du sous-district"),
+  DIVNO                        = c(label_en = "Number of the division of the sub-district",
+                                   label_fr = "Num\u00e9ro de la division du sous-district"),
+  DIVNO_2                      = c(label_en = "Number of the division of the sub-district (second field)",
+                                   label_fr = "Num\u00e9ro de la division du sous-district (second champ)"),
+  DOCCUP                       = c(label_en = "Occupation (as transcribed)",
+                                   label_fr = "Profession (transcription)"),
+  DOCCUP_TCP                   = c(label_en = "Occupation (TCP code)",
+                                   label_fr = "Profession (code TCP)"),
+  DOCCUP_RELATE_TCP            = c(label_en = "Occupation: relation code (TCP)",
+                                   label_fr = "Profession : code de relation (TCP)"),
+  DOCCUP_STATUS_TCP            = c(label_en = "Occupation: status code (TCP)",
+                                   label_fr = "Profession : code de statut (TCP)"),
+  DORIGIN                      = c(label_en = "Origin (as transcribed)",
+                                   label_fr = "Origine (transcription)"),
+  DORIGIN_EVALUATION_FLAG_TCP  = c(label_en = "Origin: coding evaluation flag (TCP)",
+                                   label_fr = "Origine : indicateur d'\u00e9valuation du codage (TCP)"),
+  DORIGIN_TCP                  = c(label_en = "Origin (TCP code)",
+                                   label_fr = "Origine (code TCP)"),
+  DORIGIN_2_TCP                = c(label_en = "Origin, second code (TCP)",
+                                   label_fr = "Origine, second code (TCP)"),
+  DRELIGN                      = c(label_en = "Religion (as transcribed)",
+                                   label_fr = "Religion (transcription)"),
+  DRELIGN_EVALUATION_FLAG_TCP  = c(label_en = "Religion: coding evaluation flag (TCP)",
+                                   label_fr = "Religion : indicateur d'\u00e9valuation du codage (TCP)"),
+  DRELIGN_TCP                  = c(label_en = "Religion (TCP code)",
+                                   label_fr = "Religion (code TCP)"),
+  DRELIGN_2_TCP                = c(label_en = "Religion, second code (TCP)",
+                                   label_fr = "Religion, second code (TCP)"),
+  DSNP                         = c(label_en = "District, sub-district, division and page reference",
+                                   label_fr = "R\u00e9f\u00e9rence du district, du sous-district, de la division et de la page"),
+  FOLDER                       = c(label_en = "Image folder (Library and Archives Canada)",
+                                   label_fr = "Dossier d'images (Biblioth\u00e8que et Archives Canada)"),
+  HHNBR                        = c(label_en = "Household number",
+                                   label_fr = "Num\u00e9ro du m\u00e9nage"),
+  JPG_NUM                      = c(label_en = "Image number of the census page",
+                                   label_fr = "Num\u00e9ro de l'image de la page de recensement"),
+  LINE                         = c(label_en = "Line number on the census page",
+                                   label_fr = "Num\u00e9ro de ligne sur la page de recensement"),
+  MARST                        = c(label_en = "Marital status",
+                                   label_fr = "\u00c9tat matrimonial"),
+  MARST_TCP                    = c(label_en = "Marital status (TCP code)",
+                                   label_fr = "\u00c9tat matrimonial (code TCP)"),
+  NAMFRST                      = c(label_en = "Given name",
+                                   label_fr = "Pr\u00e9nom"),
+  NAMFRST2                     = c(label_en = "Given name, second part",
+                                   label_fr = "Pr\u00e9nom, deuxi\u00e8me partie"),
+  NAMLAST                      = c(label_en = "Surname",
+                                   label_fr = "Nom de famille"),
+  NAMLAST2                     = c(label_en = "Surname, second part",
+                                   label_fr = "Nom de famille, deuxi\u00e8me partie"),
+  PAGENO                       = c(label_en = "Census page number",
+                                   label_fr = "Num\u00e9ro de la page de recensement"),
+  PARENT_TCP                   = c(label_en = "Parent indicator (TCP)",
+                                   label_fr = "Indicateur de parent (TCP)"),
+  PARENT_SUM_TCP               = c(label_en = "Parent count (TCP)",
+                                   label_fr = "Nombre de parents (TCP)"),
+  PROVINCE                     = c(label_en = "Province or territory",
+                                   label_fr = "Province ou territoire"),
+  REEL_NAC                     = c(label_en = "Microfilm reel number (National Archives of Canada)",
+                                   label_fr = "Num\u00e9ro de bobine de microfilm (Archives nationales du Canada)"),
+  REMOVE_TCP                   = c(label_en = "Record to remove (TCP)",
+                                   label_fr = "Enregistrement \u00e0 retirer (TCP)"),
+  REMOVE_WHY_TCP               = c(label_en = "Reason for record removal (TCP)",
+                                   label_fr = "Raison du retrait de l'enregistrement (TCP)"),
+  SDISTLET                     = c(label_en = "Census sub-district letter",
+                                   label_fr = "Lettre du sous-district de recensement"),
+  SDISTLET_2                   = c(label_en = "Census sub-district letter (second field)",
+                                   label_fr = "Lettre du sous-district de recensement (second champ)"),
+  SDISTNAM                     = c(label_en = "Census sub-district name",
+                                   label_fr = "Nom du sous-district de recensement"),
+  SERIAL                       = c(label_en = "Household serial number",
+                                   label_fr = "Num\u00e9ro de s\u00e9rie du m\u00e9nage"),
+  SEX                          = c(label_en = "Sex",
+                                   label_fr = "Sexe"),
+  UNIQUE_IDENTIFIER            = c(label_en = "Unique record identifier",
+                                   label_fr = "Identifiant unique de l'enregistrement"),
+  URL                          = c(label_en = "Path of the census page image",
+                                   label_fr = "Chemin de l'image de la page de recensement"),
+  VOLUME                       = c(label_en = "Volume number",
+                                   label_fr = "Num\u00e9ro du volume")
+)
+
+# ---- CCRI: Canadian Century Research Infrastructure -------------------------
+# The files canpumf takes from the ODESI deposit of the 1911 sample
+# (doi:10.5683/SP3/MDTWGJ): the CSV, the SAS card and the documentation.  The
+# deposit also holds the same data as .sav, .dta, .tab and fixed-width text
+# (1.8 GB together), the schedule images and the published-table spreadsheets.
+.ccri_1911_files <- c(
+  "ccri-census-G-E-1911_F1.csv",
+  "ccri_census_G_E_1911_F1.sas",
+  "en1911ManualUVIC_v19_final.pdf",
+  "1911variables-combined.pdf",
+  "1911Codes-Combined.pdf",
+  "1911CodingBkgrd.pdf",
+  "1911CodesLayout.txt",
+  "1911 enumerator instructions - english.pdf",
+  "1911 enumerator instructions - north - bilingue.pdf",
+  "CCRI-Read-and-Edit-Summary-table.pdf",
+  "CCRI-Read-and-Edit-Core-variables-table.pdf",
+  "CCRI-Read-and-Edit-Non-Core-variables-table.pdf",
+  "CCRI-Read-and-Edit-Interpreted-Nominal-variables-table.pdf",
+  "CCRI-Read-and-Edit-Overall-RE-Rate-table.pdf",
+  "CCRI-Read-and-Edit-Variables-by-Sub-Group-table.pdf")
+
+# The CCRI missing-value codes (1911CodingBkgrd.pdf; the SAS card declares
+# them as special-missing values .A-.Q of every coded variable and as labelled
+# codes of the numeric ones).  The free-text columns hold them as strings,
+# where `text_missing_codes` blanks them; the labels name them in the sentinel
+# sidecar.  The English labels are the card's; the French ones are canpumf's.
+.ccri_missing_codes <- c(
+  "99999001", "99999002", "99999003", "99999004", "99999005", "99999006",
+  "99999007", "99999008", "99999009", "99999010", "99999011", "99999012",
+  "99999901", "99999902", "99999903", "99999904", "99999999")
+.ccri_sentinel_labels <- list(
+  "99999001" = c(label_en = "Blank",
+                 label_fr = "En blanc"),
+  "99999002" = c(label_en = "Damaged",
+                 label_fr = "Endommag\u00e9"),
+  "99999003" = c(label_en = "Illegible",
+                 label_fr = "Illisible"),
+  "99999004" = c(label_en = "In Error",
+                 label_fr = "Erron\u00e9"),
+  "99999005" = c(label_en = "Suspicious",
+                 label_fr = "Douteux"),
+  "99999006" = c(label_en = "Missing -- Mandatory Field",
+                 label_fr = "Manquant -- champ obligatoire"),
+  "99999007" = c(label_en = "Not Applicable",
+                 label_fr = "Sans objet"),
+  "99999008" = c(label_en = "Not Mapped",
+                 label_fr = "Non appari\u00e9"),
+  "99999009" = c(label_en = "Correction",
+                 label_fr = "Correction"),
+  "99999010" = c(label_en = "Suggestion",
+                 label_fr = "Suggestion"),
+  "99999011" = c(label_en = "Unknown - Suggestion",
+                 label_fr = "Inconnu - suggestion"),
+  "99999012" = c(label_en = "Multiple Response - Suggestion",
+                 label_fr = "R\u00e9ponses multiples - suggestion"),
+  "99999901" = c(label_en = "None",
+                 label_fr = "Aucun"),
+  "99999902" = c(label_en = "Not Given",
+                 label_fr = "Non fourni"),
+  "99999903" = c(label_en = "Unknown",
+                 label_fr = "Inconnu"),
+  "99999904" = c(label_en = "Invalid Value",
+                 label_fr = "Valeur invalide"),
+  "99999999" = c(label_en = "Uncodable",
+                 label_fr = "Non codable"))
+
+# Short bilingual variable labels for CCRI 1911.  The SAS card documents each
+# variable with a sentence, which `labels_as_description` keeps as the
+# variable's description; these labels name the variables (English wording
+# after the card and the CCRI user guide, French by canpumf).
+.ccri_1911_var_labels <- list(
+  CENSUS_YEAR                      = c(label_en = "Census year",
+                                       label_fr = "Ann\u00e9e du recensement"),
+  UNIVERSITY_ID                    = c(label_en = "CCRI data entry centre",
+                                       label_fr = "Centre de saisie de l'IRCS"),
+  DWELLING_ID                      = c(label_en = "Dwelling identifier",
+                                       label_fr = "Identifiant du logement"),
+  HOUSEHOLD_ID                     = c(label_en = "Household identifier",
+                                       label_fr = "Identifiant du m\u00e9nage"),
+  INDIVIDUAL_ID                    = c(label_en = "Individual identifier",
+                                       label_fr = "Identifiant de l'individu"),
+  CCRIUID_1911                     = c(label_en = "CCRI geographic location identifier, 1911",
+                                       label_fr = "Identifiant g\u00e9ographique de l'IRCS, 1911"),
+  DERIVED_DWELLING_ID              = c(label_en = "Derived dwelling identifier",
+                                       label_fr = "Identifiant d\u00e9riv\u00e9 du logement"),
+  DERIVED_HOUSEHOLD_ID             = c(label_en = "Derived household identifier",
+                                       label_fr = "Identifiant d\u00e9riv\u00e9 du m\u00e9nage"),
+  DERIVED_INDIVIDUAL_ID            = c(label_en = "Derived individual identifier",
+                                       label_fr = "Identifiant d\u00e9riv\u00e9 de l'individu"),
+  DERIVED_HOUSEHOLD_ID_IN_DWELLING = c(label_en = "Household sequence number within dwelling",
+                                       label_fr = "Num\u00e9ro de s\u00e9quence du m\u00e9nage dans le logement"),
+  DERIVED_PERSON_NUM_IN_HOUSEHOLD  = c(label_en = "Person sequence number within household",
+                                       label_fr = "Num\u00e9ro de s\u00e9quence de la personne dans le m\u00e9nage"),
+  DERIVED_PERSON_NUM_IN_DWELLING   = c(label_en = "Person sequence number within dwelling",
+                                       label_fr = "Num\u00e9ro de s\u00e9quence de la personne dans le logement"),
+  DERIVED_SURNAME_NUMBER           = c(label_en = "Surname (family) number within household",
+                                       label_fr = "Num\u00e9ro de famille (patronyme) dans le m\u00e9nage"),
+  DERIVED_AGE_IN_YEARS             = c(label_en = "Age in years (derived)",
+                                       label_fr = "\u00c2ge en ann\u00e9es (d\u00e9riv\u00e9)"),
+  POPULATION_SIZE                  = c(label_en = "Dwelling population size (large or regular)",
+                                       label_fr = "Taille de la population du logement (grand ou ordinaire)"),
+  DWELLING_UNIT_TYPE               = c(label_en = "Dwelling unit type",
+                                       label_fr = "Type d'unit\u00e9 de logement"),
+  PROVINCE                         = c(label_en = "Province (schedule header)",
+                                       label_fr = "Province (en-t\u00eate du tableau)"),
+  DISTRICT_NUMBER                  = c(label_en = "Enumeration district number",
+                                       label_fr = "Num\u00e9ro du district de recensement"),
+  SUB_DISTRICT_NUMBER              = c(label_en = "Enumeration sub-district number",
+                                       label_fr = "Num\u00e9ro du sous-district de recensement"),
+  CENSUS_FORM_ID                   = c(label_en = "Census form (schedule)",
+                                       label_fr = "Formulaire de recensement (tableau)"),
+  DISTRICT_NAME                    = c(label_en = "Enumeration district name",
+                                       label_fr = "Nom du district de recensement"),
+  SUB_DISTRICT_NAME                = c(label_en = "Enumeration sub-district name",
+                                       label_fr = "Nom du sous-district de recensement"),
+  ENUMERATOR_FIRST_NAME            = c(label_en = "Enumerator's first name",
+                                       label_fr = "Pr\u00e9nom du recenseur"),
+  ENUMERATOR_LAST_NAME             = c(label_en = "Enumerator's last name",
+                                       label_fr = "Nom de famille du recenseur"),
+  REGION                           = c(label_en = "City, town, village, township or parish",
+                                       label_fr = "Cit\u00e9, ville, village, canton ou paroisse"),
+  HABITATION                       = c(label_en = "House and street number, or parish or township",
+                                       label_fr = "Num\u00e9ro de maison et rue, ou paroisse ou canton"),
+  DWELLING_NUMBER                  = c(label_en = "Dwelling number in sub-district",
+                                       label_fr = "Num\u00e9ro du logement dans le sous-district"),
+  HOUSEHOLD_NUMBER                 = c(label_en = "Household number in sub-district",
+                                       label_fr = "Num\u00e9ro du m\u00e9nage dans le sous-district"),
+  INSTITUTION_TYPE                 = c(label_en = "Institution type",
+                                       label_fr = "Type d'institution"),
+  INSTITUTION_NAME                 = c(label_en = "Institution name",
+                                       label_fr = "Nom de l'institution"),
+  TITLE                            = c(label_en = "Title",
+                                       label_fr = "Titre"),
+  FIRST_NAME                       = c(label_en = "First name",
+                                       label_fr = "Pr\u00e9nom"),
+  LAST_NAME                        = c(label_en = "Last name",
+                                       label_fr = "Nom de famille"),
+  PAGE_NUMBER                      = c(label_en = "Schedule page number",
+                                       label_fr = "Num\u00e9ro de page du tableau"),
+  LINE_NUMBER                      = c(label_en = "Schedule line number",
+                                       label_fr = "Num\u00e9ro de ligne du tableau"),
+  RELATIONSHIP                     = c(label_en = "Relationship to head of household",
+                                       label_fr = "Lien avec le chef du m\u00e9nage"),
+  SEX                              = c(label_en = "Sex",
+                                       label_fr = "Sexe"),
+  MARITAL_STATUS                   = c(label_en = "Marital status",
+                                       label_fr = "\u00c9tat matrimonial"),
+  AGE_AMOUNT                       = c(label_en = "Age (amount)",
+                                       label_fr = "\u00c2ge (valeur)"),
+  AGE_UNIT                         = c(label_en = "Age (unit)",
+                                       label_fr = "\u00c2ge (unit\u00e9)"),
+  MONTH_OF_BIRTH                   = c(label_en = "Month of birth",
+                                       label_fr = "Mois de naissance"),
+  YEAR_OF_BIRTH                    = c(label_en = "Year of birth",
+                                       label_fr = "Ann\u00e9e de naissance"),
+  INDIVIDUAL_BIRTH_COUNTRY         = c(label_en = "Country or province of birth",
+                                       label_fr = "Pays ou province de naissance"),
+  YEAR_OF_IMMIGRATION              = c(label_en = "Year of immigration",
+                                       label_fr = "Ann\u00e9e d'immigration"),
+  YEAR_OF_NATURALIZATION           = c(label_en = "Year of naturalization",
+                                       label_fr = "Ann\u00e9e de naturalisation"),
+  NATIONALITY                      = c(label_en = "Nationality",
+                                       label_fr = "Nationalit\u00e9"),
+  RACIAL_OR_TRIBAL_ORIGIN          = c(label_en = "Racial or tribal origin",
+                                       label_fr = "Origine raciale ou tribale"),
+  LANGUAGE_SPOKEN_1                = c(label_en = "Language commonly spoken (first)",
+                                       label_fr = "Langue couramment parl\u00e9e (premi\u00e8re)"),
+  LANGUAGE_SPOKEN_2                = c(label_en = "Language commonly spoken (second)",
+                                       label_fr = "Langue couramment parl\u00e9e (deuxi\u00e8me)"),
+  LANGUAGE_SPOKEN_3                = c(label_en = "Language commonly spoken (third)",
+                                       label_fr = "Langue couramment parl\u00e9e (troisi\u00e8me)"),
+  CAN_READ_INDICATOR               = c(label_en = "Can read",
+                                       label_fr = "Sait lire"),
+  CAN_WRITE_INDICATOR              = c(label_en = "Can write",
+                                       label_fr = "Sait \u00e9crire"),
+  IN_SCHOOL_MONTHS_AMOUNT          = c(label_en = "Months at school",
+                                       label_fr = "Mois de fr\u00e9quentation scolaire"),
+  RELIGION                         = c(label_en = "Religion",
+                                       label_fr = "Religion"),
+  BLIND                            = c(label_en = "Blind (age of onset)",
+                                       label_fr = "Aveugle (\u00e2ge au d\u00e9but)"),
+  DEAF_AND_DUMB                    = c(label_en = "Deaf and dumb (age of onset)",
+                                       label_fr = "Sourd-muet (\u00e2ge au d\u00e9but)"),
+  IDIOTIC_OR_SILLY                 = c(label_en = "Idiotic or silly (age of onset)",
+                                       label_fr = "Idiot ou faible d'esprit (\u00e2ge au d\u00e9but)"),
+  CRAZY_OR_LUNATIC                 = c(label_en = "Crazy or lunatic (age of onset)",
+                                       label_fr = "Fou ou ali\u00e9n\u00e9 (\u00e2ge au d\u00e9but)"),
+  OCCUPATION_CHIEF_OCC_IND_CL      = c(label_en = "Chief occupation (standardized)",
+                                       label_fr = "Occupation principale (normalis\u00e9e)"),
+  OCCUPATION_CHIEF_OCC_IND         = c(label_en = "Chief occupation (as enumerated)",
+                                       label_fr = "Occupation principale (telle que recens\u00e9e)"),
+  HISCO_CODES                      = c(label_en = "HISCO occupation code",
+                                       label_fr = "Code d'occupation HISCO"),
+  OTHER_EMPLOYMENT                 = c(label_en = "Other employment",
+                                       label_fr = "Autre emploi"),
+  CHIEF_OCCUPATION_CODE_1          = c(label_en = "1911 occupation code, part 1",
+                                       label_fr = "Code d'occupation de 1911, partie 1"),
+  OCC1                             = c(label_en = "1911 occupation code, part 1 (numeric)",
+                                       label_fr = "Code d'occupation de 1911, partie 1 (num\u00e9rique)"),
+  CHIEF_OCCUPATION_CODE_2          = c(label_en = "1911 occupation code, part 2",
+                                       label_fr = "Code d'occupation de 1911, partie 2"),
+  OCC2                             = c(label_en = "1911 occupation code, part 2 (numeric)",
+                                       label_fr = "Code d'occupation de 1911, partie 2 (num\u00e9rique)"),
+  CHIEF_OCCUPATION_CODE_3          = c(label_en = "1911 occupation code, part 3",
+                                       label_fr = "Code d'occupation de 1911, partie 3"),
+  OCC3A                            = c(label_en = "1911 occupation code, part 3 (numeric)",
+                                       label_fr = "Code d'occupation de 1911, partie 3 (num\u00e9rique)"),
+  OCC3B                            = c(label_en = "1911 occupation code, parts 1 and 3 combined",
+                                       label_fr = "Code d'occupation de 1911, parties 1 et 3 combin\u00e9es"),
+  PLACE_OF_EMPLOYMENT_CL           = c(label_en = "Place of employment (standardized)",
+                                       label_fr = "Lieu de travail (normalis\u00e9)"),
+  PLACE_OF_EMPLOYMENT              = c(label_en = "Place of employment (as enumerated)",
+                                       label_fr = "Lieu de travail (tel que recens\u00e9)"),
+  EMPLOYEE                         = c(label_en = "Employee",
+                                       label_fr = "Employ\u00e9"),
+  EMPLOYER                         = c(label_en = "Employer",
+                                       label_fr = "Employeur"),
+  WORKING_ON_OWN_ACCOUNT           = c(label_en = "Working on own account",
+                                       label_fr = "Travaille \u00e0 son compte"),
+  HOURS_WORKED_CHIEF_OCC           = c(label_en = "Hours worked per week, chief occupation",
+                                       label_fr = "Heures travaill\u00e9es par semaine, occupation principale"),
+  HOURS_WORKED_OTHER_OCC           = c(label_en = "Hours worked per week, other occupation",
+                                       label_fr = "Heures travaill\u00e9es par semaine, autre occupation"),
+  WEEKS_WORKING_CHIEF_OCC          = c(label_en = "Weeks worked in 1910, chief occupation",
+                                       label_fr = "Semaines travaill\u00e9es en 1910, occupation principale"),
+  WEEKS_WORKING_OTHER_OCC          = c(label_en = "Weeks worked in 1910, other occupation",
+                                       label_fr = "Semaines travaill\u00e9es en 1910, autre occupation"),
+  RATE_OF_EARNINGS_PER_HOUR        = c(label_en = "Hourly rate of earnings (cents)",
+                                       label_fr = "Taux de r\u00e9mun\u00e9ration horaire (cents)"),
+  EARNINGS_AT_CHIEF_OCC            = c(label_en = "Earnings in 1910, chief occupation",
+                                       label_fr = "Gains en 1910, occupation principale"),
+  EARNINGS_AT_OTHER_OCC            = c(label_en = "Earnings in 1910, other occupation",
+                                       label_fr = "Gains en 1910, autre occupation"),
+  HEALTH_INSURANCE                 = c(label_en = "Accident or sickness insurance held",
+                                       label_fr = "Assurance accident ou maladie d\u00e9tenue"),
+  LIFE_INSURANCE                   = c(label_en = "Life insurance held",
+                                       label_fr = "Assurance vie d\u00e9tenue"),
+  COST_OF_EDUCATION                = c(label_en = "Cost of education",
+                                       label_fr = "Co\u00fbt de l'\u00e9ducation"),
+  COST_OF_INSURANCE                = c(label_en = "Cost of insurance",
+                                       label_fr = "Co\u00fbt de l'assurance"),
+  CCRIUID_CD_1911                  = c(label_en = "CCRI census division identifier, 1911",
+                                       label_fr = "Identifiant de la division de recensement de l'IRCS, 1911"),
+  CCRIUID_CSD_1911                 = c(label_en = "CCRI census subdivision identifier, 1911",
+                                       label_fr = "Identifiant de la subdivision de recensement de l'IRCS, 1911"),
+  PR_1911                          = c(label_en = "Province identifier, 1911",
+                                       label_fr = "Identifiant de la province, 1911"),
+  CCRICD_NO_1911                   = c(label_en = "Census division code, 1911",
+                                       label_fr = "Code de la division de recensement, 1911"),
+  CCRICSD_NO_1911                  = c(label_en = "Census subdivision code, 1911",
+                                       label_fr = "Code de la subdivision de recensement, 1911"),
+  CCRICSD_PART_NO_1911             = c(label_en = "Census subdivision part code, 1911",
+                                       label_fr = "Code de la partie de subdivision de recensement, 1911"),
+  CCRICD_1911                      = c(label_en = "Census division name, 1911",
+                                       label_fr = "Nom de la division de recensement, 1911"),
+  CCRINAME_1911                    = c(label_en = "Census subdivision name, 1911",
+                                       label_fr = "Nom de la subdivision de recensement, 1911"),
+  CCRIUIDNAME_1911                 = c(label_en = "Census subdivision part name, 1911",
+                                       label_fr = "Nom de la partie de subdivision de recensement, 1911"),
+  CCRITYPE_1911                    = c(label_en = "Geographic location type, 1911",
+                                       label_fr = "Type de lieu g\u00e9ographique, 1911"),
+  CCRI_URBAN_RURAL_1911            = c(label_en = "Urban or rural, 1911",
+                                       label_fr = "Urbain ou rural, 1911"),
+  V1T1_1911                        = c(label_en = "Match code, 1911 census volume 1 table 1",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 1, tableau 1"),
+  V1T2_1911                        = c(label_en = "Match code, 1911 census volume 1 table 2",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 1, tableau 2"),
+  V2T2_1911                        = c(label_en = "Match code, 1911 census volume 2 table 2",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 2, tableau 2"),
+  V2T7_1911                        = c(label_en = "Match code, 1911 census volume 2 table 7",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 2, tableau 7"),
+  V2T28_1911                       = c(label_en = "Match code, 1911 census volume 2 table 28",
+                                       label_fr = "Code d'appariement, recensement de 1911, volume 2, tableau 28")
+)
+
+# CCRI 1911 columns that mix numbers with coded answers (the card labels
+# 90000001-90000012 "On Strike", "Full Time", "Free", "Paid", ... and the 1-3
+# of YEAR_OF_NATURALIZATION "Papers", "Naturalized", "Alien").  They stay
+# numeric; every coded answer and missing code goes to the sentinel sidecar
+# with its label.
+.ccri_1911_measures <- c(
+  "HOURS_WORKED_CHIEF_OCC", "HOURS_WORKED_OTHER_OCC",
+  "WEEKS_WORKING_CHIEF_OCC", "WEEKS_WORKING_OTHER_OCC",
+  "RATE_OF_EARNINGS_PER_HOUR", "EARNINGS_AT_CHIEF_OCC", "EARNINGS_AT_OTHER_OCC",
+  "HEALTH_INSURANCE", "LIFE_INSURANCE", "COST_OF_EDUCATION", "COST_OF_INSURANCE",
+  "IN_SCHOOL_MONTHS_AMOUNT", "YEAR_OF_NATURALIZATION")
+
+# Built as c() of list() blocks so a group of identical releases can be one
+# .entries_for() call; the order of the keys is the order of the file.
+.pumf_registry <- c(list(
 
   # ---- SFS: Survey of Financial Security ------------------------------------
 
@@ -252,9 +782,10 @@
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
     bsw_join_key  = "PEFAMID",
     bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF\\.txt"),
+    file_mask     = "EFAM_PUMF\\.txt")),
 
-  "SFS/2019" = .make_entry("SFS", "2019",
+  # 2019 and 2016: one release format.
+  .entries_for("SFS", c("2019", "2016"),
     layout_mask   = "EFAM_PUMF",
     bsw_mask      = "bsweights",
     bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
@@ -262,14 +793,7 @@
     bsw_drop_cols = "PWEIGHT",
     file_mask     = "EFAM_PUMF\\.txt"),
 
-  "SFS/2016" = .make_entry("SFS", "2016",
-    layout_mask   = "EFAM_PUMF",
-    bsw_mask      = "bsweights",
-    bsw_file_mask = "BSWEIGHTS_PUMF\\.txt",
-    bsw_join_key  = "PEFAMID",
-    bsw_drop_cols = "PWEIGHT",
-    file_mask     = "EFAM_PUMF\\.txt"),
-
+  list(
   # 2012: no bootstrap weights, no padding fixup
   "SFS/2012" = .make_entry("SFS", "2012"),
 
@@ -283,19 +807,14 @@
   # 1999: DATA LIST-only SPSS file (no VARIABLE/VALUE LABELS); no bootstrap
   # weights; FWF data file is in the DATA/ subdirectory.
   "SFS/1999" = .make_entry("SFS", "1999",
-    file_mask = "ec1999ef\\.sdf"),
+    file_mask = "ec1999ef\\.sdf")),
 
   # ---- CIS: Canadian Income Survey ------------------------------------------
   # Data dir contains CIS{year}_PUMF.txt (FWF), CIS{year}_PUMF.csv, Readme.txt
   # and Lisezmoi.txt; file_mask selects the FWF data file unambiguously.
+  .entries_for("CIS", as.character(2022:2017), file_mask = "PUMF\\.txt"),
 
-  "CIS/2022" = .make_entry("CIS", "2022", file_mask = "PUMF\\.txt"),
-  "CIS/2021" = .make_entry("CIS", "2021", file_mask = "PUMF\\.txt"),
-  "CIS/2020" = .make_entry("CIS", "2020", file_mask = "PUMF\\.txt"),
-  "CIS/2019" = .make_entry("CIS", "2019", file_mask = "PUMF\\.txt"),
-  "CIS/2018" = .make_entry("CIS", "2018", file_mask = "PUMF\\.txt"),
-  "CIS/2017" = .make_entry("CIS", "2017", file_mask = "PUMF\\.txt"),
-
+  list(
   # ---- CHS: Canadian Housing Survey ----------------------------------------
 
   # PPROV code 95 is the combined territories, so individual codes 60/61/62
@@ -308,11 +827,8 @@
   "CHS/2018" = .make_entry("CHS", "2018",
     layout_mask   = "chs2018ecl_pumf",
     file_mask     = "CHS2018ECL_PUMF\\.csv",
-    data_fixups   = list(codes_supplement = list(
-      PPROV = data.frame(val = "95",
-                         label_en = "Territories",
-                         label_fr = "Territoires",
-                         stringsAsFactors = FALSE)))),
+    data_fixups   = list(codes_supplement =
+      .codes_for("PPROV", "95", "Territories", "Territoires"))),
 
   # 2021/2022 use a generic \d{4} year so the entry clones cleanly for new
   # release years. Masks are anchored by the surrounding literals (chs…ecl_pumf)
@@ -325,11 +841,8 @@
     bsw_file_mask = "chs\\d{4}ecl_PUMF_bsw\\.csv",
     bsw_join_key  = "PUMFID",
     file_mask     = "CHS\\d{4}ECL_PUMF\\.csv",
-    data_fixups   = list(codes_supplement = list(
-      PPROV = data.frame(val = "95",
-                         label_en = "Territorial capitals",
-                         label_fr = "Capitales territoriales",
-                         stringsAsFactors = FALSE)))),
+    data_fixups   = list(codes_supplement =
+      .codes_for("PPROV", "95", "Territorial capitals", "Capitales territoriales"))),
 
   "CHS/2022" = .make_entry("CHS", "2022",
     layout_mask   = "chs\\d{4}ecl_pumf",
@@ -371,26 +884,21 @@
     bsw_file_mask     = "bsw_flatfile\\.txt",
     bsw_join_key      = "CASEID",
     metadata_encoding = "UTF-8",
-    file_mask         = "shs2019_flatfile\\.txt"),
+    file_mask         = "shs2019_flatfile\\.txt")),
 
-  # 2021: SPSS split-file format; BSW layout is a SAS @pos .txt file co-located
-  # with the BSW data (not in the SPSS cards dir); fallback in .read_bsw_data
-  # handles this automatically. Join key is CASEID (uppercased from "CaseID").
-  # file_mask uses a generic \d{4} year so the entry can be cloned for new
-  # release years without edits. The BSW files (pumf_shs<year>_bsw_*.txt) have
-  # no underscore before the year and don't end in \d{4}.txt, so the data file
-  # matches unambiguously.
-  "SHS/2021" = .make_entry("SHS", "2021",
+  # 2021 and 2023: SPSS split-file format; BSW layout is a SAS @pos .txt file
+  # co-located with the BSW data (not in the SPSS cards dir); fallback in
+  # .read_bsw_data handles this automatically. Join key is CASEID (uppercased
+  # from "CaseID").  file_mask uses a generic \d{4} year so the entry can be
+  # cloned for new release years without edits. The BSW files
+  # (pumf_shs<year>_bsw_*.txt) have no underscore before the year and don't end
+  # in \d{4}.txt, so the data file matches unambiguously.
+  .entries_for("SHS", c("2021", "2023"),
     bsw_file_mask = "bsw_flatfile\\.txt",
     bsw_join_key  = "CASEID",
     file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
 
-  # 2023: same SPSS split-file format as 2021.
-  "SHS/2023" = .make_entry("SHS", "2023",
-    bsw_file_mask = "bsw_flatfile\\.txt",
-    bsw_join_key  = "CASEID",
-    file_mask     = "PUMF_SHS_\\d{4}\\.txt"),
-
+  list(
   # ---- GSS: General Social Survey -------------------------------------------
   # Canonical version keys are "Cycle N (YYYY)" (a bare year is not unique across
   # the GSS).  Cycle number, bare year, and historical theme names all resolve as
@@ -798,20 +1306,22 @@
     file_mask   = "C9micro\\.dat",
     data_fixups = list(force_numeric = c("DVD7", "DVEXREAG", "L11"))),
 
-  # ---- Time Use --------------------------------------------------------------
-  # Time Use cycles ship a respondent-level Main file and a much larger Episode
-  # file (one row per activity episode), each with its own command files; they
-  # share the respondent key PUMFID (Main weight WGHT_PER, Episode weight
-  # WGHT_EPI).  Modelled as two linked tables in one DuckDB (Main primary): use
-  # module="Episode" / pumf_module(tbl, "Episode") and join on PUMFID.
+  # Time Use 2022 (cycle 36): split-SPSS command files; Main + Episode datasets
+  # joined on PUMFID (Main weight WGHT_PER, Episode weight WGHT_EPI).  The 500
+  # WEPI_* episode bootstrap weights are unlabeled (expected).
   #
-  # Time Use 2022: split-SPSS; layout_mask "_Main_"/"_Episode_" disambiguate the
-  # per-module SPS files.  Episode force_numeric covers the detailed-code
-  # variables (ACTIVITY/LOCATION/TUI_01/TUI_03) whose value labels enumerate
-  # only the aggregate groups plus 9996-9999 sentinels while the data carries
-  # the full detailed numeric codes; force_numeric keeps the raw code and turns
-  # the sentinels into NA.  The 500 WEPI_* episode bootstrap weights are
-  # unlabeled (expected).
+  # The Episode reading cards disagree (#29): the SPSS DATA LIST (revised by
+  # StatCan in March 2025 to match the codebook's printed positions) orders the
+  # variables differently from the SAS INPUT card, and only the SAS card reads
+  # the 5071-byte records -- under it DURATION == ENDMIN - STARTMIN in every
+  # record and every codebook frequency is reproduced; under the SPSS
+  # positions neither holds.  layout_file therefore takes the Episode layout
+  # from the SAS card.  The card declares INSTANCE twice (7-9 and 37-39,
+  # identical in every record; the second is dropped), and TUI_D81, which the
+  # SPSS card and codebook document at column 32, is not on the file.  The
+  # misaligned layout once made ACTIVITY/LOCATION/TUI_01/TUI_03 look
+  # unlabelled (force_numeric); read at the right columns every value is a
+  # documented code, so they are plain factors.
   "GSS/Cycle 36 (2022)" = .make_entry("GSS", "Cycle 36 (2022)",
     modules = list(
       Main = list(
@@ -819,9 +1329,8 @@
         file_mask   = "Main-Principal_PUMF\\.txt"),
       Episode = list(
         layout_mask = "_Episode_",
-        file_mask   = "Episode_PUMF\\.txt",
-        data_fixups = list(force_numeric = c(
-          "ACTIVITY", "LOCATION", "TUI_01", "TUI_03")))),
+        layout_file = "^TU_ET_2022_Episode_i\\.SAS$",
+        file_mask   = "Episode_PUMF\\.txt")),
     module_key = "PUMFID"),
 
   # Time Use 2015 (cycle 29): monolithic SPSS; Main + Episode datasets joined on
@@ -961,6 +1470,49 @@
     # variable would be read as categorical and every real count dropped.
     data_fixups     = list(force_numeric = "ALWDVWKY")),
 
+  # ---- CIUS: Canadian Internet Use Survey -----------------------------------
+  # One zip (2022.zip) holding the fixed-width CIUS_PUMF.txt, split SPSS
+  # command files (vare/varf/vale/valf/miss/i) and a GTAB "CIUS_PUMF_label.txt"
+  # that the data-file search would otherwise also match, hence file_mask.
+  # The person weight WTPG and the 1000 bootstrap weights WRPG1-WRPG1000 sit
+  # in the data file and are declared by the DATA LIST alone (implied
+  # decimals, no label), so .promote_layout_numeric() types them; the user
+  # guide's wording supplies WTPG's label.  PUMFID is layout-only without
+  # decimals and stays character.  The PDF codebook's "Length:" field defeats
+  # the frequency-codebook detection, so there is no PDF cross-check (#28).
+  "CIUS/2022" = .make_entry("CIUS", "2022",
+    file_mask   = "CIUS_PUMF\\.txt$",
+    data_fixups = list(labels_supplement = list(
+      WTPG = c(label_en = "Survey weight (person level)",
+               label_fr = "Poids d'enqu\u00eate (niveau des personnes)")))),
+  # The earlier releases each need their own file_mask: every bundle names
+  # the data file differently and ships it beside other .txt files (readme
+  # notes, GTAB label files).  2005-2009 are monolithic SPSS cards (English
+  # cius*.sps / 2009-eng.sps, French ecui*.sps / 2009-fra.sps); 2018 is a
+  # split card set (CIUS2018PUMF_i/vare/varf/vale/valf/miss.sps) inside
+  # Data.zip > RAW.zip, with the 1000 bootstrap weights WRPM1-WRPM1000 in the
+  # data file.  PUMFID: 2007 and 2009 declare it "(A)" in the DATA LIST, so
+  # it is text by the card; 2005 and 2018 declare it numeric although the
+  # codebook lists it as the record identifier (zero-padded in 2005), so
+  # force_character keeps it text like every other release (ledger rows).
+  "CIUS/2005" = .make_entry("CIUS", "2005",
+    file_mask   = "CIUS2005_PUMF\\.txt$",
+    data_fixups = list(force_character = "PUMFID")),
+  "CIUS/2007" = .make_entry("CIUS", "2007",
+    file_mask   = "cius2007dat\\.txt$"),
+  "CIUS/2009" = .make_entry("CIUS", "2009",
+    file_mask   = "cius-ecui2009data\\.txt$"),
+  "CIUS/2018" = .make_entry("CIUS", "2018",
+    file_mask   = "CIUS2018PUMF\\.txt$",
+    data_fixups = list(force_character = "PUMFID")),
+  # 2020: Data_Donn\u00e9es.zip (inside 2020.zip) holds CIUS2020_PUMF.txt, a
+  # cius2020_pumf.sas7bdat twin, split SPSS cards and a GTAB
+  # CIUS2020_PUMF_label.txt; the mask picks the fixed-width file.  PUMFID is
+  # declared numeric with a variable label, hence force_character as above.
+  "CIUS/2020" = .make_entry("CIUS", "2020",
+    file_mask   = "CIUS2020_PUMF\\.txt$",
+    data_fixups = list(force_character = "PUMFID")),
+
   # ---- PALS: Participation and Activity Limitation Survey -------------------
   # Both editions ship one archive laid out as PUMF/ENG/ and PUMF/FR/, each
   # holding a complete copy of the release in that language.  The data files
@@ -1044,15 +1596,12 @@
         # DISAB=1 counterpart, 91 = "Invalid data".
         .codes_for(c("NSTIENP", "ROOMSP"), "99",
                    "Invalid data", "Donn\u00e9es non valides"),
-        stats::setNames(
-          rep(list(data.frame(
-            val      = c("0", "93", "98", "R", "X"),
-            label_en = c("Valid data", "Not applicable", "Not stated",
-                         "Refusal", "Don't know"),
-            label_fr = c("Donn\u00e9es valides", "Ne s'applique pas",
-                         "Non d\u00e9clar\u00e9", "Refus", "Ne sait pas"),
-            stringsAsFactors = FALSE)), 4L),
-          c("B12", "B28", "B54", "C40"))))),
+        .codes_for(c("B12", "B28", "B54", "C40"),
+                   c("0", "93", "98", "R", "X"),
+                   c("Valid data", "Not applicable", "Not stated",
+                     "Refusal", "Don't know"),
+                   c("Donn\u00e9es valides", "Ne s'applique pas",
+                     "Non d\u00e9clar\u00e9", "Refus", "Ne sait pas"))))),
 
   # ---- SGVP: GSS Giving, Volunteering and Participating ---------------------
   # Generic \d{4} year file_mask (matches GVP_DBP_<year>_PUMF_FMGD.txt, not the
@@ -1072,11 +1621,7 @@
     file_mask   = "GSS33PUMF\\.txt$",
     data_fixups = list(
       force_numeric    = c("HSDSIZEC", "DSCORE"),
-      codes_supplement = list(
-        BRTHMACR = data.frame(val = "9", label_en = NA_character_,
-                              label_fr = NA_character_,
-                              stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("BRTHMACR", "9", NA_character_, NA_character_)
     )),
 
   # 2013 (cycle 27): monolithic SPSS (GSSC27GVPpumf_e.sps + French pair).
@@ -1159,17 +1704,15 @@
         layout_mask = "_VOLNTR_",
         file_mask   = "NSGVP1997_VOLNTR_PUMF\\.txt$",
         data_fixups = list(na_values = "."))),
-    module_key = "IDNUM"),
+    module_key = "IDNUM")),
 
   # ---- ITS: International Travel Survey -------------------------------------
   # Split-SPSS layout (VTS_<year>_PUMF_{i,vale,vare,valf,varf,miss}.sps) in
   # Layout_Cards/.  Generic \d{4} year file_mask avoids the README.txt and
   # clones cleanly for new release years.
-  "ITS/2018" = .make_entry("ITS", "2018",
-    file_mask = "VTS_\\d{4}_PUMF\\.txt"),
-  "ITS/2019" = .make_entry("ITS", "2019",
-    file_mask = "VTS_\\d{4}_PUMF\\.txt"),
+  .entries_for("ITS", c("2018", "2019"), file_mask = "VTS_\\d{4}_PUMF\\.txt"),
 
+  list(
   # ---- Census of Population -------------------------------------------------
   # 2021 and 2016 are downloadable. Older years are EFT-only (user deposits zip).
   # All Census files use CP1252-encoded data; 2021 uses UTF-8 metadata (command
@@ -1207,28 +1750,31 @@
     data_fixups = .census_fixup_8),
 
   # 2011 NHS: fixed-width .dat, 7-char income fields
+  # 2011/2006: narrower dollar, hours and weeks fields carry their own
+  # sentinels (see .census_20xx_*_missing above).
   "Census/2011 (individuals)" = .make_entry("Census", "2011 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7,
+                    list(missing_codes = .census_2011_ind_missing))),
 
   "Census/2011 (hierarchical)" = .make_entry("Census", "2011 (hierarchical)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7,
+                    list(missing_codes = .census_2011_hier_missing))),
 
   # 2006: fixed-width .dat, 7-char income fields
   "Census/2006 (individuals)" = .make_entry("Census", "2006 (individuals)",
     file_mask   = "\\.dat",
-    data_fixups = .census_fixup_7),
+    data_fixups = c(.census_fixup_7,
+                    list(missing_codes = .census_2006_ind_missing))),
 
   # MORGH code 8 is absent from the SPSS labels; the PDF user guide documents
   # it as "Not available" / "Non disponible" (freq 9,353).
   "Census/2006 (hierarchical)" = .make_entry("Census", "2006 (hierarchical)",
     file_mask   = "\\.dat",
     data_fixups = c(.census_fixup_7, list(
-      codes_supplement = list(
-        MORGH = data.frame(val = "8", label_en = "Not available",
-                           label_fr = "Non disponible", stringsAsFactors = FALSE)
-      )
+      missing_codes    = .census_2006_hier_missing,
+      codes_supplement = .codes_for("MORGH", "8", "Not available", "Non disponible")
     ))),
 
   # 2001: fixed-width .dat; three file types
@@ -1243,10 +1789,7 @@
   "Census/2001 (families)" = .make_entry("Census", "2001 (families)",
     file_mask   = "\\.dat",
     data_fixups = c(.census_fixup_7, list(
-      codes_supplement = list(
-        MODEF = data.frame(val="7", label_en="Other method",
-                           label_fr="Autre moyen", stringsAsFactors=FALSE)
-      )
+      codes_supplement = .codes_for("MODEF", "7", "Other method", "Autre moyen")
     ))),
 
   # 1996: separate EFT archive per type.  Each outer zip contains a
@@ -1275,10 +1818,7 @@
     metadata_encoding = "CP850",
     bundled_eng_sps   = "census_1991/IND91.XMF",
     data_fixups       = c(.census_fixup_7, list(
-      codes_supplement = list(
-        NOLGREP = data.frame(val = "9", label_en = "Not applicable",
-                             label_fr = "Sans objet", stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("NOLGREP", "9", "Not applicable", "Sans objet")
     ))),
 
   "Census/1991 (households)" = .make_entry("Census", "1991 (households)",
@@ -1333,23 +1873,20 @@
     doc_mask        = "Individu|[Pp]articulier|indvls",
     data_fixups     = list(
       force_numeric = .census_1986_numeric_ind,
-      codes_supplement = list(
-        ETHNICOR = data.frame(
-          val      = c("29", "30"),
-          label_en = c("Other European single responses (Atl/YT/NWT)",
-                       "Asian (Atl/YT/NWT)"),
-          label_fr = c("Autres origines uniques europ\u00e9ennes (Atl/YN/TNO)",
-                       "Asiatique (Atl/YN/TNO)"),
-          stringsAsFactors = FALSE
-        )
-      )
+      codes_supplement = .codes_for(
+        "ETHNICOR", c("29", "30"),
+        c("Other European single responses (Atl/YT/NWT)",
+          "Asian (Atl/YT/NWT)"),
+        c("Autres origines uniques europ\u00e9ennes (Atl/YN/TNO)",
+          "Asiatique (Atl/YN/TNO)"))
     )),
 
   "Census/1986/households" = .make_entry("Census", "1986/households",
     bundle_sps_mask = "hhld86",
     file_mask       = "^HHLD86\\.DAT$",
     doc_mask        = "Household|[Mm][e\u00e9]nages|hhldhsg",
-    data_fixups     = list(force_numeric = .census_1986_numeric_hhld)),
+    data_fixups     = list(force_numeric  = .census_1986_numeric_hhld,
+                           codes_override = .census_1986_hhmotg)),
 
   "Census/1986/families" = .make_entry("Census", "1986/families",
     bundle_sps_mask = "fam",
@@ -1360,7 +1897,7 @@
   "Census/1981/individuals" = .make_entry("Census", "1981/individuals",
     bundle_sps_mask = "ind81",
     file_mask       = "^INDMDF81\\.DAT$",
-    data_fixups     = list(
+    data_fixups     = c(list(
       # In the PDF record layout the mnemonics use FA*=father/husband and
       # MA*=mother/wife (e.g. WKACTFA at 162-163 is the husband's 10-code work
       # activity; WKACTMA at 164-165 the wife's 12-code FT/PT scheme).  The SPS
@@ -1372,25 +1909,17 @@
       # schemes: SPS MAOCC81 carries the husband's 0-17 occupation codes that
       # the PDF documents at positions 158-159).  Note: as a result canpumf's
       # WKACTMA/FAOCC81/FALFACT etc. are the PDF's WKACTFA/MAOCC81/MALFACT.
-      cols_swap = c(WKACTMA = "WKACTFA", FAOCC81 = "MAOCC81", FALFACT = "MALFACT")
-    )),
+      cols_swap = c(WKACTMA = "WKACTFA", FAOCC81 = "MAOCC81", FALFACT = "MALFACT")),
+      .census_1981_ind_fixups)),
 
   "Census/1981/households" = .make_entry("Census", "1981/households",
     bundle_sps_mask = "hhmdf81",
-    file_mask       = "^HHMDF81\\.DAT$"),
+    file_mask       = "^HHMDF81\\.DAT$",
+    data_fixups     = .census_1981_hhld_fixups)),
 
-  "Census/1976/individuals" = .make_entry("Census", "1976/individuals",
-    bundle_sps_mask = "indiv76",
-    file_mask       = "^indiv76\\.txt$"),
+  .census_1976_eft_entries(),
 
-  "Census/1976/households" = .make_entry("Census", "1976/households",
-    bundle_sps_mask = "hhld76",
-    file_mask       = "^hhld76\\.txt$"),
-
-  "Census/1976/families" = .make_entry("Census", "1976/families",
-    bundle_sps_mask = "fam76",
-    file_mask       = "^fam76\\.txt$"),
-
+  list(
   # 1971 has separate CMA (Census Metropolitan Area) and provincial (prov)
   # variants for each file type; both come from the same bundle zip.
   "Census/1971/individuals_prov" = .make_entry("Census", "1971/individuals_prov",
@@ -1422,11 +1951,7 @@
       # CMACODE is always 000 in the provincial file (no CMA detail); the SPSS
       # VALUE LABELS only list 008/021 (Montreal/Toronto from the CMA file), so
       # 000 would otherwise warn as unmatched.
-      codes_supplement = list(
-        CMACODE = data.frame(val = "000", label_en = NA_character_,
-                             label_fr = NA_character_,
-                             stringsAsFactors = FALSE)
-      )
+      codes_supplement = .codes_for("CMACODE", "000", NA_character_, NA_character_)
     ))),
 
   "Census/1971/families_cma" = .make_entry("Census", "1971/families_cma",
@@ -1455,7 +1980,8 @@
     data_fixups = list(force_numeric = .census_1986_numeric_ind)),
   "Census/1986 (households)" = .make_entry("Census", "1986 (households)",
     borealis    = list(doi = "doi:10.5683/SP3/FSJJFR"),
-    data_fixups = list(force_numeric = .census_1986_numeric_hhld)),
+    data_fixups = list(force_numeric  = .census_1986_numeric_hhld,
+                       codes_override = .census_1986_hhmotg)),
   # The EFT family .sps has no value labels on these, so they are numeric
   # there already; ODESI's adds boundary labels ("85 yrs or more").
   "Census/1986 (families)" = .make_entry("Census", "1986 (families)",
@@ -1466,17 +1992,19 @@
       "WAGEH", "WAGEW", "SELFH", "SELFW", "INVSTH", "INVSTW",
       "OMPC", "MPPITC", "GROSRTC", "RENTC", "VALUEC"
     ))),
+  # 1981: two-value MISSING VALUES lists (0 and 999/99) and zero incomes, see
+  # .census_1981_*_na and .census_1981_hhld_zero.
   "Census/1981 (individuals)" = .make_entry("Census", "1981 (individuals)",
-    borealis = list(doi = "doi:10.5683/SP3/XHTFC8")),
+    borealis    = list(doi = "doi:10.5683/SP3/XHTFC8"),
+    data_fixups = .census_1981_ind_fixups),
   # One combined "Households and Family File", as in the EFT bundle.
   "Census/1981 (households)" = .make_entry("Census", "1981 (households)",
-    borealis = list(doi = "doi:10.5683/SP3/WECYST")),
-  "Census/1976 (individuals)" = .make_entry("Census", "1976 (individuals)",
-    borealis = list(doi = "doi:10.5683/SP3/ZX0MPJ")),
-  "Census/1976 (households)" = .make_entry("Census", "1976 (households)",
-    borealis = list(doi = "doi:10.5683/SP3/QDJL7W")),
-  "Census/1976 (families)" = .make_entry("Census", "1976 (families)",
-    borealis = list(doi = "doi:10.5683/SP3/5LWCXB")),
+    borealis    = list(doi = "doi:10.5683/SP3/WECYST"),
+    data_fixups = .census_1981_hhld_fixups)),
+
+  .census_1976_borealis_entries(),
+
+  list(
   "Census/1971 (individuals, provincial)" = .make_entry("Census",
     "1971 (individuals, provincial)",
     borealis    = list(doi = "doi:10.5683/SP3/RUGTLM"),
@@ -1500,15 +2028,98 @@
     "1971 (families, provincial)",
     borealis    = list(doi = "doi:10.5683/SP3/CYMXK3"),
     # CMACODE is always 0 in the provincial file (unpadded in the CSV).
-    data_fixups = c(.census_fixup_1971, list(codes_supplement = list(
-      CMACODE = data.frame(val = "0", label_en = NA_character_,
-                           label_fr = NA_character_, stringsAsFactors = FALSE)
-    )))),
+    data_fixups = c(.census_fixup_1971, list(codes_supplement =
+      .codes_for("CMACODE", "0", NA_character_, NA_character_)))),
   "Census/1971 (families, CMA)" = .make_entry("Census",
     "1971 (families, CMA)",
     borealis    = list(doi = "doi:10.5683/SP3/R8V3ID"),
-    data_fixups = .census_fixup_1971)
-)
+    data_fixups = .census_fixup_1971),
+
+  # ---- TCP: The Canadian Peoples, complete-count historical censuses --------
+  # 1881 (the only vintage whose data file is open; 1871 and 1891-1921 need a
+  # project application).  A 1.1 GB CSV: read by DuckDB, never through R.
+  #   - AGE, AGEMONTH: the only measures; every other field is an identifier,
+  #     a transcribed text or a code.
+  #   - fix_mojibake: the transcribed text fields (names, places, occupations,
+  #     religions) are double-encoded UTF-8.
+  #   - removed_records: remove_TCP = 1 marks 1,137 crossed-out, duplicate or
+  #     blank lines the documentation says to drop before analysis.
+  #   - keep_unlabelled_codes: 98 codes of the three occupation fields occur
+  #     in the data without an entry in the value-label dictionary.
+  "TCP/1881" = .make_entry("TCP", "1881",
+    borealis      = list(doi = "doi:10.5683/SP3/FXZEVO"),
+    data_encoding = "UTF-8",
+    csv_reader    = "duckdb",
+    data_fixups   = list(
+      force_numeric         = c("AGE", "AGEMONTH"),
+      fix_mojibake          = TRUE,
+      removed_records       = list(var = "REMOVE_TCP", values = "1"),
+      keep_unlabelled_codes = TRUE,
+      labels_supplement     = .tcp_1881_var_labels)),
+
+  # ---- CCRI: Canadian Century Research Infrastructure census samples --------
+  # 1911 (5% sample of dwellings).  The ODESI deposit is the only complete open
+  # copy: the CCRI dataverse's own .sav is truncated, and 1921-1951 are not
+  # openly downloadable.  The files are pinned because the automatic selection
+  # would take the 344 MB .sav for its labels; the SAS card carries the same
+  # labels plus the missing-value codes.
+  #
+  # Fixups (evidence in tests/testthat/override_verification.csv):
+  #   - rejoin_split_records: 15 records are split over two lines by a line
+  #     break inside a field (HABITATION).
+  #   - column_encoding: the two standardized text columns (_CL) are CP850,
+  #     the rest of the file CP1252.
+  #   - force_character + str_pad: the record identifiers stay character; the
+  #     four within-dwelling/household sequence numbers are zero-padded to a
+  #     common width (2, 3, 3, 3).
+  #   - force_numeric: the columns the card attaches a format to although
+  #     they are measures (coded answers 9000000x beside the numbers) or
+  #     years (the format lists only the missing values); missing_supplement
+  #     puts the coded answers and the missing codes (9999xxxx) of the
+  #     measures, AGE_AMOUNT and MONTH_OF_BIRTH (no card recode) in the
+  #     sentinel sidecar, missing_codes the 1-3 of YEAR_OF_NATURALIZATION and
+  #     the 1 = "Yes" of the two insurance amounts.
+  #   - text_missing_codes: the free-text columns (names, places, titles,
+  #     occupation strings) hold the 17 missing codes as strings.
+  #   - keep_unlabelled_codes: the occupation and place codes occur in the
+  #     data beyond the value-label dictionary (OCC3B "100" in 4,552 records).
+  #   - labels_as_description + labels_supplement: the card's variable
+  #     labels are sentences; they become the descriptions, and canpumf
+  #     supplies short bilingual labels.
+  "CCRI/1911" = .make_entry("CCRI", "1911",
+    borealis          = list(doi = "doi:10.5683/SP3/MDTWGJ", files = .ccri_1911_files),
+    data_encoding     = "CP1252",
+    metadata_encoding = "CP1252",
+    data_fixups       = list(
+      rejoin_split_records  = TRUE,
+      column_encoding       = list(CP850 = c("PLACE_OF_EMPLOYMENT_CL",
+                                             "OCCUPATION_CHIEF_OCC_IND_CL")),
+      str_pad               = list(
+        list(cols = "DERIVED_HOUSEHOLD_ID_IN_DWELLING", width = 2L, side = "left", pad = "0"),
+        list(cols = c("DERIVED_PERSON_NUM_IN_HOUSEHOLD", "DERIVED_PERSON_NUM_IN_DWELLING",
+                      "DERIVED_SURNAME_NUMBER"),
+             width = 3L, side = "left", pad = "0")),
+      force_character       = c("DWELLING_ID", "HOUSEHOLD_ID", "INDIVIDUAL_ID",
+                                "DERIVED_DWELLING_ID", "DERIVED_HOUSEHOLD_ID",
+                                "DERIVED_INDIVIDUAL_ID",
+                                "DERIVED_HOUSEHOLD_ID_IN_DWELLING",
+                                "DERIVED_PERSON_NUM_IN_HOUSEHOLD",
+                                "DERIVED_PERSON_NUM_IN_DWELLING",
+                                "DERIVED_SURNAME_NUMBER"),
+      force_numeric         = c(.ccri_1911_measures, "YEAR_OF_BIRTH",
+                                "YEAR_OF_IMMIGRATION"),
+      missing_supplement    = c(
+        stats::setNames(rep(list(c(90000001, 999999999)), length(.ccri_1911_measures) + 1L),
+                        c(.ccri_1911_measures, "AGE_AMOUNT")),
+        list(MONTH_OF_BIRTH = c(99999001, 99999999))),
+      missing_codes         = list(YEAR_OF_NATURALIZATION = c(1, 2, 3),
+                                   HEALTH_INSURANCE = 1, LIFE_INSURANCE = 1),
+      text_missing_codes    = .ccri_missing_codes,
+      sentinel_labels       = .ccri_sentinel_labels,
+      keep_unlabelled_codes = TRUE,
+      labels_as_description = TRUE,
+      labels_supplement     = .ccri_1911_var_labels))
+))
 
 #' Resolve version aliases
 #'
@@ -1583,24 +2194,27 @@ pumf_resolve_version <- function(series, version,
 # Registry key of an EFT bundle entry ("1971/individuals_cma", "1986/families"),
 # or NULL when that year/type has none.
 .census_eft_key <- function(year, type, is_cma) {
-  cands <- c(if (is_cma) paste0(year, "/", type, "_cma"),
-             paste0(year, "/", type, "_prov"),
-             paste0(year, "/", type))
-  for (k in cands)
-    if (!is.null(.pumf_registry[[paste0("Census/", k)]])) return(k)
-  NULL
+  .census_first_key(c(if (is_cma) paste0(year, "/", type, "_cma"),
+                      paste0(year, "/", type, "_prov"),
+                      paste0(year, "/", type)))
 }
 
 # Registry key of a Borealis-sourced entry ("1971 (individuals, CMA)",
 # "1986 (families)"), or NULL.  Only keys carrying a borealis DOI qualify, so
 # StatCan-downloadable years (1991+) never resolve here.
 .census_borealis_key <- function(year, type, is_cma) {
-  cands <- c(if (is_cma) paste0(year, " (", type, ", CMA)"),
-             paste0(year, " (", type, ", provincial)"),
-             paste0(year, " (", type, ")"))
+  .census_first_key(c(if (is_cma) paste0(year, " (", type, ", CMA)"),
+                      paste0(year, " (", type, ", provincial)"),
+                      paste0(year, " (", type, ")")),
+                    borealis = TRUE)
+}
+
+# The first of the candidate Census version keys that is registered (and, with
+# `borealis = TRUE`, carries a Borealis source), or NULL.
+.census_first_key <- function(cands, borealis = FALSE) {
   for (k in cands) {
     e <- .pumf_registry[[paste0("Census/", k)]]
-    if (!is.null(e) && !is.null(e$borealis)) return(k)
+    if (!is.null(e) && (!borealis || !is.null(e$borealis))) return(k)
   }
   NULL
 }
@@ -1666,19 +2280,24 @@ pumf_resolve_version <- function(series, version,
 .pumf_gss_canon_keys <- function()
   sub("^GSS/", "", grep("^GSS/Cycle ", names(.pumf_registry), value = TRUE))
 
+# Normalise a version string for alias matching: lower case, punctuation to
+# spaces, whitespace collapsed; `split_digits` also separates trailing letters
+# from digits ("cycle16" -> "cycle 16").
+.pumf_norm_alias <- function(x, split_digits = FALSE) {
+  x <- tolower(gsub("[[:punct:]]", " ", x))
+  if (split_digits) x <- gsub("([a-z])([0-9])", "\\1 \\2", x)
+  trimws(gsub("\\s+", " ", x))
+}
+
 .pumf_gss_alias <- function(version) {
-  norm <- function(x) {
-    x <- tolower(gsub("[[:punct:]]", " ", x))
-    x <- gsub("([a-z])([0-9])", "\\1 \\2", x)  # "cycle16" -> "cycle 16"
-    trimws(gsub("\\s+", " ", x))
-  }
-  v <- norm(version)
+  v <- .pumf_norm_alias(version, split_digits = TRUE)
   for (canon in .pumf_gss_canon_keys()) {
     m <- regmatches(canon, regexec("^Cycle (\\d+) \\((\\d{4})\\)$", canon))[[1L]]
     if (length(m) != 3L) next
     cyc <- m[2L]; yr <- m[3L]
     auto <- c(paste("cycle", cyc), cyc, yr, paste("cycle", cyc, yr))
-    if (v %in% norm(c(auto, .pumf_gss_theme_aliases[[canon]]))) return(canon)
+    if (v %in% .pumf_norm_alias(c(auto, .pumf_gss_theme_aliases[[canon]]),
+                                split_digits = TRUE)) return(canon)
   }
   NULL
 }
@@ -1693,7 +2312,7 @@ pumf_resolve_version <- function(series, version,
 # 2021), so a year cannot identify a single cycle.
 .pumf_ccahs_year_aliases <- c("2022" = "1")
 .pumf_cycle_alias <- function(series, version) {
-  v <- trimws(gsub("\\s+", " ", gsub("[[:punct:]]", " ", tolower(version))))
+  v <- .pumf_norm_alias(version)
   if (series == "CCAHS" && v %in% names(.pumf_ccahs_year_aliases))
     return(unname(.pumf_ccahs_year_aliases[v]))
   if (grepl("^(cycle|series|cpss|ccahs) ?[0-9]+$", v))
@@ -1701,23 +2320,69 @@ pumf_resolve_version <- function(series, version,
   NULL
 }
 
-# Shared LFS build configuration.  LFS is not keyed per version in
-# .pumf_registry (every version uses one shared DuckDB), so its config lives
-# here and is returned by pumf_registry_lookup()/pumf_registry() for any LFS
-# version.  force_integer keeps the survey-dimension/record columns as integers
-# for make_date() and integer year/month filtering.
-.pumf_lfs_entry <- .make_entry(
-  "LFS", NA_character_,
-  data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
-
-# LFS_HIST (1976-2005, R/lfs_hist.R) likewise shares one configuration.
-.pumf_lfs_hist_entry <- .make_entry(
-  "LFS_HIST", NA_character_,
-  data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
+# Shared build configuration of a longitudinal series (LFS, LFS_HIST).  Those
+# series are not keyed per version in .pumf_registry (every version goes into
+# one shared DuckDB), so one entry per series is returned by
+# pumf_registry_lookup()/pumf_registry() for any of its versions.
+# force_integer keeps the survey-dimension/record columns as integers for
+# make_date() and integer year/month filtering.
+.long_entry <- function(series) {
+  .make_entry(series, NA_character_,
+              data_fixups = list(force_integer = c("SURVYEAR", "SURVMNTH", "REC_NUM")))
+}
+.pumf_lfs_entry      <- .long_entry("LFS")
+.pumf_lfs_hist_entry <- .long_entry("LFS_HIST")   # R/lfs_hist.R reads force_integer
 
 # Shared entry of a longitudinal series, or NULL.
 .pumf_longitudinal_entry <- function(series) {
   switch(series, LFS = .pumf_lfs_entry, LFS_HIST = .pumf_lfs_hist_entry, NULL)
+}
+
+# The one registry resolution behind pumf_registry_lookup(), pumf_registry()
+# and .statcan_registry_download_format(): the built-in entry for the key, else
+# the shared entry of a longitudinal series, else (with `inherit`) the newest
+# registered sibling's config under this version, announced once per session
+# when `announce`.  With `override`, the active get_pumf(registry = ) patch is
+# merged on top (over an all-default entry when nothing is registered); a
+# get_pumf(borealis = <doi>) on a registered version drops the built-in config
+# unless it names the same DOI, because that config was calibrated for the
+# entry's own source files.  `resolve` canonicalises `version` first.  Returns
+# NULL when nothing applies.
+.pumf_registry_resolve <- function(series, version, resolve = FALSE,
+                                   inherit = TRUE, announce = TRUE,
+                                   override = TRUE) {
+  if (resolve)
+    version <- tryCatch(pumf_resolve_version(series, version),
+                        error = function(e) version)
+  key  <- paste0(series, "/", version)
+  base <- .pumf_registry[[key]]
+  if (is.null(base)) base <- .pumf_longitudinal_entry(series)
+  if (is.null(base) && inherit) {
+    sib <- .pumf_registry_newest_sibling(series, version)
+    if (!is.null(sib)) {
+      if (announce)
+        .pumf_once_per_session(paste0("inherit::", key), message(sprintf(
+          paste0("No %s registry entry; inheriting config from %s/%s. ",
+                 "Verify the new release matches (file layout, codes, BSW ",
+                 "join) and add an explicit entry if it differs."),
+          key, series, sib)))
+      base <- .pumf_registry[[paste0(series, "/", sib)]]
+      base$series  <- series
+      base$version <- version
+    }
+  }
+  ovr <- if (override) .pumf_registry_override_get(series, version) else NULL
+  if (is.null(ovr)) return(base)
+  if (is.null(base)) base <- .make_entry(series, version)
+  if (isTRUE(ovr$borealis$explicit) &&
+      !identical(.borealis_entry_doi(base), .borealis_entry_doi(ovr)))
+    base <- .make_entry(series, version)
+  # series/version always come from the lookup arguments, never from the patch.
+  for (f in setdiff(names(ovr), c("series", "version")))
+    base[[f]] <- ovr[[f]]
+  base$series  <- series
+  base$version <- version
+  base
 }
 
 #' Look up survey registry configuration
@@ -1730,48 +2395,13 @@ pumf_resolve_version <- function(series, version,
 #' @return named list of configuration fields, or `NULL` if not in registry
 #' @keywords internal
 pumf_registry_lookup <- function(series, version) {
-  base <- .pumf_registry[[paste0(series, "/", version)]]
-  if (is.null(base)) base <- .pumf_longitudinal_entry(series)
-  # Inherit config from the newest registered sibling when this exact version
-  # isn't registered (e.g. a freshly released year deposited in the cache).
-  # Now that recent file_masks use a generic \d{4} year, the inherited config
-  # usually applies as-is.  A message fires once per session so the implicit
-  # reuse is discoverable -- a genuinely changed release still needs its own
-  # entry.  Skipped when an override is present (handled below).
-  if (is.null(base)) {
-    sib <- .pumf_registry_newest_sibling(series, version)
-    if (!is.null(sib)) {
-      key <- paste0(series, "/", version)
-      if (is.null(.pumf_registry_inherit_announced[[key]])) {
-        message(sprintf(
-          paste0("No %s registry entry; inheriting config from %s/%s. ",
-                 "Verify the new release matches (file layout, codes, BSW ",
-                 "join) and add an explicit entry if it differs."),
-          key, series, sib))
-        .pumf_registry_inherit_announced[[key]] <- TRUE
-      }
-      base <- .pumf_registry[[paste0(series, "/", sib)]]
-      base$series  <- series
-      base$version <- version
-    }
-  }
-  ovr  <- .pumf_registry_override_get(series, version)
-  if (is.null(ovr)) return(base)
-  # Merge the active override patch over the built-in entry (or an all-default
-  # entry when the survey is not registered).  series/version always come from
-  # the lookup arguments, never from the patch.
-  if (is.null(base)) base <- .make_entry(series, version)
-  # get_pumf(borealis = <doi>) on a registered version: the built-in config was
-  # calibrated for that entry's own source files, not for an arbitrary Borealis
-  # dataset, so it is dropped unless it names the same DOI.
-  if (isTRUE(ovr$borealis$explicit) &&
-      !identical(.borealis_entry_doi(base), .borealis_entry_doi(ovr)))
-    base <- .make_entry(series, version)
-  for (f in setdiff(names(ovr), c("series", "version")))
-    base[[f]] <- ovr[[f]]
-  base$series  <- series
-  base$version <- version
-  base
+  # Inherits the newest registered sibling's config when this exact version is
+  # not registered (a freshly released year deposited in the cache): recent
+  # file_masks use a generic \d{4} year, so the inherited config usually
+  # applies as-is, and the once-per-session message keeps the implicit reuse
+  # discoverable.  A genuinely changed release still needs its own entry.
+  .pumf_registry_resolve(series, version, inherit = TRUE, announce = TRUE,
+                         override = TRUE)
 }
 
 # Fill in variable labels that the source metadata leaves blank, using a
@@ -1800,17 +2430,21 @@ pumf_registry_keys <- function() {
   names(.pumf_registry)
 }
 
-# Tracks (series/version -> inherited-from) pairs already announced this
-# session so the inheritance message fires once per new version, not once
-# per pumf_registry_lookup() call.
-.pumf_registry_inherit_announced <- new.env(parent = emptyenv())
+# The "series/version" keys whose entry downloads from Borealis (a `borealis`
+# field).  They are listed by list_pumf_catalogue() and never inherited
+# from by .pumf_registry_newest_sibling().
+.pumf_registry_borealis_keys <- function() {
+  names(.pumf_registry)[!vapply(.pumf_registry, function(e) is.null(e$borealis),
+                                logical(1L))]
+}
 
 #' Find the registered sibling whose config best fits an unregistered year
 #'
 #' Considers only plain four-digit-year keys (`series/2023`) so multi-part
 #' versions (Census `1971/individuals_prov`) never inherit across types.
 #' Prefers the newest sibling not later than `version`; if the requested year
-#' predates every entry, falls back to the oldest registered sibling.
+#' predates every entry, falls back to the oldest registered sibling.  Entries
+#' with a registry `borealis` source are never inherited from.
 #'
 #' @return the chosen sibling version string, or `NULL` if no year-keyed sibling
 #' @keywords internal
@@ -1818,6 +2452,9 @@ pumf_registry_keys <- function() {
   if (!grepl("^\\d{4}$", version)) return(NULL)
   pre <- paste0(series, "/")
   sibs <- names(.pumf_registry)[startsWith(names(.pumf_registry), pre)]
+  # An entry with a Borealis source describes that one dataset: its DOI would
+  # make any year of the series download the same files (TCP 1881).
+  sibs <- setdiff(sibs, .pumf_registry_borealis_keys())
   years <- sub(paste0("^", pre), "", sibs)
   years <- years[grepl("^\\d{4}$", years)]
   if (length(years) == 0L) return(NULL)
@@ -1831,37 +2468,44 @@ pumf_registry_keys <- function() {
 
 # ---- Public registry API ----------------------------------------------------
 
-# Known registry-entry fields (everything .make_entry() accepts except the
-# series/version key, which is supplied to get_pumf() separately).
-.pumf_registry_fields <- c(
-  "layout_mask", "bsw_mask", "bsw_file_mask", "bsw_join_key", "bsw_drop_cols",
-  "bsw_strata", "file_mask", "data_encoding", "metadata_encoding",
-  "data_fixups", "bundled_eng_sps", "bundle_source", "bundle_sps_mask",
-  "doc_mask", "download_format", "borealis")
+# Known registry-entry fields: everything .make_entry() accepts except the
+# series/version key (supplied to get_pumf() separately) and the module table
+# (modules/primary_module/module_key, built-in entries only).  Derived from the
+# formals so a field added to .make_entry() is known to pumf_registry_entry()
+# and the print method at once.
+.pumf_registry_fields <- setdiff(
+  names(formals(.make_entry)),
+  c("series", "version", "modules", "primary_module", "module_key"))
 
 # Recognised data_fixups sub-fields (for validation warnings).
 .pumf_fixup_fields <- c(
   "str_pad", "rename", "rename_regex", "cols_swap", "na_values", "force_numeric",
   "force_character", "force_integer", "force_bigint",
-  "codes_supplement", "missing_supplement", "missing_codes",
-  "labels_supplement")
+  "codes_supplement", "codes_override", "missing_supplement", "missing_codes",
+  "labels_supplement", "labels_as_description", "sentinel_labels",
+  "fix_mojibake", "removed_records", "keep_unlabelled_codes",
+  "rejoin_split_records", "column_encoding", "text_missing_codes")
 
 # Validate a (possibly partial) registry entry's field types.  Errors on type
 # mismatches; warns on unrecognised data_fixups names.
 .validate_registry_entry <- function(x) {
   is_str  <- function(v) is.character(v) && length(v) == 1L && !is.na(v)
   is_chr  <- function(v) is.character(v)
-  single_string_fields <- c("layout_mask", "bsw_mask", "bsw_file_mask",
+  single_string_fields <- c("layout_mask", "layout_file", "bsw_mask",
+                            "bsw_file_mask",
                             "bsw_join_key", "file_mask", "data_encoding",
                             "metadata_encoding", "bundled_eng_sps",
                             "bundle_source", "bundle_sps_mask", "doc_mask",
-                            "download_format")
+                            "download_format", "csv_reader")
   for (f in intersect(single_string_fields, names(x))) {
     v <- x[[f]]
     if (!is.null(v) && !is_str(v))
       stop("Registry field '", f, "' must be a single string (or NULL).",
            call. = FALSE)
   }
+  if (!is.null(x$csv_reader) && !x$csv_reader %in% c("readr", "duckdb"))
+    stop("Registry field 'csv_reader' must be \"readr\" or \"duckdb\".",
+         call. = FALSE)
   for (f in intersect(c("bsw_drop_cols", "bsw_strata"), names(x))) {
     v <- x[[f]]
     if (!is.null(v) && !is_chr(v))
@@ -1890,6 +2534,11 @@ pumf_registry_keys <- function() {
               paste(unknown, collapse = ", "),
               ". Recognised: ", paste(.pumf_fixup_fields, collapse = ", "),
               call. = FALSE)
+    rr <- x$data_fixups$removed_records
+    if (!is.null(rr) &&
+        !(is.list(rr) && is_str(rr$var) && length(rr$values) > 0L))
+      stop("data_fixups 'removed_records' must be list(var = <variable>, ",
+           "values = <raw values>).", call. = FALSE)
     # A variable may appear in at most one force_* type override.
     forced <- unlist(x$data_fixups[c("force_numeric", "force_character",
                                      "force_integer", "force_bigint")],
@@ -1917,13 +2566,21 @@ pumf_registry_keys <- function() {
 #'
 #' The custom registry covers parsing and building configuration, plus an
 #' optional Borealis source (`borealis`); it does not provide a StatCan
-#' download URL.  For a survey not in [list_canpumf_collection()], either point
+#' download URL.  For a survey not in [list_pumf_catalogue()], either point
 #' `borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
 #' files) under `<cache_path>/<series>/<version>/` first, then call
 #' `get_pumf(series, version, registry = ...)`.
 #'
 #' @param layout_mask SPSS/SAS command-file disambiguator for split-file
 #'   surveys; also becomes part of the DuckDB table name when set.
+#' @param layout_file Regex (matched against file names anywhere under the
+#'   version directory, case-insensitively) naming the one command file whose
+#'   `DATA LIST` / SAS `INPUT` statement is the record layout of the data
+#'   file. Only needed when a release ships reading cards that disagree about
+#'   the layout: the layout parsed from this file replaces whatever the other
+#'   command files declare (GSS Cycle 36 (2022) Episode, whose SPSS card does
+#'   not read the file its SAS card reads). A name the file declares twice
+#'   keeps its first field.
 #' @param bsw_mask,bsw_file_mask,bsw_join_key,bsw_drop_cols,bsw_strata Bootstrap
 #'   weight join configuration.
 #' @param file_mask Regex selecting the data file (its extension also decides
@@ -1933,7 +2590,10 @@ pumf_registry_keys <- function() {
 #' @param data_fixups A named list of pre-label fixups: any of `str_pad`,
 #'   `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
 #'   `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
-#'   `missing_supplement`, `missing_codes`, `labels_supplement`.
+#'   `missing_supplement`, `missing_codes`, `labels_supplement`,
+#'   `fix_mojibake`, `removed_records`, `keep_unlabelled_codes`,
+#'   `rejoin_split_records`, `column_encoding`, `text_missing_codes`,
+#'   `labels_as_description`, `sentinel_labels`.
 #'   The `force_character`/`force_integer`/`force_bigint` fields take character
 #'   vectors of variable names and override the DuckDB storage type (VARCHAR /
 #'   INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
@@ -1945,7 +2605,24 @@ pumf_registry_keys <- function() {
 #'   declared, so it can never collide with a correctly-named column.
 #'   `missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
 #'   values, for variables whose sentinels do not form one contiguous range (and
-#'   which a single `missing_low`/`missing_high` pair therefore cannot express).
+#'   which a single `missing_low`/`missing_high` pair therefore cannot express);
+#'   an empty vector keeps every value of the variable.
+#'   `fix_mojibake = TRUE` repairs double-encoded UTF-8 text in the character
+#'   columns of the data. `removed_records = list(var = , values = )` moves the
+#'   records whose raw value of `var` is one of `values` to the `"removed"`
+#'   sidecar (see [pumf_sidecar()]). `keep_unlabelled_codes` (`TRUE` or a character
+#'   vector of variables) keeps data values without a value label as a level
+#'   named by the code instead of turning them into `NA`.
+#'   `rejoin_split_records = TRUE` repairs a CSV in which a line break inside a
+#'   field has split records over two lines; `column_encoding = list(CP850 =
+#'   c(...))` decodes the named columns with a code page other than
+#'   `data_encoding`; `text_missing_codes` (numeric codes, as strings) blanks
+#'   those codes where they occur in text columns and records them in the
+#'   `"sentinels"` sidecar under the labels `sentinel_labels` gives them;
+#'   `labels_as_description = TRUE` keeps a source's sentence-long variable
+#'   labels as the `description_en`/`description_fr` columns of the metadata
+#'   and takes the short labels from `labels_supplement` (the CCRI census
+#'   samples).
 #' @param bundled_eng_sps,bundle_source,bundle_sps_mask,doc_mask Advanced
 #'   bundled-archive and documentation options.
 #' @param download_format Format bundle to download when Statistics Canada
@@ -1953,6 +2630,11 @@ pumf_registry_keys <- function() {
 #'   default the preferred format wins; set this when only one bundle carries
 #'   the command files the metadata parsers need (e.g. the Canadian Health
 #'   Survey on Seniors, whose CSV zip ships the data alone).
+#' @param csv_reader `"duckdb"` reads a CSV data file with DuckDB's own
+#'   reader instead of `readr` (the default, `"readr"`), so that the records
+#'   never pass through R. Meant for files too large to hold in memory as
+#'   character columns; needs UTF-8 or Latin-1 data and no bootstrap-weight
+#'   file to join.
 #' @param borealis A Borealis Dataverse source for the data: a DOI string
 #'   (`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the
 #'   optional `files` (file ids or names from [list_borealis_pumf_files()])
@@ -1964,7 +2646,7 @@ pumf_registry_keys <- function() {
 #' @return A classed `"pumf_registry_entry"` list containing only the supplied
 #'   fields.
 #'
-#' @seealso [pumf_registry()], [get_pumf()], [list_pumf_registry()]
+#' @seealso [pumf_registry()], [get_pumf()]
 #'
 #' @examples
 #' \dontrun{
@@ -1976,6 +2658,7 @@ pumf_registry_keys <- function() {
 #' }
 #' @export
 pumf_registry_entry <- function(layout_mask       = NULL,
+                                layout_file       = NULL,
                                 bsw_mask          = NULL,
                                 bsw_file_mask     = NULL,
                                 bsw_join_key      = NULL,
@@ -1990,6 +2673,7 @@ pumf_registry_entry <- function(layout_mask       = NULL,
                                 bundle_sps_mask   = NULL,
                                 doc_mask          = NULL,
                                 download_format   = NULL,
+                                csv_reader        = NULL,
                                 borealis          = NULL,
                                 ...) {
   dots <- names(list(...))
@@ -2007,46 +2691,48 @@ pumf_registry_entry <- function(layout_mask       = NULL,
   structure(out, class = "pumf_registry_entry")
 }
 
-#' Inspect a survey's registry configuration
+#' Inspect the registry configuration
 #'
-#' Returns the resolved configuration entry for a `(series, version)` pair: the
-#' built-in registry entry when one exists, otherwise an all-default entry.
-#' Useful for understanding the parsing strategy and overrides applied to a
-#' survey, and as a template for [pumf_registry_entry()].
+#' With a `series` and `version`, returns the resolved configuration entry for
+#' that pair: the built-in registry entry when one exists, otherwise an
+#' all-default entry.  Useful for understanding the parsing strategy and
+#' overrides applied to a survey, and as a template for
+#' [pumf_registry_entry()].  Without a `version`, returns an overview of the
+#' built-in registry entries instead, of every series or of the one named.
 #'
-#' @param series Survey series acronym, e.g. `"SFS"`.
-#' @param version Version string, e.g. `"2019"`.
+#' @param series Survey series acronym, e.g. `"SFS"`.  `NULL` (default) with
+#'   no `version` gives the overview of every registered series.
+#' @param version Version string, e.g. `"2019"`.  `NULL` (default) gives the
+#'   overview of the registered versions of `series`.
 #'
-#' @return A classed `"pumf_registry_entry"` list of all configuration fields.
+#' @return With a `version`: a classed `"pumf_registry_entry"` list of all
+#'   configuration fields.  Without: a tibble with one row per registered
+#'   `(series, version)` and columns summarising the key configuration:
+#'   `file_mask`, `layout_mask`, `bsw_join_key`, and `data_fixups`
+#'   (comma-separated fixup types present).
 #'
-#' @seealso [pumf_registry_entry()], [list_pumf_registry()], [get_pumf()]
+#' @seealso [pumf_registry_entry()], [get_pumf()]
 #'
 #' @examples
 #' pumf_registry("SFS", "2019")
+#' pumf_registry("GSS")   # every registered GSS cycle
+#' pumf_registry()        # the whole registry
 #' @export
-pumf_registry <- function(series, version) {
+pumf_registry <- function(series = NULL, version = NULL) {
+  if (is.null(version)) return(.pumf_registry_overview(series))
+  if (is.null(series))
+    stop("'series' must be given with 'version'.", call. = FALSE)
   version <- pumf_resolve_version(series, version)
-  entry   <- .pumf_registry[[paste0(series, "/", version)]]
-  if (is.null(entry) && .is_longitudinal(series)) {
-    entry <- .pumf_longitudinal_entry(series)
-    entry$version <- version
-  }
+  entry   <- .pumf_registry_resolve(series, version, inherit = FALSE,
+                                    override = FALSE)
   if (is.null(entry)) entry <- .make_entry(series, version)
+  entry$version <- version
   structure(entry, class = "pumf_registry_entry")
 }
 
-#' Overview of all built-in registry entries
-#'
-#' @return A tibble with one row per registered `(series, version)` and columns
-#'   summarising the key configuration: `file_mask`, `layout_mask`,
-#'   `bsw_join_key`, and `data_fixups` (comma-separated fixup types present).
-#'
-#' @seealso [pumf_registry()], [pumf_registry_entry()]
-#'
-#' @examples
-#' list_pumf_registry()
-#' @export
-list_pumf_registry <- function() {
+# One row per built-in registry entry (of `series` when given), summarising
+# its configuration: what pumf_registry() returns without a version.
+.pumf_registry_overview <- function(series = NULL) {
   keys <- names(.pumf_registry)
   rows <- lapply(keys, function(k) {
     e <- .pumf_registry[[k]]
@@ -2060,7 +2746,9 @@ list_pumf_registry <- function() {
         paste(names(e$data_fixups), collapse = ", ") else NA_character_
     )
   })
-  do.call(rbind, rows)
+  out <- do.call(rbind, rows)
+  if (!is.null(series)) out <- out[out$series == series, , drop = FALSE]
+  out
 }
 
 #' @export
@@ -2068,24 +2756,13 @@ print.pumf_registry_entry <- function(x, ...) {
   cat("<pumf_registry_entry>",
       if (!is.null(x$series)) paste0(" ", x$series, " ", x$version) else "",
       "\n", sep = "")
-  show <- function(label, v) {
+  # Every scalar/vector field in .make_entry() order; a Borealis source shows
+  # its DOI and the data_fixups follow as a block.
+  for (f in setdiff(.pumf_registry_fields, "data_fixups")) {
+    v <- if (f == "borealis") x$borealis$doi else x[[f]]
     if (!is.null(v) && length(v) > 0L)
-      cat(sprintf("  %-18s %s\n", paste0(label, ":"),
-                  paste(v, collapse = ", ")))
+      cat(sprintf("  %-18s %s\n", paste0(f, ":"), paste(v, collapse = ", ")))
   }
-  show("file_mask",         x$file_mask)
-  show("layout_mask",       x$layout_mask)
-  show("data_encoding",     x$data_encoding)
-  show("metadata_encoding", x$metadata_encoding)
-  show("bsw_mask",          x$bsw_mask)
-  show("bsw_file_mask",     x$bsw_file_mask)
-  show("bsw_join_key",      x$bsw_join_key)
-  show("bsw_drop_cols",     x$bsw_drop_cols)
-  show("bsw_strata",        x$bsw_strata)
-  show("bundle_source",     x$bundle_source)
-  show("doc_mask",          x$doc_mask)
-  show("download_format",   x$download_format)
-  show("borealis",          x$borealis$doi)
   if (length(x$data_fixups) > 0L) {
     cat("  data_fixups:\n")
     for (nm in names(x$data_fixups)) {

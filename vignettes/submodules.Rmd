@@ -124,10 +124,10 @@ close_pumf(shs)
 
 ## Database connections
 
-Alternatively the same functionality can be achieved by opening a general database connection that does not immediately select tables, and then manually select appropriate subtables:
+Alternatively, the database connection behind any tbl gives access to every table in the file, which can then be selected manually:
 
 ```{r}
-con<-get_pumf_connection("SHS", "2017") 
+con <- dbplyr::remote_con(get_pumf("SHS", "2017"))
 
 DBI::dbListTables(con)
 ```
@@ -146,6 +146,6 @@ close_pumf(con)
 - The join key is recorded in the survey registry and surfaced in the messages
   above, so you never have to guess it — it varies across surveys
   (`RECID`, `PUMFID`, `MICRO_ID`, `CASEID`, `IDNUM`).
-- `label_pumf_columns()` and `pumf_var_labels()` are module-aware: each module
+- `label_pumf_columns()` and `pumf_dictionary()` are module-aware: each module
   is labelled from its own metadata even though all modules share one
   connection.

@@ -1,6 +1,6 @@
-# Build the harmonisation tables behind get_lfs_timeline().
+# Build the harmonisation tables behind get_pumf("LFS_TIMELINE").
 #
-# get_lfs_timeline() stacks the historical LFS (LFS_HIST, 1976-2005) and the
+# get_pumf("LFS_TIMELINE") stacks the historical LFS (LFS_HIST, 1976-2005) and the
 # current LFS (2006 onward) into one lazy table with a curated common schema.
 # This script writes
 #

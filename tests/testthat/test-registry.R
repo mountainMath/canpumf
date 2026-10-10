@@ -12,8 +12,7 @@ test_that("pumf_registry_lookup: returns NULL when no sibling config applies", {
 
 test_that("pumf_registry_lookup: inherits newest sibling config for new year", {
   # Reset the once-per-session announce memo so the message reliably fires.
-  rm(list = ls(canpumf:::.pumf_registry_inherit_announced),
-     envir = canpumf:::.pumf_registry_inherit_announced)
+  canpumf:::.pumf_session_reset("inherit::")
   # SHS has 2017/2019/2021/2023; an unregistered later year inherits 2023.
   expect_message(
     e <- canpumf:::pumf_registry_lookup("SHS", "2099"),
@@ -27,15 +26,72 @@ test_that("pumf_registry_lookup: inherits newest sibling config for new year", {
                canpumf:::pumf_registry_lookup("SHS", "2017")$file_mask)
 })
 
+test_that("pumf_registry_lookup: a Borealis-sourced entry is not inherited", {
+  # TCP 1881 names one Borealis dataset; another year must not resolve to its
+  # DOI (get_pumf("TCP", "1981") downloaded the 1881 files under that name).
+  expect_false(is.null(canpumf:::pumf_registry_lookup("TCP", "1881")$borealis))
+  expect_no_message(e <- canpumf:::pumf_registry_lookup("TCP", "1981"))
+  expect_null(e)
+  expect_null(canpumf:::.pumf_registry_newest_sibling("TCP", "1891"))
+})
+
+test_that("registry fields: pumf_registry_entry() accepts every .make_entry() field", {
+  # .pumf_registry_fields is derived from .make_entry()'s formals; the public
+  # constructor and the print method must know every one of them.
+  fields <- canpumf:::.pumf_registry_fields
+  expect_true(all(fields %in% names(formals(canpumf::pumf_registry_entry))))
+  expect_false(any(c("series", "version", "modules", "primary_module",
+                     "module_key") %in% fields))
+  expect_true(all(c("layout_mask", "layout_file", "data_fixups", "csv_reader",
+                    "borealis") %in% fields))
+  # A Borealis entry prints its DOI; every scalar field is printed, including
+  # the bundle fields the print method used to leave out.
+  out <- capture.output(print(canpumf::pumf_registry("TCP", "1881")))
+  expect_true(any(grepl("^  borealis:\\s+doi:10\\.5683/SP3/FXZEVO$", out)))
+  out <- capture.output(print(canpumf::pumf_registry("Census", "1991 (individuals)")))
+  expect_true(any(grepl("^  bundled_eng_sps:", out)))
+  out <- capture.output(print(canpumf::pumf_registry_entry(layout_file = "^card_i\\.SAS$")))
+  expect_true(any(grepl("^  layout_file:\\s+\\^card_i", out)))
+})
+
+test_that("registry: .pumf_registry_borealis_keys() names exactly the Borealis entries", {
+  keys <- canpumf:::.pumf_registry_borealis_keys()
+  expect_true("TCP/1881" %in% keys)
+  expect_true("Census/1976 (families)" %in% keys)
+  expect_false("Census/1976/families" %in% keys)
+  expect_false("SFS/2019" %in% keys)
+  expect_true(all(vapply(canpumf:::.pumf_registry[keys],
+                         function(e) !is.null(e$borealis), logical(1L))))
+})
+
+test_that("registry: grouped entries equal their expanded form", {
+  # .entries_for() and the 1976 Census constructors only abbreviate literally
+  # identical entries.
+  e <- canpumf:::pumf_registry_lookup("CIS", "2020")
+  expect_identical(e, canpumf:::.make_entry("CIS", "2020", file_mask = "PUMF\\.txt"))
+  expect_identical(canpumf:::pumf_registry_lookup("SHS", "2023"),
+                   canpumf:::.make_entry("SHS", "2023",
+                                         bsw_file_mask = "bsw_flatfile\\.txt",
+                                         bsw_join_key  = "CASEID",
+                                         file_mask     = "PUMF_SHS_\\d{4}\\.txt"))
+  expect_identical(canpumf:::pumf_registry_lookup("Census", "1976/households"),
+                   canpumf:::.make_entry("Census", "1976/households",
+                                         bundle_sps_mask = "hhld76",
+                                         file_mask       = "^hhld76\\.txt$"))
+  expect_identical(canpumf:::pumf_registry_lookup("Census", "1976 (families)"),
+                   canpumf:::.make_entry("Census", "1976 (families)",
+                                         borealis = list(doi = "doi:10.5683/SP3/5LWCXB")))
+})
+
 test_that("pumf_registry_lookup: SFS/2019 has expected fields", {
   e <- canpumf:::pumf_registry_lookup("SFS", "2019")
 
-  expect_named(e, c("series","version","layout_mask","bsw_mask","bsw_file_mask",
+  expect_named(e, c("series","version","layout_mask","layout_file","bsw_mask","bsw_file_mask",
                     "bsw_join_key","bsw_drop_cols","bsw_strata","file_mask",
                     "data_encoding","metadata_encoding","data_fixups",
                     "bundled_eng_sps","bundle_source","bundle_sps_mask","doc_mask",
                     "download_format","modules","primary_module","module_key",
-                    "borealis"),
+                    "csv_reader","borealis"),
                ignore.order = TRUE)
 
   expect_equal(e$series,        "SFS")
@@ -87,6 +143,18 @@ test_that("pumf_registry_lookup: Census/2021 (individuals) has RELIGION_DER rena
   expect_false(is.null(e$data_fixups$rename))
   expect_equal(names(e$data_fixups$rename), "RELIGION_DER")
   expect_equal(unname(e$data_fixups$rename), "RELIG")
+})
+
+test_that("pumf_registry_lookup: both Census 1986 household entries carry the HHMOTG override", {
+  for (v in c("1986/households", "1986 (households)")) {
+    reg <- pumf_registry_lookup("Census", v)
+    ov  <- reg$data_fixups$codes_override
+    expect_named(ov, "HHMOTG", info = v)
+    expect_equal(ov$HHMOTG$val, c("3", "6"), info = v)
+    expect_equal(ov$HHMOTG$label_en,
+                 c("Other single responses", "Other multiple responses"), info = v)
+  }
+  expect_true("codes_override" %in% canpumf:::.pumf_fixup_fields)
 })
 
 test_that("pumf_registry_lookup: Census fixed-width versions have .dat file_mask", {

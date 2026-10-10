@@ -1,5 +1,5 @@
 # Offline tests for the catalogue adapter that maps the StatCan crawl frame
-# (list_statcan_pumf_catalogue()) onto the curated-collection contract.
+# (list_pumf_catalogue("statcan")) onto the curated-collection contract.
 # These use synthetic input -- no network.
 
 # A small synthetic crawl frame covering the cases the adapter must handle:
@@ -141,6 +141,16 @@ test_that("adapter filters to supported series", {
                   c("GSS", "SHS", "SFS", "CPSS", "CCAHS"))
 })
 
+test_that("adapter resolves CIUS 2022 from the shipped catalogue snapshot", {
+  expect_true("CIUS" %in% canpumf:::.statcan_supported_series)
+  snap <- system.file("extdata", "pumf_catalogue.rds", package = "canpumf")
+  skip_if(snap == "", "no shipped catalogue snapshot")
+  out <- canpumf:::.statcan_catalogue_to_collection(readRDS(snap)$data)
+  row <- out[out$Acronym == "CIUS" & out$Version == "2022", ]
+  expect_equal(nrow(row), 1L)
+  expect_match(row$url, "\\.zip$")
+})
+
 test_that("adapter disambiguates colliding GSS years and drops phantom rows", {
   out <- canpumf:::.statcan_catalogue_to_collection(.fake_cat())
   gss <- out[out$Acronym == "GSS", ]
@@ -203,9 +213,10 @@ test_that("adapter handles empty / all-unsupported input", {
                0L)
 })
 
-test_that("Census collection falls back to the catalogue when the index page is gone", {
-  # The 98m0001x index page 404s; an empty scrape must not leave the Census
-  # version list empty (which broke list_canpumf_collection()'s EFT year range).
+test_that("Census collection comes from the catalogue, never from the gone index page", {
+  # The 98m0001x index page 404s, so list_census_collection() no longer scrapes
+  # it: the Census versions come from the catalogue snapshot (and the
+  # hard-coded list as last resort).  Any scrape attempt would error here.
   local_mocked_bindings(read_html = function(...) stop("HTTP error 404."),
                         .package = "rvest")
   withr::local_options(canpumf.cache_path = NULL)

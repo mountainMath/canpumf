@@ -312,6 +312,52 @@ test_that(".ensure_enum_columns: no-op when factors already stored as ENUM", {
   expect_true(grepl("^ENUM", info$type[info$name == "x"]))
 })
 
+test_that(".ensure_enum_columns: warns about a factor column stored as VARCHAR", {
+  con <- duck_con()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  DBI::dbWriteTable(con, "t", data.frame(x = c("A", "B"), stringsAsFactors = FALSE))
+  expect_warning(canpumf:::.ensure_enum_columns(con, "t", list(x = c("A", "B"))),
+                 "not written as ENUM: x")
+  # A level list for a column the table does not have is ignored.
+  expect_no_warning(canpumf:::.ensure_enum_columns(con, "t", list(y = "A")))
+})
+
+# ---- integer code normalisation ----------------------------------------------
+
+test_that(".pumf_int_codes: integer strings canonical, everything else verbatim", {
+  expect_equal(canpumf:::.pumf_int_codes(c("01", "1", " 007 ", "-02", "000", "-0")),
+               c("1", "1", "7", "-2", "0", "0"))
+  expect_equal(canpumf:::.pumf_int_codes(c("1.5", "1.0", "A", "", NA)),
+               c("1.5", "1.0", "A", "", NA))
+  # No int32 overflow: the normalisation is on the string.
+  expect_equal(canpumf:::.pumf_int_codes("099999999999"), "99999999999")
+})
+
+test_that(".pumf_int_key: '01' and '1' share a key, '1.5' never collides with '1'", {
+  expect_equal(unique(canpumf:::.pumf_int_key(c("01", "1"))), "1")
+  # A variable with a non-integer code keeps every code verbatim.
+  expect_equal(canpumf:::.pumf_int_key(c("1", "1.5", "01")), c("1", "1.5", "01"))
+  expect_true(canpumf:::.pumf_all_int(c("01", "-2")))
+  expect_false(canpumf:::.pumf_all_int(c("1", "1.5")))
+  expect_false(canpumf:::.pumf_all_int(character()))
+})
+
+test_that(".apply_code_labels: integer matching does not fold '1.5' onto code 1", {
+  codes <- tibble::tibble(name = "V", val = c("1", "1.5", "2"),
+                          label_en = c("one", "one and a half", "two"),
+                          label_fr = NA_character_)
+  data  <- data.frame(V = c("1", "1.5", "2", "01"), stringsAsFactors = FALSE)
+  # Codes are not all integers, so values are matched verbatim: "01" has no code.
+  expect_warning(r <- canpumf:::.apply_code_labels(data, codes, "label_en"),
+                 "unmatched")
+  expect_equal(as.character(r$V), c("one", "one and a half", "two", NA))
+  # All-integer codes: "01" is code 1.
+  codes2 <- codes[codes$val != "1.5", ]
+  r2 <- canpumf:::.apply_code_labels(data.frame(V = c("01", "2"), stringsAsFactors = FALSE),
+                                     codes2, "label_en")
+  expect_equal(as.character(r2$V), c("one", "two"))
+})
+
 # ---- pumf_build_duckdb unit tests -------------------------------------------
 
 # Build a minimal in-directory set: metadata/ + one CSV data file.
@@ -544,6 +590,33 @@ test_that("pumf_build_duckdb: labelled missing codes of numeric variables become
   expect_equal(res$AGE, c(45.3, NA, NA, 7.1))
   expect_equal(res$IDX, c(0.973, NA, 1, NA))
   expect_equal(res$HRS, c(0, NA, 12, 12))
+
+  # The companion names the sentinels of the force_numeric variable by their
+  # documented labels, although force_numeric removed IDX's rows from the code
+  # table before labelling (it once fell back to the digits "7" and "9").
+  con <- DBI::dbConnect(duckdb::duckdb(),
+                        dbdir = file.path(vdir, "FAKE_2099.duckdb"), read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_equal(sent$pumf_row_id, c(2, 3, 4))
+  expect_equal(as.character(sent$IDX), c("NOT STATED - PATH UNKNOWN", NA, "Don't know"))
+  expect_equal(as.character(sent$AGE), c("Not asked", "Not stated", NA))
+  expect_equal(as.character(sent$HRS), c("Not stated", NA, NA))
+
+  # codes_applied.csv records how each code was applied: the labelled values
+  # that stay numbers ("value": IDX 1 "Full health", HRS 0 "None") against the
+  # sentinels, and pumf_dictionary(what = "topcodes") lists the former.
+  ca <- canpumf:::.read_codes_applied(meta)
+  expect_equal(ca$applied_as[ca$name == "AGE"], c("sentinel", "sentinel"))
+  expect_equal(ca$applied_as[ca$name == "IDX"], c("value", "sentinel", "sentinel"))
+  expect_equal(ca$applied_as[ca$name == "HRS"], c("value", "sentinel"))
+  tc <- pumf_dictionary("FAKE", "2099", cache_path = tmp, what = "topcodes")
+  expect_s3_class(tc, "tbl_df")
+  expect_equal(tc$name, c("HRS", "IDX"))
+  expect_equal(tc$val, c("0", "1"))
+  expect_equal(tc$applied_as, c("value", "value"))
+  expect_equal(tc$label_en, c("None", "Full health"))
+  expect_equal(tc$label_fr, c("Aucun", "Pleine sant\u00e9"))
 })
 
 test_that("pumf_build_duckdb: force_numeric is ignored when every value is labelled", {
@@ -647,4 +720,468 @@ test_that("pumf_run_pipeline: metadata_encoding passed from registry", {
   expect_no_error(
     formals(canpumf:::pumf_parse_metadata)[["metadata_encoding"]]
   )
+})
+
+
+# ---- sentinel companion ------------------------------------------------------
+
+test_that(".apply_numeric_conversion: records the blanked sentinels per column", {
+  vars <- tibble::tibble(
+    name = c("INC", "HRS"), type = "numeric", decimals = NA_integer_,
+    missing_low = c(NA_real_, 998), missing_high = c(NA_real_, 999))
+  data <- tibble::tibble(INC = c("100", "9999999", "8888888", "200"),
+                         HRS = c("40", "999", "998", "12"))
+  out  <- canpumf:::.apply_numeric_conversion(data, vars,
+                                              na_values = c("9999999", "8888888"))
+  sent <- attr(out, "pumf_sentinels")
+  expect_named(sent, c("INC", "HRS"))
+  expect_equal(sent$INC, c(NA, 9999999, 8888888, NA))
+  expect_equal(sent$HRS, c(NA, 999, 998, NA))
+  expect_equal(out$INC, c(100, NA, NA, 200))
+})
+
+test_that(".apply_numeric_conversion: a column without sentinels is not recorded", {
+  vars <- tibble::tibble(name = "X", type = "numeric", decimals = NA_integer_,
+                         missing_low = NA_real_, missing_high = NA_real_)
+  out  <- canpumf:::.apply_numeric_conversion(tibble::tibble(X = c("1", "2")), vars)
+  expect_length(attr(out, "pumf_sentinels"), 0L)
+})
+
+test_that(".apply_numeric_conversion: an unparseable value is not a sentinel", {
+  vars <- tibble::tibble(name = "X", type = "numeric", decimals = NA_integer_,
+                         missing_low = NA_real_, missing_high = NA_real_)
+  out  <- suppressWarnings(canpumf:::.apply_numeric_conversion(
+    tibble::tibble(X = c("1", "abc", "")), vars))
+  expect_length(attr(out, "pumf_sentinels"), 0L)
+})
+
+test_that(".apply_code_labels: records na_values blanked in labelled columns", {
+  codes <- tibble::tibble(name = "PROV", val = c("10", "35"),
+                          label_en = c("NL", "ON"), label_fr = c("TN", "ON"))
+  data  <- tibble::tibble(PROV = c("10", "99", "35"))
+  out   <- canpumf:::.apply_code_labels(data, codes, "label_en", na_values = "99")
+  expect_equal(attr(out, "pumf_sentinels")$PROV, c(NA, 99, NA))
+  expect_equal(as.character(out$PROV), c("NL", NA, "ON"))
+})
+
+test_that(".sentinel_companion: keeps only rows with a sentinel", {
+  sent <- list(A = c(NA, 9, NA, 9), B = c(8, NA, NA, 9))
+  out  <- canpumf:::.sentinel_companion(sent, 4L)
+  expect_equal(out$pumf_row_id, c(1L, 2L, 4L))
+  expect_equal(out$A, c(NA, 9, 9))
+  expect_equal(out$B, c(8, NA, 9))
+  empty <- canpumf:::.sentinel_companion(list(), 4L)
+  expect_equal(nrow(empty), 0L)
+  expect_named(empty, "pumf_row_id")
+})
+
+test_that(".label_sentinel_companion: codes.csv label wins, then registry, then digits", {
+  sent  <- tibble::tibble(pumf_row_id = 1:4,
+                          INC = c(9999999, 8888888, NA, 77),
+                          HRS = c(NA, 999, 0, NA))
+  codes <- tibble::tibble(name = "HRS", val = "999",
+                          label_en = "Not applicable", label_fr = "Sans objet")
+  labs  <- list("9999999" = c(label_en = "Not applicable", label_fr = "Sans objet"),
+                "8888888" = c(label_en = "Not available"),
+                HRS = list("0" = c(label_en = "Zero hours")))
+  en <- canpumf:::.label_sentinel_companion(sent, codes, "label_en", labs)
+  expect_true(is.factor(en$INC))
+  expect_equal(as.character(en$INC),
+               c("Not applicable", "Not available", NA, "77"))
+  expect_equal(levels(en$INC), c("77", "Not available", "Not applicable"))
+  expect_equal(as.character(en$HRS), c(NA, "Not applicable", "Zero hours", NA))
+  fr <- canpumf:::.label_sentinel_companion(sent, codes, "label_fr", labs)
+  # label_fr where given, label_en as the fallback
+  expect_equal(as.character(fr$INC), c("Sans objet", "Not available", NA, "77"))
+  expect_equal(as.character(fr$HRS), c(NA, "Sans objet", "Zero hours", NA))
+})
+
+test_that(".label_sentinel_companion: same label for two codes keeps them apart", {
+  sent  <- tibble::tibble(pumf_row_id = 1:2, X = c(99, 999))
+  labs  <- list("99" = c(label_en = "NA"), "999" = c(label_en = "NA"))
+  out   <- canpumf:::.label_sentinel_companion(sent, NULL, "label_en", labs)
+  expect_equal(levels(out$X), c("NA (99)", "NA (999)"))
+  expect_equal(as.character(out$X), c("NA (99)", "NA (999)"))
+})
+
+# ---- unique value labels ------------------------------------------------------
+
+test_that(".pumf_dedupe_labels: suffixes every member of a group, leaves the rest", {
+  f <- canpumf:::.pumf_dedupe_labels
+  expect_equal(f(c("A", "Other", "B", "Other", NA), c("1", "3", "5", "6", "9")),
+               c("A", "Other (3)", "B", "Other (6)", NA))
+  expect_equal(f(c("A", "B"), c("1", "2")), c("A", "B"))
+  expect_equal(f(c(NA_character_, NA), c("1", "2")), c(NA_character_, NA))
+  expect_equal(f(character(0), character(0)), character(0))
+  # the same code listed twice ("01" and "1") is one code, not a duplicate
+  expect_equal(f(c("Yes", "Yes", "No"), c("01", "1", "2"), key = c("1", "1", "2")),
+               c("Yes", "Yes", "No"))
+  # only present codes count: one "Other" in the data leaves the label alone,
+  # two suffix the whole group (the absent member included)
+  expect_equal(f(c("A", "Other", "Other", "Other"), c("1", "3", "6", "7"),
+                 present = c(TRUE, TRUE, FALSE, FALSE)),
+               c("A", "Other", "Other", "Other"))
+  expect_equal(f(c("A", "Other", "Other", "Other"), c("1", "3", "6", "7"),
+                 present = c(TRUE, TRUE, FALSE, TRUE)),
+               c("A", "Other (3)", "Other (6)", "Other (7)"))
+})
+
+test_that(".pumf_codes_present: normalised codes that occur, na_values excluded", {
+  codes <- tibble::tibble(name = c("H", "H", "S", "S", "N"), val = c("01", "3", "a", "b", "1"),
+                          label_en = "x", label_fr = NA)
+  d <- tibble::tibble(H = c("1", "01", "3", NA, "99"), S = c("a", "a", "c", NA, NA),
+                      N = c(1, 2, 3, 4, 5))
+  p <- canpumf:::.pumf_codes_present(d, codes, na_values = "99")
+  expect_equal(sort(p$H), c("1", "3"))
+  expect_equal(sort(p$S), c("a", "c"))
+  expect_null(p$N)   # numeric columns are not coded columns
+  expect_equal(canpumf:::.pumf_codes_present(d, NULL), list())
+})
+
+test_that(".pumf_unique_code_labels: per variable and per language", {
+  codes <- tibble::tibble(
+    name     = c("H", "H", "H", "H", "Q", "Q", "P", "P"),
+    val      = c("1", "3", "6", "9", "7", "8", "01", "1"),
+    label_en = c("English", "Other", "Other", "Not stated", "Don't know", "Don't know", "Yes", "Yes"),
+    label_fr = c("Anglais", "Autre", "Autre", NA, "Ne sais pas", "Ne sait pas", "Oui", NA))
+  out <- canpumf:::.pumf_unique_code_labels(codes)
+  h <- out[out$name == "H", ]
+  expect_equal(h$label_en, c("English", "Other (3)", "Other (6)", "Not stated"))
+  expect_equal(h$label_fr, c("Anglais", "Autre (3)", "Autre (6)", "Not stated"))
+  # English collides, French does not: only English is suffixed
+  q <- out[out$name == "Q", ]
+  expect_equal(q$label_en, c("Don't know (7)", "Don't know (8)"))
+  expect_equal(q$label_fr, c("Ne sais pas", "Ne sait pas"))
+  # "01" and "1" are one code: the first listing is kept, unsuffixed
+  p <- out[out$name == "P", ]
+  expect_equal(nrow(p), 1L)
+  expect_equal(p$label_en, "Yes")
+  expect_identical(canpumf:::.pumf_unique_code_labels(NULL), NULL)
+  expect_equal(nrow(canpumf:::.pumf_unique_code_labels(codes[0, ])), 0L)
+  # with a present list, a group is suffixed only where two of its codes occur
+  out <- canpumf:::.pumf_unique_code_labels(codes, present = list(H = c("1", "3"), Q = c("7", "8")))
+  expect_equal(out$label_en[out$name == "H"], c("English", "Other", "Other", "Not stated"))
+  expect_equal(out$label_en[out$name == "Q"], c("Don't know (7)", "Don't know (8)"))
+  # a variable absent from the list has no present code: labels as documented,
+  # French still filled from English
+  out <- canpumf:::.pumf_unique_code_labels(codes, present = list())
+  expect_equal(out$label_en[out$name == "H"], c("English", "Other", "Other", "Not stated"))
+  expect_equal(out$label_fr[out$name == "H"], c("Anglais", "Autre", "Autre", "Not stated"))
+})
+
+test_that(".pumf_apply_code_fixups: codes_supplement appends, codes_override replaces", {
+  codes <- tibble::tibble(name = c("HHMOTG", "HHMOTG", "HHMOTG", "X"),
+                          val = c("1", "3", "6", "1"),
+                          label_en = c("English", "Other", "Other", "x"),
+                          label_fr = c("Anglais", "Autre", "Autre", NA))
+  fx <- list(
+    codes_supplement = list(X = data.frame(val = "9", label_en = "Not stated",
+                                           label_fr = "Non d\u00e9clar\u00e9")),
+    codes_override   = list(HHMOTG = data.frame(
+      val = c("03", "6", "7"),
+      label_en = c("Other single responses", "Other multiple responses", "New"),
+      label_fr = c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples", "Nouveau"))))
+  out <- canpumf:::.pumf_apply_code_fixups(codes, fx)
+  h <- out[out$name == "HHMOTG", ]
+  # "03" matches the declared "3"; 7 is appended
+  expect_equal(h$val, c("1", "3", "6", "7"))
+  expect_equal(h$label_en, c("English", "Other single responses", "Other multiple responses", "New"))
+  expect_equal(h$label_fr[2:3], c("Autres r\u00e9ponses uniques", "Autres r\u00e9ponses multiples"))
+  x <- out[out$name == "X", ]
+  expect_equal(x$val, c("1", "9"))
+  expect_equal(x$label_en, c("x", "Not stated"))
+  expect_identical(canpumf:::.pumf_apply_code_fixups(codes, NULL), codes)
+  expect_identical(canpumf:::.pumf_apply_code_fixups(codes, list()), codes)
+})
+
+test_that("codes_applied.csv round-trips through the read/write helpers", {
+  tmp   <- withr::local_tempdir()
+  codes <- tibble::tibble(name = "H", val = c("3", "6"),
+                          label_en = c("Other (3)", "Other (6)"),
+                          label_fr = c("Autre (3)", "Autre (6)"))
+  expect_null(canpumf:::.read_codes_applied(tmp))
+  canpumf:::.write_codes_applied(codes, tmp)
+  back <- canpumf:::.read_codes_applied(tmp)
+  expect_equal(back, as.data.frame(codes))
+})
+
+test_that(".apply_code_labels: codes sharing a label become distinct levels", {
+  codes <- tibble::tibble(
+    name = "HHMOTG", val = c("1", "3", "6"),
+    label_en = c("English", "Other", "Other"),
+    label_fr = c("Anglais", "Autre", "Autre"))
+  d   <- tibble::tibble(HHMOTG = c("3", "6", "1", "6"))
+  out <- canpumf:::.apply_code_labels(d, codes, "label_en")
+  expect_equal(levels(out$HHMOTG), c("English", "Other (3)", "Other (6)"))
+  expect_equal(as.character(out$HHMOTG), c("Other (3)", "Other (6)", "English", "Other (6)"))
+  out_fr <- canpumf:::.apply_code_labels(d, codes, "label_fr")
+  expect_equal(levels(out_fr$HHMOTG), c("Anglais", "Autre (3)", "Autre (6)"))
+})
+
+test_that(".apply_code_labels: a shared label whose other codes never occur is left alone", {
+  # CHS PITM_05: 5 and 8 both "Do not know", only 8 in the data
+  codes <- tibble::tibble(
+    name = "PITM_05", val = c("1", "5", "8"),
+    label_en = c("Yes", "Do not know", "Do not know"),
+    label_fr = c("Oui", "Ne sait pas", "Ne sait pas"))
+  d   <- tibble::tibble(PITM_05 = c("1", "8", "8"))
+  out <- canpumf:::.apply_code_labels(d, codes, "label_en")
+  expect_equal(levels(out$PITM_05), c("Yes", "Do not know"))
+  expect_equal(as.character(out$PITM_05), c("Yes", "Do not know", "Do not know"))
+  # a zero-padded data value is the same code as its unpadded listing
+  d2  <- tibble::tibble(PITM_05 = c("05", "8"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d2, codes, "label_en")$PITM_05),
+               c("Yes", "Do not know (5)", "Do not know (8)"))
+})
+
+test_that(".apply_code_labels: an English-only collision leaves French unsuffixed", {
+  codes <- tibble::tibble(
+    name = "Q", val = c("1", "7", "8"),
+    label_en = c("Yes", "Don't know", "Don't know"),
+    label_fr = c("Oui", "Ne sais pas", "Refus"))
+  d <- tibble::tibble(Q = c("7", "8", "1"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d, codes, "label_en")$Q),
+               c("Yes", "Don't know (7)", "Don't know (8)"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d, codes, "label_fr")$Q),
+               c("Oui", "Ne sais pas", "Refus"))
+})
+
+test_that(".apply_code_labels: a French label missing on one of two same-English codes", {
+  # fr falls back to en for code 8 only, which then collides with nothing in French
+  codes <- tibble::tibble(
+    name = "Q", val = c("7", "8"),
+    label_en = c("Don't know", "Don't know"),
+    label_fr = c("Ne sait pas", NA))
+  d <- tibble::tibble(Q = c("7", "8"))
+  expect_equal(levels(canpumf:::.apply_code_labels(d, codes, "label_fr")$Q),
+               c("Ne sait pas", "Don't know"))
+})
+
+test_that("pumf_build_duckdb: writes pumf_row_id and the sentinel companion as ENUM", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  meta <- file.path(vdir, "metadata")
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "INC"), label_en = c("Province", "Income"),
+    label_fr = c("Province", "Revenu"), type = c("character", "numeric"),
+    decimals = NA_integer_, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(PROV = c("10", "35", "10"),
+                                  INC  = c("100", "9999999", "8888888")),
+                   file.path(vdir, "survey.csv"))
+  fx <- list(na_values = c("9999999", "8888888"),
+             sentinel_labels = list(
+               "9999999" = c(label_en = "Not applicable", label_fr = "Sans objet")))
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                   data_fixups = fx, refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  main <- DBI::dbGetQuery(con, 'SELECT * FROM "eng" ORDER BY pumf_row_id')
+  expect_equal(names(main)[1L], "pumf_row_id")
+  expect_equal(main$pumf_row_id, c(1, 2, 3))
+  expect_equal(main$INC, c(100, NA, NA))
+  types <- DBI::dbGetQuery(con, "PRAGMA table_info('eng')")
+  expect_equal(types$type[types$name == "pumf_row_id"], "BIGINT")
+
+  expect_true(DBI::dbExistsTable(con, "pumf_sentinels_eng"))
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_equal(names(sent), c("pumf_row_id", "INC"))
+  expect_equal(sent$pumf_row_id, c(2, 3))
+  # labelled through sentinel_labels, or the digits when unlabelled
+  expect_equal(as.character(sent$INC), c("Not applicable", "8888888"))
+  stypes <- DBI::dbGetQuery(con, "PRAGMA table_info('pumf_sentinels_eng')")
+  expect_match(stypes$type[stypes$name == "INC"], "^ENUM")
+  expect_equal(stypes$type[stypes$name == "pumf_row_id"], "BIGINT")
+
+  # the build stamp names the table, the canpumf version and the build time
+  info <- canpumf:::.read_build_info(con, "eng")
+  expect_equal(nrow(info), 1L)
+  expect_equal(info$canpumf_version, as.character(utils::packageVersion("canpumf")))
+  expect_match(info$built, "^[0-9]{4}-[0-9]{2}-[0-9]{2} ")
+  expect_null(canpumf:::.read_build_info(con, "fra"))
+})
+
+test_that("pumf_build_duckdb: a rebuild replaces the table's build stamp", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng", refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path)
+  DBI::dbExecute(con, "UPDATE pumf_build_info SET canpumf_version = '0.0.1'")
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng", refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  info <- DBI::dbReadTable(con, "pumf_build_info")
+  expect_equal(nrow(info), 1L)
+  expect_equal(info$table, "eng")
+  expect_equal(info$canpumf_version, as.character(utils::packageVersion("canpumf")))
+})
+
+test_that("pumf_build_duckdb: a survey without sentinels gets an empty companion", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng", refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng"')
+  expect_equal(nrow(sent), 0L)
+  expect_named(sent, "pumf_row_id")
+})
+
+
+# ---- CCRI-style fixups: split records, mixed encodings, text missing codes --
+
+test_that(".pumf_csv_field_count counts fields with quoted commas", {
+  expect_equal(canpumf:::.pumf_csv_field_count(
+    c("a,b,c", 'a,"b,c",d', "", '"x"', 'a,"",c')), c(3L, 3L, 1L, 1L, 3L))
+})
+
+test_that(".pumf_rejoin_split_records joins the halves of a broken record", {
+  lines <- c("ID,NAME,PLACE,AGE", "1,Ann,Montreal,30", "2,Bob,No 53",
+             "rg 3,41", "3,Cy,Quebec,50")
+  expect_message(
+    out <- canpumf:::.pumf_rejoin_split_records(lines, "x.csv"),
+    "Rejoined 1 record")
+  expect_equal(out, c("ID,NAME,PLACE,AGE", "1,Ann,Montreal,30",
+                      "2,Bob,No 53 rg 3,41", "3,Cy,Quebec,50"))
+  # nothing to join: lines come back unchanged and silently
+  expect_silent(out2 <- canpumf:::.pumf_rejoin_split_records(lines[c(1:2, 5)]))
+  expect_equal(out2, lines[c(1:2, 5)])
+  # a short line that never completes a record is an error, not a guess
+  expect_error(canpumf:::.pumf_rejoin_split_records(c("A,B", "1", "2,3,4")),
+               "record")
+})
+
+test_that(".pumf_decode_bytes decodes one code page per column", {
+  raw <- c("caf\xe9", "Etud", NA)                       # latin-1 bytes
+  Encoding(raw) <- "latin1"
+  u <- enc2utf8(raw)                                    # as read as latin-1
+  expect_equal(canpumf:::.pumf_decode_bytes(u, "CP1252"), c("café", "Etud", NA))
+  # the same byte 0xE9 is "Ú" in CP850
+  expect_equal(canpumf:::.pumf_decode_bytes(u, "CP850"), c("cafÚ", "Etud", NA))
+})
+
+test_that("pumf_build_duckdb: rejoin_split_records, column_encoding and text_missing_codes", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  meta <- file.path(vdir, "metadata")
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "NAME", "JOB", "AGE"),
+    label_en = c("Province", "Name", "Job", "Age"),
+    label_fr = c("Province", "Nom", "Emploi", "Âge"),
+    type = c("character", "character", "character", "numeric"),
+    decimals = NA_integer_, missing_low = c(NA, NA, NA, 99999001),
+    missing_high = c(NA, NA, NA, 99999999)),
+    file.path(meta, "variables.csv"))
+  # PROV has value labels (incl. the missing code), NAME and JOB are free
+  # text; the file is CP1252 except JOB, which is CP850.
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "PROV", "PROV", "AGE"),
+    val = c("10", "35", "99999001", "99999001"),
+    label_en = c("Newfoundland", "Ontario", "Blank", "Blank"),
+    label_fr = NA_character_), file.path(meta, "codes.csv"), na = "")
+  lines <- c("PROV,NAME,JOB,AGE",
+             "10,Ann \xe9t\xe9,caf\x82 prop,30",      # été in CP1252, café in CP850
+             "35,Bob,No 53",                           # record split inside JOB
+             "rg 3,99999001",
+             "99999001,99999001,Etud,41",
+             "10,Dee,99999007,99999007")
+  writeLines(lines, file.path(vdir, "survey.csv"), useBytes = TRUE)
+
+  fx <- list(rejoin_split_records = TRUE,
+             column_encoding = list(CP850 = "JOB"),
+             force_numeric = "AGE",
+             text_missing_codes = c("99999001", "99999007"),
+             sentinel_labels = list(
+               "99999001" = c(label_en = "Blank", label_fr = "En blanc"),
+               "99999007" = c(label_en = "Not Applicable", label_fr = "Sans objet")))
+  for (lang in c("eng", "fra")) {
+    expect_message(
+      r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = lang,
+                                       data_fixups = fx, refresh = lang == "eng"),
+      "Rejoined 1 record")
+  }
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+
+  main <- DBI::dbGetQuery(con, 'SELECT * FROM "eng" ORDER BY pumf_row_id')
+  expect_equal(nrow(main), 4L)
+  expect_equal(main$NAME, c("Ann \u00e9t\u00e9", "Bob", NA, "Dee"))
+  expect_equal(main$JOB,  c("café prop", "No 53 rg 3", "Etud", NA))
+  expect_equal(main$AGE,  c(30, NA, 41, NA))
+  # a labelled variable keeps its missing code as a level
+  expect_equal(as.character(main$PROV),
+               c("Newfoundland", "Ontario", "Blank", "Newfoundland"))
+
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_setequal(names(sent), c("pumf_row_id", "AGE", "NAME", "JOB"))
+  expect_equal(as.numeric(sent$pumf_row_id), c(2, 3, 4))
+  expect_equal(as.character(sent$NAME), c(NA, "Blank", NA))
+  expect_equal(as.character(sent$JOB),  c(NA, NA, "Not Applicable"))
+  expect_equal(as.character(sent$AGE),  c("Blank", NA, "Not Applicable"))
+
+  # the French table and sidecar take the registry's French labels for the
+  # codes the file labels in English only
+  fra <- DBI::dbGetQuery(con, 'SELECT * FROM "fra" ORDER BY pumf_row_id')
+  expect_equal(as.character(fra$PROV)[3L], "En blanc")
+  sent_fr <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_fra" ORDER BY pumf_row_id')
+  expect_equal(as.character(sent_fr$NAME), c(NA, "En blanc", NA))
+  expect_equal(as.character(sent_fr$AGE),  c("En blanc", NA, "Sans objet"))
+  applied <- readr::read_csv(file.path(meta, "codes_applied.csv"),
+                             show_col_types = FALSE)
+  expect_equal(applied$label_fr[applied$name == "PROV" & applied$val == "99999001"],
+               "En blanc")
+})
+
+test_that("pumf_build_duckdb: text_missing_codes must be numeric; not on the native path", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  expect_error(
+    canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                data_fixups = list(text_missing_codes = "Blank"),
+                                refresh = TRUE),
+    "numeric codes")
+  expect_error(
+    canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                data_fixups = list(text_missing_codes = "99"),
+                                csv_reader = "duckdb", refresh = TRUE),
+    "csv_reader")
+})
+
+test_that("pumf_build_duckdb: missing_codes combine with a missing_supplement range", {
+  tmp  <- withr::local_tempdir()
+  vdir <- make_minimal_version_dir(tmp)
+  meta <- file.path(vdir, "metadata")
+  readr::write_csv(tibble::tibble(
+    name = c("PROV", "YEAR"), label_en = c("Province", "Year of naturalization"),
+    label_fr = c("Province", "Année"), type = c("character", "numeric"),
+    decimals = NA_integer_, missing_low = NA_real_, missing_high = NA_real_),
+    file.path(meta, "variables.csv"))
+  readr::write_csv(tibble::tibble(
+    name = "YEAR", val = c("1", "2", "99999001"),
+    label_en = c("Papers", "Naturalized", "Blank"), label_fr = NA_character_),
+    file.path(meta, "codes.csv"), na = "")
+  readr::write_csv(tibble::tibble(PROV = c("10", "35", "10", "35"),
+                                  YEAR = c("1899", "2", "99999001", "1")),
+                   file.path(vdir, "survey.csv"))
+  fx <- list(force_numeric = "YEAR",
+             missing_supplement = list(YEAR = c(90000001, 99999999)),
+             missing_codes = list(YEAR = c(1, 2)))
+  r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                   data_fixups = fx, refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  main <- DBI::dbGetQuery(con, 'SELECT * FROM "eng" ORDER BY pumf_row_id')
+  expect_equal(main$YEAR, c(1899, NA, NA, NA))
+  sent <- DBI::dbGetQuery(con, 'SELECT * FROM "pumf_sentinels_eng" ORDER BY pumf_row_id')
+  expect_equal(as.character(sent$YEAR), c("Naturalized", "Blank", "Papers"))
+  # without the range, missing_codes alone would have cleared nothing above
+  fx2 <- list(force_numeric = "YEAR", missing_codes = list(YEAR = c(1, 2)))
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  r2 <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = "eng",
+                                    data_fixups = fx2, refresh = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r2$db_path, read_only = TRUE)
+  expect_equal(DBI::dbGetQuery(con, 'SELECT YEAR FROM "eng" ORDER BY pumf_row_id')$YEAR,
+               c(1899, NA, 99999001, NA))
 })

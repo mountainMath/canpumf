@@ -2,7 +2,7 @@
 # (2006 onward).
 #
 # The two series stay in their own DuckDB files (separate write locks, see
-# issue #18).  get_lfs_timeline() opens an in-memory DuckDB, ATTACHes both
+# issue #18).  get_pumf("LFS_TIMELINE") opens an in-memory DuckDB, ATTACHes both
 # files READ_ONLY, and defines a view that maps each series onto a curated
 # common schema (inst/extdata/lfs_timeline/, built by
 # tools/build_lfs_timeline_reference.R):
@@ -25,44 +25,26 @@
 .lfs_timeline_na_labels <- c("Not applicable", "Non applicable", "Valid skip",
                              "Encha\u00eenement valide", "Not stated", "Non d\u00e9clar\u00e9")
 
-.lfs_timeline_ref_cache <- new.env(parent = emptyenv())
-
-.lfs_timeline_ref <- function(which) {
-  if (is.null(.lfs_timeline_ref_cache[[which]])) {
-    path <- system.file("extdata", "lfs_timeline", paste0(which, ".csv"),
-                        package = "canpumf")
-    if (!nzchar(path))
-      stop("LFS timeline reference file '", which, ".csv' is missing from ",
-           "the installed package.", call. = FALSE)
-    .lfs_timeline_ref_cache[[which]] <- readr::read_csv(
-      path, col_types = readr::cols(.default = "c"), na = "",
-      locale = readr::locale(encoding = "UTF-8"), progress = FALSE)
-  }
-  .lfs_timeline_ref_cache[[which]]
-}
+# Read one of the shipped harmonisation CSVs (variables / recodes).
+.lfs_timeline_ref <- function(which) .pumf_extdata_csv("lfs_timeline", which)
 
 # Code lists of one source series: name, val (no zero padding), label_en,
-# label_fr, source ("LFS_HIST", "LFS_HIST_ERA" or "LFS").
-.lfs_timeline_source_codes <- function(series, cache_path, versions) {
-  strip0 <- function(x) as.character(as.integer(x))
-  if (series == "LFS_HIST") {
-    h <- .lfs_hist_ref("codes")[, c("name", "val", "label_en", "label_fr")]
-    e <- .lfs_hist_code_eras()[, c("name", "val", "label_en", "label_fr")]
-    out <- rbind(cbind(h, source = "LFS_HIST"), cbind(e, source = "LFS_HIST_ERA"))
+# label_fr, source ("LFS_HIST", "LFS_HIST_ERA" or "LFS").  The spec's
+# `timeline$codes` accessor supplies the `source` column when the series has
+# several (LFS_HIST and its era-specific lists); otherwise the spec's `codes`
+# dictionary is the one source.  Labels carry the code suffix the build
+# appends where several codes of a variable share a label
+# (.pumf_unique_code_labels()), so that they match the ENUM levels of the
+# source tables.
+.lfs_timeline_source_codes <- function(spec, cache_path, versions) {
+  cols <- c("name", "val", "label_en", "label_fr")
+  out <- if (is.function(spec$timeline$codes)) {
+    spec$timeline$codes(cache_path, versions)
   } else {
-    out <- lapply(versions, function(v) {
-      f <- file.path(cache_path, series, v, "metadata", "codes.csv")
-      if (!file.exists(f)) return(NULL)
-      readr::read_csv(f, col_types = readr::cols(.default = "c"), na = "",
-                      progress = FALSE)[, c("name", "val", "label_en", "label_fr")]
-    })
-    out <- do.call(rbind, out)
-    if (is.null(out))
-      stop("No ", series, " metadata found under '",
-           file.path(cache_path, series), "'.", call. = FALSE)
-    out$source <- series
+    codes <- as.data.frame(spec$codes(cache_path, versions))
+    cbind(codes[, cols, drop = FALSE], source = spec$series)
   }
-  out$val <- strip0(out$val)
+  out$val <- as.character(as.integer(out$val))
   unique(as.data.frame(out))
 }
 
@@ -91,58 +73,48 @@
          " END")
 }
 
-# Levels of a DuckDB ENUM column, or NULL for other types.  Read from the
-# catalogue, so no data is scanned.
-.lfs_timeline_enum_levels <- function(con, db, table, col) {
-  tp <- DBI::dbGetQuery(con, sprintf(
-    "SELECT data_type FROM duckdb_columns() WHERE database_name = '%s' AND
-       table_name = '%s' AND column_name = '%s'", db, table, col))$data_type
-  if (length(tp) != 1L || !startsWith(tp, "ENUM(")) return(NULL)
-  DBI::dbGetQuery(con, sprintf("SELECT unnest(enum_range(NULL::%s)) AS l", tp))$l
-}
-
-# SELECT list for one source series.
-.lfs_timeline_select <- function(con, series, db, table, lang, src_codes,
+# SELECT list for one source series.  `spec$timeline` names the columns of
+# the harmonisation tables for this series (variable names, scale, first
+# version); `db` is the alias the series' file is attached under.
+.lfs_timeline_select <- function(con, spec, db, table, lang, src_codes,
                                  vars, codes, recodes) {
-  label_col <- if (lang == "eng") "label_en" else "label_fr"
-  have <- DBI::dbGetQuery(con, sprintf(
-    "SELECT column_name FROM duckdb_columns() WHERE database_name = '%s'
-       AND table_name = '%s'", db, table))$column_name
-  qi  <- function(x) as.character(DBI::dbQuoteIdentifier(con, x))
-  src_col <- if (series == "LFS_HIST") "lfs_hist" else "lfs"
-  unmapped <- character(0L)
+  series    <- spec$series
+  tl        <- spec$timeline
+  label_col <- .pumf_label_col(lang)
+  have      <- .duckdb_column_types(con, table, db)$column_name
+  unmapped  <- character(0L)
   exprs <- vapply(seq_len(nrow(vars)), function(i) {
     v    <- vars[i, ]
-    cols <- strsplit(v[[src_col]] %||% "", "|", fixed = TRUE)[[1L]]
+    cols <- strsplit(v[[tl$col]] %||% "", "|", fixed = TRUE)[[1L]]
     cols <- cols[!is.na(cols) & cols %in% have]
     e <- switch(v$type,
-      character = DBI::dbQuoteString(con, series),
-      integer   = if (length(cols)) paste0("CAST(", qi(cols[1L]), " AS INTEGER)")
+      character = .qstr(con, series),
+      integer   = if (length(cols)) paste0("CAST(", .qid(con, cols[1L]), " AS INTEGER)")
                   else "CAST(NULL AS INTEGER)",
       numeric   = {
-        sc <- if (series == "LFS") suppressWarnings(as.numeric(v$lfs_scale)) else NA
+        sc <- if (!is.null(tl$scale)) suppressWarnings(as.numeric(v[[tl$scale]])) else NA
         if (!length(cols)) "CAST(NULL AS DOUBLE)"
-        else if (is.na(sc) || sc == 1) paste0("CAST(", qi(cols[1L]), " AS DOUBLE)")
-        else paste0("CAST(", qi(cols[1L]), " AS DOUBLE) * ", sc)
+        else if (is.na(sc) || sc == 1) paste0("CAST(", .qid(con, cols[1L]), " AS DOUBLE)")
+        else paste0("CAST(", .qid(con, cols[1L]), " AS DOUBLE) * ", sc)
       },
       factor    = {
         cases <- vapply(cols, function(cl) {
           map <- .lfs_timeline_label_map(v$name, series, cl, src_codes,
                                          recodes, codes, label_col)
-          lv  <- .lfs_timeline_enum_levels(con, db, table, cl)
+          lv  <- .duckdb_enum_levels(con, table, cl, db)
           miss <- setdiff(lv, c(names(map), .lfs_timeline_na_labels))
           if (length(miss)) unmapped <<- c(unmapped, paste0(cl, ": ", miss))
-          .lfs_timeline_sql_case(con, qi(cl), map)
+          .lfs_timeline_sql_case(con, .qid(con, cl), map)
         }, "")
         e <- if (length(cases) == 0L) "NULL"
              else if (length(cases) == 1L) cases
              else paste0("COALESCE(", paste(cases, collapse = ", "), ")")
-        if (series == "LFS_HIST" && !is.na(v$hist_from))
+        if (!is.null(tl$from) && !is.na(v[[tl$from]]))
           e <- sprintf("CASE WHEN SURVYEAR * 100 + SURVMNTH < %d THEN NULL ELSE %s END",
-                       as.integer(sub("-", "", v$hist_from)), e)
-        paste0("CAST(", e, " AS ", qi(paste0("lfs_tl_", v$name)), ")")
+                       as.integer(sub("-", "", v[[tl$from]])), e)
+        paste0("CAST(", e, " AS ", .qid(con, paste0("lfs_tl_", v$name)), ")")
       })
-    paste0(e, " AS ", qi(v$name))
+    paste0(e, " AS ", .qid(con, v$name))
   }, "")
   if (length(unmapped))
     warning(series, " values without a harmonised equivalent (NA in the ",
@@ -154,12 +126,12 @@
 
 #' Harmonised Labour Force Survey timeline, 1976 onward
 #'
-#' Stacks the historical monthly LFS files (`"LFS_HIST"`, 1976 to 2005) and the
-#' current LFS files (`"LFS"`, 2006 onward) into one lazy table with a curated
-#' common set of variables, so that long time series can be pulled with a
-#' single query.
+#' `get_pumf("LFS_TIMELINE")` stacks the historical monthly LFS files
+#' (`"LFS_HIST"`, 1976 to 2005) and the current LFS files (`"LFS"`, 2006
+#' onward) into one lazy table with a curated common set of variables, so that
+#' long time series can be pulled with a single query.
 #'
-#' The two series keep their own DuckDB files. This function attaches both
+#' The two series keep their own DuckDB files. `get_pumf()` attaches both
 #' **read-only** to an in-memory DuckDB and returns a view over them, so it
 #' never blocks (and is never blocked by) other readers. By default it reads
 #' only what is already loaded. Load data first with, for example,
@@ -178,7 +150,7 @@
 #' * Recoded variables:
 #'   - `LFSSTAT`: the three unemployed categories of LFS_HIST are collapsed.
 #'   - `GENDER_SEX`: LFS_HIST `SEX` and the current `SEX`/`GENDER`, on the
-#'     `GENDER` scale, as in [add_lfs_GENDER_SEX()].
+#'     `GENDER` scale, as in [add_lfs_columns()].
 #'   - `MARSTAT`: four categories (married or common-law, single, widowed,
 #'     separated or divorced). The files before November 1999 only have these
 #'     four.
@@ -202,9 +174,11 @@
 #' not rebased). Levels can therefore jump at the seams between periods and at
 #' 2006.
 #'
-#' @param lang `"eng"` (default) or `"fra"` for the labels.
-#' @param sources The series to include, by default both.
-#' @param refresh `FALSE` (default) opens what is already loaded. `"auto"`
+#' The arguments of [get_pumf()] that apply:
+#' * `lang`: `"eng"` (default) or `"fra"` for the labels.
+#' * `sources` (passed through `...`): the series to include, by default both
+#'   (`c("LFS_HIST", "LFS")`).
+#' * `refresh`: `FALSE` (default) opens what is already loaded. `"auto"`
 #'   first calls `get_pumf(<source>, refresh = "auto")` for each series in
 #'   `sources`, which loads every available version not yet in its database
 #'   (for example a newly released LFS month), then opens the timeline. When
@@ -212,18 +186,19 @@
 #'   first call loads all of LFS_HIST (360 monthly files from Borealis) and all
 #'   LFS years from StatCan, which takes hours. If a version fails to load, the
 #'   warning says so and the timeline opens with what is there.
-#' @param cache_path Root cache directory. Defaults to
-#'   `getOption("canpumf.cache_path", tempdir())`.
+#' * `cache_path`.
 #'
-#' @return A lazy `dplyr::tbl()` over the view `lfs_timeline`. Categorical
-#'   columns are factors. [label_pumf_columns()] and [pumf_var_labels()] work on
-#'   it. Release it with [close_pumf()].
+#' `version`, `module`, `registry`, `borealis`, `redownload` and
+#' `read_only = FALSE` do not apply. The result is a lazy `dplyr::tbl()` over
+#' the view `lfs_timeline`. Categorical columns are factors.
+#' [label_pumf_columns()] and [pumf_dictionary()] work on it. Release it with
+#' [close_pumf()].
 #'
-#' @seealso [get_pumf()], [add_lfs_SURVDATE()]
+#' @seealso [get_pumf()], [add_lfs_columns()]
 #'
 #' @examples
 #' \donttest{
-#' tl <- get_lfs_timeline()
+#' tl <- get_pumf("LFS_TIMELINE")
 #' if (!is.null(tl)) {
 #'   tl |>
 #'     dplyr::filter(SURVMNTH == 6L) |>
@@ -233,12 +208,15 @@
 #'   close_pumf(tl)
 #' }
 #' }
-#' @export
-get_lfs_timeline <- function(lang = c("eng", "fra"),
-                             sources = .lfs_timeline_series,
-                             refresh = FALSE,
-                             cache_path = getOption("canpumf.cache_path",
-                                                    tempdir())) {
+#' @name lfs_timeline
+NULL
+
+# The LFS_TIMELINE view behind get_pumf("LFS_TIMELINE") (see ?lfs_timeline).
+.lfs_timeline_open <- function(lang = c("eng", "fra"),
+                               sources = .lfs_timeline_series,
+                               refresh = FALSE,
+                               cache_path = getOption("canpumf.cache_path",
+                                                      tempdir())) {
   lang    <- match.arg(lang)
   sources <- match.arg(sources, .lfs_timeline_series, several.ok = TRUE)
   if (!identical(refresh, FALSE) && !identical(refresh, "auto"))
@@ -252,7 +230,7 @@ get_lfs_timeline <- function(lang = c("eng", "fra"),
   vars    <- as.data.frame(.lfs_timeline_ref("variables"))
   codes   <- as.data.frame(.lfs_timeline_ref("codes"))
   recodes <- as.data.frame(.lfs_timeline_ref("recodes"))
-  label_col <- if (lang == "eng") "label_en" else "label_fr"
+  label_col <- .pumf_label_col(lang)
 
   old <- options(duckdb.enable_rstudio_connection_pane = FALSE,
                  duckdb.force_rstudio_connection_pane  = FALSE)
@@ -281,17 +259,13 @@ get_lfs_timeline <- function(lang = c("eng", "fra"),
              "get_pumf(\"", s, "\", ...) load in another session). Retry ",
              "when that load has finished.", call. = FALSE))
     table <- .long_table_name(spec, lang)
-    tabs  <- DBI::dbGetQuery(con, sprintf(
-      "SELECT table_name FROM duckdb_tables() WHERE database_name = '%s'", db))$table_name
-    if (!table %in% tabs) {
+    if (!.duckdb_table_exists_in(con, table, db)) {
       message(s, ": no ", lang, " data loaded.")
       next
     }
-    versions <- if (spec$versions_table %in% tabs) DBI::dbGetQuery(con, sprintf(
-      "SELECT version FROM %s.%s ORDER BY survyear, survmnth", db,
-      spec$versions_table))$version else character(0L)
-    src_codes <- .lfs_timeline_source_codes(s, cache_path, versions)
-    selects <- c(selects, .lfs_timeline_select(con, s, db, table, lang,
+    versions  <- .long_read_versions(con, spec, db)$version
+    src_codes <- .lfs_timeline_source_codes(spec, cache_path, versions)
+    selects <- c(selects, .lfs_timeline_select(con, spec, db, table, lang,
                                                src_codes, vars, codes, recodes))
     coverage <- c(coverage, paste0(s, " ", if (length(versions))
       paste0(versions[1L], "..", versions[length(versions)], " (",

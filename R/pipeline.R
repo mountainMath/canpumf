@@ -7,12 +7,21 @@
 
 # ---- internal helpers -------------------------------------------------------
 
-# Compute the expected DuckDB file path for a survey version.
+# File name of a survey version's DuckDB (the version string sanitised for the
+# file system) and its expected path in the cache.
+.pumf_db_file <- function(series, version) {
+  paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
+}
 .pumf_db_path <- function(series, version, cache_path) {
   if (.is_longitudinal(series))
     return(.long_db_path(.pumf_longitudinal_spec(series), cache_path))
-  db_file <- paste0(series, "_", gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
-  file.path(cache_path, series, version, db_file)
+  file.path(cache_path, series, version, .pumf_db_file(series, version))
+}
+
+# Table name of a language's main table: `lang`, suffixed with the layout mask
+# of a survey whose data file is one of several (`eng_indiv`).
+.pumf_lang_table <- function(lang, layout_mask = NULL) {
+  if (is.null(layout_mask)) lang else paste0(lang, "_", layout_mask)
 }
 
 # Compute the DuckDB table name for a given series / version / lang.
@@ -32,7 +41,7 @@
            call. = FALSE)
     lm <- mods[[module]]$layout_mask
   }
-  if (is.null(lm)) lang else paste0(lang, "_", lm)
+  .pumf_lang_table(lang, lm)
 }
 
 # Cheap, lock-friendly check for whether a table exists in a DuckDB file.
@@ -56,7 +65,8 @@
 #   (b) In-process read-only sharing: DuckDB silently hands back a connection
 #       that shares the read-only in-process instance already open (e.g. from
 #       a get_pumf() tbl the user is holding).  dbConnect succeeds, but the
-#       first write raises "attached in read-only mode".
+#       first write raises "attached in read-only mode".  duckdb >= 1.5.6
+#       fails in dbConnect instead (see .duckdb_connect()).
 #
 # We probe for (b) with a rolled-back DDL statement.  DuckDB DDL is fully
 # transactional, so BEGIN + CREATE TABLE + ROLLBACK leaves no trace.
@@ -70,11 +80,25 @@
   )
   if (inherits(con, "error")) {
     msg <- conditionMessage(con)
-    if (grepl("lock|conflict|in use|block", msg, ignore.case = TRUE))
+    # duckdb >= 1.5.6 refuses case (b) in dbConnect() itself, which
+    # .duckdb_connect() has already turned into the close_pumf() message.
+    if (inherits(con, "canpumf_read_only_held")) stop(con)
+    if (grepl("lock|conflict|in use|block|used by another process|already open",
+              msg, ignore.case = TRUE))
       stop("'", basename(db_path), "' is locked by an open connection.\n",
            "Close it first with close_pumf(tbl) and then retry.",
            call. = FALSE)
     stop(con)
+  }
+
+  # Case (b) is visible on the driver: duckdb's per-file driver registry
+  # hands back the existing instance whatever read_only was asked for, so a
+  # read_only driver here is the user's open tbl.  Checking the slot avoids
+  # the probe, whose failing statement would otherwise hold the file open
+  # until garbage collection (on Windows that blocks the next writer).
+  if (isTRUE(tryCatch(con@driver@read_only, error = function(e) FALSE))) {
+    DBI::dbDisconnect(con, shutdown = FALSE)
+    .stop_duckdb_read_only_held(db_path)
   }
 
   write_err <- tryCatch({
@@ -93,10 +117,7 @@
     DBI::dbDisconnect(con, shutdown = FALSE)
     msg <- conditionMessage(write_err)
     if (grepl("read[_-]?only|attached in read", msg, ignore.case = TRUE))
-      stop("'", basename(db_path), "' is held open by a read-only connection ",
-           "(e.g. a tbl from get_pumf()).\n",
-           "Close it first with close_pumf(tbl) and then retry.",
-           call. = FALSE)
+      .stop_duckdb_read_only_held(db_path)
     stop(write_err)
   }
 
@@ -129,11 +150,37 @@
   are_dirs <- file.info(file.path(dir, items))$isdir
   # Any subdirectory other than metadata/ is extracted content.
   if (any(are_dirs & items != "metadata", na.rm = TRUE)) return(TRUE)
-  # Among regular files, exclude zip archives and duckdb files.
+  # Among regular files, exclude zip archives and duckdb files (metadata/ is
+  # a directory, so it is already out).
   other_files <- items[!are_dirs &
-                        !grepl("\\.zip$|\\.duckdb$", items, ignore.case = TRUE) &
-                        items != "metadata"]
+                        !grepl("\\.zip$|\\.duckdb$", items, ignore.case = TRUE)]
   length(other_files) > 0L
+}
+
+# Delete what Stages 2 and 3 built in a version directory -- every DuckDB
+# file (and its .wal etc.: the pattern has no $ anchor) and metadata/ -- and
+# leave the raw files alone.  With `close`, a connection the package registered
+# on the file is closed first; the unlink is retried once after a short wait,
+# because the OS lock can outlive the shutdown by a moment.
+.pumf_clear_built <- function(version_dir, close = TRUE) {
+  if (!dir.exists(version_dir)) return(invisible(FALSE))
+  for (p in list.files(version_dir, pattern = "\\.duckdb",
+                       ignore.case = TRUE, full.names = TRUE)) {
+    if (close) {
+      .pumf_close_for_db(p)
+      gc(verbose = FALSE)   # ensure C++ destructors fire before OS lock release
+    }
+    if (unlink(p) != 0L) {
+      Sys.sleep(0.1)
+      gc(verbose = FALSE)
+      if (unlink(p) != 0L)
+        warning("Could not delete '", basename(p), "'. ",
+                "Close connections with close_pumf() first.", call. = FALSE)
+    }
+  }
+  meta_dir <- file.path(version_dir, "metadata")
+  if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
+  invisible(TRUE)
 }
 
 # Strip any query string from a URL and return the bare filename.
@@ -188,23 +235,7 @@ pumf_locate_or_download <- function(series,
               "zip in '", source_dir, "' if needed.", call. = FALSE)
 
     # Clear only this type's outputs on refresh (never touch the shared bundle).
-    if ((refresh || redownload) && dir.exists(version_dir)) {
-      for (p in list.files(version_dir, pattern = "\\.duckdb",
-                           ignore.case = TRUE, full.names = TRUE)) {
-        .pumf_close_for_db(p)
-        gc(verbose = FALSE)   # ensure C++ destructors fire before OS lock release
-        if (unlink(p) != 0L) {
-          # Brief lock window after shutdown: wait and retry once before warning.
-          Sys.sleep(0.1)
-          gc(verbose = FALSE)
-          if (unlink(p) != 0L)
-            warning("Could not delete '", basename(p), "'. ",
-                    "Close connections with close_pumf() first.", call. = FALSE)
-        }
-      }
-      meta_dir <- file.path(version_dir, "metadata")
-      if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
-    }
+    if (refresh || redownload) .pumf_clear_built(version_dir)
 
     # Ensure the shared bundle is extracted in source_dir.
     if (!.version_is_extracted(source_dir)) {
@@ -213,7 +244,7 @@ pumf_locate_or_download <- function(series,
         # Check if the bundle year has a download URL (most EFT years do not).
         bundle_year <- sub("/.*", "", version)
         src_row <- tryCatch(
-          filter(list_canpumf_collection(),
+          filter(.canpumf_collection(),
                  .data$Acronym == series, .data$Version == bundle_year),
           error = function(e) tibble::tibble()
         )
@@ -231,9 +262,6 @@ pumf_locate_or_download <- function(series,
         bzip <- file.path(source_dir, .zip_filename_from_url(src_url))
         .pumf_warn_cache_path_on_download()
         message("Downloading shared bundle for ", series, " ", bundle_year, " ...")
-        old_timeout <- getOption("timeout")
-        options(timeout = max(600L, old_timeout))
-        on.exit(options(timeout = old_timeout), add = TRUE)
         .pumf_download(src_url, bzip, mode = "wb", quiet = FALSE)
       }
       message("Extracting ", basename(bzip), " ...")
@@ -273,22 +301,8 @@ pumf_locate_or_download <- function(series,
   }
 
   # Step 2b: refresh — wipe DuckDB(s) and metadata/, leave raw files alone.
-  # Use "\\.duckdb" (no $ anchor) to also remove .duckdb.wal and any other
-  # DuckDB sidecar files left from a previous run or interrupted write.
   # No-op when redownload already wiped the directory.
-  if ((refresh || redownload) && dir.exists(version_dir)) {
-    duckdb_paths <- list.files(version_dir, pattern = "\\.duckdb",
-                               ignore.case = TRUE, full.names = TRUE)
-    for (p in duckdb_paths) {
-      .pumf_close_for_db(p)
-      if (!unlink(p)) next
-      warning("Could not delete '", basename(p), "' during refresh. ",
-              "Close any open connections with close_pumf() first.",
-              call. = FALSE)
-    }
-    meta_dir <- file.path(version_dir, "metadata")
-    if (dir.exists(meta_dir)) unlink(meta_dir, recursive = TRUE)
-  }
+  if (refresh || redownload) .pumf_clear_built(version_dir)
 
   # Step 3: download zip when neither zip nor extracted content is present.
   # Skips download when content already exists (manual deposit, previous run
@@ -308,12 +322,20 @@ pumf_locate_or_download <- function(series,
       if (!is.null(url) && startsWith(url, BOREALIS_SERVER)) url <- "(EFT)"
       if (is.null(url) || identical(url, "(EFT)")) {
         bor_doi <- bor$doi
-        if (is.null(bor_doi) && is.null(url))
+        if (is.null(bor_doi) && is.null(url)) {
+          list_name <- if (series %in% c("GSS", "SGVP")) "GSS/SGVP" else series
+          unreachable <- list_name %in% attr(row, "statcan_unreachable")
           stop(series, " version '", version, "' was not found in the canpumf ",
-               "collection. Check available versions with ",
-               "list_canpumf_collection(), or load a Borealis copy with ",
+               "collection. ",
+               if (unreachable)
+                 paste0("Statistics Canada is currently unreachable, so the ",
+                        series, " version list is hard-coded and may be ",
+                        "incomplete; try again later. "),
+               "Check available versions with ",
+               "list_pumf_catalogue(), or load a Borealis copy with ",
                "get_pumf(..., borealis = <doi>) (see ",
-               "list_borealis_pumf_catalogue()).")
+               "list_pumf_catalogue(\"borealis\")).", call. = FALSE)
+        }
         if (is.null(bor_doi))
           stop(series, " ", version, " is distributed via Statistics Canada's ",
                "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",
@@ -331,9 +353,6 @@ pumf_locate_or_download <- function(series,
       zip_path  <- file.path(version_dir, zip_name)
       .pumf_warn_cache_path_on_download()
       message("Downloading ", series, " ", version, " ...")
-      old_timeout <- getOption("timeout")
-      options(timeout = max(600L, old_timeout))
-      on.exit(options(timeout = old_timeout), add = TRUE)
       .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
       is_extracted <- FALSE  # need extraction after download
     }
@@ -351,29 +370,41 @@ pumf_locate_or_download <- function(series,
   invisible(version_dir)
 }
 
-# Extract any second-level zips found under `dir` (used by 1996 Census bundles
+# Extract any nested zips found under `dir` (used by 1996 Census bundles
 # and re-used for the bundle_source path in bundled-archive versions).
+# Extraction repeats while a pass exposes zips not seen before, so zips inside
+# zips are handled at any depth (CIUS 2018/2020: Data.zip holds RAW.zip holds
+# the data).  Each zip is visited once per call: the "already extracted" probe
+# below compares the zip's entry names with the files on disk, and for an
+# archive with accented entry names (CIUS 2020 "Data_Donn\u00e9es.zip") the
+# two spellings can differ, so re-probing would extract it again every pass.
 .extract_inner_zips <- function(dir) {
-  inner_zips <- list.files(dir, pattern = "\\.zip$",
-                            ignore.case = TRUE, recursive = TRUE,
-                            full.names = TRUE)
-  # Exclude top-level zips (only nested ones are inner zips).  Compare
-  # normalized paths: on Windows `dir` can carry backslashes from tempdir()
-  # while list.files() returns forward slashes, so a raw dirname() != dir test
-  # wrongly keeps a top-level zip and tries to re-extract it.
   dir_n <- normalizePath(dir, winslash = "/", mustWork = FALSE)
-  inner_zips <- inner_zips[
-    normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
-  for (iz in inner_zips) {
-    target_dir <- dirname(iz)
-    contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
-                            error = function(e) character(0L))
-    already_done <- length(contents) > 0L &&
-      all(file.exists(file.path(target_dir, contents)))
-    if (!already_done) {
-      message("Extracting inner zip ", basename(iz), " ...")
-      .unzip_impl(iz, target_dir)
+  seen  <- character(0L)
+  repeat {
+    inner_zips <- list.files(dir, pattern = "\\.zip$",
+                              ignore.case = TRUE, recursive = TRUE,
+                              full.names = TRUE)
+    # Exclude top-level zips (only nested ones are inner zips).  Compare
+    # normalized paths: on Windows `dir` can carry backslashes from tempdir()
+    # while list.files() returns forward slashes, so a raw dirname() != dir test
+    # wrongly keeps a top-level zip and tries to re-extract it.
+    inner_zips <- inner_zips[
+      normalizePath(dirname(inner_zips), winslash = "/", mustWork = FALSE) != dir_n]
+    inner_zips <- setdiff(inner_zips, seen)
+    if (length(inner_zips) == 0L) break
+    for (iz in inner_zips) {
+      target_dir <- dirname(iz)
+      contents   <- tryCatch(utils::unzip(iz, list = TRUE)$Name,
+                              error = function(e) character(0L))
+      already_done <- length(contents) > 0L &&
+        all(file.exists(file.path(target_dir, contents)))
+      if (!already_done) {
+        message("Extracting inner zip ", basename(iz), " ...")
+        .unzip_impl(iz, target_dir)
+      }
     }
+    seen <- c(seen, inner_zips)
   }
   invisible(NULL)
 }
@@ -395,8 +426,9 @@ pumf_locate_or_download <- function(series,
   # When file_mask has a recognised extension, use it to pre-filter by
   # extension; otherwise (unusual extensions like .INDIV) set ext_pat=NULL
   # and rely solely on file_mask to select the correct file.
+  # A CSV may be gzip-compressed (`.csv.gz`, how a Borealis download is kept).
   ext_pat <- if (!is.null(file_mask) && grepl("\\.csv$", file_mask, ignore.case = TRUE))
-    "\\.csv$"
+    "\\.csv(\\.gz)?$"
   else if (!is.null(file_mask) && grepl("\\.(txt|dat)$", file_mask, ignore.case = TRUE))
     "\\.(txt|dat)$"
   else if (!is.null(file_mask) && grepl("\\.sas7bdat$", file_mask, ignore.case = TRUE))
@@ -406,7 +438,7 @@ pumf_locate_or_download <- function(series,
   else if (prefer_fwf)
     "\\.(txt|dat)$"
   else
-    "\\.csv$"
+    "\\.csv(\\.gz)?$"
   # Subdirectory names that hold metadata/layout but not data.
   # Also exclude *_CMA and *_PR directories (e.g. 1986_individuals_CMA/,
   # 1971_individuals_PR/) which hold geographic-subset data files that duplicate
@@ -424,7 +456,7 @@ pumf_locate_or_download <- function(series,
   # BSW files are always handled separately; exclude them regardless of format
   candidates <- candidates[!grepl("_BSW\\.", basename(candidates), ignore.case = TRUE)]
 
-  if (isTRUE(grepl("\\.csv$", ext_pat, fixed = TRUE))) {
+  if (isTRUE(grepl("\\.csv", ext_pat, fixed = TRUE))) {
     candidates <- candidates[!grepl(
       "codebook|variables|layout|readme|lisezmoi|dictionary",
       basename(candidates), ignore.case = TRUE)]
@@ -514,7 +546,7 @@ pumf_locate_or_download <- function(series,
   }
   bsw_path <- bsw_files[[1L]]
 
-  is_csv <- grepl("\\.csv$", bsw_path, ignore.case = TRUE)
+  is_csv <- .is_csv_path(bsw_path)
 
   # Parse BSW-specific SPSS metadata (layout + variable types).
   # For FWF BSW this is required; for CSV BSW it provides type information so
@@ -528,112 +560,82 @@ pumf_locate_or_download <- function(series,
     )
   }
 
-  if (is_csv) {
-    bsw <- readr::read_csv(bsw_path,
-                            col_types = readr::cols(.default = "c"),
-                            locale = readr::locale(encoding = data_encoding),
-                            show_col_types = FALSE)
-    names(bsw) <- toupper(names(bsw))
-
-    # The join key (e.g. PUMFID) must stay character at join time: the main
-    # data frame is also all-character until Step 7's .apply_numeric_conversion.
-    # Exclude it from all BSW numeric conversions here.
-    join_cols <- if (!is.null(reg$bsw_join_key)) toupper(reg$bsw_join_key)
-                 else character(0L)
-    if (!is.null(bsw_parsed)) {
-      bsw_vars <- bsw_parsed$variables[
-        !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
-      bsw <- .apply_numeric_conversion(bsw, bsw_vars)
+  if (!is_csv) {
+    # FWF BSW: need column positions from the BSW-specific SPSS command files.
+    # Fallback: some surveys (e.g. SHS 2019/2021) ship the BSW layout as a SAS
+    # @pos .txt file co-located with the BSW data rather than in the SPSS cards
+    # directory. Parse it directly if the SPSS path yielded no layout.
+    if (is.null(bsw_parsed$layout)) {
+      layout_txts <- list.files(dirname(bsw_path),
+                                 pattern    = "layout.*\\.txt$",
+                                 full.names = TRUE, ignore.case = TRUE)
+      bsw_parsed <- .bsw_layout_from_cards(layout_txts[layout_txts != bsw_path],
+                                           data_encoding)
     }
-    # BSW weight columns are continuous by definition.  The _vare.sps often
-    # labels only the join key, leaving BSWxx columns absent from bsw_vars and
-    # still character after the above.  Sweep any remaining character columns.
-    for (col in setdiff(names(bsw)[vapply(bsw, is.character, logical(1L))], join_cols))
-      bsw[[col]] <- suppressWarnings(as.numeric(bsw[[col]]))
-    return(bsw)
-  }
-
-  # FWF BSW: need column positions from the BSW-specific SPSS command files.
-  # Fallback: some surveys (e.g. SHS 2019/2021) ship the BSW layout as a SAS
-  # @pos .txt file co-located with the BSW data rather than in the SPSS cards
-  # directory. Parse it directly if the SPSS path yielded no layout.
-  if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
-    layout_txts <- list.files(dirname(bsw_path),
-                               pattern    = "layout.*\\.txt$",
-                               full.names = TRUE, ignore.case = TRUE)
-    layout_txts <- layout_txts[layout_txts != bsw_path]
-    for (lf in layout_txts) {
-      lr <- tryCatch(.spss_split_parse_layout(lf, data_encoding),
-                     error = function(e) NULL)
-      if (!is.null(lr) && !is.null(lr$layout) && nrow(lr$layout) > 0L) {
-        lr$layout$name <- toupper(lr$layout$name)
-        vars_df <- lr$formats
-        vars_df$name         <- toupper(vars_df$name)
-        vars_df$type         <- ifelse(vars_df$fmt_type == "A", "character", "numeric")
-        vars_df$missing_low  <- NA_real_
-        vars_df$missing_high <- NA_real_
-        bsw_parsed <- list(layout    = lr$layout,
-                           variables = vars_df[, c("name", "type", "decimals",
-                                                    "missing_low", "missing_high")])
-        break
-      }
+    # Second fallback: the BSW card lives outside the SPSS cards directory and
+    # is not named "layout*" -- e.g. CHSS ships Layout_Cards/bsw_i.sas next to
+    # the per-survey SPSS/ and SAS/ subdirectories.  Search the whole version
+    # directory for a command file whose basename matches bsw_mask.  SAS INPUT
+    # cards come first: their @pos specs are unambiguous, whereas the companion
+    # .sps sometimes states only the first field's columns and leaves the rest
+    # implicit.
+    if (is.null(bsw_parsed$layout) && !is.null(reg$bsw_mask)) {
+      cards <- all_files[grepl(reg$bsw_mask, basename(all_files), ignore.case = TRUE) &
+                           grepl("\\.(sas|sps)$", all_files, ignore.case = TRUE)]
+      cards <- cards[order(!grepl("\\.sas$", cards, ignore.case = TRUE))]
+      bsw_parsed <- .bsw_layout_from_cards(cards, data_encoding)
+    }
+    if (is.null(bsw_parsed$layout)) {
+      warning("Could not determine BSW column layout for mask '", reg$bsw_mask,
+              "'; bootstrap weights will not be joined.")
+      return(NULL)
     }
   }
-  # Second fallback: the BSW card lives outside the SPSS cards directory and is
-  # not named "layout*" -- e.g. CHSS ships Layout_Cards/bsw_i.sas next to the
-  # per-survey SPSS/ and SAS/ subdirectories.  Search the whole version directory
-  # for a command file whose basename matches bsw_mask.  SAS INPUT cards come
-  # first: their @pos specs are unambiguous, whereas the companion .sps sometimes
-  # states only the first field's columns and leaves the rest implicit.
-  if ((is.null(bsw_parsed) || is.null(bsw_parsed$layout)) &&
-      !is.null(reg$bsw_mask)) {
-    cards <- all_files[grepl(reg$bsw_mask, basename(all_files), ignore.case = TRUE) &
-                         grepl("\\.(sas|sps)$", all_files, ignore.case = TRUE)]
-    cards <- cards[order(!grepl("\\.sas$", cards, ignore.case = TRUE))]
-    for (cf in cards) {
-      lr <- tryCatch(.spss_split_parse_layout(cf, data_encoding),
-                     error = function(e) NULL)
-      if (!is.null(lr) && !is.null(lr$layout) && nrow(lr$layout) > 0L) {
-        lr$layout$name <- toupper(lr$layout$name)
-        vars_df <- lr$formats
-        vars_df$name         <- toupper(vars_df$name)
-        vars_df$type         <- ifelse(vars_df$fmt_type == "A", "character", "numeric")
-        vars_df$missing_low  <- NA_real_
-        vars_df$missing_high <- NA_real_
-        bsw_parsed <- list(layout    = lr$layout,
-                           variables = vars_df[, c("name", "type", "decimals",
-                                                    "missing_low", "missing_high")])
-        break
-      }
-    }
-  }
-  if (is.null(bsw_parsed) || is.null(bsw_parsed$layout)) {
-    warning("Could not determine BSW column layout for mask '", reg$bsw_mask,
-            "'; bootstrap weights will not be joined.")
-    return(NULL)
-  }
 
-  bsw_layout <- bsw_parsed$layout
-  bsw <- readr::read_fwf(
-    bsw_path,
-    col_positions = readr::fwf_positions(bsw_layout$start, bsw_layout$end,
-                                          col_names = bsw_layout$name),
-    col_types = readr::cols(.default = "c"),
-    trim_ws   = TRUE,
-    locale    = readr::locale(encoding = data_encoding),
-    show_col_types = FALSE
-  )
-  join_cols <- if (!is.null(reg$bsw_join_key)) toupper(reg$bsw_join_key)
-               else character(0L)
-  bsw_vars  <- bsw_parsed$variables[
-    !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
-  # Fixed-width BSW files store weights with the decimal point *implied* by the
-  # card's w.d informat, so the scale correction has to happen inside the numeric
-  # conversion (before the missing-value range, which is stated in display units).
-  bsw <- .apply_numeric_conversion(bsw, bsw_vars, implied_decimals = TRUE)
+  bsw <- .pumf_read_chr(bsw_path, data_encoding,
+                        layout = if (is_csv) NULL else bsw_parsed$layout)
+  # The join key (e.g. PUMFID) must stay character at join time: the main
+  # data frame is also all-character until Step 7's .apply_numeric_conversion.
+  # Exclude it from all BSW numeric conversions here.
+  join_cols <- toupper(reg$bsw_join_key %||% character(0L))
+  if (!is.null(bsw_parsed)) {
+    bsw_vars <- bsw_parsed$variables[
+      !bsw_parsed$variables$name %in% join_cols, , drop = FALSE]
+    # Fixed-width BSW files store weights with the decimal point *implied* by
+    # the card's w.d informat, so the scale correction has to happen inside the
+    # numeric conversion (before the missing-value range, which is stated in
+    # display units).
+    bsw <- .apply_numeric_conversion(bsw, bsw_vars, implied_decimals = !is_csv)
+  }
+  # BSW weight columns are continuous by definition.  The _vare.sps often
+  # labels only the join key, leaving BSWxx columns absent from bsw_vars and
+  # still character after the above.  Sweep any remaining character columns.
   for (col in setdiff(names(bsw)[vapply(bsw, is.character, logical(1L))], join_cols))
     bsw[[col]] <- suppressWarnings(as.numeric(bsw[[col]]))
   bsw
+}
+
+# The record layout of a bootstrap-weight file from the first of `files` (SPSS
+# or SAS reading cards) whose DATA LIST / INPUT parses to at least one field:
+# list(layout, variables) in the shape parse_spss_split() returns, with
+# upper-cased names, the type from the card's format and no missing range.
+# NULL when none of them does.
+.bsw_layout_from_cards <- function(files, encoding) {
+  for (f in files) {
+    lr <- tryCatch(.spss_split_parse_layout(f, encoding),
+                   error = function(e) NULL)
+    if (is.null(lr) || is.null(lr$layout) || nrow(lr$layout) == 0L) next
+    lr$layout$name <- toupper(lr$layout$name)
+    vars_df <- lr$formats
+    vars_df$name         <- toupper(vars_df$name)
+    vars_df$type         <- ifelse(vars_df$fmt_type == "A", "character", "numeric")
+    vars_df$missing_low  <- NA_real_
+    vars_df$missing_high <- NA_real_
+    return(list(layout    = lr$layout,
+                variables = vars_df[, c("name", "type", "decimals",
+                                         "missing_low", "missing_high")]))
+  }
+  NULL
 }
 
 
@@ -644,6 +646,15 @@ pumf_locate_or_download <- function(series,
 #                   even if they have non-sentinel VALUE LABELS (top-coded
 #                   boundary labels like "85 years and over")
 .apply_data_fixups <- function(data, fixups, known_vars = character(0L)) {
+  data <- .pumf_fixup_str_pad(data, fixups)
+  names(data) <- .pumf_fixup_names(names(data), fixups, known_vars)
+  data
+}
+
+# The str_pad fixup alone: the values of the named columns padded to a width.
+# The DuckDB-native build applies it to its distinct-values frame, where the
+# renames have already happened on the column names (.pumf_fixup_names()).
+.pumf_fixup_str_pad <- function(data, fixups) {
   for (spec in fixups$str_pad) {
     for (col in spec$cols) {
       if (col %in% names(data))
@@ -651,6 +662,13 @@ pumf_locate_or_download <- function(series,
                                          side = spec$side, pad = spec$pad)
     }
   }
+  data
+}
+
+# The name fixups (rename, rename_regex, cols_swap) applied to a vector of
+# column names; the values are not needed, so the native build runs it on the
+# header of the staged file.
+.pumf_fixup_names <- function(nms, fixups, known_vars = character(0L)) {
   # [["rename"]], not $rename: `$` partial-matches, so an entry that declares
   # only rename_regex would otherwise have its patterns applied here as literal
   # column names.
@@ -658,8 +676,8 @@ pumf_locate_or_download <- function(series,
     old <- names(fixups[["rename"]])
     new <- unname(fixups[["rename"]])
     for (i in seq_along(old))
-      if (old[[i]] %in% names(data))
-        names(data)[names(data) == old[[i]]] <- new[[i]]
+      if (old[[i]] %in% nms)
+        nms[nms == old[[i]]] <- new[[i]]
   }
   # rename_regex: c(pattern = replacement) rewriting *many* column names at
   # once, for releases whose data file decorates the documented variable names
@@ -674,27 +692,69 @@ pumf_locate_or_download <- function(series,
   if (length(fixups$rename_regex) > 0L && length(known_vars) > 0L) {
     for (pat in names(fixups$rename_regex)) {
       repl      <- fixups$rename_regex[[pat]]
-      candidate <- sub(pat, repl, names(data))
-      apply_it  <- candidate != names(data) &
+      candidate <- sub(pat, repl, nms)
+      apply_it  <- candidate != nms &
                    candidate %in% known_vars &
-                   !(names(data) %in% known_vars) &
-                   !(candidate %in% names(data))
-      names(data)[apply_it] <- candidate[apply_it]
+                   !(nms %in% known_vars) &
+                   !(candidate %in% nms)
+      nms[apply_it] <- candidate[apply_it]
     }
   }
   if (length(fixups$cols_swap) > 0L) {
     for (v1 in names(fixups$cols_swap)) {
       v2 <- fixups$cols_swap[[v1]]
-      i1 <- match(v1, names(data)); i2 <- match(v2, names(data))
+      i1 <- match(v1, nms); i2 <- match(v2, nms)
       if (!is.na(i1) && !is.na(i2)) {
-        names(data)[i1] <- v2; names(data)[i2] <- v1
+        nms[i1] <- v2; nms[i2] <- v1
         warning("Columns ", v1, " and ", v2, ": names swapped relative to ",
                 "command file \u2014 DATA LIST variable names appear transposed.",
                 call. = FALSE)
       }
     }
   }
-  data
+  nms
+}
+
+# Where Stage 3 reads the raw data of a version: for a bundled-archive version
+# (version contains "/") the data and BSW files live in dirname(version_dir),
+# while the metadata CSVs and the DuckDB stay in version_dir.  The file mask
+# is the caller's, else the registry's, else the one a Borealis manifest
+# records (ODESI datasets also carry fixed-width copies and text codebooks
+# that could be mistaken for the data file); the encoding is the registry's,
+# CP1252 being StatCan's default.
+.pumf_data_source <- function(version_dir, version, reg, file_mask = NULL) {
+  dir <- if (grepl("/", version, fixed = TRUE) &&
+             .version_is_extracted(dirname(version_dir)))
+    dirname(version_dir) else version_dir
+  list(dir       = dir,
+       file_mask = file_mask %||% reg$file_mask %||% .borealis_manifest_file_mask(dir),
+       encoding  = reg$data_encoding %||% "CP1252")
+}
+
+# Write a data frame with a pumf_row_id column as a table, replacing any
+# table of that name, with the key stored as BIGINT (dbWriteTable() makes an
+# R integer INTEGER).
+.pumf_write_keyed <- function(con, name, df) {
+  DBI::dbWriteTable(con, name, df, overwrite = TRUE)
+  DBI::dbExecute(con, sprintf(
+    "ALTER TABLE %s ALTER COLUMN pumf_row_id SET DATA TYPE BIGINT", .qid(con, name)))
+  invisible(name)
+}
+
+# The data_fixups that need the records themselves (a line-level CSV repair,
+# a rule over text columns) and so exist on the readr path only; the
+# DuckDB-native reader refuses an entry that declares one of them.
+.pumf_readr_only_fixups <- c("rejoin_split_records", "column_encoding",
+                             "text_missing_codes")
+
+# Which of the readr-only fixups `fx` declares (a flag counts when TRUE, a
+# vector or list when non-empty).
+.pumf_readr_only_used <- function(fx) {
+  used <- vapply(.pumf_readr_only_fixups, function(f) {
+    v <- fx[[f]]
+    if (is.logical(v)) isTRUE(v) else length(v) > 0L
+  }, logical(1L))
+  .pumf_readr_only_fixups[used]
 }
 
 
@@ -709,10 +769,16 @@ pumf_locate_or_download <- function(series,
 # na_values: character vector of raw values that become NA (e.g. c("99999999", "88888888")).
 # missing_codes: named list VAR -> numeric codes that become NA in that column
 #   only, for variables whose sentinels do not form one contiguous range.
+# The sentinel values each rule blanks are returned in the "pumf_sentinels"
+# attribute of the result: a named list VAR -> numeric vector of nrow(data),
+# holding the code where a value became NA and NA elsewhere.  Stage 3 stores
+# them in the companion table (.sentinel_companion()).  Only variables in
+# which a rule fired are listed.
 .apply_numeric_conversion <- function(data, variables, na_values = character(0L),
                                       implied_decimals = FALSE,
                                       missing_codes = list()) {
-  num_vars <- variables[variables$type == "numeric", ]
+  num_vars  <- variables[variables$type == "numeric", ]
+  sentinels <- list()
   for (i in seq_len(nrow(num_vars))) {
     v   <- num_vars[i, ]
     col <- v$name
@@ -728,6 +794,7 @@ pumf_locate_or_download <- function(series,
       plain <- !is.na(vals) & !grepl(".", raw, fixed = TRUE)
       vals[plain] <- vals[plain] / 10^v$decimals
     }
+    vals0 <- vals
     if (!is.na(v$missing_low) && !is.na(v$missing_high))
       vals[!is.na(vals) & vals >= v$missing_low & vals <= v$missing_high] <-
         NA_real_
@@ -740,9 +807,20 @@ pumf_locate_or_download <- function(series,
       vals[!is.na(vals) & round(vals, 8) %in% round(as.numeric(mc), 8)] <-
         NA_real_
 
+    hit <- !is.na(vals0) & is.na(vals)
+    if (any(hit)) sentinels[[col]] <- .sentinel_vec(hit, vals0[hit])
     data[[col]] <- vals
   }
+  attr(data, "pumf_sentinels") <- sentinels
   data
+}
+
+# One column of the "pumf_sentinels" attribute: the blanked code (`vals`, one
+# per TRUE of `hit`) where a value became NA, NA elsewhere.
+.sentinel_vec <- function(hit, vals) {
+  s <- rep(NA_real_, length(hit))
+  s[hit] <- vals
+  s
 }
 
 
@@ -772,6 +850,146 @@ pumf_locate_or_download <- function(series,
   out
 }
 
+# Companion table name for a data table ("eng" -> "pumf_sentinels_eng").
+.sentinel_table_name <- function(table_name) paste0("pumf_sentinels_", table_name)
+
+# ---- Build stamp -------------------------------------------------------------
+#
+# Stage 3 records, per table it writes, which canpumf version built it and
+# when, in the small table `pumf_build_info` (columns `table`,
+# `canpumf_version`, `duckdb_version`, `built`).  A table without a row there
+# was built before the stamp existed (canpumf < 0.7.0), and so also lacks the
+# pumf_row_id key and the sentinel companion.  get_pumf() says so once per
+# session (.pumf_check_build_stamp()), and list_pumf_cache() reports the
+# version in its `built_with` column.  The longitudinal series keep their own
+# `*_versions` tables and are not stamped.
+.build_info_table <- "pumf_build_info"
+
+.write_build_info <- function(con, table_name) {
+  info <- data.frame(
+    table           = table_name,
+    canpumf_version = as.character(utils::packageVersion("canpumf")),
+    duckdb_version  = as.character(utils::packageVersion("duckdb")),
+    built           = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    stringsAsFactors = FALSE)
+  if (DBI::dbExistsTable(con, .build_info_table)) {
+    DBI::dbExecute(con, sprintf(
+      'DELETE FROM "%s" WHERE "table" = ?', .build_info_table),
+      params = list(table_name))
+    DBI::dbAppendTable(con, .build_info_table, info)
+  } else {
+    DBI::dbWriteTable(con, .build_info_table, info)
+  }
+  invisible(info)
+}
+
+# The build stamp of one table (a one-row data.frame), or NULL when the
+# database has no stamp for it.
+.read_build_info <- function(con, table_name = NULL) {
+  if (!isTRUE(tryCatch(DBI::dbExistsTable(con, .build_info_table),
+                       error = function(e) FALSE)))
+    return(NULL)
+  info <- DBI::dbReadTable(con, .build_info_table)
+  if (!is.null(table_name)) info <- info[info$table == table_name, , drop = FALSE]
+  if (nrow(info) == 0L) NULL else info
+}
+
+# Build the sentinel companion tibble from the "pumf_sentinels" attributes
+# collected in Stage 3: pumf_row_id plus one numeric column per variable in
+# which a sentinel was blanked, keeping only the rows where at least one
+# column is non-NA.  With no sentinels the result has the key column only.
+.sentinel_companion <- function(sentinels, n) {
+  out <- tibble::tibble(pumf_row_id = seq_len(n))
+  if (length(sentinels) == 0L) return(out[0L, , drop = FALSE])
+  sent <- tibble::as_tibble(sentinels)
+  keep <- rowSums(!is.na(sent)) > 0L
+  dplyr::bind_cols(out[keep, , drop = FALSE], sent[keep, , drop = FALSE])
+}
+
+# A sentinel code as the string the metadata spells it ("9999999", not
+# "1e+07"; "99.99" for a field read with implied decimals).
+.sentinel_key <- function(x)
+  vapply(x, function(v) format(v, scientific = FALSE, drop0trailing = TRUE),
+         character(1L))
+
+# The label of one sentinel code of one variable, in this order: the code's
+# label in codes.csv (the command file labelled it), the registry's
+# sentinel_labels for that variable, the registry's sentinel_labels for the
+# code across all variables, and finally the code itself as a string.
+# codes_var: the codes.csv rows of this variable; label_col: label_en/label_fr.
+.sentinel_label_one <- function(col, v, codes_var, label_col, sentinel_labels) {
+  pick <- function(lab) {
+    if (is.null(lab)) return(NULL)
+    l <- if (!is.null(names(lab)) && label_col %in% names(lab)) lab[[label_col]]
+         else if (!is.null(names(lab)) && "label_en" %in% names(lab)) lab[["label_en"]]
+         else lab[[1L]]
+    if (is.na(l) || !nzchar(l)) NULL else l
+  }
+  if (nrow(codes_var) > 0L) {
+    hit <- which(suppressWarnings(as.numeric(codes_var$val)) == v)
+    if (length(hit) > 0L) {
+      l <- codes_var[[label_col]][hit[1L]]
+      if (is.na(l) || !nzchar(l)) l <- codes_var$label_en[hit[1L]]
+      if (!is.na(l) && nzchar(l)) return(l)
+    }
+  }
+  key <- .sentinel_key(v)
+  pick(sentinel_labels[[col]][[key]]) %||%
+    pick(sentinel_labels[[key]]) %||%
+    key
+}
+
+.fill_sentinel_labels_from_registry <- function(codes, label_col, sentinel_labels) {
+  if (length(sentinel_labels) == 0L || nrow(codes) == 0L) return(codes)
+  todo <- which(is.na(codes[[label_col]]))
+  for (i in todo) {
+    num <- suppressWarnings(as.numeric(codes$val[i]))
+    if (is.na(num)) next
+    key <- .sentinel_key(num)
+    lab <- sentinel_labels[[codes$name[i]]][[key]] %||% sentinel_labels[[key]]
+    if (!is.null(names(lab)) && label_col %in% names(lab) &&
+        !is.na(lab[[label_col]]) && nzchar(lab[[label_col]]))
+      codes[[label_col]][i] <- lab[[label_col]]
+  }
+  codes
+}
+
+# Turn every code column of the companion into a factor whose levels are the
+# codes' labels, in code order.  Written to DuckDB the factor becomes an ENUM,
+# so a count() of a sentinel column reads "Not available" / "Not applicable"
+# instead of 888888 / 999999.  Two codes with the same label are kept apart
+# by the code suffix, as in the main table.
+# codes: the merged codes tibble; sentinel_labels: the registry data_fixups
+# field (see registry.R).
+.label_sentinel_companion <- function(sent, codes, label_col,
+                                      sentinel_labels = list()) {
+  cols <- setdiff(names(sent), "pumf_row_id")
+  if (length(cols) == 0L || nrow(sent) == 0L) return(sent)
+  if (is.null(codes)) codes <- tibble::tibble(name = character(), val = character(),
+                                              label_en = character(), label_fr = character())
+  if (!label_col %in% names(codes)) codes[[label_col]] <- NA_character_
+  # A code the file labels in the other language only (CCRI's English-only
+  # card) takes the registry's label in this language before the fallback
+  # to the file's English below.
+  codes <- .fill_sentinel_labels_from_registry(codes, label_col, sentinel_labels)
+  # French fallback and one row per code; no suffix yet -- the companion
+  # holds only the sentinel values that occur, deduped below.
+  codes <- .pumf_unique_code_labels(codes, present = list())
+  for (col in cols) {
+    x    <- sent[[col]]
+    vals <- sort(unique(x[!is.na(x)]))
+    codes_var <- codes[codes$name == col, , drop = FALSE]
+    labs <- vapply(vals, function(v)
+      .sentinel_label_one(col, v, codes_var, label_col, sentinel_labels),
+      character(1L))
+    # Two sentinel codes with one label (registry "NA" for 99 and 999) stay
+    # apart, as in the main table.
+    labs <- .pumf_dedupe_labels(labs, .sentinel_key(vals))
+    sent[[col]] <- factor(labs[match(x, vals)], levels = unique(labs))
+  }
+  sent
+}
+
 # Numeric code values labelled as true missing (English or French label), per
 # variable.  Returns a named list of numeric vectors.
 .label_missing_codes <- function(codes) {
@@ -785,29 +1003,258 @@ pumf_locate_or_download <- function(series,
 }
 
 
+# ---- Unique value labels ------------------------------------------------------
+#
+# Statistics Canada's command files give several codes of one variable the same
+# label more often than one would hope: genuinely shared categories (Census
+# 1986 HHMOTG "Other" on 3 and 6, ITS "South Shore" on two region codes, CHSS
+# with two "Don't know" codes), scale midpoints printed as "|", "???" or "..."
+# placeholders across a whole code range, and truncated labels that collide.
+# A factor built from such labels would merge categories the survey keeps
+# apart, and the code would be lost.  When at least two of the codes sharing a
+# label occur in the data, every member of the group gets the code appended:
+# "Other (3)", "Other (6)".  All members are suffixed (not only the later ones)
+# so the result is symmetric, the same rule label_pumf_columns() uses for
+# column names.  A label whose other codes never occur stays as documented
+# (CHS PITM_05 declares 5 and 8 both "Do not know", and only 8 appears), so
+# the suffix shows up only where the data need it.
+
+# labels: the labels of one variable; vals: the codes as documented (used for
+# the suffix); key: the identity of each code (defaults to vals; the caller
+# passes normalised codes so "01" and "1" are one code, not two); present:
+# which codes occur in the data (default: all of them, the document-based
+# rule).  A group is suffixed when at least two of its present codes differ.
+.pumf_dedupe_labels <- function(labels, vals, key = vals,
+                                present = rep(TRUE, length(labels))) {
+  ok <- !is.na(labels) & nzchar(labels) & present
+  if (!any(ok)) return(labels)
+  n_codes <- tapply(key[ok], labels[ok], function(k) length(unique(k)))
+  dup <- !is.na(labels) & labels %in% names(n_codes)[n_codes > 1L]
+  labels[dup] <- paste0(labels[dup], " (", vals[dup], ")")
+  labels
+}
+
+# ---- Integer code normalisation ----------------------------------------------
+#
+# Fixed-width data preserves zero-padding verbatim ("01", "02") while
+# unquoted SPSS codes are normalised via as.numeric() ("01" -> "1") and quoted
+# ones are kept as-is ("01").  Where every documented code of a variable is an
+# integer, codes and data values are therefore compared as integers, so the
+# representation does not matter.  Only strings that are integers through and
+# through are touched: "1.5" stays "1.5" (as.integer() would make it "1", a
+# collision with code 1), as do "A" and NA.  The normalisation is on the string,
+# so a code longer than an int32 cannot overflow to NA.
+
+# Every integer-looking string of `vals` as its canonical integer string
+# ("01" -> "1", "-007" -> "-7", "000" -> "0", surrounding blanks dropped);
+# every other element unchanged.
+.pumf_int_codes <- function(vals) {
+  v  <- as.character(vals)
+  ok <- !is.na(v) & grepl("^\\s*-?[0-9]+\\s*$", v)
+  v[ok] <- sub("^(-?)0+([0-9])", "\\1\\2", trimws(v[ok]))
+  v[ok][v[ok] == "-0"] <- "0"
+  v
+}
+
+# The identity of the codes of one variable: compared as integers when every
+# code is integer-like ("01" == "1"), otherwise verbatim -- the rule
+# .apply_code_labels() applies to the data values.  TRUE in `all_int` says
+# the caller already knows the codes are integers.
+.pumf_int_key <- function(x, all_int = .pumf_all_int(x)) {
+  if (isTRUE(all_int)) .pumf_int_codes(x) else x
+}
+
+# TRUE when `x` is non-empty and every element is an integer-looking string.
+.pumf_all_int <- function(x) {
+  length(x) > 0L && all(grepl("^-?[0-9]+$", as.character(x)))
+}
+
+# The codes (as .pumf_int_key() keys) of each coded variable that occur in
+# the character data, a named list by variable.  na_values are not counted.
+.pumf_codes_present <- function(data, codes, na_values = character(0L)) {
+  out <- list()
+  if (is.null(codes) || nrow(codes) == 0L) return(out)
+  for (col in intersect(unique(codes$name), names(data))) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    raw <- unique(x[!is.na(x)])
+    if (length(na_values) > 0L) raw <- raw[!trimws(raw) %in% na_values]
+    vals <- as.character(codes$val[codes$name == col])
+    out[[col]] <- unique(.pumf_int_key(raw, all_int = .pumf_all_int(vals)))
+  }
+  out
+}
+
+# The codes tibble (name, val, label_en, label_fr) with unique labels within
+# each variable and language.  A missing French label is first filled from the
+# English one, as the build does, so the French uniqueness is judged on what
+# the French table will show; a code documented in neither language stays NA.
+# Exact repeats of one code (the same (name, val) listed twice) are reduced to
+# the first listing, which is the one the label lookup would have used anyway.
+# present: the .pumf_codes_present() list; NULL treats every code as present
+# (the document-based rule), and a variable absent from a non-NULL list has
+# no present code, so its labels are left as documented.
+.pumf_unique_code_labels <- function(codes, present = NULL) {
+  if (is.null(codes) || nrow(codes) == 0L) return(codes)
+  codes$val <- as.character(codes$val)
+  na_fr <- is.na(codes$label_fr)
+  codes$label_fr[na_fr] <- codes$label_en[na_fr]
+  keys  <- unsplit(lapply(split(codes$val, codes$name), .pumf_int_key),
+                   codes$name)
+  keep  <- !duplicated(paste(codes$name, keys))
+  codes <- codes[keep, , drop = FALSE]
+  keys  <- keys[keep]
+  by_var <- split(seq_len(nrow(codes)), codes$name)
+  pres <- unsplit(lapply(names(by_var), function(v) {
+    k <- keys[by_var[[v]]]
+    if (is.null(present)) rep(TRUE, length(k)) else k %in% present[[v]]
+  }), codes$name)
+  for (lc in intersect(c("label_en", "label_fr"), names(codes))) {
+    codes[[lc]] <- unsplit(
+      Map(.pumf_dedupe_labels,
+          split(codes[[lc]], codes$name), split(codes$val, codes$name),
+          split(keys, codes$name), split(pres, codes$name)),
+      codes$name)
+  }
+  codes
+}
+
+# The value labels as the table shows them: the codes after the registry's
+# code fixups, the French fallback and the code suffix decided on the data.
+# Stage 3 writes them to metadata/codes_applied.csv, which pumf_dictionary()
+# reads, so the dictionary and the ENUM levels agree by construction.
+.pumf_codes_applied_path <- function(meta_dir) file.path(meta_dir, "codes_applied.csv")
+.write_codes_applied <- function(codes, meta_dir) {
+  cols <- intersect(c("name", "val", "label_en", "label_fr", "applied_as"),
+                    names(codes))
+  readr::write_csv(as.data.frame(codes)[, cols], .pumf_codes_applied_path(meta_dir),
+                   na = "")
+}
+
+# How Stage 3 applied each documented code, the applied_as column of
+# codes_applied.csv:
+#   "level"    the code is a level of the variable's factor (ENUM) column;
+#   "value"    the variable is numeric and the code stays a number in the
+#              table: a top code ("75 and more"), a bottom code or another
+#              boundary label ("None" on 0).  pumf_dictionary(what =
+#              "topcodes") lists these;
+#   "sentinel" the code becomes NA in the table and is labelled in the
+#              sentinel companion.
+# NA for a variable the table does not hold, or a code that is not a number
+# on a numeric column.  A numeric column's codes go through the same
+# .apply_numeric_conversion() as the data (without implied decimals: the
+# documented codes are already in their decimal form), so the two agree.
+.pumf_codes_applied_as <- function(codes, data, conv_vars, na_values,
+                                   missing_codes) {
+  out <- rep(NA_character_, nrow(codes))
+  for (v in unique(codes$name)) {
+    if (!v %in% names(data)) next
+    idx  <- which(codes$name == v)
+    vals <- trimws(as.character(codes$val[idx]))
+    col  <- data[[v]]
+    if (is.factor(col)) {
+      out[idx] <- ifelse(vals %in% na_values, "sentinel", "level")
+    } else if (is.numeric(col)) {
+      cv <- conv_vars[conv_vars$name == v, , drop = FALSE]
+      if (nrow(cv) != 1L) next
+      cv$type <- "numeric"
+      probe <- data.frame(vals, stringsAsFactors = FALSE)
+      names(probe) <- v
+      kept <- .apply_numeric_conversion(probe, cv, na_values = na_values,
+                                        implied_decimals = FALSE,
+                                        missing_codes = missing_codes)[[v]]
+      isnum <- !is.na(suppressWarnings(as.numeric(vals)))
+      out[idx] <- ifelse(!isnum, NA_character_,
+                         ifelse(is.na(kept), "sentinel", "value"))
+    }
+  }
+  out
+}
+.read_codes_applied <- function(meta_dir) {
+  f <- .pumf_codes_applied_path(meta_dir)
+  if (!file.exists(f)) return(NULL)
+  as.data.frame(readr::read_csv(f, col_types = readr::cols(.default = "c"),
+                                na = "", progress = FALSE))
+}
+
+
+# Apply the registry's code-row fixups to a codes tibble (name, val, label_en,
+# label_fr).  Both are keyed by variable name and hold a data frame of
+# (val, label_en, label_fr):
+#   codes_supplement -- rows appended for codes the command file omits,
+#   codes_override   -- rows that replace the command file's label for a code
+#                       it declares (Census 1986 HHMOTG labels 3 and 6 both
+#                       "Other"; the user guide has "Other single responses" /
+#                       "Other multiple responses").  A code the file does not
+#                       declare is appended.
+# Codes match as strings after trimming and, when both sides are integers, by
+# value ("01" == "1").  Stage 3 and .pumf_dictionary_from_prov() both call this
+# so the dictionary describes what the table shows.
+.pumf_apply_code_fixups <- function(codes, fx) {
+  if (is.null(fx)) return(codes)
+  cols <- c("name", "val", "label_en", "label_fr")
+  if (length(fx$codes_supplement) > 0L) {
+    for (vname in names(fx$codes_supplement)) {
+      extra <- fx$codes_supplement[[vname]]
+      extra$name <- vname
+      codes <- bind_rows(codes, extra[, cols])
+    }
+  }
+  if (length(fx$codes_override) > 0L) {
+    key <- function(v) .pumf_int_codes(trimws(as.character(v)))
+    for (vname in names(fx$codes_override)) {
+      repl <- fx$codes_override[[vname]]
+      repl$name <- vname
+      repl <- repl[, cols]
+      hit  <- which(codes$name == vname)
+      m    <- match(key(repl$val), key(codes$val[hit]))
+      have <- !is.na(m)
+      if (any(have)) {
+        codes$label_en[hit[m[have]]] <- repl$label_en[have]
+        codes$label_fr[hit[m[have]]] <- repl$label_fr[have]
+      }
+      if (any(!have)) codes <- bind_rows(codes, repl[!have, , drop = FALSE])
+    }
+  }
+  codes
+}
+
 # Map raw character values → factor labels using codes metadata.
 # label_col is "label_en" or "label_fr".
 # Unmatched raw values become NA (warned).  Raw values listed in na_values
 # (registry-declared missing markers, e.g. SAS-style ".") become NA silently.
 # Factor levels are the complete ordered set from codes, not just those seen in
 # the data; this is the contract from test-factor-enum.R.
-.apply_code_labels <- function(data, codes, label_col, na_values = character(0L)) {
+# Values blanked by na_values in a labelled column are returned in the
+# "pumf_sentinels" attribute, as .apply_numeric_conversion() does for numeric
+# columns (numeric where the raw value parses as a number, else NA).
+# present: the .pumf_codes_present() list of the codes that occur, when the
+# caller has it already (Stage 3 computes it once for codes_applied.csv too);
+# NULL computes it here from `data`.
+.apply_code_labels <- function(data, codes, label_col, na_values = character(0L),
+                               present = NULL) {
+  # Codes sharing a label are told apart by the code suffix where the data
+  # hold at least two of them (.pumf_unique_code_labels()).  This also fills a
+  # missing French label from the English one.
+  if (is.null(present)) present <- .pumf_codes_present(data, codes, na_values)
+  codes      <- .pumf_unique_code_labels(codes, present)
   char_cols  <- names(data)[vapply(data, is.character, logical(1L))]
   coded_cols <- intersect(char_cols, unique(codes$name))
+  sentinels  <- list()
 
   if (length(na_values) > 0L)
-    for (col in coded_cols)
-      data[[col]][trimws(data[[col]]) %in% na_values] <- NA_character_
+    for (col in coded_cols) {
+      raw <- trimws(data[[col]])
+      hit <- !is.na(raw) & raw %in% na_values
+      if (any(hit)) {
+        sentinels[[col]] <- .sentinel_vec(hit, suppressWarnings(as.numeric(raw[hit])))
+        data[[col]][hit] <- NA_character_
+      }
+    }
 
   for (col in coded_cols) {
     col_codes <- codes[codes$name == col, ]
     labels    <- col_codes[[label_col]]
-
-    # Fall back per-row to label_en when label_fr is NA
-    if (label_col == "label_fr") {
-      na_lbl  <- is.na(labels)
-      if (any(na_lbl)) labels[na_lbl] <- col_codes$label_en[na_lbl]
-    }
 
     valid     <- !is.na(labels)
     lookup    <- stats::setNames(labels[valid], col_codes$val[valid])
@@ -817,15 +1264,13 @@ pumf_locate_or_download <- function(series,
     na_coded  <- col_codes$val[!valid]
 
     raw_vals  <- data[[col]]
-    # FWF data preserves zero-padding verbatim ("01", "02") while unquoted
-    # SPSS codes are normalized via as.numeric() ("01" -> "1") but quoted ones
-    # are kept as-is ("01"). Normalize both sides when all keys are integers so
-    # the representation is consistent regardless of quoting style.
-    if (length(lookup) > 0L && all(grepl("^-?[0-9]+$", names(lookup)))) {
-      names(lookup) <- as.character(as.integer(names(lookup)))
-      na_coded      <- as.character(suppressWarnings(as.integer(na_coded)))
-      num      <- suppressWarnings(as.integer(raw_vals))
-      raw_vals <- ifelse(!is.na(raw_vals) & !is.na(num), as.character(num), raw_vals)
+    # Integer codes and values are compared as integers ("01" == "1"), see
+    # .pumf_int_codes(); when every labelled code is an integer, both sides
+    # are normalised.
+    if (.pumf_all_int(names(lookup))) {
+      names(lookup) <- .pumf_int_codes(names(lookup))
+      na_coded      <- .pumf_int_codes(na_coded)
+      raw_vals      <- .pumf_int_codes(raw_vals)
     }
     unmatched <- unique(raw_vals[!raw_vals %in% c(names(lookup), NA_character_, na_coded)])
     if (length(unmatched) > 0L)
@@ -837,41 +1282,512 @@ pumf_locate_or_download <- function(series,
 
     data[[col]] <- factor(lookup[raw_vals], levels = lvls)
   }
+  attr(data, "pumf_sentinels") <- sentinels
   data
 }
 
 
-# Verify that factor columns were written as ENUM (not VARCHAR) in DuckDB.
-# duckdb >= 1.5.2 does this automatically; for older versions this function
-# performs ALTER TABLE to enforce ENUM types.
+# Verify that the factor columns were written as ENUM (not VARCHAR).  duckdb
+# >= 1.5.2 (the package minimum) writes factors as ENUM itself; a VARCHAR here
+# would mean the levels are lost to the dictionary, so it is worth a warning.
 # factor_levels: named list  col_name -> character vector of levels
 .ensure_enum_columns <- function(con, table_name, factor_levels) {
   if (length(factor_levels) == 0L) return(invisible(NULL))
-
   info <- DBI::dbGetQuery(
-    con, sprintf("PRAGMA table_info('%s')", table_name))
-
-  for (col in names(factor_levels)) {
-    row <- info[info$name == col, ]
-    if (nrow(row) == 0L) next
-    if (grepl("^ENUM", row$type)) next   # already ENUM — duckdb >= 1.5.2
-
-    lvls     <- factor_levels[[col]]
-    lvls_sql <- paste0("'", gsub("'", "''", lvls), "'", collapse = ", ")
-    type_nm  <- paste0(gsub("[^A-Za-z0-9]", "_", table_name), "_",
-                       gsub("[^A-Za-z0-9]", "_", col), "_enum")
-
-    tryCatch({
-      DBI::dbExecute(con, sprintf('DROP TYPE IF EXISTS "%s"', type_nm))
-      DBI::dbExecute(con,
-        sprintf('CREATE TYPE "%s" AS ENUM (%s)', type_nm, lvls_sql))
-      DBI::dbExecute(con,
-        sprintf('ALTER TABLE "%s" ALTER COLUMN "%s" TYPE "%s"',
-                table_name, col, type_nm))
-    }, error = function(e)
-      warning("Could not convert '", col, "' to ENUM: ", conditionMessage(e)))
-  }
+    con, sprintf("PRAGMA table_info(%s)", .qstr(con, table_name)))
+  cols <- intersect(names(factor_levels), info$name)
+  bad  <- cols[!grepl("^ENUM", info$type[match(cols, info$name)])]
+  if (length(bad))
+    warning("Factor column(s) of '", table_name, "' were not written as ENUM: ",
+            paste(bad, collapse = ", "), call. = FALSE)
   invisible(NULL)
+}
+
+
+# ---- Registry fixups on the data records --------------------------------------
+
+# fix_mojibake: repair double-encoded UTF-8 in every character column, through
+# the distinct values of the column (a place name occurs many thousand times).
+.fix_data_mojibake <- function(data) {
+  for (col in names(data)) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    u <- unique(x)
+    f <- .fix_mojibake(u)
+    if (any(!is.na(u) & u != f)) data[[col]] <- f[match(x, u)]
+  }
+  data
+}
+
+# rejoin_split_records / column_encoding: a CSV that cannot be parsed as it is
+# (CCRI 1911).  The file is read byte for byte -- latin1 gives every byte its
+# own character -- so that neither repair depends on the other:
+#   rejoin_split_records  a record broken by a line break inside an unquoted
+#                         field is two lines with fewer fields than the header;
+#                         consecutive short lines that add up to exactly one
+#                         record are joined with a space.
+#   column_encoding       list(<encoding> = <columns>): the columns that are
+#                         not in the file's `encoding`.
+# Only the empty string is NA: transcribed text such as the name "NA" stays.
+.pumf_csv_field_count <- function(lines) {
+  q <- grepl('"', lines, fixed = TRUE)
+  lines[q] <- gsub('"[^"]*"', "", lines[q])
+  nchar(lines, type = "chars") -
+    nchar(gsub(",", "", lines, fixed = TRUE), type = "chars") + 1L
+}
+
+.pumf_rejoin_split_records <- function(lines, file = "the data file") {
+  n      <- .pumf_csv_field_count(lines)
+  width  <- n[1L]
+  short  <- which(n < width)
+  if (!length(short)) return(lines)
+  quotes <- nchar(lines[short], type = "chars") -
+    nchar(gsub('"', "", lines[short], fixed = TRUE), type = "chars")
+  if (any(quotes %% 2L == 1L))
+    stop("rejoin_split_records: ", file, " has line breaks inside quoted ",
+         "fields, which this repair does not handle.", call. = FALSE)
+  drop <- integer(0L)
+  i <- 1L
+  while (i <= length(short)) {
+    first <- short[i]
+    last  <- first
+    total <- n[first]
+    while (total < width && last < length(lines) && n[last + 1L] < width) {
+      last  <- last + 1L
+      total <- total + n[last] - 1L
+    }
+    if (total != width)
+      stop("rejoin_split_records: line ", first, " of ", file, " has ", n[first],
+           " of ", width, " fields and the lines after it do not complete the ",
+           "record.", call. = FALSE)
+    lines[first] <- paste(lines[first:last], collapse = " ")
+    drop <- c(drop, seq.int(first + 1L, last))
+    i <- i + (last - first) + 1L
+  }
+  message("Rejoined ", length(short) - length(drop), " record(s) of ", file,
+          " that a line break inside a field had split.")
+  lines[-drop]
+}
+
+# Characters read as latin1 back to the bytes they stand for, then decoded.
+.pumf_decode_bytes <- function(x, encoding) {
+  u  <- unique(x)
+  hi <- !is.na(u) & grepl("[^\\x01-\\x7f]", u, perl = TRUE)
+  if (!any(hi)) return(x)
+  d <- iconv(iconv(u[hi], "UTF-8", "latin1"), encoding, "UTF-8", sub = "?")
+  i <- match(x, u[hi])
+  x[!is.na(i)] <- d[i[!is.na(i)]]
+  x
+}
+
+.pumf_read_csv_repaired <- function(path, encoding, fx) {
+  lines <- readr::read_lines(path, locale = readr::locale(encoding = "latin1"),
+                             progress = FALSE)
+  if (isTRUE(fx$rejoin_split_records))
+    lines <- .pumf_rejoin_split_records(lines, basename(path))
+  data <- readr::read_csv(I(lines), col_types = readr::cols(.default = "c"),
+                          na = "", show_col_types = FALSE, progress = FALSE)
+  rm(lines)
+  names(data) <- toupper(.pumf_decode_bytes(names(data), encoding))
+  enc <- rep(encoding, ncol(data))
+  for (e in names(fx$column_encoding)) {
+    cols <- toupper(fx$column_encoding[[e]])
+    if (length(absent <- setdiff(cols, names(data))))
+      warning("column_encoding: not in the data: ",
+              paste(absent, collapse = ", "), call. = FALSE)
+    enc[names(data) %in% cols] <- e
+  }
+  for (j in seq_along(data)) data[[j]] <- .pumf_decode_bytes(data[[j]], enc[j])
+  data
+}
+
+# text_missing_codes: missing codes that the source writes into its text
+# columns as well (CCRI 1911 has "99999003" = Illegible in LAST_NAME).  In
+# every column that is still character after the numeric conversion and the
+# code labels, a value that is one of `codes` becomes NA and is returned in
+# the "pumf_sentinels" attribute, like the sentinels of a numeric column; the
+# registry's sentinel_labels name it in the sidecar.  Codes must be numbers.
+.apply_text_missing_codes <- function(data, codes) {
+  sentinels <- list()
+  codes <- trimws(as.character(codes))
+  if (anyNA(suppressWarnings(as.numeric(codes))))
+    stop("text_missing_codes must be numeric codes.", call. = FALSE)
+  for (col in names(data)) {
+    x <- data[[col]]
+    if (!is.character(x)) next
+    hit <- !is.na(x) & trimws(x) %in% codes
+    if (!any(hit)) next
+    sentinels[[col]] <- .sentinel_vec(hit, as.numeric(trimws(x[hit])))
+    x[hit] <- NA_character_
+    data[[col]] <- x
+  }
+  attr(data, "pumf_sentinels") <- sentinels
+  data
+}
+
+# removed_records: the side table of a data table ("eng" -> "pumf_removed_eng")
+# and the records it takes -- those whose raw value of spec$var is one of
+# spec$values.  NULL when the entry declares none or the variable is absent.
+.removed_table_name <- function(table_name) paste0("pumf_removed_", table_name)
+
+# Whether the spec applies to a table with columns `cols`; FALSE (with the
+# warning) when there is no spec or its variable is absent.
+.pumf_removed_spec_ok <- function(spec, cols) {
+  if (is.null(spec)) return(FALSE)
+  if (!spec$var %in% cols) {
+    warning("removed_records: variable ", spec$var, " is not in the data; ",
+            "no record is set aside.", call. = FALSE)
+    return(FALSE)
+  }
+  TRUE
+}
+
+.pumf_removed_mask <- function(data, spec) {
+  if (!.pumf_removed_spec_ok(spec, names(data))) return(NULL)
+  x <- trimws(as.character(data[[spec$var]]))
+  !is.na(x) & x %in% trimws(as.character(spec$values))
+}
+
+# keep_unlabelled_codes: a data value of a labelled variable that has no code
+# row gets one whose label is the code itself, in both languages, so the value
+# stays a level ("40") instead of becoming NA with a warning.  `vars` is TRUE
+# (every variable in `codes`) or a character vector.  Only values that occur
+# are added, after the documented codes and in numeric order.  A variable
+# whose documented codes are all integers takes integer values only, so that
+# the "01" == "1" matching of .apply_code_labels() stays in force.
+.pumf_keep_unlabelled_codes <- function(codes, data, vars = TRUE,
+                                        na_values = character(0L)) {
+  if (is.null(codes) || nrow(codes) == 0L) return(codes)
+  if (isTRUE(vars)) vars <- unique(codes$name)
+  for (v in intersect(vars, intersect(unique(codes$name), names(data)))) {
+    x <- data[[v]]
+    if (!is.character(x)) next
+    raw  <- unique(trimws(x[!is.na(x)]))
+    raw  <- raw[nzchar(raw) & !raw %in% na_values]
+    have <- trimws(as.character(codes$val[codes$name == v]))
+    if (.pumf_all_int(have)) {
+      raw  <- unique(.pumf_int_codes(raw[grepl("^-?[0-9]+$", raw)]))
+      have <- .pumf_int_codes(have)
+    }
+    new <- setdiff(raw[!is.na(raw)], have)
+    if (length(new) == 0L) next
+    num <- suppressWarnings(as.numeric(new))
+    new <- new[order(num, new)]
+    codes <- dplyr::bind_rows(codes, tibble::tibble(
+      name = v, val = new, label_en = new, label_fr = new))
+  }
+  codes
+}
+
+
+# ---- csv_reader = "duckdb": Stage 3 without the records in R -------------------
+#
+# readr hands Stage 3 every field of the file as an R string, which for a
+# complete-count census is several gigabytes before the first label is
+# applied.  With the registry field csv_reader = "duckdb" the records stay in
+# DuckDB, which reads the file into a temporary all-VARCHAR table (fields
+# trimmed, "" and "NA" NULL, as readr does), and R only sees the *distinct
+# values* of the columns Stage 3 transforms: the numeric and the coded ones.  They form a small frame, one
+# column per such variable, padded with NA to a common length.  Every Stage 3
+# rule is a function of a column's set of values (numeric conversion, missing
+# codes, the data-based label rules, the label lookup), so the unchanged
+# helpers run on the frame and give, per column, a map from raw value to
+# result.  The table is then written by one CREATE TABLE AS that joins the
+# staged records to those maps; columns nothing transforms pass straight
+# through, with their double-encoded strings repaired through a map of the
+# distinct non-ASCII values when the entry asks for fix_mojibake.
+# pumf_row_id is the stage table's rowid + 1, the record's position in the
+# file, exactly as on the readr path.
+#
+# DuckDB takes whatever memory it is allowed (80% of RAM by default) before it
+# spills a temporary table or a sort to disk, so the build runs under a
+# memory limit (.pumf_native_limits()).  TCP 1881 (4.3 million records, a
+# 1.1 GB file) builds in 31 s with a peak of 2 GB for the R process under the
+# default limit of 1 GB, in 20 s / 3.5 GB under 2 GB and in 13 s / 5.4 GB
+# under 4 GB; readr takes about a minute and 7 to 8 GB.
+
+.pumf_native_stage_table <- "pumf_csv_stage"
+.pumf_native_rn          <- "__pumf_rn"
+
+# The resource limits of a csv_reader = "duckdb" build.  The memory limit is
+# the option canpumf.native_memory_limit (a DuckDB size such as "4GB"; NULL
+# or "" leaves DuckDB's setting alone).  DuckDB's sort and joins need working
+# memory per thread and fail rather than spill when the limit is small for
+# the number of threads (27 joins sorted on 10 threads do not fit in 2 GB),
+# so the threads are capped at two per GB.  .pumf_native_oom() points a
+# build that still runs out of memory to the option.  `restore` (the value of an
+# earlier call) puts the previous settings back, for an instance the session
+# shares.
+.pumf_native_limits <- function(con, restore = NULL,
+    limit = getOption("canpumf.native_memory_limit", "1GB")) {
+  set <- function(name, value) DBI::dbExecute(con, sprintf(
+    "SET %s = %s", name, as.character(DBI::dbQuoteString(con, as.character(value)))))
+  cur <- function() DBI::dbGetQuery(con, paste(
+    "SELECT current_setting('memory_limit') AS memory_limit,",
+    "current_setting('threads') AS threads"))
+  if (!is.null(restore)) {
+    # DuckDB reports the limit rounded ("12.4 GiB"), and setting that string
+    # back can land on a different value; RESET restores the default exactly.
+    DBI::dbExecute(con, "RESET memory_limit")
+    if (!identical(cur()$memory_limit, restore$memory_limit))
+      set("memory_limit", restore$memory_limit)
+    set("threads", restore$threads)
+    return(invisible(NULL))
+  }
+  old <- cur()
+  if (is.null(limit) || !nzchar(limit)) return(old)
+  set("memory_limit", limit)
+  m  <- regmatches(cur()$memory_limit,
+                   regexec("^([0-9.]+) *([KMGT])i?B", cur()$memory_limit))[[1L]]
+  gb <- if (length(m) == 3L)
+    as.numeric(m[2L]) * c(K = 2^-20, M = 2^-10, G = 1, T = 2^10)[[m[3L]]]
+  else NA_real_
+  if (!is.na(gb))
+    set("threads", max(1L, min(as.integer(old$threads), as.integer(round(2 * gb)))))
+  old
+}
+
+# Run `expr`; a DuckDB out-of-memory error is re-raised with the way out.
+.pumf_native_oom <- function(expr) {
+  tryCatch(expr, error = function(e) {
+    if (!grepl("Out of Memory", conditionMessage(e), ignore.case = TRUE)) stop(e)
+    stop("DuckDB ran out of memory reading the data file under the limit of ",
+         "this build. Raise it with options(canpumf.native_memory_limit = ",
+         "\"4GB\") and try again.\n", conditionMessage(e), call. = FALSE)
+  })
+}
+
+# DuckDB's name for the data encoding; an error for one it cannot read
+# without an extension (CP1252 differs from Latin-1 in 0x80-0x9F).
+.pumf_native_encoding <- function(encoding) {
+  e <- toupper(gsub("[^A-Za-z0-9]", "", encoding %||% "CP1252"))
+  if (e %in% c("UTF8")) return("utf-8")
+  if (e %in% c("LATIN1", "ISO88591")) return("latin-1")
+  stop("csv_reader = \"duckdb\" reads UTF-8 or Latin-1 data only; this entry ",
+       "declares data_encoding = \"", encoding, "\".", call. = FALSE)
+}
+
+# Read the CSV into the stage table and return what the rest of Stage 3 needs:
+#   src         the SQL of the staged records: the columns of the file under
+#               their upper-cased names, plus the record number,
+#   stage_cols  those column names,
+#   out_cols    their names after the registry's rename fixups,
+#   cand        the positions of the columns Stage 3 may transform,
+#   raw         the distinct-values frame of those columns (named by out_cols),
+#   non_ascii   for fix_mojibake, the distinct non-ASCII values of the other
+#               columns (a list by position),
+#   n           the number of records.
+# NULL (with a message) when the distinct values would not make a small
+# frame, e.g. a survey whose every record has its own weight; the caller then
+# reads the file with readr.
+.pumf_native_scan <- function(con, data_path, encoding, variables, codes, fx) {
+  csv <- sprintf(paste0(
+    "read_csv(%s, all_varchar = true, header = true, delim = ',', ",
+    "quote = '\"', escape = '\"', encoding = '%s')"),
+    .qstr(con, normalizePath(data_path)),
+    .pumf_native_encoding(encoding))
+  hdr        <- DBI::dbGetQuery(con, paste0("DESCRIBE SELECT * FROM ", csv))$column_name
+  stage_cols <- toupper(hdr)
+  if (anyDuplicated(stage_cols))
+    stop("The data file has column names that differ only by case: ",
+         paste(unique(stage_cols[duplicated(stage_cols)]), collapse = ", "),
+         call. = FALSE)
+  # DuckDB preserves the order of read_csv on insertion, so the rowid of the
+  # stage table is the record's position in the file.
+  DBI::dbExecute(con, sprintf(
+    "CREATE OR REPLACE TEMP TABLE %s AS SELECT %s FROM %s",
+    .pumf_native_stage_table,
+    paste(sprintf("NULLIF(NULLIF(trim(%s, ' \t'), ''), 'NA') AS %s",
+                  .qid(con, hdr), .qid(con, stage_cols)), collapse = ", "),
+    csv))
+  src <- sprintf("(SELECT rowid + 1 AS %s, * FROM %s)",
+                 .qid(con, .pumf_native_rn), .pumf_native_stage_table)
+
+  # The rename fixups only touch names.
+  out_cols <- .pumf_fixup_names(stage_cols, fx, known_vars = variables$name)
+
+  cand <- which(out_cols %in% unique(c(
+    variables$name[variables$type == "numeric"], codes$name,
+    names(fx$codes_supplement), names(fx$codes_override), fx$force_numeric,
+    unlist(lapply(fx$str_pad, function(sp) sp$cols), use.names = FALSE))))
+  pass <- setdiff(seq_along(out_cols), cand)
+
+  # Pass 1: the record count and how many distinct values the frame would hold.
+  stat <- DBI::dbGetQuery(con, sprintf(
+    "SELECT count(*) AS n%s FROM %s AS s",
+    paste(sprintf(", approx_count_distinct(%s)", .qid(con, stage_cols[cand])),
+          collapse = ""), src))
+  nd <- as.numeric(unlist(stat[-1L], use.names = FALSE))
+  if (length(cand) > 0L &&
+      max(nd) * length(cand) > getOption("canpumf.native_max_cells", 5e7)) {
+    message("csv_reader = \"duckdb\": the numeric and coded columns have too ",
+            "many distinct values (about ", format(max(nd), big.mark = ","),
+            "); reading with readr instead.")
+    DBI::dbExecute(con, paste("DROP TABLE IF EXISTS",
+                              .qid(con, .pumf_native_stage_table)))
+    return(NULL)
+  }
+
+  # Pass 2: the distinct values themselves.
+  want_mj <- isTRUE(fx$fix_mojibake) && length(pass) > 0L
+  aggs <- c(
+    sprintf("list(DISTINCT %1$s) FILTER (WHERE %1$s IS NOT NULL) AS c%2$d",
+            .qid(con, stage_cols[cand]), cand),
+    if (want_mj) sprintf(
+      "list(DISTINCT %1$s) FILTER (WHERE strlen(%1$s) <> length(%1$s)) AS c%2$d",
+      .qid(con, stage_cols[pass]), pass))
+  dist <- if (length(aggs) > 0L) DBI::dbGetQuery(con, sprintf(
+    "SELECT %s FROM %s AS s", paste(aggs, collapse = ", "), src))
+  pick <- function(i) {
+    v <- dist[[paste0("c", i)]][[1L]]
+    v <- as.character(unlist(v, use.names = FALSE))
+    sort(v[!is.na(v)])
+  }
+  vals <- lapply(cand, pick)
+  len  <- max(1L, lengths(vals))
+  raw  <- tibble::as_tibble(stats::setNames(
+    lapply(vals, function(v) c(v, rep(NA_character_, len - length(v)))),
+    out_cols[cand]))
+  non_ascii <- list()
+  if (want_mj) for (i in pass) non_ascii[[as.character(i)]] <- pick(i)
+  list(src = src, stage_cols = stage_cols, out_cols = out_cols, cand = cand,
+       raw = raw, non_ascii = non_ascii, n = as.numeric(stat$n))
+}
+
+# Write the main table, the removed-records side table and the sentinel
+# companion from the records.  `data` is the distinct-values frame after
+# Stage 3's Step 7 (row-aligned with native$raw), `sentinels` the blanked
+# values Step 7 reported on that frame, `removed` the registry's
+# removed_records spec.  Returns the number of records set aside (NA: none
+# declared).
+.pumf_native_write <- function(con, native, data, sentinels, codes_full,
+                               label_col, sent_labels, table_name,
+                               removed = NULL) {
+  rn         <- .qid(con, .pumf_native_rn)
+  stage_cols <- native$stage_cols
+  out_cols   <- native$out_cols
+  s_col      <- function(i) paste0("s.", .qid(con, stage_cols[i]))
+  temp_tbls  <- character(0L)
+  write_map  <- function(name, df) {
+    DBI::dbWriteTable(con, name, df, temporary = TRUE, overwrite = TRUE)
+    temp_tbls <<- c(temp_tbls, name)
+  }
+  # A map table joined on the raw value of stage column i.
+  map_join <- function(nm, i, alias = nm)
+    sprintf("LEFT JOIN %s AS %s ON %s = %s.raw", nm, alias, s_col(i), alias)
+
+  sel   <- character(length(out_cols))
+  joins <- character(0L)
+  # Transformed columns: one map (raw value -> numeric / factor / string) each.
+  for (i in native$cand) {
+    col <- out_cols[i]
+    raw <- native$raw[[col]]
+    out <- data[[col]]
+    ok  <- !is.na(raw)
+    if (is.character(out) && identical(out[ok], raw[ok])) next
+    map <- data.frame(raw = raw[ok], stringsAsFactors = FALSE)
+    map$out <- out[ok]
+    nm  <- paste0("pumf_map_", i)
+    write_map(nm, map)
+    sel[i] <- sprintf("%s.out AS %s", nm, .qid(con, col))
+    joins  <- c(joins, map_join(nm, i))
+  }
+  # The other columns pass through; their double-encoded strings are repaired
+  # through one map of the distinct non-ASCII values that the repair changes.
+  fixes <- list()
+  for (i in which(!nzchar(sel))) {
+    sel[i] <- sprintf("%s AS %s", s_col(i), .qid(con, out_cols[i]))
+    v  <- native$non_ascii[[as.character(i)]]
+    if (length(v) == 0L) next
+    f  <- .fix_mojibake(v)
+    ch <- v != f
+    if (!any(ch)) next
+    fixes[[length(fixes) + 1L]] <-
+      data.frame(raw = v[ch], fixed = f[ch], stringsAsFactors = FALSE)
+    al <- paste0("pumf_mj_", i)
+    sel[i] <- sprintf("COALESCE(%s.fixed, %s) AS %s", al, s_col(i),
+                      .qid(con, out_cols[i]))
+    joins  <- c(joins, map_join("pumf_mojibake_map", i, alias = al))
+  }
+  if (length(fixes) > 0L) {
+    mj <- do.call(rbind, fixes)
+    write_map("pumf_mojibake_map", mj[!duplicated(mj$raw), , drop = FALSE])
+  }
+  sel <- sel[out_cols != "pumf_row_id"]
+
+  is_removed <- NULL
+  if (.pumf_removed_spec_ok(removed, out_cols))
+    is_removed <- sprintf(
+      "coalesce(%s IN (%s), false)",
+      s_col(match(removed$var, out_cols)),
+      paste(.qstr(con, trimws(as.character(removed$values))), collapse = ", "))
+
+  # CREATE TABLE AS the records with pumf_row_id first.  ORDER BY: a join does
+  # not promise to keep the order of the records.
+  create <- function(tbl, sel, joins, where = NULL) {
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", .qid(con, tbl)))
+    DBI::dbExecute(con, sprintf(
+      "CREATE TABLE %s AS SELECT CAST(s.%s AS BIGINT) AS pumf_row_id, %s FROM %s AS s %s%s ORDER BY s.%s",
+      .qid(con, tbl), rn, paste(sel, collapse = ", "), native$src,
+      paste(joins, collapse = " "),
+      if (is.null(where)) "" else paste(" WHERE", where), rn))
+  }
+
+  # The sentinel companion: the blanked values of the frame, labelled as on
+  # the readr path, joined back to the records.
+  sent_table <- .sentinel_table_name(table_name)
+  scols      <- intersect(names(sentinels), out_cols[native$cand])
+  sent_sel <- sent_join <- sent_maps <- character(0L)
+  sent_levels <- list()
+  if (length(scols) > 0L) {
+    lab <- .label_sentinel_companion(
+      tibble::as_tibble(c(list(pumf_row_id = seq_len(nrow(data))),
+                          sentinels[scols])),
+      codes_full, label_col, sent_labels)
+    for (col in scols) {
+      i   <- match(col, out_cols)
+      raw <- native$raw[[col]]
+      ok  <- !is.na(raw) & !is.na(lab[[col]])
+      if (!any(ok)) next
+      map <- data.frame(raw = raw[ok], stringsAsFactors = FALSE)
+      map$out <- droplevels(lab[[col]][ok])
+      nm  <- paste0("pumf_smap_", i)
+      write_map(nm, map)
+      sent_sel  <- c(sent_sel, sprintf("%s.out AS %s", nm, .qid(con, col)))
+      sent_join <- c(sent_join, map_join(nm, i))
+      sent_maps <- c(sent_maps, nm)
+      sent_levels[[col]] <- levels(map$out)
+    }
+  }
+
+  DBI::dbBegin(con)
+  tryCatch({
+    create(table_name, sel, joins,
+           if (!is.null(is_removed)) paste("NOT", is_removed))
+    if (!is.null(is_removed))
+      create(.removed_table_name(table_name), sel, joins, is_removed)
+    if (length(sent_sel) > 0L) {
+      # Only the records with a sentinel: a map row is NULL where none hit.
+      create(sent_table, sent_sel, sent_join,
+             paste(sprintf("%s.out IS NOT NULL", sent_maps), collapse = " OR "))
+    } else {
+      DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", .qid(con, sent_table)))
+      DBI::dbExecute(con, sprintf("CREATE TABLE %s (pumf_row_id BIGINT)",
+                                  .qid(con, sent_table)))
+    }
+    DBI::dbCommit(con)
+  }, error = function(e) {
+    try(DBI::dbRollback(con), silent = TRUE)
+    stop(e)
+  })
+  if (length(sent_levels) > 0L)
+    .ensure_enum_columns(con, sent_table, sent_levels)
+  for (t in unique(c(temp_tbls, .pumf_native_stage_table)))
+    DBI::dbExecute(con, sprintf("DROP TABLE IF EXISTS %s", .qid(con, t)))
+
+  if (is.null(is_removed)) NA_real_
+  else as.numeric(DBI::dbGetQuery(con, sprintf(
+    "SELECT count(*) AS n FROM %s", .qid(con, .removed_table_name(table_name))))$n)
 }
 
 
@@ -934,13 +1850,9 @@ pumf_build_duckdb <- function(version_dir,
   stopifnot(lang %in% c("eng", "fra"))
 
   # Step 1: DuckDB path and table name
-  if (is.null(db_path)) {
-    db_file <- paste0(series, "_",
-                      gsub("[^A-Za-z0-9._-]", "_", version), ".duckdb")
-    db_path <- file.path(version_dir, db_file)
-  }
-  table_name <- if (is.null(layout_mask)) lang
-                else paste0(lang, "_", layout_mask)
+  if (is.null(db_path))
+    db_path <- file.path(version_dir, .pumf_db_file(series, version))
+  table_name <- .pumf_lang_table(lang, layout_mask)
   result     <- list(db_path = db_path, table_name = table_name)
 
   # Step 3: skip if the table is already built.
@@ -962,7 +1874,7 @@ pumf_build_duckdb <- function(version_dir,
   variables <- meta$variables
   codes     <- meta$codes
   layout    <- meta$layout  # NULL for CSV-format data
-  label_col <- if (lang == "eng") "label_en" else "label_fr"
+  label_col <- .pumf_label_col(lang)
 
   # Normalise variable-name case: CSV data columns are uppercased on read and
   # registry fixups use uppercase names, but some command files declare
@@ -987,6 +1899,8 @@ pumf_build_duckdb <- function(version_dir,
     reg$bsw_drop_cols <- bsw_override$bsw_drop_cols %||% character(0L)
     reg$bsw_strata    <- bsw_override$bsw_strata
   }
+  # The data fixups of this build (the module's or the entry's), one name.
+  fx <- reg$data_fixups %||% list()
 
   # labels_supplement: supply variable labels that the source metadata leaves
   # blank (e.g. CPSS 1 ships only a PDF codebook whose weight variable COVID_WT
@@ -1003,7 +1917,8 @@ pumf_build_duckdb <- function(version_dir,
       if (length(v) > 5L) paste0(" ... and ", length(v) - 5L, " more."))
     na_fr    <- is.na(variables$label_fr)
     fallback <- variables$name[na_fr & !is.na(variables$label_en)]
-    neither  <- variables$name[na_fr &  is.na(variables$label_en)]
+    neither  <- setdiff(variables$name[na_fr & is.na(variables$label_en)],
+                        .layout_promoted_vars(variables, layout))
     if (length(fallback) > 0L)
       warning("lang='fra': ", length(fallback),
               " variable(s) have no French label; using label_en for: ",
@@ -1013,27 +1928,20 @@ pumf_build_duckdb <- function(version_dir,
               " variable(s) have no label in either language: ",
               fmt_vars(neither))
 
+    # A sentinel code the file labels in English only takes the registry's
+    # French label before the fallback (CCRI's English-only card).
+    codes <- .fill_sentinel_labels_from_registry(
+      codes, label_col, fx$sentinel_labels %||% list())
     na_code <- is.na(codes[[label_col]])
     if (any(na_code)) codes[[label_col]][na_code] <- codes$label_en[na_code]
   }
 
   # Step 5: read data file
-  data_enc <- if (!is.null(reg$data_encoding)) reg$data_encoding else "CP1252"
-  # A Borealis download records its data file in the manifest; ODESI datasets
-  # also carry fixed-width copies and text codebooks that could be mistaken
-  # for it.
-  eff_mask <- file_mask %||% reg$file_mask %||%
-    .borealis_manifest_file_mask(version_dir)
-
-  # For bundled-archive versions (version contains "/"), raw data and BSW files
-  # live in dirname(version_dir); metadata CSVs and DuckDB stay in version_dir.
-  source_dir <- if (grepl("/", version, fixed = TRUE) &&
-                    .version_is_extracted(dirname(version_dir)))
-    dirname(version_dir)
-  else
-    version_dir
-
-  data_path <- .find_pumf_data_file(source_dir, eff_mask, prefer_fwf = !is.null(layout))
+  src        <- .pumf_data_source(version_dir, version, reg, file_mask)
+  data_enc   <- src$encoding
+  source_dir <- src$dir
+  data_path  <- .find_pumf_data_file(source_dir, src$file_mask,
+                                     prefer_fwf = !is.null(layout))
   # A few releases ship no flat file at all, only the SAS dataset the flat file
   # was built from (e.g. PALS 2001, whose SAS command file even names a
   # pals2001dat.txt that is not in the archive).  Read those with haven; the
@@ -1043,30 +1951,51 @@ pumf_build_duckdb <- function(version_dir,
   # Some surveys (e.g. CHS) ship both a CSV and a TXT file; the SPSS DATA LIST
   # section creates a layout.csv, but data must be read from the CSV.
   is_fwf    <- !is_sas && !is.null(layout) &&
-               !grepl("\\.csv$", data_path, ignore.case = TRUE)
-  message("Reading ", if (is_sas) "SAS" else if (is_fwf) "fixed-width" else "CSV",
-          " data from ", basename(data_path), " ...")
+               !.is_csv_path(data_path)
 
-  if (is_sas) {
+  # csv_reader = "duckdb": DuckDB reads the file on the write connection of
+  # this build, and `data` is the frame of the distinct values of the columns
+  # Stage 3 transforms (.pumf_native_scan()).  The connection is therefore
+  # opened here, not at Step 9.
+  con    <- NULL
+  on.exit(if (!is.null(con))
+    try(DBI::dbDisconnect(con, shutdown = TRUE), silent = TRUE), add = TRUE)
+  native <- NULL
+  if (identical(reg$csv_reader, "duckdb") && !is_sas && !is_fwf) {
+    .pumf_native_encoding(data_enc)
+    if (!is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key))
+      stop("csv_reader = \"duckdb\" does not join a bootstrap-weight file; ",
+           "drop csv_reader for ", series, " ", version, ".", call. = FALSE)
+    if (length(.pumf_readr_only_used(fx)) > 0L)
+      stop("csv_reader = \"duckdb\" does not apply rejoin_split_records, ",
+           "column_encoding or text_missing_codes; drop csv_reader for ",
+           series, " ", version, ".", call. = FALSE)
+    message("Reading CSV data from ", basename(data_path), " with DuckDB ...")
+    .assert_duckdb_writable(db_path)
+    con    <- .duckdb_connect_quiet(db_path)
+    native_lim <- .pumf_native_limits(con)
+    native <- .pumf_native_oom(.pumf_native_scan(
+      con, data_path, data_enc, variables,
+      .pumf_apply_code_fixups(codes, fx), fx))
+    if (is.null(native)) {
+      DBI::dbDisconnect(con, shutdown = TRUE)
+      con <- NULL
+    }
+  }
+  if (is.null(native))
+    message("Reading ", if (is_sas) "SAS" else if (is_fwf) "fixed-width" else "CSV",
+            " data from ", basename(data_path), " ...")
+
+  if (!is.null(native)) {
+    data <- native$raw
+  } else if (is_sas) {
     data <- .read_sas_data(data_path)
   } else if (is_fwf) {
-    data <- readr::read_fwf(
-      data_path,
-      col_positions  = readr::fwf_positions(layout$start, layout$end,
-                                             col_names = layout$name),
-      col_types      = readr::cols(.default = "c"),
-      trim_ws        = TRUE,
-      locale         = readr::locale(encoding = data_enc),
-      show_col_types = FALSE
-    )
+    data <- .pumf_read_chr(data_path, data_enc, layout = layout)
+  } else if (isTRUE(fx$rejoin_split_records) || length(fx$column_encoding)) {
+    data <- .pumf_read_csv_repaired(data_path, data_enc, fx)
   } else {
-    data <- readr::read_csv(
-      data_path,
-      col_types      = readr::cols(.default = "c"),
-      locale         = readr::locale(encoding = data_enc),
-      show_col_types = FALSE
-    )
-    names(data) <- toupper(names(data))
+    data <- .pumf_read_chr(data_path, data_enc)
   }
 
   # Drop trailing junk rows from FWF files: older StatCan archives end with
@@ -1079,17 +2008,20 @@ pumf_build_duckdb <- function(version_dir,
     if (any(junk)) data <- data[!junk, ]
   }
 
-  # Apply pre-label data fixups (str_pad, column renames) from registry
-  if (!is.null(reg) && length(reg$data_fixups) > 0L)
-    data <- .apply_data_fixups(data, reg$data_fixups,
-                               known_vars = variables$name)
+  # fix_mojibake: double-encoded UTF-8 in the text fields (TCP 1881).
+  if (isTRUE(fx$fix_mojibake)) data <- .fix_data_mojibake(data)
+
+  # Apply pre-label data fixups (str_pad, column renames) from registry.  The
+  # DuckDB reader has applied the renames to its frame already.
+  data <- if (is.null(native)) .apply_data_fixups(data, fx, known_vars = variables$name)
+          else .pumf_fixup_str_pad(data, fx)
 
   # Runs after the fixups so a renamed column is matched under the name the
   # metadata declares, not the one the source file happened to use.
   if (is_sas) data <- .coerce_coded_to_character(data, codes)
 
   # Step 6: BSW join
-  if (!is.null(reg) && !is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key)) {
+  if (!is.null(reg$bsw_file_mask) && !is.null(reg$bsw_join_key)) {
     bsw <- .read_bsw_data(source_dir, reg, data_enc)
     if (!is.null(bsw)) {
       drop_cols <- intersect(reg$bsw_drop_cols, names(bsw))
@@ -1099,16 +2031,18 @@ pumf_build_duckdb <- function(version_dir,
     }
   }
 
+  # removed_records: which records go to the side table, decided on the raw
+  # values (the DuckDB reader decides in SQL).
+  removed <- if (is.null(native)) .pumf_removed_mask(data, fx$removed_records)
+
   # Step 7: numeric types, then code labels → factors
-  na_vals <- if (!is.null(reg)) reg$data_fixups$na_values %||% character(0L)
-             else character(0L)
+  na_vals <- fx$na_values %||% character(0L)
 
   # Storage-type overrides keep a variable's raw string values (no numeric
   # conversion, no code labeling) so leading zeros and out-of-int-range IDs
   # survive.  force_character stays VARCHAR; force_integer/bigint additionally
   # get their DuckDB column type set by ALTER after the table is written.
   # All force_* sets (including force_numeric) must be disjoint.
-  fx         <- if (!is.null(reg)) reg$data_fixups else list()
   force_char <- fx$force_character %||% character(0L)
   force_int  <- fx$force_integer   %||% character(0L)
   force_big  <- fx$force_bigint    %||% character(0L)
@@ -1118,15 +2052,10 @@ pumf_build_duckdb <- function(version_dir,
   if (length(dup_forced) > 0L)
     stop("Variable(s) listed in more than one force_* type override: ",
          paste(dup_forced, collapse = ", "), call. = FALSE)
-  # codes_supplement: per-variable extra rows to inject before label mapping.
-  # Used for codes that appear in data but are absent from the command files.
-  if (!is.null(reg) && length(reg$data_fixups$codes_supplement) > 0L) {
-    for (vname in names(reg$data_fixups$codes_supplement)) {
-      extra <- reg$data_fixups$codes_supplement[[vname]]
-      extra$name <- vname
-      codes <- bind_rows(codes, extra[, c("name", "val", "label_en", "label_fr")])
-    }
-  }
+  # codes_supplement / codes_override: registry code rows injected before
+  # label mapping (shared with pumf_dictionary(), so both see the same codes).
+  codes <- .pumf_apply_code_fixups(codes, fx)
+  codes_full <- codes
   # Labelled missing codes, captured before the force_* blocks drop codes: each
   # numeric code value whose English or French label is a true-missing label
   # (qualified forms included).  They become discrete missing codes for every
@@ -1148,9 +2077,24 @@ pumf_build_duckdb <- function(version_dir,
   # values justify numeric.  GSS Cycle 17 once forced 236 fully labelled
   # variables (SEX, PRV, …) and Cycle 12 its DDAY (Sunday-Saturday), and the
   # 1971 Census SUBSAMPL is labelled ONE-FIVE except in the household files.
-  if (!is.null(reg) && length(reg$data_fixups$force_numeric) > 0L) {
-    fn <- setdiff(reg$data_fixups$force_numeric,
-                  .fully_labelled_vars(data, codes, reg$data_fixups$force_numeric,
+  if (length(fx$force_numeric) > 0L) {
+    # A forced name the metadata does not declare but the data carry (a
+    # layout-only column in a hand-written pumf_registry_entry()) gets an
+    # unlabelled numeric row, with the layout's implied decimals when the
+    # data are fixed-width, so that the override is not silently a no-op.
+    absent <- setdiff(intersect(fx$force_numeric, names(data)), variables$name)
+    if (length(absent) > 0L) {
+      dec <- if (is_fwf && "decimals" %in% names(layout))
+        suppressWarnings(as.integer(layout$decimals))[match(absent, layout$name)]
+      else rep(NA_integer_, length(absent))
+      variables <- dplyr::bind_rows(variables, tibble::tibble(
+        name = absent, label_en = NA_character_, label_fr = NA_character_,
+        type = "numeric", decimals = dec,
+        missing_low = NA_real_, missing_high = NA_real_))
+      variables <- .pumf_apply_labels_supplement(variables, reg)
+    }
+    fn <- setdiff(fx$force_numeric,
+                  .fully_labelled_vars(data, codes, fx$force_numeric,
                                        na_values = na_vals,
                                        decimals  = if (is_fwf) layout else NULL))
     variables$type[variables$name %in% fn] <- "numeric"
@@ -1179,9 +2123,9 @@ pumf_build_duckdb <- function(version_dir,
   # missing_supplement: explicit per-variable missing ranges that override
   # whatever was parsed or derived (e.g. GSS 2007 age variables with special
   # codes like 999.5 "Child deceased" that no generic pattern can classify).
-  if (!is.null(reg) && length(reg$data_fixups$missing_supplement) > 0L) {
-    for (v in names(reg$data_fixups$missing_supplement)) {
-      rng <- reg$data_fixups$missing_supplement[[v]]
+  if (length(fx$missing_supplement) > 0L) {
+    for (v in names(fx$missing_supplement)) {
+      rng <- fx$missing_supplement[[v]]
       i   <- which(variables$name == v)
       if (length(i) == 1L) {
         variables$missing_low[i]  <- rng[1L]
@@ -1194,9 +2138,12 @@ pumf_build_duckdb <- function(version_dir,
   # sentinels sit on both sides of the valid data (PALS 2006 AUDE_Q02 declares
   # -5/-6/-7 and 998/999 around hours worked 1-97, so the [-7, 999] range a
   # single min/max pair yields would NA the whole column).  The discrete set
-  # replaces any range derived or parsed for the variable.
-  miss_codes <- if (is.null(reg)) list() else reg$data_fixups$missing_codes %||% list()
-  for (v in names(miss_codes)) {
+  # replaces any range derived or parsed for the variable, unless the registry
+  # also gives the variable a missing_supplement range: then both apply (CCRI
+  # 1911 YEAR_OF_NATURALIZATION, where 1-3 are coded answers below the years
+  # and the 9xxxxxxx missing codes sit above them).
+  miss_codes <- fx$missing_codes %||% list()
+  for (v in setdiff(names(miss_codes), names(fx$missing_supplement))) {
     i <- which(variables$name == v)
     if (length(i) == 1L) {
       variables$missing_low[i]  <- NA_real_
@@ -1241,50 +2188,138 @@ pumf_build_duckdb <- function(version_dir,
     lay_dec <- if ("decimals" %in% names(layout)) layout$decimals else NA_integer_
     conv_vars$decimals <- lay_dec[match(variables$name, layout$name)]
   }
-  data <- .apply_numeric_conversion(data, conv_vars, na_values = na_vals,
-                                    implied_decimals = is_fwf,
-                                    missing_codes = miss_codes)
-  data <- .apply_code_labels(data, codes, label_col, na_values = na_vals)
+  # keep_unlabelled_codes: the variables about to be labelled get a code row
+  # for every data value that has none, so the value stays a level.
+  if (!is.null(fx$keep_unlabelled_codes) &&
+      !isFALSE(fx$keep_unlabelled_codes)) {
+    keep_vars <- intersect(unique(codes$name),
+                           variables$name[variables$type == "character"])
+    if (!isTRUE(fx$keep_unlabelled_codes))
+      keep_vars <- intersect(keep_vars, fx$keep_unlabelled_codes)
+    n_codes <- nrow(codes)
+    codes <- .pumf_keep_unlabelled_codes(codes, data, keep_vars, na_vals)
+    if (nrow(codes) > n_codes)
+      codes_full <- dplyr::bind_rows(
+        codes_full, codes[seq.int(n_codes + 1L, nrow(codes)), , drop = FALSE])
+  }
 
-  # Step 9: write to DuckDB
-  .assert_duckdb_writable(db_path)
-  con <- .duckdb_connect_quiet(db_path)
-  if (DBI::dbExistsTable(con, table_name))
-    DBI::dbRemoveTable(con, table_name)
-  message("Writing DuckDB table '", table_name, "' ...")
-  DBI::dbWriteTable(con, table_name, data)
+  # Which documented codes occur, for every variable with codes (the data are
+  # still character here): the code suffix that .apply_code_labels() adds to
+  # shared labels depends on it, and metadata/codes_applied.csv records the
+  # resulting labels for pumf_dictionary().
+  present_all <- .pumf_codes_present(data, codes_full, na_vals)
+  # Each step reports the values it blanked in the "pumf_sentinels" attribute;
+  # take() collects them and strips the attribute.
+  sentinels <- list()
+  take <- function(d) {
+    sentinels <<- c(sentinels, attr(d, "pumf_sentinels") %||% list())
+    attr(d, "pumf_sentinels") <- NULL
+    d
+  }
+  data <- take(.apply_numeric_conversion(data, conv_vars, na_values = na_vals,
+                                         implied_decimals = is_fwf,
+                                         missing_codes = miss_codes))
+  data <- take(.apply_code_labels(data, codes, label_col, na_values = na_vals,
+                                  present = present_all))
+  if (length(fx$text_missing_codes) > 0L)
+    data <- take(.apply_text_missing_codes(data, fx$text_missing_codes))
+  applied <- as.data.frame(.pumf_unique_code_labels(codes_full, present_all))
+  applied$applied_as <- .pumf_codes_applied_as(applied, data, conv_vars, na_vals,
+                                               miss_codes)
+  .write_codes_applied(applied, meta_dir)
+
+  sent_table  <- .sentinel_table_name(table_name)
+  rm_table    <- .removed_table_name(table_name)
+  sent_labels <- fx$sentinel_labels %||% list()
+
+  if (!is.null(native)) {
+    # Steps 8c and 9 in SQL: the records joined to the maps the frame gives
+    # (.pumf_native_write()).
+    message("Writing DuckDB table '", table_name, "' ...")
+    n_removed <- .pumf_native_oom(.pumf_native_write(
+      con, native, data, sentinels, codes_full, label_col, sent_labels,
+      table_name, removed = fx$removed_records))
+    .pumf_native_limits(con, restore = native_lim)
+  } else {
+    # Step 8c: permanent row key.  pumf_row_id (1-based, the file's record
+    # order) links the main table to its companion tables: the sentinel table
+    # written below and the bootstrap-weight tables of add_bootstrap_weights().
+    data <- dplyr::bind_cols(
+      tibble::tibble(pumf_row_id = seq_len(nrow(data))),
+      data[setdiff(names(data), "pumf_row_id")])
+    # codes_full: the force_* blocks above removed the rows of the variables
+    # they made numeric, but their labelled sentinels ("Not stated" on a
+    # top-coded hours variable) still name the companion's levels.
+    sent_df    <- .label_sentinel_companion(
+      .sentinel_companion(sentinels, nrow(data)), codes_full, label_col, sent_labels)
+    # removed_records: the flagged records leave the main table with the
+    # pumf_row_id they have in the file, so the key keeps naming the record's
+    # position and the main table's ids have gaps.
+    removed_df <- NULL
+    n_removed  <- NA_real_
+    if (!is.null(removed)) {
+      removed_df <- data[removed, , drop = FALSE]
+      data       <- data[!removed, , drop = FALSE]
+      n_removed  <- nrow(removed_df)
+    }
+
+    # Step 9: write to DuckDB
+    .assert_duckdb_writable(db_path)
+    con <- .duckdb_connect_quiet(db_path)
+    message("Writing DuckDB table '", table_name, "' ...")
+    .pumf_write_keyed(con, table_name, data)
+    if (!is.null(removed_df)) .pumf_write_keyed(con, rm_table, removed_df)
+    # The sentinel companion: one row per record in which at least one value
+    # was a sentinel, one ENUM column per such variable holding the sentinel's
+    # label.  It is always written, so an empty table means "no sentinels", and
+    # a missing one means a cache built before 0.7.0.
+    .pumf_write_keyed(con, sent_table, sent_df)
+    sent_factor <- names(sent_df)[vapply(sent_df, is.factor, logical(1L))]
+    if (length(sent_factor) > 0L)
+      .ensure_enum_columns(
+        con, sent_table,
+        stats::setNames(lapply(sent_factor, function(c) levels(sent_df[[c]])),
+                        sent_factor))
+  }
+  if (!is.na(n_removed))
+    message(format(n_removed, big.mark = ","), " record(s) flagged by ",
+            fx$removed_records$var, " set aside in '", rm_table,
+            "' (pumf_sidecar(tbl, \"removed\")).")
+  # The build stamp: which canpumf built this table, and when.
+  .write_build_info(con, table_name)
 
   # Step 8: verify / enforce ENUM on factor columns
   factor_cols <- names(data)[vapply(data, is.factor, logical(1L))]
   if (length(factor_cols) > 0L)
-    .ensure_enum_columns(
-      con, table_name,
-      stats::setNames(lapply(factor_cols, function(c) levels(data[[c]])),
-                      factor_cols))
+    for (t in c(table_name, if (!is.na(n_removed)) rm_table))
+      .ensure_enum_columns(
+        con, t,
+        stats::setNames(lapply(factor_cols, function(c) levels(data[[c]])),
+                        factor_cols))
 
   # Step 8b: set INTEGER/BIGINT storage for the raw-kept ID columns by casting
   # from VARCHAR.  An INTEGER cast that overflows surfaces as a DuckDB error —
   # use force_bigint for IDs beyond the 32-bit range.
   if (length(force_int) > 0L || length(force_big) > 0L) {
     tbl_fields <- DBI::dbListFields(con, table_name)
-    for (col in intersect(force_int, tbl_fields))
-      tryCatch(
-        DBI::dbExecute(con, sprintf(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE INTEGER',
-          table_name, col)),
-        error = function(e)
-          stop("force_integer: could not cast '", col, "' to INTEGER ",
-               "(values may exceed the 32-bit range; use force_bigint). ",
-               conditionMessage(e), call. = FALSE))
-    for (col in intersect(force_big, tbl_fields))
-      DBI::dbExecute(con, sprintf(
-        'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE BIGINT',
-        table_name, col))
+    for (tbl in c(table_name, if (!is.na(n_removed)) rm_table)) {
+      set_type <- function(col, type) DBI::dbExecute(con, sprintf(
+        "ALTER TABLE %s ALTER COLUMN %s SET DATA TYPE %s",
+        .qid(con, tbl), .qid(con, col), type))
+      for (col in intersect(force_int, tbl_fields))
+        tryCatch(set_type(col, "INTEGER"),
+          error = function(e)
+            stop("force_integer: could not cast '", col, "' to INTEGER ",
+                 "(values may exceed the 32-bit range; use force_bigint). ",
+                 conditionMessage(e), call. = FALSE))
+      for (col in intersect(force_big, tbl_fields)) set_type(col, "BIGINT")
+    }
   }
 
   # Step 10: disconnect writer — no lingering connections so the next
   # pumf_build_duckdb call (e.g. for lang="fra") can open the file read-write.
   DBI::dbDisconnect(con, shutdown = TRUE)
+  con <- NULL
   invisible(result)
 }
 
@@ -1306,8 +2341,7 @@ pumf_open_duckdb <- function(db_path, table_name, read_only = TRUE) {
   if (!file.exists(db_path))
     stop("DuckDB file not found: ", db_path,
          ". Run pumf_build_duckdb() first.")
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                         read_only = read_only)
+  con <- .duckdb_connect(db_path, read_only = read_only)
   if (!DBI::dbExistsTable(con, table_name)) {
     DBI::dbDisconnect(con, shutdown = TRUE)
     stop("Table '", table_name, "' not found in ", db_path, ".")
@@ -1384,46 +2418,64 @@ pumf_run_pipeline <- function(series,
                                           refresh    = eff_refresh,
                                           redownload = redownload)
 
-  # Stages 2 + 3 — parse metadata and build DuckDB.
+  # Stages 2 + 3 — parse metadata and build DuckDB, module by module.
   # Multi-module surveys (reg$modules) build every module as its own table in
   # the one shared DuckDB file so callers can join them; the primary module's
-  # table is returned by default.  Single-table surveys take the legacy path.
-  mods <- .pumf_entry_modules(reg)
-  if (is.null(mods)) {
-    pumf_parse_metadata(version_dir,
-                         layout_mask       = reg$layout_mask,
-                         metadata_encoding = reg$metadata_encoding,
-                         refresh           = eff_refresh,
-                         file_mask         = reg$file_mask)
-    result <- pumf_build_duckdb(version_dir, series, version,
-                                 lang        = lang,
-                                 layout_mask = reg$layout_mask,
-                                 refresh     = eff_refresh)
-  } else {
-    result <- NULL
-    for (m in mods) {
-      pumf_parse_metadata(version_dir,
-                           layout_mask       = m$layout_mask,
-                           metadata_encoding = reg$metadata_encoding,
-                           refresh           = eff_refresh,
-                           meta_subdir       = m$meta_subdir,
-                           file_mask         = m$file_mask)
-      r <- pumf_build_duckdb(version_dir, series, version,
-                              lang         = lang,
-                              layout_mask  = m$layout_mask,
-                              file_mask    = m$file_mask,
-                              refresh      = eff_refresh,
-                              meta_subdir  = m$meta_subdir,
-                              data_fixups  = m$data_fixups,
-                              bsw_override = list(
-                                bsw_mask      = m$bsw_mask,
-                                bsw_file_mask = m$bsw_file_mask,
-                                bsw_join_key  = m$bsw_join_key,
-                                bsw_drop_cols = m$bsw_drop_cols,
-                                bsw_strata    = m$bsw_strata))
-      if (isTRUE(m$is_primary)) result <- r
-    }
+  # table is returned by default.  A single-table survey is its one primary
+  # module (.pumf_stage_modules()).
+  result <- NULL
+  for (m in .pumf_stage_modules(reg)) {
+    .pumf_parse_stage2(version_dir, reg, eff_refresh, modules = list(m))
+    r <- pumf_build_duckdb(version_dir, series, version,
+                            lang         = lang,
+                            layout_mask  = m$layout_mask,
+                            file_mask    = m$file_mask,
+                            refresh      = eff_refresh,
+                            meta_subdir  = m$meta_subdir,
+                            data_fixups  = m$data_fixups,
+                            bsw_override = m$bsw_override)
+    if (isTRUE(m$is_primary)) result <- r
   }
 
   pumf_open_duckdb(result$db_path, result$table_name, read_only = read_only)
+}
+
+# The modules Stages 2 and 3 run over: the entry's modules
+# (.pumf_entry_modules()), each with its BSW config as `bsw_override`, or for
+# a single-table survey one synthetic primary module that inherits the entry
+# (NULL data_fixups and bsw_override make pumf_build_duckdb() use the entry's,
+# NULL meta_subdir reads metadata/).
+.pumf_stage_modules <- function(reg) {
+  mods <- .pumf_entry_modules(reg)
+  if (is.null(mods))
+    return(list(list(layout_mask  = reg$layout_mask,
+                     layout_file  = reg$layout_file,
+                     file_mask    = reg$file_mask,
+                     data_fixups  = NULL,
+                     meta_subdir  = NULL,
+                     is_primary   = TRUE,
+                     bsw_override = NULL)))
+  lapply(mods, function(m) {
+    # A module without BSW fields gives an empty override: "no weights here".
+    m$bsw_override <- m[intersect(c("bsw_mask", "bsw_file_mask", "bsw_join_key",
+                                    "bsw_drop_cols", "bsw_strata"), names(m))]
+    m
+  })
+}
+
+# Stage 2 for the given modules (default: all of the entry's), exactly as
+# pumf_run_pipeline() runs it: the module's layout mask, metadata subdir, file
+# mask and reading-card choice, the entry's metadata encoding.  pumf_metadata()
+# calls this too, so both see the same metadata.
+.pumf_parse_stage2 <- function(version_dir, reg, refresh = FALSE,
+                               modules = .pumf_stage_modules(reg)) {
+  for (m in modules)
+    pumf_parse_metadata(version_dir,
+                        layout_mask       = m$layout_mask,
+                        metadata_encoding = reg$metadata_encoding,
+                        refresh           = refresh,
+                        meta_subdir       = m$meta_subdir,
+                        file_mask         = m$file_mask,
+                        layout_file       = m$layout_file)
+  invisible(version_dir)
 }

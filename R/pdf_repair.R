@@ -19,7 +19,7 @@
 #                                  └─→ metadata/label_repairs.csv (the ledger)
 #
 # Nothing is repaired silently: every divergence, repaired or not, lands in the
-# ledger, readable with pumf_label_repairs().
+# ledger, readable with pumf_pdf_crosscheck().
 
 # Statuses assigned by .pumf_validate_pdf_freqs():
 #   "validated"  every PDF code's count matches the data, and the data holds no
@@ -51,18 +51,9 @@
 .pumf_pdf_min_pos_rate  <- 0.9
 
 
-# Normalise a code value for comparison across sources: the PDF prints
-# zero-padded codes ("07", "00000") where the flat file may hold "7"/"0", and
-# vice versa.  Anything that parses as a number is rendered back through
-# .code_chr(); everything else is compared as trimmed text.
-.pumf_norm_code <- function(x) {
-  x <- trimws(as.character(x))
-  num <- suppressWarnings(as.numeric(x))
-  ok  <- !is.na(num) & nzchar(x)
-  out <- x
-  out[ok] <- .code_chr(num[ok])
-  out
-}
+# Code values are compared through .pumf_norm_code() (R/metadata_parsers.R,
+# next to .code_chr()): the PDF prints zero-padded codes ("07", "00000") where
+# the flat file may hold "7"/"0", and vice versa.
 
 # Normalise a label for comparison: collapse internal whitespace and trim.
 # Nothing else -- punctuation and case differences are real divergences and
@@ -269,19 +260,25 @@
   keep <- v$block[!v$name %in% dup]
   for (nm in dup) {
     cand <- v[v$name == nm, , drop = FALSE]
-    li   <- match(nm, layout$name)
-    hit  <- integer()
-    if (!is.na(li)) {
-      pos <- layout$start[[li]]
-      len <- layout$end[[li]] - layout$start[[li]] + 1L
-      hit <- which(!is.na(cand$position) & cand$position == pos &
-                     (is.na(cand$length) | cand$length == len))
-    }
+    hit  <- which(.pumf_pos_matches(cand$position, cand$length, nm, layout))
     # No agreement at all is not evidence against any block -- keep them and
     # let the frequency check decide.
     keep <- c(keep, if (length(hit)) cand$block[hit] else cand$block)
   }
   .pumf_pdf_filter_blocks(pdf, keep)
+}
+
+# Does a guide block's `Position:` / `Length:` header agree with the command
+# file's layout for variable `name`?  Vectorised over blocks (`name` may be one
+# string or one per block); a missing length is not held against the block,
+# and a variable absent from the layout or a block without a position is
+# FALSE.
+.pumf_pos_matches <- function(position, length, name, layout) {
+  li  <- match(name, layout$name)
+  ok  <- !is.na(li) & !is.na(position) & position == layout$start[li] &
+    (is.na(length) | length == layout$end[li] - layout$start[li] + 1L)
+  ok[is.na(ok)] <- FALSE
+  ok
 }
 
 .pumf_pdf_filter_blocks <- function(pdf, keep) {
@@ -342,13 +339,9 @@
   if (nv == 0L || !"position" %in% names(v) ||
       is.null(layout) || nrow(layout) == 0L) return(none)
 
-  li  <- match(v$name, layout$name)
-  pos <- layout$start[li]
-  len <- layout$end[li] - layout$start[li] + 1L
-  cmp <- !is.na(li) & !is.na(v$position)
-  ok  <- cmp & v$position == pos & (is.na(v$length) | v$length == len)
-  ok[is.na(ok)] <- FALSE
-  n <- sum(cmp)
+  cmp <- !is.na(match(v$name, layout$name)) & !is.na(v$position)
+  ok  <- .pumf_pos_matches(v$position, v$length, v$name, layout)
+  n   <- sum(cmp)
   list(n = n, agree = sum(ok), rate = if (n) sum(ok) / n else NA_real_, ok = ok)
 }
 
@@ -372,12 +365,9 @@
     return(pdf_paths)
 
   score <- vapply(cands, function(c) {
-    h  <- c$header
-    li <- match(h$name, layout$name)
-    ok <- !is.na(li) & !is.na(h$position) & h$position == layout$start[li] &
-      (is.na(h$length) | h$length == layout$end[li] - layout$start[li] + 1L)
-    ok[is.na(ok)] <- FALSE
-    sum(ok) / max(1L, nrow(h))
+    h <- c$header
+    sum(.pumf_pos_matches(h$position, h$length, h$name, layout)) /
+      max(1L, nrow(h))
   }, numeric(1L))
 
   for (lang in c("eng", "fra")) {
@@ -428,7 +418,8 @@
   is_fwf <- !is.null(layout) && nrow(layout) > 0L
   # A very large flat file is not worth tabulating during metadata parsing;
   # skip validation rather than stall the pipeline (no repairs will be made).
-  if (file.size(data_path) > 500e6) return(unchecked("data file too large"))
+  if (.pumf_data_file_size(data_path) > 500e6)
+    return(unchecked("data file too large"))
 
   getcol <- tryCatch(.pumf_column_values(data_path, layout, is_fwf, data_encoding),
                      error = function(e) NULL)
@@ -568,16 +559,10 @@
                                      metadata$variables$label_fr))
   tw_cod <- .pumf_truncation_width(c(metadata$codes$label_en,
                                      metadata$codes$label_fr))
-  no_trunc <- "PDF label is longer but the command-file label is not truncated"
-  # A repair needs one of the two damage signatures: the label sits at the
-  # command file's truncation ceiling, or it is what survives a dropped prefix.
-  # A guide that only prepends an annotation is neither, and the veto has to
-  # outrank both -- the width fingerprint cannot see that the extra text arrived
-  # on the left, so without it the guide's furniture is appended to a label that
-  # merely happens to sit at the ceiling.
-  damaged <- function(cmd, new, width)
-    !.pumf_annotation_prefix(cmd, new) &&
-      (.pumf_at_truncation(cmd, width) || .pumf_left_truncated(cmd, new))
+  # The same decision ladder (.pumf_repair_decision) serves variable and value
+  # labels; only the truncation ceiling differs.
+  decide <- function(nm, cmd, new, width)
+    .pumf_repair_decision(cmd, new, vstatus(nm), width)
 
   # ---- variable labels ----
   pv <- pdf$variables[!duplicated(pdf$variables$name), , drop = FALSE]
@@ -588,28 +573,10 @@
       nm  <- metadata$variables$name[[i]]
       cmd <- .pumf_norm_label(metadata$variables[[col]][[i]])
       new <- .pumf_norm_label(pv[[col]][[vi[[i]]]])
-      act <- .pumf_repair_action(cmd, new)
-      if (act == "ok") next
-      st  <- vstatus(nm)
-      if (act %in% c("fill", "repair") && st == "mismatch") {
-        add("variable", nm, NA_character_, lang, cmd, new, "flagged",
-            "PDF frequencies contradict the data file", st)
-        next
-      }
-      if (act == "flag") {
-        add("variable", nm, NA_character_, lang, cmd, new, "flagged",
-            "labels differ but the PDF does not extend the command file", st)
-        next
-      }
-      if (act == "repair" && !damaged(cmd, new, tw_var)) {
-        add("variable", nm, NA_character_, lang, cmd, new, "flagged", no_trunc, st)
-        next
-      }
-      metadata$variables[[col]][[i]] <- new
-      add("variable", nm, NA_character_, lang, cmd, new,
-          if (act == "fill") "filled" else "repaired",
-          if (act == "fill") "command file had no label"
-          else "PDF label extends the truncated command-file label", st)
+      d   <- decide(nm, cmd, new, tw_var)
+      if (is.null(d)) next
+      if (d$apply) metadata$variables[[col]][[i]] <- new
+      add("variable", nm, NA_character_, lang, cmd, new, d$action, d$reason, d$status)
     }
   }
 
@@ -628,28 +595,10 @@
         vv  <- metadata$codes$val[[i]]
         cmd <- .pumf_norm_label(metadata$codes[[col]][[i]])
         new <- .pumf_norm_label(pc[[col]][[ci[[i]]]])
-        act <- .pumf_repair_action(cmd, new)
-        if (act == "ok") next
-        st  <- vstatus(nm)
-        if (act %in% c("fill", "repair") && st == "mismatch") {
-          add("code", nm, vv, lang, cmd, new, "flagged",
-              "PDF frequencies contradict the data file", st)
-          next
-        }
-        if (act == "flag") {
-          add("code", nm, vv, lang, cmd, new, "flagged",
-              "labels differ but the PDF does not extend the command file", st)
-          next
-        }
-        if (act == "repair" && !damaged(cmd, new, tw_cod)) {
-          add("code", nm, vv, lang, cmd, new, "flagged", no_trunc, st)
-          next
-        }
-        metadata$codes[[col]][[i]] <- new
-        add("code", nm, vv, lang, cmd, new,
-            if (act == "fill") "filled" else "repaired",
-            if (act == "fill") "command file had no label"
-            else "PDF label extends the truncated command-file label", st)
+        d   <- decide(nm, cmd, new, tw_cod)
+        if (is.null(d)) next
+        if (d$apply) metadata$codes[[col]][[i]] <- new
+        add("code", nm, vv, lang, cmd, new, d$action, d$reason, d$status)
       }
     }
 
@@ -690,6 +639,38 @@
 
   repairs <- if (length(ledger)) dplyr::bind_rows(ledger) else .pumf_empty_repairs()
   list(metadata = metadata, repairs = repairs)
+}
+
+# One label's repair decision, shared by the variable- and value-label passes
+# of .pumf_apply_pdf_repairs(). `cmd`/`new` are the normalised command-file
+# and PDF labels, `status` the variable's frequency-validation status, `width`
+# the truncation ceiling of the label field. Returns NULL when there is
+# nothing to record, otherwise a list with `apply` (write the PDF label into
+# the metadata), `action`, `reason` and `status` for the ledger.
+.pumf_repair_decision <- function(cmd, new, status, width) {
+  act <- .pumf_repair_action(cmd, new)
+  if (act == "ok") return(NULL)
+  flagged <- function(reason)
+    list(apply = FALSE, action = "flagged", reason = reason, status = status)
+  if (act %in% c("fill", "repair") && status == "mismatch")
+    return(flagged("PDF frequencies contradict the data file"))
+  if (act == "flag")
+    return(flagged("labels differ but the PDF does not extend the command file"))
+  # A repair needs one of the two damage signatures: the label sits at the
+  # command file's truncation ceiling, or it is what survives a dropped prefix.
+  # A guide that only prepends an annotation is neither, and the veto has to
+  # outrank both -- the width fingerprint cannot see that the extra text arrived
+  # on the left, so without it the guide's furniture is appended to a label that
+  # merely happens to sit at the ceiling.
+  damaged <- !.pumf_annotation_prefix(cmd, new) &&
+    (.pumf_at_truncation(cmd, width) || .pumf_left_truncated(cmd, new))
+  if (act == "repair" && !damaged)
+    return(flagged("PDF label is longer but the command-file label is not truncated"))
+  list(apply  = TRUE,
+       action = if (act == "fill") "filled" else "repaired",
+       reason = if (act == "fill") "command file had no label"
+                else "PDF label extends the truncated command-file label",
+       status = status)
 }
 
 .pumf_empty_repairs <- function() {
@@ -780,7 +761,7 @@
   n_ok  <- sum(validation$status %in% .pumf_pdf_status_ok)
   if (n_rep > 0L || n_flag > 0L)
     message(sprintf(
-      "PDF data dictionary '%s': %d/%d variables frequency-validated against the data%s; %s. See pumf_label_repairs().",
+      "PDF data dictionary '%s': %d/%d variables frequency-validated against the data%s; %s. See pumf_pdf_crosscheck().",
       basename(pdf_paths$eng), n_ok, nrow(validation),
       if (!freq_ok) sprintf(", %d/%d field positions agree", pa$agree, pa$n) else "",
       paste(c(if (n_rep)  sprintf("%d labels repaired", n_rep),
@@ -795,24 +776,17 @@
 # User-facing accessor
 # ---------------------------------------------------------------------------
 
-# Resolve the metadata directory (module-aware) backing a get_pumf() tbl.
+# Resolve the metadata directory (module-aware) backing a get_pumf() tbl:
+# NULL for the shared series, which have none; an error (.pumf_prov_meta())
+# when the directory is gone.
 .pumf_meta_dir_from_tbl <- function(tbl) {
-  prov <- .pumf_lookup_con(tbl$src$con)
-  if (is.null(prov))
-    stop("'tbl' has no pumf provenance. Was it created by get_pumf()?",
-         call. = FALSE)
-  if (.is_longitudinal(prov$series))
+  prov <- .pumf_tbl_prov(tbl)
+  if (.is_shared_series(prov$series))
     return(NULL)
-  module <- .pumf_tbl_module(tbl, prov)
-  reg    <- pumf_registry_lookup(prov$series, prov$version)
-  mods   <- .pumf_entry_modules(reg)
-  subdir <- if (!is.null(module) && !is.null(mods) && !is.null(mods[[module]]))
-    mods[[module]]$meta_subdir else NULL
-  base   <- file.path(prov$cache_path, prov$series, prov$version, "metadata")
-  if (is.null(subdir)) base else file.path(base, subdir)
+  .pumf_prov_meta(prov)$meta_dir
 }
 
-#' Inspect label repairs and divergences found against the PDF data dictionary
+#' Inspect the cross-check against the PDF data dictionary
 #'
 #' Statistics Canada's PUMF command files routinely ship truncated value and
 #' variable labels -- hard cuts at 60 characters, dropped leading text, dropped
@@ -823,11 +797,14 @@
 #' For surveys that ship such a guide, `canpumf` parses it during metadata
 #' preparation, validates it against the microdata using the per-code
 #' frequencies the guide prints, and then repairs labels the guide demonstrably
-#' extends.  This function returns the ledger of what it found: every
-#' divergence between the command file and the guide, whether or not it was
-#' acted on.
+#' extends.  `pumf_pdf_crosscheck()` returns one of the two reports of that
+#' cross-check: the ledger of label repairs (`report = "repairs"`), or the
+#' frequency validation that decides which of the guide's labels may be
+#' trusted (`report = "validation"`).
 #'
-#' `action` is one of:
+#' @section Label repairs (`report = "repairs"`):
+#' Every divergence between the command file and the guide, whether or not it
+#' was acted on.  `action` is one of:
 #' \describe{
 #'   \item{`repaired`}{The command-file label was replaced, because the guide's
 #'     text extends it *and* the command-file label carries a damage signature:
@@ -843,48 +820,13 @@
 #'     a code the command file never declared.  Read `reason` for which.}
 #' }
 #'
-#' The `validation` column carries the variable's frequency-check status
-#' (`validated`, `continuous`, `unchecked`, `mismatch`, or `not documented`), so
-#' a repair corroborated against the microdata can be told apart from one the
-#' check simply could not reach.  See [pumf_freq_validation()].
+#' The `validation` column carries the variable's frequency-check status (next
+#' section), so a repair corroborated against the microdata can be told apart
+#' from one the check simply could not reach.
 #'
-#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @param action Optional filter, e.g. `"repaired"` or `c("repaired", "filled")`.
-#'
-#' @return A tibble with columns `kind` (`"variable"`/`"code"`), `name`, `val`,
-#'   `lang`, `label_command_file`, `label_pdf`, `action`, `reason` and
-#'   `validation`.  Zero rows when the survey ships no parseable PDF dictionary
-#'   or nothing diverged.
-#'
-#' @seealso [pumf_var_labels()], [pumf_freq_validation()]
-#'
-#' @examples
-#' \donttest{
-#' gss <- get_pumf("GSS", "Cycle 16 (2002)")
-#' if (!is.null(gss)) {
-#'   pumf_label_repairs(gss, action = "repaired")
-#'   close_pumf(gss)
-#' }
-#' }
-#' @export
-pumf_label_repairs <- function(tbl, action = NULL) {
-  meta_dir <- .pumf_meta_dir_from_tbl(tbl)
-  path <- if (is.null(meta_dir)) NULL else file.path(meta_dir, "label_repairs.csv")
-  if (is.null(path) || !file.exists(path)) return(.pumf_empty_repairs())
-  out <- readr::read_csv(path, col_types = readr::cols(.default = "c"),
-                         show_col_types = FALSE)
-  if (!is.null(action)) out <- out[out$action %in% action, , drop = FALSE]
-  tibble::as_tibble(out)
-}
-
-#' Inspect the PDF-versus-microdata frequency validation
-#'
-#' Companion to [pumf_label_repairs()].  Reports, per variable, whether the
-#' frequencies printed in the survey's PDF data dictionary reconcile against a
-#' tabulation of the actual data file.  This is the evidence `canpumf` uses to
-#' decide whether a label from the guide may be trusted.
-#'
-#' `status` is one of:
+#' @section Frequency validation (`report = "validation"`):
+#' Per variable, whether the frequencies printed in the guide reconcile against
+#' a tabulation of the actual data file.  `status` is one of:
 #' \describe{
 #'   \item{`validated`}{Every documented code's count matches the data exactly,
 #'     and the data holds no undocumented values.}
@@ -909,30 +851,69 @@ pumf_label_repairs <- function(tbl, action = NULL) {
 #' empty and no label from it is used.
 #'
 #' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
-#' @return A tibble with columns `block` (the guide block the check ran on),
-#'   `name`, `status`, `n_codes`, `n_matched` and `note`; zero rows when the
-#'   survey ships no parseable PDF dictionary.
+#' @param report `"repairs"` (default) for the ledger of label repairs and
+#'   divergences, `"validation"` for the frequency validation.
+#' @param action For `report = "repairs"`, an optional filter on `action`,
+#'   e.g. `"repaired"` or `c("repaired", "filled")`.
 #'
-#' @seealso [pumf_label_repairs()]
+#' @return For `report = "repairs"`: a tibble with columns `kind`
+#'   (`"variable"`/`"code"`), `name`, `val`, `lang`, `label_command_file`,
+#'   `label_pdf`, `action`, `reason` and `validation`.
+#'
+#'   For `report = "validation"`: a tibble with columns `block` (the guide
+#'   block the check ran on), `name`, `status`, `n_codes`, `n_matched` and
+#'   `note`.
+#'
+#'   Zero rows when the survey ships no parseable PDF dictionary (or, for the
+#'   repairs, nothing diverged).
+#'
+#' @seealso [pumf_dictionary()], [open_pumf_documentation()]
 #'
 #' @examples
 #' \donttest{
 #' gss <- get_pumf("GSS", "Cycle 16 (2002)")
 #' if (!is.null(gss)) {
-#'   table(pumf_freq_validation(gss)$status)
+#'   pumf_pdf_crosscheck(gss, action = "repaired")
+#'   table(pumf_pdf_crosscheck(gss, "validation")$status)
 #'   close_pumf(gss)
 #' }
 #' }
 #' @export
-pumf_freq_validation <- function(tbl) {
+pumf_pdf_crosscheck <- function(tbl, report = c("repairs", "validation"),
+                                action = NULL) {
+  report   <- match.arg(report)
   meta_dir <- .pumf_meta_dir_from_tbl(tbl)
+  if (report == "repairs") .pumf_label_repairs(meta_dir, action)
+  else .pumf_freq_validation(meta_dir)
+}
+
+# The label_repairs.csv side-car of a metadata directory (NULL: none).
+.pumf_label_repairs <- function(meta_dir, action = NULL) {
+  path <- if (is.null(meta_dir)) NULL else file.path(meta_dir, "label_repairs.csv")
+  if (is.null(path) || !file.exists(path)) return(.pumf_empty_repairs())
+  out <- readr::read_csv(path, col_types = readr::cols(.default = "c"),
+                         show_col_types = FALSE)
+  if (!is.null(action)) out <- out[out$action %in% action, , drop = FALSE]
+  tibble::as_tibble(out)
+}
+
+# The pdf_validation.csv side-car of a metadata directory (NULL: none).
+.pumf_freq_validation <- function(meta_dir) {
   path <- if (is.null(meta_dir)) NULL else file.path(meta_dir, "pdf_validation.csv")
   if (is.null(path) || !file.exists(path))
-    return(tibble::tibble(name = character(), status = character(),
-                          n_codes = integer(), n_matched = integer(),
-                          note = character()))
-  tibble::as_tibble(readr::read_csv(
-    path, col_types = readr::cols(name = "c", status = "c", n_codes = "i",
-                                  n_matched = "i", note = "c"),
+    return(tibble::tibble(block = integer(), name = character(),
+                          status = character(), n_codes = integer(),
+                          n_matched = integer(), note = character()))
+  types <- list(block = "i", name = "c", status = "c", n_codes = "i",
+                n_matched = "i", note = "c")
+  # A side-car written before the check was keyed on block lacks that column;
+  # declare only the parsers whose columns exist, then add it as NA.
+  hdr <- names(readr::read_csv(path, n_max = 0L, show_col_types = FALSE,
+                               col_types = readr::cols(.default = "c")))
+  out <- tibble::as_tibble(readr::read_csv(
+    path, col_types = do.call(readr::cols, types[intersect(names(types), hdr)]),
     show_col_types = FALSE))
+  if (!"block" %in% names(out))
+    out <- tibble::add_column(out, block = NA_integer_, .before = 1L)
+  out
 }

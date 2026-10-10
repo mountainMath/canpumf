@@ -1,13 +1,14 @@
 # R/lfs_pipeline.R — LFS longitudinal database pipeline.
 #
-# The engine shared with other longitudinal series lives in R/longitudinal.R;
-# this file holds the LFS spec, the LFS data-file handling, and the
-# versions-table / append helpers the engine uses (the tracking table name is
-# their `vt` argument, "lfs_versions" for LFS).
+# The engine shared with other longitudinal series lives in R/longitudinal.R,
+# together with the versions-table and append helpers (`.long_*(con, spec,
+# ...)`); this file holds the LFS spec, the LFS data-file handling, the
+# merged-metadata accessors and the lfs_get_pumf() wrapper.
 #
 # All LFS versions share a single DuckDB at <cache_path>/LFS/LFS.duckdb.
 # Per-version zip and metadata live at <cache_path>/LFS/<version>/.
-# The DuckDB holds up to three tables:
+# The DuckDB holds up to three tables (the spec defaults derived from the
+# series name, see .long_table_name() / .long_versions_table()):
 #   lfs_eng      — English-labeled rows from all loaded versions
 #   lfs_fra      — French-labeled rows from all loaded versions
 #   lfs_versions — tracking table (version, type, survyear, survmnth, ...)
@@ -35,214 +36,6 @@
 .lfs_survmnth <- function(v) {
   if (grepl("-", v, fixed = TRUE)) as.integer(substr(v, 6L, 7L))
   else NA_integer_
-}
-
-# Create lfs_versions tracking table if it does not exist.
-.lfs_ensure_versions_table <- function(con, vt = "lfs_versions") {
-  if (!DBI::dbExistsTable(con, vt))
-    DBI::dbExecute(con, paste0("
-      CREATE TABLE ", vt, " (
-        version        VARCHAR,
-        type           VARCHAR,
-        survyear       INTEGER,
-        survmnth       INTEGER,
-        downloaded_at  TIMESTAMP DEFAULT NOW(),
-        n_records      INTEGER
-      )"))
-}
-
-# TRUE when lfs_versions contains an entry for this version string.
-.lfs_version_exists <- function(con, version, vt = "lfs_versions") {
-  .lfs_ensure_versions_table(con, vt)
-  n <- DBI::dbGetQuery(
-    con,
-    sprintf("SELECT COUNT(*) AS n FROM %s WHERE version = '%s'", vt, version))$n
-  n > 0L
-}
-
-# TRUE when lfs_versions contains an annual entry for this calendar year.
-.lfs_has_annual <- function(con, survyear, vt = "lfs_versions") {
-  .lfs_ensure_versions_table(con, vt)
-  n <- DBI::dbGetQuery(
-    con,
-    sprintf("SELECT COUNT(*) AS n FROM %s
-             WHERE survyear = %d AND type = 'annual'", vt, survyear))$n
-  n > 0L
-}
-
-# Monthly versions recorded in lfs_versions for a given year.
-.lfs_monthly_versions <- function(con, survyear, vt = "lfs_versions") {
-  .lfs_ensure_versions_table(con, vt)
-  DBI::dbGetQuery(
-    con,
-    sprintf("SELECT version FROM %s
-             WHERE survyear = %d AND type = 'monthly'", vt, survyear))$version
-}
-
-# TRUE when data_tbl has any rows for (survyear [, survmnth]).
-.lfs_data_exists <- function(con, data_tbl, survyear, survmnth = NA_integer_) {
-  if (!DBI::dbExistsTable(con, data_tbl)) return(FALSE)
-  sql <- sprintf("SELECT COUNT(*) AS n FROM \"%s\" WHERE SURVYEAR = %d",
-                 data_tbl, survyear)
-  if (!is.na(survmnth))
-    sql <- paste0(sql, sprintf(" AND SURVMNTH = %d", survmnth))
-  DBI::dbGetQuery(con, sql)$n > 0L
-}
-
-# Parse level names from a DuckDB inline ENUM type string.
-# e.g. "ENUM('a', 'b''c')" → c("a", "b'c")
-.parse_inline_enum_levels <- function(type_str) {
-  if (!startsWith(type_str, "ENUM(")) return(character(0L))
-  inner <- substr(type_str, 6L, nchar(type_str) - 1L)
-  vals  <- character(0L)
-  i     <- 1L
-  n     <- nchar(inner)
-  while (i <= n) {
-    if (substr(inner, i, i) == "'") {
-      j <- i + 1L
-      while (j <= n) {
-        if (substr(inner, j, j) == "'") {
-          if (j < n && substr(inner, j + 1L, j + 1L) == "'") {
-            j <- j + 2L   # escaped ''
-          } else {
-            break          # closing quote
-          }
-        } else {
-          j <- j + 1L
-        }
-      }
-      vals <- c(vals, gsub("''", "'", substr(inner, i + 1L, j - 1L)))
-      i    <- j + 2L       # skip closing quote + ", " separator
-    } else {
-      i <- i + 1L
-    }
-  }
-  vals
-}
-
-# Append new_data to table_name, extending the schema when columns differ.
-#   New columns in new_data → ALTER TABLE ADD COLUMN (NULL for old rows).
-#   Columns in table missing from new_data → NA column before append.
-#   Factor columns → stored as ENUM; types evolved on each append as needed.
-.lfs_append <- function(con, table_name, new_data) {
-  factor_cols   <- names(new_data)[vapply(new_data, is.factor, logical(1L))]
-  factor_levels <- stats::setNames(
-    lapply(factor_cols, function(c) levels(new_data[[c]])),
-    factor_cols)
-
-  # ---- First write: create table, enforce ENUM for factor columns ----
-  if (!DBI::dbExistsTable(con, table_name)) {
-    DBI::dbWriteTable(con, table_name, new_data)
-    # DuckDB >= 1.5.2 auto-creates inline ENUMs; .ensure_enum_columns is a
-    # no-op for columns that are already ENUM, so this is safe for all versions.
-    if (length(factor_cols) > 0L)
-      .ensure_enum_columns(con, table_name, factor_levels)
-    return(invisible(NULL))
-  }
-
-  # ---- Schema evolution ----
-  existing <- DBI::dbListFields(con, table_name)
-  incoming <- names(new_data)
-
-  for (col in setdiff(incoming, existing)) {
-    r_val    <- new_data[[col]]
-    sql_type <- if (is.integer(r_val)) "INTEGER"
-                else if (is.numeric(r_val)) "DOUBLE"
-                else if (is.logical(r_val)) "BOOLEAN"
-                else "VARCHAR"
-    DBI::dbExecute(con, sprintf('ALTER TABLE "%s" ADD COLUMN "%s" %s',
-                                 table_name, col, sql_type))
-    message("  Added new column '", col, "' (", sql_type, ") to ", table_name)
-  }
-
-  schema_df   <- DBI::dbGetQuery(con, paste0(
-    "SELECT column_name, data_type FROM information_schema.columns ",
-    "WHERE table_name = '", table_name, "' AND table_schema = 'main'"))
-  pragma_info <- DBI::dbGetQuery(
-    con, sprintf("PRAGMA table_info('%s')", table_name))
-
-  for (col in intersect(incoming, schema_df$column_name)) {
-    db_type     <- schema_df$data_type[schema_df$column_name == col]
-    pragma_type <- pragma_info$type[pragma_info$name == col]
-    r_val       <- new_data[[col]]
-
-    # VARCHAR → numeric (e.g. FINALWT corrected after a metadata fix)
-    if ((is.integer(r_val) || is.numeric(r_val)) &&
-        db_type %in% c("VARCHAR", "TEXT", "CHAR", "CHARACTER VARYING")) {
-      new_sql <- if (is.integer(r_val)) "INTEGER" else "DOUBLE"
-      tryCatch({
-        DBI::dbExecute(con, sprintf(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE %s',
-          table_name, col, new_sql))
-        message("  Upgraded column '", col, "' from VARCHAR to ", new_sql,
-                " in ", table_name)
-      }, error = function(e)
-        warning("Could not upgrade type of '", col, "' from VARCHAR to ", new_sql,
-                ": ", conditionMessage(e),
-                "\nUse redownload = TRUE for a full clean rebuild.", call. = FALSE))
-    }
-
-    # DOUBLE → INTEGER (e.g. REC_NUM now forced to integer after a metadata fix)
-    if (is.integer(r_val) && db_type == "DOUBLE") {
-      tryCatch({
-        DBI::dbExecute(con, sprintf(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE INTEGER',
-          table_name, col))
-        message("  Upgraded column '", col, "' from DOUBLE to INTEGER in ", table_name)
-      }, error = function(e)
-        warning("Could not upgrade type of '", col, "' from DOUBLE to INTEGER: ",
-                conditionMessage(e),
-                "\nUse redownload = TRUE for a full clean rebuild.", call. = FALSE))
-    }
-
-    # ENUM evolution: extend inline ENUM with any new factor levels
-    if (col %in% factor_cols && grepl("^ENUM", db_type)) {
-      current_levels <- .parse_inline_enum_levels(pragma_type)
-      new_lvls       <- setdiff(factor_levels[[col]], current_levels)
-      if (length(new_lvls) > 0L) {
-        all_levels <- union(current_levels, factor_levels[[col]])
-        lvls_sql   <- paste0("'", gsub("'", "''", all_levels), "'", collapse = ", ")
-        tryCatch({
-          DBI::dbExecute(con, sprintf(
-            'ALTER TABLE "%s" ALTER COLUMN "%s" TYPE ENUM(%s)',
-            table_name, col, lvls_sql))
-          message("  Extended ENUM for '", col, "' with: ",
-                  paste(new_lvls, collapse = ", "))
-        }, error = function(e)
-          warning("Could not extend ENUM for '", col, "': ", conditionMessage(e),
-                  call. = FALSE))
-      }
-    }
-
-    # VARCHAR → ENUM: column predates ENUM enforcement; upgrade now
-    if (col %in% factor_cols &&
-        db_type %in% c("VARCHAR", "TEXT", "CHAR", "CHARACTER VARYING")) {
-      # Include any existing values in the data so the cast doesn't fail
-      existing_vals <- tryCatch(
-        na.omit(DBI::dbGetQuery(con, sprintf(
-          'SELECT DISTINCT CAST("%s" AS VARCHAR) AS val FROM "%s"',
-          col, table_name))$val),
-        error = function(e) character(0L))
-      all_levels <- union(existing_vals, factor_levels[[col]])
-      lvls_sql   <- paste0("'", gsub("'", "''", all_levels), "'", collapse = ", ")
-      tryCatch({
-        DBI::dbExecute(con, sprintf(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" TYPE ENUM(%s)',
-          table_name, col, lvls_sql))
-        message("  Upgraded column '", col, "' from VARCHAR to ENUM in ", table_name)
-      }, error = function(e)
-        warning("Could not upgrade '", col, "' to ENUM: ", conditionMessage(e),
-                call. = FALSE))
-    }
-  }
-
-  # ---- Append ----
-  all_cols <- DBI::dbListFields(con, table_name)
-  for (col in setdiff(all_cols, incoming))
-    new_data[[col]] <- NA
-
-  DBI::dbAppendTable(con, table_name, new_data[, all_cols, drop = FALSE])
-  invisible(NULL)
 }
 
 # Locate LFS CSV data files in a version directory.
@@ -302,53 +95,26 @@
 }
 
 
-# Build labeled data frame for one LFS version.
-# SURVYEAR and SURVMNTH are kept as INTEGER regardless of their type in
-# variables.csv so that SQL filtering works without knowing the label strings.
-.lfs_build_version <- function(version_dir, label_col) {
-  meta      <- read_metadata(file.path(version_dir, "metadata"))
-  variables <- meta$variables
-  codes     <- meta$codes
-
-  # SURVYEAR/SURVMNTH/REC_NUM are kept as integer (cast explicitly after numeric
-  # conversion below): SURVYEAR/SURVMNTH so make_date() and SQL year/month
-  # filters operate on integers; REC_NUM is a whole-number record counter.  The
-  # column list comes from the shared LFS registry entry's force_integer fixup.
-  # Mark them numeric so .apply_numeric_conversion parses them — it now always
-  # yields double, so the integer typing is restored by the cast further down.
-  lfs_int_cols <- pumf_registry_lookup("LFS", NA_character_)$data_fixups$force_integer
-  variables$type[variables$name %in% lfs_int_cols] <- "numeric"
-
-  # Exclude these from code labeling (kept as raw integers)
-  codes_lbl <- codes[!codes$name %in% lfs_int_cols, ]
+# Build the labeled data frame for one LFS version (the spec's `build`).
+# `int_cols` (SURVYEAR, SURVMNTH, REC_NUM from the LFS registry entry's
+# force_integer fixup) stay INTEGER and unlabelled, see .long_label_frame().
+.lfs_build_version <- function(version_dir, label_col, version = NULL,
+                               int_cols = .pumf_longitudinal_entry("LFS")$data_fixups$force_integer) {
+  meta <- read_metadata(file.path(version_dir, "metadata"))
 
   # Locate data files — supports all three StatCan shipping formats:
   #   (a) single annual file, (b) 12 bundled monthly files, (c) one monthly
   data_files <- .lfs_find_data_files(version_dir)
-
   if (length(data_files) == 0L)
     stop("No LFS data files found in ", version_dir,
          ".\nExpected pub*.csv files (or any non-metadata CSV as fallback).")
 
-  # Classify and log what was found
-  formats   <- vapply(data_files, .lfs_file_format, character(1L))
-  n_annual  <- sum(formats == "annual")
-  n_monthly <- sum(formats == "monthly")
-
-  if (n_annual == 1L && n_monthly == 0L) {
-    message("  annual file: ", basename(data_files[[1L]]))
-  } else if (n_monthly > 0L && n_annual == 0L) {
-    message("  ", n_monthly, " monthly file(s): ",
-            paste(basename(data_files), collapse = ", "))
-  } else {
-    # Mixed or unknown format — read everything, let the caller sort it out
-    message("  ", length(data_files), " data file(s): ",
-            paste(basename(data_files), collapse = ", "))
-    if (n_annual > 0L && n_monthly > 0L)
-      warning("LFS version directory contains both annual- and monthly-format ",
-              "files; all will be combined. Remove duplicates if rows are ",
-              "double-counted.", call. = FALSE)
-  }
+  # A directory holding both formats is read whole; the caller sorts it out.
+  formats <- vapply(data_files, .lfs_file_format, character(1L))
+  if (any(formats == "annual") && any(formats == "monthly"))
+    warning("LFS version directory contains both annual- and monthly-format ",
+            "files; all will be combined. Remove duplicates if rows are ",
+            "double-counted.", call. = FALSE)
 
   data <- bind_rows(lapply(data_files, function(p) {
     df <- readr::read_csv(p,
@@ -359,100 +125,27 @@
     df
   }))
 
-  # Guard: ensure the key survey dimension columns are present
-  missing_cols <- setdiff(c("SURVYEAR", "SURVMNTH"), names(data))
-  if (length(missing_cols) > 0L)
-    stop("LFS data is missing required columns: ",
-         paste(missing_cols, collapse = ", "),
-         "\nCheck that the correct data file(s) are in ", version_dir)
-
-  data <- .apply_numeric_conversion(data, variables)
-  # .apply_numeric_conversion yields double; restore integer typing for the
-  # survey-dimension/record columns so make_date() and integer filters work.
-  for (col in intersect(lfs_int_cols, names(data)))
-    data[[col]] <- as.integer(data[[col]])
-  data <- .apply_code_labels(data, codes_lbl, label_col)
-  data
+  .long_label_frame(data, meta, label_col, int_cols, series = "LFS",
+                    where = paste0("\nCheck that the correct data file(s) are in ",
+                                   version_dir))
 }
-
-# Open a filtered lazy tbl from the LFS DuckDB.
-# Returns the full table when survyear is NULL.
-.lfs_open_tbl <- function(db_path, data_tbl, survyear = NULL,
-                            survmnth = NA_integer_, read_only = TRUE) {
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path,
-                         read_only = read_only)
-  if (!DBI::dbExistsTable(con, data_tbl)) {
-    DBI::dbDisconnect(con, shutdown = TRUE)
-    stop("Table '", data_tbl, "' does not exist in ", db_path,
-         ". No LFS data has been loaded yet.")
-  }
-  tbl <- tbl(con, data_tbl)
-  if (!is.null(survyear)) {
-    tbl <- filter(tbl, .data$SURVYEAR == survyear)
-    if (!is.na(survmnth))
-      tbl <- filter(tbl, .data$SURVMNTH == survmnth)
-  }
-  tbl
-}
-
-# Delete data for a year and remove matching lfs_versions rows.
-.lfs_delete_year <- function(con, data_tbl, survyear, type_filter = NULL,
-                             vt = "lfs_versions") {
-  if (DBI::dbExistsTable(con, data_tbl))
-    DBI::dbExecute(
-      con,
-      sprintf('DELETE FROM "%s" WHERE SURVYEAR = %d', data_tbl, survyear))
-  sql <- sprintf("DELETE FROM %s WHERE survyear = %d", vt, survyear)
-  if (!is.null(type_filter))
-    sql <- paste0(sql, sprintf(" AND type = '%s'", type_filter))
-  DBI::dbExecute(con, sql)
-}
-
-# Delete data for a single month and remove only that version's lfs_versions
-# row.  Used when refreshing one monthly version so sibling months (and any
-# annual) loaded for the same year are left untouched.
-.lfs_delete_month <- function(con, data_tbl, version, survyear, survmnth,
-                              vt = "lfs_versions") {
-  if (DBI::dbExistsTable(con, data_tbl))
-    DBI::dbExecute(
-      con,
-      sprintf('DELETE FROM "%s" WHERE SURVYEAR = %d AND SURVMNTH = %d',
-              data_tbl, survyear, survmnth))
-  DBI::dbExecute(
-    con,
-    sprintf("DELETE FROM %s WHERE version = '%s'", vt, version))
-}
-
-# Record a version in lfs_versions.
-.lfs_record_version <- function(con, version, vtype, survyear, survmnth, n,
-                                vt = "lfs_versions") {
-  survmnth_sql <- if (is.na(survmnth)) "NULL" else as.character(survmnth)
-  DBI::dbExecute(
-    con,
-    sprintf(
-      "INSERT INTO %s (version,type,survyear,survmnth,downloaded_at,n_records)
-       VALUES ('%s','%s',%d,%s,NOW(),%d)",
-      vt, version, vtype, survyear, survmnth_sql, n))
-}
-
-
-
 
 # ---- Longitudinal spec ------------------------------------------------------
 
 # LFS as a longitudinal series (R/longitudinal.R): 2006 onward in the current
-# PUMF layout, annual files superseding the monthly ones.
+# PUMF layout, annual files superseding the monthly ones.  Database, table
+# and versions-table names are the defaults derived from the series name
+# (LFS.duckdb, lfs_eng/lfs_fra, lfs_versions).
 .lfs_spec <- function() {
+  entry <- .pumf_longitudinal_entry("LFS")
   list(
-    series         = "LFS",
-    db_file        = "LFS.duckdb",
-    table_prefix   = "lfs",
-    versions_table = "lfs_versions",
-    annual_files   = TRUE,
-    example        = "2024",
-    validate       = .lfs_version_type,
-    available      = function() list_available_lfs_pumf_versions()$version,
-    prepare        = function(version, cache_path, refresh, redownload) {
+    series       = "LFS",
+    entry        = entry,
+    annual_files = TRUE,
+    example      = "2024",
+    validate     = .lfs_version_type,
+    available    = function() .lfs_pumf_versions()$version,
+    prepare      = function(version, cache_path, refresh, redownload) {
       version_dir <- pumf_locate_or_download("LFS", version,
                                              cache_path = cache_path,
                                              refresh    = refresh,
@@ -460,25 +153,61 @@
       pumf_parse_metadata(version_dir, refresh = refresh)
       version_dir
     },
-    build          = function(version_dir, label_col, version)
-      .lfs_build_version(version_dir, label_col),
-    variables      = .lfs_merged_variables)
+    build        = function(version_dir, label_col, version)
+      .lfs_build_version(version_dir, label_col, version,
+                         int_cols = entry$data_fixups$force_integer),
+    finalize     = .lfs_relocate_gender,
+    variables    = function(cache_path, versions)
+      .lfs_merged_metadata(cache_path, versions, "variables"),
+    codes        = function(cache_path, versions)
+      .lfs_merged_metadata(cache_path, versions, "codes"),
+    # get_pumf("LFS_TIMELINE"): the recodes.csv source and the column of the
+    # harmonisation tables holding this series' variable names and scale.
+    timeline     = list(col = "lfs", scale = "lfs_scale", from = NULL))
 }
 
-# Variable labels across every loaded LFS version, most recent winning: the
-# shared table is the union of all versions' columns, and variables such as
-# GENDER (~2020) are absent from the older versions' variables.csv.
-# `versions` are the loaded versions, oldest first.
-.lfs_merged_variables <- function(cache_path, versions) {
-  all_vars <- lapply(versions, function(v) {
+# Keep SEX and GENDER side by side in the returned tbl: the shared table
+# appends GENDER (~2020) after every older column.  The stored table is not
+# touched; this runs on the lazy tbl handed back to the caller.
+.lfs_relocate_gender <- function(t) {
+  cn <- colnames(t)
+  if (!all(c("SEX", "GENDER") %in% cn)) return(t)
+  if (which(cn == "SEX") > which(cn == "GENDER"))
+    relocate(t, "SEX", .before = "GENDER")
+  else
+    relocate(t, "GENDER", .after = "SEX")
+}
+
+# Metadata across every loaded LFS version (`versions`, oldest first).
+# "variables": the most recent label wins per variable, since the shared
+# table is the union of all versions' columns and variables such as GENDER
+# (~2020) are absent from the older versions' variables.csv.  "codes": every
+# distinct wording is kept, suffixed per version the way each version was
+# labelled when it was appended (.pumf_unique_code_labels()), so the shared
+# table can hold an older spelling next to the current one.
+.lfs_merged_metadata <- function(cache_path, versions,
+                                 which = c("variables", "codes")) {
+  which <- match.arg(which)
+  parts <- lapply(versions, function(v) {
     md <- file.path(cache_path, "LFS", v, "metadata")
     if (!dir.exists(md)) return(NULL)
-    tryCatch(read_metadata(md)$variables, error = function(e) NULL)
+    tryCatch(
+      if (which == "codes") {
+        # codes.csv alone (read_metadata() would also require variables.csv)
+        .pumf_unique_code_labels(readr::read_csv(
+          file.path(md, "codes.csv"), col_types = .metadata_codes_cols,
+          show_col_types = FALSE))
+      } else read_metadata(md)$variables,
+      error = function(e) NULL)
   })
-  all_vars <- do.call(rbind, all_vars[!vapply(all_vars, is.null, logical(1L))])
-  if (is.null(all_vars) || nrow(all_vars) == 0L)
+  all <- do.call(rbind, parts[!vapply(parts, is.null, logical(1L))])
+  if (is.null(all) || nrow(all) == 0L)
     stop("No LFS metadata found in any version directory.", call. = FALSE)
-  all_vars[!duplicated(all_vars$name, fromLast = TRUE), , drop = FALSE]
+  if (which == "variables")
+    all[!duplicated(all$name, fromLast = TRUE), , drop = FALSE]
+  else
+    all[!duplicated(all[, c("name", "val", "label_en", "label_fr")]), ,
+        drop = FALSE]
 }
 
 

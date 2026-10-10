@@ -21,7 +21,7 @@ get_pumf(
 }
 \arguments{
 \item{series}{Survey series acronym, e.g. `"SFS"`, `"CHS"`, `"LFS"`,
-`"Census"`, `"CPSS"`.  See [list_canpumf_collection()] for all supported
+`"Census"`, `"CPSS"`.  See [list_pumf_catalogue()] for all supported
 series and versions.}
 
 \item{version}{Version string (e.g. `"2019"`, `"2021 (individuals)"`,
@@ -46,9 +46,10 @@ re-download from StatCan before rebuilding.  Implies `refresh = TRUE`.
 Not valid with `refresh = "auto"`.}
 
 \item{read_only}{Open the DuckDB connection in read-only mode (default
-`TRUE`).  Pass `FALSE` to allow write access, e.g. to persist custom
-views or derived tables in the DuckDB file.  Use [close_pumf()] to
-release the connection when done.}
+`TRUE`).  Pass `FALSE` to allow write access, e.g. to store the weights
+of [add_bootstrap_weights()] or custom views and derived tables in the
+DuckDB file.  A write connection needs the file to itself, so use
+[close_pumf()] to release it when done.}
 
 \item{registry}{Optional custom configuration created by
 [pumf_registry_entry()] (or [pumf_registry()]), used to parse and build a
@@ -56,7 +57,7 @@ survey that is not in the built-in registry, or to override fields of one
 that is.  Applied only when a build actually happens -- on an
 already-imported survey it has no effect unless `refresh = TRUE` is also
 passed (a message is emitted in that case).  Not supported for LFS.  For a
-survey not in [list_canpumf_collection()], deposit the raw files under
+survey not in [list_pumf_catalogue()], deposit the raw files under
 `<cache_path>/<series>/<version>/` first (there is no download URL).}
 
 \item{module}{For multi-module surveys (several linked files in one DuckDB,
@@ -70,7 +71,7 @@ shows how to open one.  Use [pumf_module()] to open a sibling module on the
 \item{borealis}{Load the data from the [Borealis](https://borealisdata.ca)
 Dataverse instead of Statistics Canada: a dataset DOI (e.g.
 `"doi:10.5683/SP3/LG7WKC"`) or a one-row tibble from
-[list_borealis_pumf_catalogue()]. canpumf downloads the dataset's CSV data
+`list_pumf_catalogue("borealis")`. canpumf downloads the dataset's CSV data
 file, its command files and documentation (see
 [list_borealis_pumf_files()]). Without this argument Borealis is used
 automatically only for versions StatCan does not post, such as the
@@ -89,9 +90,11 @@ spammed.  Defaults to `getOption("canpumf.register_connection", TRUE)`, so
 you can disable it globally with
 `options(canpumf.register_connection = FALSE)`.}
 
-\item{...}{Accepts deprecated parameter names (`pumf_series`,
-`pumf_version`, `pumf_cache_path`, `layout_mask`, `file_mask`,
-`guess_numeric`, `timeout`, `refresh_layout`) with a warning.}
+\item{...}{For `"LFS_TIMELINE"`, `sources`: the series to stack (see
+[lfs_timeline]).  Otherwise accepts deprecated parameter names
+(`pumf_series`, `pumf_version`, `pumf_cache_path`, `layout_mask`,
+`file_mask`, `guess_numeric`, `timeout`, `refresh_layout`) with a
+warning.}
 }
 \value{
 A lazy `dplyr::tbl()` backed by a DuckDB connection.  Data values
@@ -100,6 +103,12 @@ A lazy `dplyr::tbl()` backed by a DuckDB connection.  Data values
   human-readable labels, or [close_pumf()] to release the connection.
   Returns `invisible(NULL)` with an informative message if the data must be
   downloaded but Statistics Canada is unreachable.
+
+  A database built by canpumf before 0.7.0 carries no build stamp, no
+  `pumf_row_id` key and no sentinel companion.  `get_pumf()` says so once
+  per session when it opens one; rebuild with `refresh = TRUE`, or silence
+  the message with `options(canpumf.stale_cache_message = FALSE)`.
+  [list_pumf_cache()] reports the building version of every database.
 }
 \description{
 Main entry point for the canpumf package.  Downloads (if needed), parses
@@ -117,6 +126,8 @@ It is released monthly only, so a `"YYYY"` version loads that year's twelve
 months, and its labels are harmonised across months.
 `refresh = "auto"` loads every available version that is not yet in the
 database; this is only valid for `"LFS"` and `"LFS_HIST"`.
+`"LFS_TIMELINE"` stacks the two into one harmonised table, 1976 onward (see
+[lfs_timeline]).
 }
 \examples{
 \donttest{
@@ -141,6 +152,6 @@ if (!is.null(sfs_fr)) close_pumf(sfs_fr)
 }
 }
 \seealso{
-[label_pumf_columns()], [pumf_var_labels()], [pumf_metadata()],
-  [close_pumf()], [list_canpumf_collection()]
+[label_pumf_columns()], [pumf_dictionary()], [pumf_metadata()],
+  [close_pumf()], [list_pumf_catalogue()], [list_pumf_cache()]
 }

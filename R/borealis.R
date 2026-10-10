@@ -26,12 +26,20 @@
 # candidates.
 
 BOREALIS_SERVER <- "https://borealisdata.ca"
+.borealis_user_agent <- "canpumf (https://github.com/mountainMath/canpumf)"
 
-# Dataverse subtrees holding StatCan PUMFs.  Everything under "pumfs" is a
-# PUMF; the "census" dataverse also holds aggregate products, so only titles
-# that name a PUMF/FMGD are kept from it.
-.borealis_subtrees <- c("pumfs", "census")
+# Dataverse subtrees holding census and survey microdata.  Everything under
+# "pumfs" is a PUMF.  The "census" dataverse also holds aggregate products
+# (profiles, GIS layers, tables), so a dataset is kept from it only when its
+# title names a PUMF/FMGD or it ships an SPSS data file, which the historical
+# samples StatCan never published do (the ODESI 1871-1901 census samples and
+# the CCRI 1911 sample, titled "Census of Population, 1911 [Canada]").
+# "TCPCensusData" is The Canadian Peoples project's complete-count censuses
+# 1871-1921; only the datasets whose data file is open are listed (1881, the
+# others are restricted and cannot be tested).
+.borealis_subtrees <- c("pumfs", "census", "TCPCensusData")
 .borealis_census_pumf_rx <- "(?i)(PUMF|FMGD|microdata|microdonn)"
+.borealis_microdata_file_fq <- "fileType:\"SPSS Binary\""
 
 .borealis_manifest_file <- "borealis_manifest.csv"
 
@@ -76,7 +84,7 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
   url  <- paste0(BOREALIS_SERVER, path)
   resp <- tryCatch(
     httr::GET(url, query = query, .borealis_headers(),
-              httr::user_agent("canpumf (https://github.com/mountainMath/canpumf)"),
+              httr::user_agent(.borealis_user_agent),
               httr::timeout(120)),
     error = function(e) e)
   fail <- function(detail)
@@ -101,7 +109,7 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 
 # Year and language heuristics from a dataset title.
 .borealis_title_year <- function(title) {
-  y <- stringr::str_extract(title, "(?<![0-9])(19|20)[0-9]{2}(?![0-9])")
+  y <- stringr::str_extract(title, "(?<![0-9])(1[89]|20)[0-9]{2}(?![0-9])")
   as.integer(y)
 }
 
@@ -150,8 +158,7 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
     if (nxt >= length(urls)) return(invisible())
     nxt <<- nxt + 1L
     j <- nxt
-    h <- curl::new_handle(timeout = 120, useragent =
-                            "canpumf (https://github.com/mountainMath/canpumf)")
+    h <- curl::new_handle(timeout = 120, useragent = .borealis_user_agent)
     if (!is.null(key)) curl::handle_setheaders(h, `X-Dataverse-key` = key)
     curl::curl_fetch_multi(urls[[j]], handle = h, pool = pool,
       done = function(res) {
@@ -174,9 +181,10 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
   bodies
 }
 
-# Value of a citation field in a search item's `metadataBlocks`, or NULL.
-.borealis_item_field <- function(item, field) {
-  for (f in item$metadataBlocks$citation$fields)
+# Value of a citation field in the `metadataBlocks` of a search item or a
+# dataset version, or NULL.
+.borealis_citation_field <- function(x, field) {
+  for (f in x$metadataBlocks$citation$fields)
     if (identical(f$typeName, field)) return(f$value)
   NULL
 }
@@ -190,32 +198,75 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
   rest   <- if (length(starts)) .borealis_search_pages(subtree, starts, per_page) else list()
   items  <- unlist(lapply(c(list(first), rest), `[[`, "items"), recursive = FALSE)
 
-  chr <- function(x) if (is.null(x)) NA_character_ else as.character(x)[[1L]]
   other_id <- function(i) {
-    v <- .borealis_item_field(i, "otherId")
+    v <- .borealis_citation_field(i, "otherId")
     if (is.null(v)) return(NA_character_)
-    paste(vapply(v, function(o) chr(o$otherIdValue$value), character(1L)),
+    paste(vapply(v, function(o) .chr1(o$otherIdValue$value), character(1L)),
           collapse = " ")
   }
   series_name <- function(i) {
-    v <- .borealis_item_field(i, "series")
-    if (is.null(v)) NA_character_ else chr(v[[1L]]$seriesName$value)
+    v <- .borealis_citation_field(i, "series")
+    if (is.null(v)) NA_character_ else .chr1(v[[1L]]$seriesName$value)
   }
   alt_titles <- function(i) {
-    v <- .borealis_item_field(i, "alternativeTitle")
+    v <- .borealis_citation_field(i, "alternativeTitle")
     if (is.null(v)) NA_character_ else paste(unlist(v), collapse = " | ")
   }
   tibble::tibble(
-    doi            = vapply(items, function(i) chr(i$global_id), character(1L)),
-    title          = vapply(items, function(i) chr(i$name), character(1L)),
+    doi            = vapply(items, function(i) .chr1(i$global_id), character(1L)),
+    title          = vapply(items, function(i) .chr1(i$name), character(1L)),
     series         = vapply(items, series_name, character(1L)),
     other_id       = vapply(items, other_id, character(1L)),
     alt_title      = vapply(items, alt_titles, character(1L)),
-    dataverse      = vapply(items, function(i) chr(i$identifier_of_dataverse), character(1L)),
-    published_at   = vapply(items, function(i) chr(i$published_at), character(1L)),
+    dataverse      = vapply(items, function(i) .chr1(i$identifier_of_dataverse), character(1L)),
+    published_at   = vapply(items, function(i) .chr1(i$published_at), character(1L)),
     file_count     = vapply(items, function(i)
                        if (is.null(i$fileCount)) NA_integer_ else as.integer(i$fileCount),
                        integer(1L)))
+}
+
+# The files of a subtree, one row per file: `doi` of the dataset, `name`,
+# `file_type` (Dataverse's friendly type), `restricted` and `size`.  `fq`
+# is a Solr filter on the file fields; the SPSS filter above narrows the
+# ~8000 files of "census" to the 60-odd microdata deposits, so the listing
+# fits in one page.  Pages of 1000 are fetched sequentially (a few at most).
+.borealis_subtree_files <- function(subtree, fq = NULL, per_page = 1000L) {
+  query <- function(start) {
+    q <- list(q = "*", type = "file", subtree = subtree, sort = "name",
+              order = "asc", per_page = per_page, start = start)
+    if (!is.null(fq)) q$fq <- fq
+    q
+  }
+  first <- .borealis_api("/api/search", query(0L))
+  total <- as.integer(first$total_count)
+  pages <- list(first)
+  for (st in if (total > per_page) seq(per_page, total - 1L, by = per_page) else integer())
+    pages <- c(pages, list(.borealis_api("/api/search", query(st))))
+  items <- unlist(lapply(pages, `[[`, "items"), recursive = FALSE)
+  tibble::tibble(
+    doi        = vapply(items, function(i) .chr1(i$dataset_persistent_id), character(1L)),
+    name       = vapply(items, function(i) .chr1(i$name), character(1L)),
+    file_type  = vapply(items, function(i) .chr1(i$file_type), character(1L)),
+    restricted = vapply(items, function(i) isTRUE(i$restricted), logical(1L)),
+    size       = vapply(items, function(i)
+                   if (is.null(i$size_in_bytes)) NA_real_ else as.numeric(i$size_in_bytes),
+                   numeric(1L)))
+}
+
+# The datasets of the "census" subtree that are microdata: PUMF titles, plus
+# any dataset with an SPSS data file (the historical census samples).
+.borealis_census_microdata <- function(census) {
+  by_title <- grepl(.borealis_census_pumf_rx, census$title, perl = TRUE)
+  spss     <- .borealis_subtree_files("census", fq = .borealis_microdata_file_fq)
+  census[by_title | census$doi %in% spss$doi, , drop = FALSE]
+}
+
+# The TCP datasets with an open data file.  The others need a Borealis key
+# entitled to them (the ODESI deposits are all open).
+.borealis_tcp_open <- function(tcp) {
+  files <- .borealis_subtree_files("TCPCensusData")
+  data  <- files[grepl("\\.(csv|zip|txt|dat|tab)$", files$name, ignore.case = TRUE), ]
+  tcp[tcp$doi %in% data$doi[!data$restricted], , drop = FALSE]
 }
 
 # ---- Matching against the StatCan catalogue ------------------------------------
@@ -309,10 +360,8 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
 .borealis_crawl_catalogue <- function(verbose = TRUE) {
   parts <- lapply(.borealis_subtrees, .borealis_search_subtree, verbose = verbose)
   names(parts) <- .borealis_subtrees
-  if (!is.null(parts$census))
-    parts$census <- parts$census[grepl(.borealis_census_pumf_rx,
-                                       parts$census$title, perl = TRUE), ,
-                                 drop = FALSE]
+  parts$census        <- .borealis_census_microdata(parts$census)
+  parts$TCPCensusData <- .borealis_tcp_open(parts$TCPCensusData)
   out <- dplyr::bind_rows(parts)
   out <- out[!duplicated(out$doi), , drop = FALSE]
   out$year         <- .borealis_title_year(out$title)
@@ -327,82 +376,27 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
   tibble::as_tibble(out)
 }
 
+# Persisted catalogue: the same rds format and helpers as the StatCan one
+# (.pumf_rds_read() etc. in statcan_catalogue.R).
 .borealis_catalogue_cache_file <- function(
     cache_path = getOption("canpumf.cache_path")) {
-  if (is.null(cache_path) || !nzchar(cache_path)) return(NULL)
-  file.path(cache_path, "borealis_catalogue.rds")
+  .pumf_rds_cache_file(cache_path, "borealis_catalogue.rds")
 }
 
-.borealis_warn_if_stale <- function(fetched) {
-  age <- suppressWarnings(as.numeric(difftime(Sys.time(), fetched,
-                                              units = "days")))
-  if (is.finite(age) && age > .statcan_catalogue_max_age())
-    warning(sprintf(
-      paste0("Cached Borealis PUMF catalogue is %.0f days old (fetched %s) and ",
-             "may be out of date. Regenerate with ",
-             "list_borealis_pumf_catalogue(refresh = TRUE)."),
-      age, format(fetched, "%Y-%m-%d")), call. = FALSE)
-  invisible(NULL)
-}
+.borealis_warn_if_stale <- function(fetched)
+  .pumf_warn_if_stale(fetched, "Borealis PUMF", "borealis")
 
-#' Browse the Statistics Canada PUMF collection on Borealis
-#'
-#' Lists the Statistics Canada Public Use Microdata File datasets held in the
-#' [Borealis](https://borealisdata.ca) Dataverse (the ODESI PUMF collection
-#' and the Census PUMFs). Borealis carries vintages that Statistics Canada no
-#' longer posts, such as the 1971--1986 Census PUMFs. Any dataset listed here
-#' can be loaded with `get_pumf(series, version, borealis = <doi or row>)`;
-#' see [list_borealis_pumf_files()] to inspect a dataset's files first.
-#'
-#' Where Statistics Canada also posts a dataset for direct download, the
-#' `statcan` column is `TRUE`. Prefer StatCan's copy in that case (via
-#' `get_pumf(series, version)` without `borealis =`): the Borealis files are
-#' re-deposits and can carry transcription errors. `get_pumf()` warns when an
-#' explicitly requested Borealis dataset is flagged this way. The flag is a
-#' heuristic match on catalogue number, series title, years and cycle number
-#' against [list_statcan_pumf_catalogue()], so check `statcan_title` before
-#' relying on it.
-#'
-#' The catalogue is fetched from the public Dataverse search API. There are
-#' several thousand datasets and Borealis renders them slowly, so pages are
-#' requested concurrently (`getOption("canpumf.borealis_parallel", 8)`), and a
-#' full fetch takes about a minute. The result is cached for the session and,
-#' when `canpumf.cache_path` is set, persisted to
-#' `<cache_path>/borealis_catalogue.rds`. A persisted copy older than
-#' `getOption("canpumf.catalogue_max_age_days", 30)` days triggers a warning.
-#' If Borealis is unreachable the last persisted copy is returned with a
-#' warning.
-#'
-#' @param refresh Logical, re-fetch the catalogue even when a cached copy
-#'   exists.
-#' @param verbose Logical, report paging progress.
-#' @param cache_path Directory for the persisted catalogue; defaults to
-#'   `getOption("canpumf.cache_path")`.
-#'
-#' @return A tibble with one row per dataset: `title`, `year` (the first year
-#'   in the title), `language` (`"eng"`/`"fra"`, guessed from the title),
-#'   `statcan` (logical, the dataset is also available from Statistics
-#'   Canada), `statcan_series` and `statcan_title` (the matching StatCan
-#'   catalogue entry, `NA` when none), `series` (the Borealis series name),
-#'   `doi`, `dataverse`, `file_count`, `published_at` and `url`. English and
-#'   French versions of a PUMF are separate datasets.
-#' @seealso [list_borealis_pumf_files()], [get_pumf()]
-#' @examples
-#' \donttest{
-#' # needs internet access; fails gracefully when Borealis is unreachable
-#' cat <- tryCatch(list_borealis_pumf_catalogue(), error = function(e) NULL)
-#' if (!is.null(cat)) dplyr::filter(cat, grepl("1971 Census", title))
-#' }
-#' @export
-list_borealis_pumf_catalogue <- function(refresh    = FALSE,
-                                         verbose    = TRUE,
-                                         cache_path = getOption("canpumf.cache_path")) {
+# The Borealis catalogue behind list_pumf_catalogue("borealis"), cached for
+# the session and persisted to <cache_path>/borealis_catalogue.rds.
+.borealis_pumf_catalogue <- function(refresh    = FALSE,
+                                     verbose    = TRUE,
+                                     cache_path = getOption("canpumf.cache_path")) {
   if (!refresh && !is.null(.borealis_catalogue_cache$data))
     return(.borealis_catalogue_cache$data)
 
   cache_file <- .borealis_catalogue_cache_file(cache_path)
   if (!refresh) {
-    cached <- .statcan_read_persistent(cache_file)
+    cached <- .pumf_rds_read(cache_file)
     if (!is.null(cached)) {
       .borealis_warn_if_stale(cached$fetched)
       .borealis_catalogue_cache$data <- cached$data
@@ -413,7 +407,7 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
   out <- tryCatch(
     .borealis_crawl_catalogue(verbose = verbose),
     error = function(e) {
-      cached <- .statcan_read_persistent(cache_file)
+      cached <- .pumf_rds_read(cache_file)
       if (is.null(cached)) stop(e)
       warning("Borealis unreachable; returning the last cached catalogue ",
               "(fetched ", format(cached$fetched, "%Y-%m-%d"), "). ",
@@ -422,7 +416,7 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
     })
 
   .borealis_catalogue_cache$data <- out
-  .statcan_write_persistent(cache_file, out, prefer = NULL)
+  .pumf_rds_write(cache_file, out, prefer = NULL)
   out
 }
 
@@ -436,13 +430,13 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
                                              cache_path = getOption("canpumf.cache_path")) {
   cat <- .borealis_catalogue_cache$data
   if (is.null(cat))
-    cat <- .statcan_read_persistent(.borealis_catalogue_cache_file(cache_path))$data
+    cat <- .pumf_rds_read(.borealis_catalogue_cache_file(cache_path))$data
   if (is.null(cat) || !"statcan" %in% names(cat)) return(invisible(FALSE))
   row <- cat[cat$doi == doi & cat$statcan %in% TRUE, , drop = FALSE]
   if (!nrow(row)) return(invisible(FALSE))
   warning(doi, " (", row$title[[1L]], ") is also available directly from ",
           "Statistics Canada as \"", row$statcan_title[[1L]], "\". StatCan's ",
-          "copy is preferred; see list_canpumf_collection() for the matching ",
+          "copy is preferred; see list_pumf_catalogue() for the matching ",
           row$statcan_series[[1L]], " version.", call. = FALSE)
   invisible(TRUE)
 }
@@ -454,20 +448,17 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
   doi <- .borealis_normalize_doi(doi)
   d   <- .borealis_api("/api/datasets/:persistentId/", list(persistentId = doi))
   v   <- d$latestVersion
-  title <- NA_character_
-  for (f in v$metadataBlocks$citation$fields)
-    if (identical(f$typeName, "title")) title <- as.character(f$value)
+  title <- .chr1(.borealis_citation_field(v, "title"))
   files <- v$files
-  chr <- function(x) if (is.null(x)) NA_character_ else as.character(x)[[1L]]
   out <- tibble::tibble(
     file_id      = vapply(files, function(f) as.integer(f$dataFile$id), integer(1L)),
-    filename     = vapply(files, function(f) chr(f$dataFile$filename), character(1L)),
-    directory    = vapply(files, function(f) chr(f$directoryLabel), character(1L)),
+    filename     = vapply(files, function(f) .chr1(f$dataFile$filename), character(1L)),
+    directory    = vapply(files, function(f) .chr1(f$directoryLabel), character(1L)),
     size         = vapply(files, function(f)
                      as.numeric(f$dataFile$filesize %||% NA_real_), numeric(1L)),
-    md5          = vapply(files, function(f) chr(f$dataFile$md5), character(1L)),
-    content_type = vapply(files, function(f) chr(f$dataFile$contentType), character(1L)),
-    original     = vapply(files, function(f) chr(f$dataFile$originalFileName), character(1L)),
+    md5          = vapply(files, function(f) .chr1(f$dataFile$md5), character(1L)),
+    content_type = vapply(files, function(f) .chr1(f$dataFile$contentType), character(1L)),
+    original     = vapply(files, function(f) .chr1(f$dataFile$originalFileName), character(1L)),
     restricted   = vapply(files, function(f) isTRUE(f$restricted), logical(1L)))
   attr(out, "doi")   <- doi
   attr(out, "title") <- title
@@ -481,7 +472,7 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
 #               command file, then .sas7bdat.
 #   metadata -- SPSS .sps command files; else a documentation .sas; else the
 #               .sav (embedded labels); else a converter .sas from the SAS
-#               data folder.
+#               data folder.  Also a "*value_labels.json" dictionary.
 #   doc      -- PDFs / HTML / codebook text up to `max_doc_mb`.
 #   skip     -- Stata files, Dataverse .tab ingests, .missRecode, the
 #               non-selected data formats, and SAS/Stata/SPSS data zips.
@@ -535,6 +526,9 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
   # Command-code zips (e.g. Census 2021 "Command Code/*_sas.zip") are only
   # needed when no loose command file exists.
   if (!any(role == "metadata") && any(cmd_zip)) role[cmd_zip] <- "metadata"
+  # A JSON value-label dictionary (The Canadian Peoples census files) is the
+  # only machine-readable metadata of its dataset; parse_json_value_labels().
+  role[grepl("(?i)value_labels\\.json$", name, perl = TRUE)] <- "metadata"
 
   # -- documentation
   doc <- which(role == "skip" &
@@ -561,13 +555,13 @@ list_borealis_pumf_catalogue <- function(refresh    = FALSE,
 #'
 #' @param doi The dataset DOI, e.g. `"doi:10.5683/SP3/LG7WKC"` (the `doi:`
 #'   prefix, a bare `10.5683/...` or a doi.org URL all work), or a one-row
-#'   tibble from [list_borealis_pumf_catalogue()].
+#'   tibble from `list_pumf_catalogue("borealis")`.
 #'
 #' @return A tibble with one row per file: `file_id`, `filename`, `directory`,
 #'   `size` (bytes), `md5`, `content_type`, `original` (the uploaded file
 #'   behind a Dataverse `.tab` ingest), `restricted`, `role` and `selected`.
 #'   The dataset DOI and title are attached as attributes.
-#' @seealso [list_borealis_pumf_catalogue()], [get_pumf()]
+#' @seealso [list_pumf_catalogue()], [get_pumf()]
 #' @examples
 #' \donttest{
 #' tryCatch(list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC"),
@@ -582,7 +576,7 @@ list_borealis_pumf_files <- function(doi) {
 .borealis_doi_arg <- function(x) {
   if (is.data.frame(x)) {
     if (nrow(x) != 1L || !"doi" %in% names(x))
-      stop("Pass a single row of list_borealis_pumf_catalogue() (with a `doi` ",
+      stop("Pass a single row of list_pumf_catalogue(\"borealis\") (with a `doi` ",
            "column) or a DOI string.", call. = FALSE)
     x <- x$doi[[1L]]
   }
@@ -637,15 +631,70 @@ list_borealis_pumf_files <- function(doi) {
   paste0("^", gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", basename(df[[1L]])), "$")
 }
 
-# Download one Borealis file to `dest`.  Dataverse .tab ingests are fetched in
-# their original upload format.
-.borealis_download_file <- function(file_id, dest, original = FALSE) {
-  url <- paste0(BOREALIS_SERVER, "/api/access/datafile/", file_id,
+# Download Borealis files to `dest`: one file through the single-file
+# endpoint, several as a zip bundle (Borealis stores files uncompressed and
+# the single-file endpoint serves them that way; the bundle endpoint deflates
+# on the fly, which makes a large text file a much smaller transfer, so a
+# one-file bundle is also how a CSV data file is fetched, see
+# .borealis_download_csv_gz()).  Dataverse .tab ingests are fetched in their
+# original upload format.
+.borealis_download_file <- function(file_ids, dest, original = FALSE,
+                                    bundle = length(file_ids) > 1L) {
+  url <- paste0(BOREALIS_SERVER,
+                if (bundle) "/api/access/datafiles/" else "/api/access/datafile/",
+                paste(file_ids, collapse = ","),
                 if (original) "?format=original" else "")
   key <- .borealis_token()
   headers <- if (is.null(key)) NULL else c(`X-Dataverse-key` = key)
   .pumf_download(url, dest, mode = "wb", quiet = TRUE, headers = headers,
-                 source = "Borealis")
+                 source = "Borealis", timeout = 1800L)
+}
+.borealis_download_bundle <- function(file_ids, dest, original = FALSE) {
+  .borealis_download_file(file_ids, dest, original = original, bundle = TRUE)
+}
+
+# Download one Borealis CSV into the cache as `<dest>.gz`; returns that path.
+# The file comes as a one-file zip bundle (the 1.1 GB TCP 1881 file is an
+# 85 MB transfer) whose entry is recompressed straight to gzip, so the
+# uncompressed file is neither transferred nor written.  Dataverse leaves a
+# file out of a bundle above the installation's zip size limit (it only says
+# so in the bundle's MANIFEST.TXT); when the bundle does not hold the complete
+# file (`size` bytes, when known), the file is downloaded as is and compressed.
+.borealis_download_csv_gz <- function(file_id, dest, size = NA_real_,
+                                      original = FALSE) {
+  gz  <- paste0(dest, ".gz")
+  zip <- paste0(dest, ".bundle.zip")
+  on.exit(unlink(zip), add = TRUE)
+  ok <- tryCatch({
+    .borealis_download_bundle(file_id, zip, original = original)
+    # A file in a dataset folder comes as "<folder>/<name>" after an entry for
+    # the folder itself.
+    entry <- setdiff(utils::unzip(zip, list = TRUE)$Name, "MANIFEST.TXT")
+    entry <- entry[!endsWith(entry, "/")]
+    length(entry) == 1L && {
+      n <- .zip_entry_to_gzip(zip, entry, gz)
+      n > 0 && (is.na(size) || n == size)
+    }
+  }, warning = function(w) FALSE, error = function(e) FALSE)
+  if (!isTRUE(ok)) {
+    unlink(c(zip, gz))
+    message("No compressed download of ", basename(dest),
+            "; downloading the uncompressed file ...")
+    .borealis_download_file(file_id, dest, original = original)
+    gz <- .gzip_file(dest)
+  }
+  gz
+}
+
+# Role of a file the automatic selection skips but the caller pins by name or
+# id: a command file is metadata (a SAS card inside the deposit's "SAS" data
+# folder, which the selection passes over for the .sav), a document or image
+# is documentation, anything else is the data file.
+.borealis_pinned_role <- function(filename) {
+  ext <- tolower(tools::file_ext(filename))
+  ifelse(ext %in% c("sas", "sps", "json"), "metadata",
+         ifelse(ext %in% c("pdf", "html", "htm", "jpg", "jpeg", "png", "xls",
+                           "xlsx", "doc", "docx"), "doc", "data"))
 }
 
 #' @keywords internal
@@ -664,7 +713,11 @@ list_borealis_pumf_files <- function(doi) {
       stop("None of the requested Borealis files (", paste(files, collapse = ", "),
            ") are in ", doi, ". See list_borealis_pumf_files().", call. = FALSE)
     listing$selected <- hit
-    listing$role[hit & listing$role == "skip"] <- "data"
+    pinned <- hit & listing$role == "skip"
+    listing$role[pinned] <- .borealis_pinned_role(listing$filename[pinned])
+    # One data file: a pin that names one outranks the automatic choice.
+    if (any(pinned & listing$role == "data"))
+      listing$selected[!pinned & listing$role == "data"] <- FALSE
   }
   sel <- listing[listing$selected, , drop = FALSE]
   if (!any(sel$role == "data"))
@@ -681,22 +734,45 @@ list_borealis_pumf_files <- function(doi) {
           if (!is.na(title %||% NA)) title else doi,
           " (", format(sum(sel$size, na.rm = TRUE) / 1e6, digits = 3), " MB, ",
           nrow(sel), " files) ...")
-  old_timeout <- getOption("timeout")
-  options(timeout = max(1800L, old_timeout))
-  on.exit(options(timeout = old_timeout), add = TRUE)
+  .borealis_fetch_selected(sel, version_dir, doi, title %||% NA_character_)
+}
 
+# Download the selected files `sel` (rows of .borealis_dataset_files() with a
+# `role`) into `version_dir`, extract zips, and write borealis_manifest.csv.
+# Files are laid out flat under the name Borealis gives them (a Dataverse .tab
+# ingest under its original upload's), prefixed with their directory when a
+# name repeats; a `dest` column in `sel` instead gives each file's path
+# relative to `version_dir` (LFS_HIST keeps the French SAS program in fra/).
+# A CSV data file is kept compressed in the cache (every reader takes
+# `.csv.gz`); the manifest's md5 stays the one Borealis publishes, i.e. that
+# of the uncompressed file.  `doi` is one DOI or one per row of `sel`.
+.borealis_fetch_selected <- function(sel, version_dir, doi,
+                                     title = NA_character_) {
+  dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
+  if (!"dest" %in% names(sel)) sel$dest <- NA_character_
   sel$local     <- NA_character_
   sel$data_file <- NA_character_
   for (i in seq_len(nrow(sel))) {
     use_orig <- tolower(tools::file_ext(sel$filename[[i]])) == "tab" &&
                 !is.na(sel$original[[i]])
-    fname <- if (use_orig) sel$original[[i]] else sel$filename[[i]]
-    # Files are flattened; disambiguate a name that repeats across directories.
-    if (fname %in% sel$local && !is.na(sel$directory[[i]]))
-      fname <- paste0(gsub("[/ ]+", "_", sel$directory[[i]]), "_", fname)
-    dest <- file.path(version_dir, fname)
-    .borealis_download_file(sel$file_id[[i]], dest, original = use_orig)
-    sel$local[[i]] <- basename(dest)
+    rel <- sel$dest[[i]]
+    if (is.na(rel)) {
+      rel <- if (use_orig) sel$original[[i]] else sel$filename[[i]]
+      # Files are flattened; disambiguate a name that repeats across directories.
+      if (rel %in% sel$local && !is.na(sel$directory[[i]]))
+        rel <- paste0(gsub("[/ ]+", "_", sel$directory[[i]]), "_", rel)
+    }
+    dest <- file.path(version_dir, rel)
+    dir.create(dirname(dest), recursive = TRUE, showWarnings = FALSE)
+    if (sel$role[[i]] == "data" && grepl("\\.csv$", dest, ignore.case = TRUE)) {
+      dest <- .borealis_download_csv_gz(
+        sel$file_id[[i]], dest, original = use_orig,
+        size = if (use_orig) NA_real_ else sel$size[[i]])
+    } else {
+      .borealis_download_file(sel$file_id[[i]], dest, original = use_orig)
+    }
+    sel$local[[i]] <- if (dirname(rel) == ".") basename(dest)
+                      else file.path(dirname(rel), basename(dest))
     if (tolower(tools::file_ext(dest)) == "zip") {
       before <- list.files(version_dir, recursive = TRUE)
       robust_unzip(dest, exdir = version_dir)
@@ -711,14 +787,14 @@ list_borealis_pumf_files <- function(doi) {
         }
       }
     } else if (sel$role[[i]] == "data") {
-      sel$data_file[[i]] <- basename(dest)
+      sel$data_file[[i]] <- sel$local[[i]]
     }
   }
   .extract_inner_zips(version_dir)
 
   manifest <- tibble::tibble(
     doi       = doi,
-    title     = title %||% NA_character_,
+    title     = title,
     file_id   = sel$file_id,
     filename  = sel$local,
     role      = sel$role,

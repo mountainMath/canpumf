@@ -5,6 +5,9 @@
 # getOption("canpumf.cache_path").
 
 duck_mem <- function() DBI::dbConnect(duckdb::duckdb(), ":memory:")
+# The engine helpers (.long_*) take the series spec; LFS uses the defaults
+# (tables lfs_eng/lfs_fra, tracking table lfs_versions).
+lfs_spec <- canpumf:::.lfs_spec()
 
 # ---- Version parsing helpers ------------------------------------------------
 
@@ -31,59 +34,62 @@ test_that(".lfs_survyear / .lfs_survmnth", {
   expect_equal(canpumf:::.lfs_survmnth("2024-06"), 6L)
 })
 
-# ---- lfs_versions table helpers ---------------------------------------------
+# ---- lfs_versions table helpers (.long_* engine helpers, R/longitudinal.R) --
 
-test_that(".lfs_ensure_versions_table: creates table", {
+test_that(".long_ensure_versions_table: creates table", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
   expect_true(DBI::dbExistsTable(con, "lfs_versions"))
   fields <- DBI::dbListFields(con, "lfs_versions")
   expect_true(all(c("version","type","survyear","survmnth","n_records") %in% fields))
 })
 
-test_that(".lfs_ensure_versions_table: idempotent", {
+test_that(".long_ensure_versions_table: idempotent", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
-  expect_no_error(canpumf:::.lfs_ensure_versions_table(con))
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
+  expect_no_error(canpumf:::.long_ensure_versions_table(con, lfs_spec))
 })
 
-test_that(".lfs_version_exists: FALSE when absent", {
+test_that(".long_version_exists: FALSE when absent (no table created)", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
-  expect_false(canpumf:::.lfs_version_exists(con, "2022"))
+  expect_false(canpumf:::.long_version_exists(con, lfs_spec, "2022"))
+  # Readers never create the tracking table (they run on read-only probes).
+  expect_false(DBI::dbExistsTable(con, "lfs_versions"))
+  expect_equal(canpumf:::.long_read_versions(con, lfs_spec)$version, character(0L))
 })
 
-test_that(".lfs_version_exists: TRUE after insert", {
+test_that(".long_version_exists: TRUE after insert", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2022','annual',2022,NULL,NOW(),100)")
-  expect_true(canpumf:::.lfs_version_exists(con, "2022"))
-  expect_false(canpumf:::.lfs_version_exists(con, "2023"))
+  expect_true(canpumf:::.long_version_exists(con, lfs_spec, "2022"))
+  expect_false(canpumf:::.long_version_exists(con, lfs_spec, "2023"))
 })
 
-test_that(".lfs_has_annual: detects annual entry", {
+test_that(".long_has_annual: detects annual entry", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2022','annual',2022,NULL,NOW(),100)")
-  expect_true(canpumf:::.lfs_has_annual(con, 2022L))
-  expect_false(canpumf:::.lfs_has_annual(con, 2021L))
+  expect_true(canpumf:::.long_has_annual(con, lfs_spec, 2022L))
+  expect_false(canpumf:::.long_has_annual(con, lfs_spec, 2021L))
 })
 
-test_that(".lfs_monthly_versions: returns monthly entries for year", {
+test_that(".long_monthly_versions: returns monthly entries for year", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2024-01','monthly',2024,1,NOW(),50)")
   DBI::dbExecute(con,
@@ -91,32 +97,48 @@ test_that(".lfs_monthly_versions: returns monthly entries for year", {
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2023','annual',2023,NULL,NOW(),100)")
 
-  result <- canpumf:::.lfs_monthly_versions(con, 2024L)
+  result <- canpumf:::.long_monthly_versions(con, lfs_spec, 2024L)
   expect_setequal(result, c("2024-01", "2024-02"))
-  expect_equal(canpumf:::.lfs_monthly_versions(con, 2023L), character(0L))
+  expect_equal(canpumf:::.long_monthly_versions(con, lfs_spec, 2023L), character(0L))
 })
 
-# ---- .lfs_append (schema evolution) ----------------------------------------
+test_that(".long_read_versions / .long_record_version: oldest first, annual month NULL", {
+  con <- duck_mem()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-test_that(".lfs_append: creates table on first call", {
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
+  canpumf:::.long_record_version(con, lfs_spec, "2024-02", "monthly", 2024L, 2L, 50L)
+  canpumf:::.long_record_version(con, lfs_spec, "2023", "annual", 2023L, NA_integer_, 100L)
+  canpumf:::.long_record_version(con, lfs_spec, "2024-01", "monthly", 2024L, 1L, 50L)
+
+  v <- canpumf:::.long_read_versions(con, lfs_spec)
+  expect_equal(v$version, c("2023", "2024-01", "2024-02"))
+  expect_equal(v$type, c("annual", "monthly", "monthly"))
+  expect_true(is.na(v$survmnth[v$version == "2023"]))
+  expect_equal(v$n_records, c(100L, 50L, 50L))
+})
+
+# ---- .long_append (schema evolution) ---------------------------------------
+
+test_that(".long_append: creates table on first call", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
   df <- data.frame(SURVYEAR = 2022L, PROV = "Ontario")
-  canpumf:::.lfs_append(con, "lfs_eng", df)
+  canpumf:::.long_append(con, "lfs_eng", df)
   expect_true(DBI::dbExistsTable(con, "lfs_eng"))
   expect_equal(DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM lfs_eng")$n, 1L)
 })
 
-test_that(".lfs_append: new column added with NULLs for old rows", {
+test_that(".long_append: new column added with NULLs for old rows", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
   df1 <- data.frame(SURVYEAR = 2022L, PROV = "Ontario")
   df2 <- data.frame(SURVYEAR = 2023L, PROV = "Quebec", NEWVAR = 1L)
 
-  canpumf:::.lfs_append(con, "lfs_eng", df1)
-  canpumf:::.lfs_append(con, "lfs_eng", df2)
+  canpumf:::.long_append(con, "lfs_eng", df1)
+  canpumf:::.long_append(con, "lfs_eng", df2)
 
   result <- DBI::dbGetQuery(con, "SELECT * FROM lfs_eng ORDER BY SURVYEAR")
   expect_equal(nrow(result), 2L)
@@ -125,13 +147,13 @@ test_that(".lfs_append: new column added with NULLs for old rows", {
   expect_equal(result$NEWVAR[result$SURVYEAR == 2023], 1L)
 })
 
-test_that(".lfs_append: VARCHAR column upgraded to DOUBLE when numeric data appended", {
+test_that(".long_append: VARCHAR column upgraded to DOUBLE when numeric data appended", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
   # Simulate old state: FINALWT was incorrectly stored as VARCHAR
   df_old <- data.frame(SURVYEAR = 2022L, FINALWT = "1000", stringsAsFactors = FALSE)
-  canpumf:::.lfs_append(con, "lfs_eng", df_old)
+  canpumf:::.long_append(con, "lfs_eng", df_old)
 
   schema_before <- DBI::dbGetQuery(con,
     "SELECT data_type FROM information_schema.columns WHERE table_name='lfs_eng' AND column_name='FINALWT'")
@@ -140,7 +162,7 @@ test_that(".lfs_append: VARCHAR column upgraded to DOUBLE when numeric data appe
   # Now append corrected data where FINALWT is numeric
   df_new <- data.frame(SURVYEAR = 2023L, FINALWT = 2000.0)
   expect_message(
-    canpumf:::.lfs_append(con, "lfs_eng", df_new),
+    canpumf:::.long_append(con, "lfs_eng", df_new),
     regexp = "Upgraded.*FINALWT.*VARCHAR.*DOUBLE", ignore.case = TRUE
   )
 
@@ -152,13 +174,13 @@ test_that(".lfs_append: VARCHAR column upgraded to DOUBLE when numeric data appe
   expect_true(is.numeric(result$FINALWT))
 })
 
-test_that(".lfs_append: DOUBLE column upgraded to INTEGER when integer data appended", {
+test_that(".long_append: DOUBLE column upgraded to INTEGER when integer data appended", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
   # Simulate old state: REC_NUM was incorrectly stored as DOUBLE
   df_old <- data.frame(SURVYEAR = 2022L, REC_NUM = 1.0)
-  canpumf:::.lfs_append(con, "lfs_eng", df_old)
+  canpumf:::.long_append(con, "lfs_eng", df_old)
 
   schema_before <- DBI::dbGetQuery(con,
     "SELECT data_type FROM information_schema.columns WHERE table_name='lfs_eng' AND column_name='REC_NUM'")
@@ -167,7 +189,7 @@ test_that(".lfs_append: DOUBLE column upgraded to INTEGER when integer data appe
   # Append with REC_NUM as integer — should trigger DOUBLE → INTEGER upgrade
   df_new <- data.frame(SURVYEAR = 2023L, REC_NUM = 2L)
   expect_message(
-    canpumf:::.lfs_append(con, "lfs_eng", df_new),
+    canpumf:::.long_append(con, "lfs_eng", df_new),
     regexp = "Upgraded.*REC_NUM.*DOUBLE.*INTEGER", ignore.case = TRUE
   )
 
@@ -179,33 +201,33 @@ test_that(".lfs_append: DOUBLE column upgraded to INTEGER when integer data appe
   expect_true(is.integer(result$REC_NUM))
 })
 
-test_that(".lfs_append: missing column in new data filled with NA", {
+test_that(".long_append: missing column in new data filled with NA", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
   df1 <- data.frame(SURVYEAR = 2022L, PROV = "ON", OLDVAR = 5L)
   df2 <- data.frame(SURVYEAR = 2023L, PROV = "QC")
 
-  canpumf:::.lfs_append(con, "lfs_eng", df1)
-  canpumf:::.lfs_append(con, "lfs_eng", df2)
+  canpumf:::.long_append(con, "lfs_eng", df1)
+  canpumf:::.long_append(con, "lfs_eng", df2)
 
   result <- DBI::dbGetQuery(con, "SELECT * FROM lfs_eng ORDER BY SURVYEAR")
   expect_true(is.na(result$OLDVAR[result$SURVYEAR == 2023]))
 })
 
-# ---- .lfs_delete_year -------------------------------------------------------
+# ---- .long_delete_slice (year) ---------------------------------------------
 
-test_that(".lfs_delete_year: removes rows and lfs_versions entry", {
+test_that(".long_delete_slice: a year removes rows and lfs_versions entry", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
   df <- data.frame(SURVYEAR = c(2022L, 2022L, 2023L), PROV = c("ON","QC","AB"))
-  canpumf:::.lfs_append(con, "lfs_eng", df)
+  canpumf:::.long_append(con, "lfs_eng", df)
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2022','annual',2022,NULL,NOW(),2)")
 
-  canpumf:::.lfs_delete_year(con, "lfs_eng", 2022L)
+  canpumf:::.long_delete_slice(con, lfs_spec, "2022", "lfs_eng")
 
   n_data <- DBI::dbGetQuery(con,
     "SELECT COUNT(*) AS n FROM lfs_eng WHERE SURVYEAR=2022")$n
@@ -218,18 +240,18 @@ test_that(".lfs_delete_year: removes rows and lfs_versions entry", {
     "SELECT COUNT(*) AS n FROM lfs_eng WHERE SURVYEAR=2023")$n, 1L)
 })
 
-# ---- .lfs_delete_month ------------------------------------------------------
+# ---- .long_delete_slice (month) --------------------------------------------
 
-test_that(".lfs_delete_month: removes only the target month and version", {
+test_that(".long_delete_slice: a month removes only the target month and version", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  canpumf:::.lfs_ensure_versions_table(con)
+  canpumf:::.long_ensure_versions_table(con, lfs_spec)
   df <- data.frame(
     SURVYEAR = c(2025L, 2025L, 2025L),
     SURVMNTH = c(1L,    2L,    3L),
     PROV     = c("ON",  "QC",  "AB"))
-  canpumf:::.lfs_append(con, "lfs_eng", df)
+  canpumf:::.long_append(con, "lfs_eng", df)
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2025-01','monthly',2025,1,NOW(),1)")
   DBI::dbExecute(con,
@@ -237,7 +259,7 @@ test_that(".lfs_delete_month: removes only the target month and version", {
   DBI::dbExecute(con,
     "INSERT INTO lfs_versions VALUES ('2025-03','monthly',2025,3,NOW(),1)")
 
-  canpumf:::.lfs_delete_month(con, "lfs_eng", "2025-02", 2025L, 2L)
+  canpumf:::.long_delete_slice(con, lfs_spec, "2025-02", "lfs_eng")
 
   # Only February data removed
   months <- DBI::dbGetQuery(con,
@@ -248,6 +270,22 @@ test_that(".lfs_delete_month: removes only the target month and version", {
   vers <- DBI::dbGetQuery(con,
     "SELECT version FROM lfs_versions WHERE survyear=2025 ORDER BY version")$version
   expect_equal(vers, c("2025-01", "2025-03"))
+
+  # record = FALSE drops the rows but keeps the tracking row (the engine's
+  # "month re-loaded into a language table that already has it" case)
+  canpumf:::.long_delete_slice(con, lfs_spec, "2025-03", "lfs_eng", record = FALSE)
+  expect_equal(DBI::dbGetQuery(con,
+    "SELECT SURVMNTH FROM lfs_eng WHERE SURVYEAR=2025")$SURVMNTH, 1L)
+  expect_true(canpumf:::.long_version_exists(con, lfs_spec, "2025-03"))
+
+  # type_filter = "monthly" on a year keeps an annual's tracking row
+  DBI::dbExecute(con,
+    "INSERT INTO lfs_versions VALUES ('2025','annual',2025,NULL,NOW(),3)")
+  canpumf:::.long_delete_slice(con, lfs_spec, "2025", "lfs_eng", type_filter = "monthly")
+  expect_equal(DBI::dbGetQuery(con,
+    "SELECT version FROM lfs_versions WHERE survyear=2025")$version, "2025")
+  expect_equal(DBI::dbGetQuery(con,
+    "SELECT COUNT(*) AS n FROM lfs_eng WHERE SURVYEAR=2025")$n, 0L)
 })
 
 # ---- Synthetic end-to-end: lfs_get_pumf -------------------------------------
@@ -754,7 +792,7 @@ test_that("lfs_get_pumf: SURVYEAR/SURVMNTH stored as integer, PROV stored as ENU
     label = paste0("PROV should be ENUM in LFS table, got: '", prov_type, "'"))
 })
 
-test_that(".lfs_append: factor column stored as ENUM on first write", {
+test_that(".long_append: factor column stored as ENUM on first write", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
@@ -762,7 +800,7 @@ test_that(".lfs_append: factor column stored as ENUM on first write", {
     SURVYEAR = 2022L,
     PROV     = factor("Newfoundland", levels = c("Newfoundland", "Ontario"))
   )
-  canpumf:::.lfs_append(con, "lfs_eng", df)
+  canpumf:::.long_append(con, "lfs_eng", df)
 
   info <- DBI::dbGetQuery(con, "PRAGMA table_info('lfs_eng')")
   prov_type <- info$type[info$name == "PROV"]
@@ -770,7 +808,7 @@ test_that(".lfs_append: factor column stored as ENUM on first write", {
     label = paste0("PROV type after first write: '", prov_type, "'"))
 })
 
-test_that(".lfs_append: ENUM gains new levels from subsequent factor data", {
+test_that(".long_append: ENUM gains new levels from subsequent factor data", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
@@ -779,20 +817,20 @@ test_that(".lfs_append: ENUM gains new levels from subsequent factor data", {
   df2 <- data.frame(SURVYEAR = 2023L,
                     PROV = factor("Alberta", levels = c("Newfoundland", "Ontario", "Alberta")))
 
-  canpumf:::.lfs_append(con, "lfs_eng", df1)
-  canpumf:::.lfs_append(con, "lfs_eng", df2)
+  canpumf:::.long_append(con, "lfs_eng", df1)
+  canpumf:::.long_append(con, "lfs_eng", df2)
 
   result <- DBI::dbGetQuery(con, "SELECT PROV FROM lfs_eng ORDER BY SURVYEAR")
   expect_equal(as.character(result$PROV), c("Newfoundland", "Alberta"))
 })
 
-test_that(".lfs_append: VARCHAR factor column upgraded to ENUM on subsequent write", {
+test_that(".long_append: VARCHAR factor column upgraded to ENUM on subsequent write", {
   con <- duck_mem()
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
   # Old data written as plain character (VARCHAR)
   df_old <- data.frame(SURVYEAR = 2021L, PROV = "Ontario", stringsAsFactors = FALSE)
-  canpumf:::.lfs_append(con, "lfs_eng", df_old)
+  canpumf:::.long_append(con, "lfs_eng", df_old)
   info_before <- DBI::dbGetQuery(con, "PRAGMA table_info('lfs_eng')")
   expect_true(grepl("VARCHAR|CHAR", info_before$type[info_before$name == "PROV"],
                     ignore.case = TRUE))
@@ -801,7 +839,7 @@ test_that(".lfs_append: VARCHAR factor column upgraded to ENUM on subsequent wri
   df_new <- data.frame(SURVYEAR = 2022L,
                        PROV = factor("Newfoundland", levels = c("Newfoundland", "Ontario")))
   expect_message(
-    canpumf:::.lfs_append(con, "lfs_eng", df_new),
+    canpumf:::.long_append(con, "lfs_eng", df_new),
     regexp = "Upgraded.*PROV.*ENUM", ignore.case = TRUE
   )
 
@@ -844,7 +882,7 @@ test_that("lfs_get_pumf: refresh='auto' with NULL version runs auto-refresh, not
   # Regression test: refresh='auto' must take priority over version=NULL so that
   # lfs_get_pumf(refresh="auto") actually triggers .lfs_auto_refresh, not .lfs_status.
   tmp <- withr::local_tempdir()
-  # .lfs_auto_refresh calls list_available_lfs_pumf_versions() which requires
+  # .lfs_auto_refresh calls list_pumf_catalogue("lfs") which requires
   # network; intercept by checking the error is network-related, not a status message.
   result <- tryCatch(
     canpumf:::lfs_get_pumf(version = NULL, cache_path = tmp, refresh = "auto"),

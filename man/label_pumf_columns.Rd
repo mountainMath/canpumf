@@ -22,8 +22,8 @@ disambiguated by appending ` (VAR_NAME)`.
 \details{
 The `tbl` must have been produced by [get_pumf()]; the function reads survey
 provenance (series, version, cache path, language) from the underlying
-DuckDB connection.  Use [pumf_var_labels()] to inspect the name-to-label
-mapping without renaming.
+DuckDB connection.  Use `pumf_dictionary(tbl, what = "variables")` to
+inspect the name-to-label mapping without renaming.
 }
 \examples{
 \donttest{
@@ -36,5 +36,5 @@ if (!is.null(sfs)) {
 }
 }
 \seealso{
-[pumf_var_labels()], [get_pumf()]
+[pumf_dictionary()], [get_pumf()]
 }

@@ -201,7 +201,7 @@ content before any parsing begins.
    subdirectory (other than `metadata/`) or non-zip non-duckdb file is present.
    If `TRUE`, the zip step is skipped even when the zip is still on disk.
 
-4. **Download** — the URL is looked up in `list_canpumf_collection()`.  Surveys
+4. **Download** — the URL is looked up in `list_pumf_catalogue()`.  Surveys
    distributed only via Statistics Canada's EFT portal have the marker `"(EFT)"`
    instead of a URL; the function stops with instructions to deposit the zip
    manually.
@@ -252,6 +252,7 @@ survey** (e.g. SPSS split for layout/codes and SAS cards for BSW weights).
 |---|---|---|
 | 1 | **LFS codebook CSV** | filename matches `codebook\.csv` (case-insensitive) |
 | 2 | **CPSS variables CSV** | filename is exactly `variables.csv` |
+| 2b | **JSON value labels** | a `*value_labels.json` file (The Canadian Peoples census files on Borealis): one JSON object mapping each coded variable's codes to English labels.  The variable list is the header of the data CSV; variable labels come from the registry's `labels_supplement` |
 | 3 | **SAS reading cards** | directory contains both a `.lay` and a `.lbe` file |
 | 4 | **SPSS split-file** | any `.sps` file whose name ends in `vare`, `vale`, or `_i` |
 | 5 | **SPSS monolithic** | `.sps` file, `*SPSS.txt` file, or `.xmf` file whose content contains `VALUE LABELS` **or `DATA LIST`** (checked with `useBytes = TRUE` to tolerate CP850/Latin-1 data); `VARIABLE LABELS` is optional |
@@ -486,7 +487,7 @@ not injected**: that is a registry `codes_supplement` decision.
 
 The whole step is skipped when `pdftools` is not installed, and can be turned
 off with `options(canpumf.pdf_crosscheck = FALSE)`.  Both side-car CSVs are
-exposed to users by `pumf_label_repairs()` and `pumf_freq_validation()`.
+exposed to users by `pumf_pdf_crosscheck()`.
 
 ---
 
@@ -532,6 +533,26 @@ After the data file is identified:
 Both paths read all columns as character (`col_types = cols(.default = "c")`)
 to preserve leading zeros and avoid premature type coercion.  Numeric
 conversion happens explicitly in the next step.
+
+### Large CSV files: the DuckDB reader
+
+Reading every field of a file into R as a string is fine for a survey of a
+hundred thousand records and wasteful for a complete-count census.  A registry
+entry with `csv_reader = "duckdb"` (TCP 1881: 4.3 million records, a 1.1 GB
+file) has DuckDB read the CSV into a temporary table instead.  R then only
+sees the *distinct values* of the numeric and coded columns, runs the same
+conversion and labelling rules on them as below, and DuckDB joins the results
+back onto the records when it writes the table.  The outcome is the table the
+readr path would have written.
+
+DuckDB uses as much memory as it is allowed before it spills to disk, so the
+build runs under a limit, `options(canpumf.native_memory_limit = "1GB")` by
+default.  A higher limit is faster and uses more memory (TCP 1881: half a
+minute and about 2 GB for the R process at 1 GB, 13 seconds and 5.4 GB at
+4 GB; readr needs a minute and 7 to 8 GB).  The reader handles UTF-8 and
+Latin-1 files without a bootstrap-weight join, and falls back to readr, with
+a message, when the numeric columns have too many distinct values to pass
+through R cheaply.
 
 ### Trailing junk row removal (FWF only)
 
@@ -593,8 +614,26 @@ label mapping:
   supplying *variable* labels the source metadata leaves blank (e.g. CPSS 1
   ships only a PDF codebook whose weight variable `COVID_WT` has an empty
   `Concept:` line in both languages).  Applied in both Stage 3 and
-  `label_pumf_columns()` / `pumf_var_labels()`, and fills only `NA` labels, so
+  `label_pumf_columns()` / `pumf_dictionary()`, and fills only `NA` labels, so
   genuine source labels always win.
+- **`sentinel_labels`** — labels for sentinel codes the command file does not
+  label, shown in the sentinel sidecar table (see below).  Keyed by code
+  string (`"9999999" = c(label_en = "Not applicable", label_fr = "Sans objet")`,
+  for every variable) or by variable name (`HRSWK = list("999" = c(label_en =
+  "NOT APPLICABLE"))`).  It changes no data value.
+- **`fix_mojibake`** — `TRUE` repairs double-encoded UTF-8 (`"QuÃ©bec"` for
+  `"Québec"`) in the text columns of the data, the way the metadata labels are
+  repaired.  Used for the transcribed names, places and occupations of
+  TCP 1881.
+- **`removed_records`** — `list(var = , values = )` names a flag variable and
+  the values that mark a record the producer says to drop before analysis
+  (TCP 1881 `REMOVE_TCP = "1"`: crossed-out, duplicate and blank lines of the
+  enumeration).  Those records are written to the sidecar table
+  `pumf_removed_<table>` instead of the main table (see below).
+- **`keep_unlabelled_codes`** — `TRUE`, or a character vector of variables,
+  whose data values without a value label stay a level named by the code
+  instead of becoming `NA`.  For dictionaries that are incomplete by
+  construction (the occupation codes of TCP 1881).
 
 ### Bootstrap weight join (BSW)
 
@@ -629,6 +668,43 @@ StatCan omitted from the command file but documents in the user guide.
 The two sets are kept separate: applying the 7-digit sentinel to an 8-char
 field would incorrectly NA out a valid $9,999,999 income value (stored as
 `" 9999999"` which trims to `"9999999"`).
+
+Sentinels narrower than the field (Census 2011 `INCTAX` uses `888888` /
+`999999` in a six-character field) are `missing_codes` per entry, taken from
+the user guide.
+
+### Row key and the sidecar tables
+
+Before the table is written, a `pumf_row_id` column (the record's 1-based
+position in the data file, stored as `BIGINT`) is put first.  It is the
+permanent key that links the table to its sidecar tables (below) and to the
+bootstrap-weight tables of `add_bootstrap_weights()` when the registry names
+no `bsw_join_key`.
+
+Converting sentinels to `NA` loses the *reason* for the missing value ("not
+applicable" versus "not available").  Each rule above therefore reports the
+values it blanked, and Stage 3 writes them to a sidecar table
+`pumf_sentinels_<table>` (`pumf_sentinels_eng`): one row per record in which
+at least one value was a sentinel, one column per affected variable, `NA`
+where the main table has a value.  The columns are `ENUM`s holding the
+sentinel's *label*: the command file's label for the code where it has one,
+otherwise the registry's `sentinel_labels`, otherwise the digits.  The
+table is always written, so an empty one means "no sentinels", and a
+missing one means the cache predates canpumf 0.7.0.  `pumf_sidecar(tbl, "sentinels")` returns it,
+and `pumf_sidecar(tbl, "sentinels", join = TRUE)` joins it onto the data.
+
+A survey whose registry entry declares `removed_records` has a second
+sidecar, `pumf_removed_<table>`: the records set aside, with the columns of
+the main table and their own `pumf_row_id` (so the key of the main table has
+gaps where they were).  `pumf_sidecar(tbl, "removed")` returns them and
+`join = TRUE` appends them to the data.  `pumf_sidecar(tbl)` lists the
+sidecar tables a survey has, with their row counts.
+
+Stage 3 finally stamps the table: `pumf_build_info` records, per table, the
+canpumf and duckdb versions that built it and when.  `list_pumf_cache()`
+shows the stamp in its `built_with` column, and `get_pumf()` says once per
+session when it opens a table that has none (a build from before 0.7.0),
+pointing to `refresh = TRUE`.
 
 ### Code labels → factors
 
@@ -693,7 +769,7 @@ user-facing workflow in full.
 ## LFS pipeline
 
 The LFS is handled by `lfs_get_pumf()` (delegated directly from `get_pumf()`
-without going through `get_pumf_connection()`).  Instead of one DuckDB per
+without going through `pumf_run_pipeline()`).  Instead of one DuckDB per
 version, all LFS versions share a single `<cache_path>/LFS/LFS.duckdb` with
 accumulating tables `lfs_eng` and `lfs_fra`.
 

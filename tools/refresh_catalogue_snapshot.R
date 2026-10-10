@@ -3,7 +3,7 @@
 # canpumf ships a frozen copy of the full StatCan PUMF catalogue crawl at
 # inst/extdata/pumf_catalogue.rds.  It is the terminal fallback for the
 # download-URL resolver (.pumf_resolve_collection_row) and for
-# list_statcan_pumf_catalogue() when StatCan is unreachable: a freshly installed
+# list_pumf_catalogue("statcan") when StatCan is unreachable: a freshly installed
 # package with no user cache and no network still resolves every supported
 # survey's download URL from this ground-truth copy, so a StatCan markup change
 # cannot silently break get_pumf() between releases.
@@ -21,8 +21,8 @@ suppressMessages(devtools::load_all(quiet = TRUE))
 prefer <- names(canpumf:::.statcan_format_tokens)
 
 message("Crawling the full StatCan PUMF catalogue (this takes a few minutes) ...")
-data <- list_statcan_pumf_catalogue(prefer = prefer, refresh = TRUE,
-                                    verbose = TRUE)
+data <- list_pumf_catalogue("statcan", prefer = prefer, refresh = TRUE,
+                            verbose = TRUE)
 
 snapshot <- list(fetched = Sys.time(), prefer = prefer, data = data)
 

@@ -6,6 +6,7 @@
 \usage{
 pumf_registry_entry(
   layout_mask = NULL,
+  layout_file = NULL,
   bsw_mask = NULL,
   bsw_file_mask = NULL,
   bsw_join_key = NULL,
@@ -20,6 +21,7 @@ pumf_registry_entry(
   bundle_sps_mask = NULL,
   doc_mask = NULL,
   download_format = NULL,
+  csv_reader = NULL,
   borealis = NULL,
   ...
 )
@@ -27,6 +29,15 @@ pumf_registry_entry(
 \arguments{
 \item{layout_mask}{SPSS/SAS command-file disambiguator for split-file
 surveys; also becomes part of the DuckDB table name when set.}
+
+\item{layout_file}{Regex (matched against file names anywhere under the
+version directory, case-insensitively) naming the one command file whose
+`DATA LIST` / SAS `INPUT` statement is the record layout of the data
+file. Only needed when a release ships reading cards that disagree about
+the layout: the layout parsed from this file replaces whatever the other
+command files declare (GSS Cycle 36 (2022) Episode, whose SPSS card does
+not read the file its SAS card reads). A name the file declares twice
+keeps its first field.}
 
 \item{bsw_mask, bsw_file_mask, bsw_join_key, bsw_drop_cols, bsw_strata}{Bootstrap
 weight join configuration.}
@@ -40,7 +51,10 @@ CSV vs fixed-width).}
 \item{data_fixups}{A named list of pre-label fixups: any of `str_pad`,
 `rename`, `rename_regex`, `cols_swap`, `na_values`, `force_numeric`,
 `force_character`, `force_integer`, `force_bigint`, `codes_supplement`,
-`missing_supplement`, `missing_codes`, `labels_supplement`.
+`missing_supplement`, `missing_codes`, `labels_supplement`,
+`fix_mojibake`, `removed_records`, `keep_unlabelled_codes`,
+`rejoin_split_records`, `column_encoding`, `text_missing_codes`,
+`labels_as_description`, `sentinel_labels`.
 The `force_character`/`force_integer`/`force_bigint` fields take character
 vectors of variable names and override the DuckDB storage type (VARCHAR /
 INTEGER / BIGINT) so geographic codes keep leading zeros and large IDs are
@@ -52,7 +66,24 @@ it lands on a name the metadata declares and the current name is not itself
 declared, so it can never collide with a correctly-named column.
 `missing_codes` takes `list(VAR = c(codes))` and blanks those discrete
 values, for variables whose sentinels do not form one contiguous range (and
-which a single `missing_low`/`missing_high` pair therefore cannot express).}
+which a single `missing_low`/`missing_high` pair therefore cannot express);
+an empty vector keeps every value of the variable.
+`fix_mojibake = TRUE` repairs double-encoded UTF-8 text in the character
+columns of the data. `removed_records = list(var = , values = )` moves the
+records whose raw value of `var` is one of `values` to the `"removed"`
+sidecar (see [pumf_sidecar()]). `keep_unlabelled_codes` (`TRUE` or a character
+vector of variables) keeps data values without a value label as a level
+named by the code instead of turning them into `NA`.
+`rejoin_split_records = TRUE` repairs a CSV in which a line break inside a
+field has split records over two lines; `column_encoding = list(CP850 =
+c(...))` decodes the named columns with a code page other than
+`data_encoding`; `text_missing_codes` (numeric codes, as strings) blanks
+those codes where they occur in text columns and records them in the
+`"sentinels"` sidecar under the labels `sentinel_labels` gives them;
+`labels_as_description = TRUE` keeps a source's sentence-long variable
+labels as the `description_en`/`description_fr` columns of the metadata
+and takes the short labels from `labels_supplement` (the CCRI census
+samples).}
 
 \item{bundled_eng_sps, bundle_source, bundle_sps_mask, doc_mask}{Advanced
 bundled-archive and documentation options.}
@@ -62,6 +93,12 @@ offers the same edition in several (`"CSV"`, `"SAS"`, `"TXT"`, ...). By
 default the preferred format wins; set this when only one bundle carries
 the command files the metadata parsers need (e.g. the Canadian Health
 Survey on Seniors, whose CSV zip ships the data alone).}
+
+\item{csv_reader}{`"duckdb"` reads a CSV data file with DuckDB's own
+reader instead of `readr` (the default, `"readr"`), so that the records
+never pass through R. Meant for files too large to hold in memory as
+character columns; needs UTF-8 or Latin-1 data and no bootstrap-weight
+file to join.}
 
 \item{borealis}{A Borealis Dataverse source for the data: a DOI string
 (`"doi:10.5683/SP3/XXXXXX"`) or `list(doi = , files = )`, where the
@@ -91,7 +128,7 @@ as a starting template.
 
 The custom registry covers parsing and building configuration, plus an
 optional Borealis source (`borealis`); it does not provide a StatCan
-download URL.  For a survey not in [list_canpumf_collection()], either point
+download URL.  For a survey not in [list_pumf_catalogue()], either point
 `borealis` at the dataset on Borealis, or deposit the raw zip (or extracted
 files) under `<cache_path>/<series>/<version>/` first, then call
 `get_pumf(series, version, registry = ...)`.
@@ -106,5 +143,5 @@ get_pumf("NEWSURVEY", "2025", registry = entry)
 }
 }
 \seealso{
-[pumf_registry()], [get_pumf()], [list_pumf_registry()]
+[pumf_registry()], [get_pumf()]
 }

@@ -115,7 +115,7 @@ test_that("PALS 2001: SAS dataset is read and the collection prefix stripped", {
 
   cols <- colnames(tbl)
   expect_equal(dplyr::pull(dplyr::collect(dplyr::count(tbl))), 76260)
-  expect_length(cols, 758L)
+  expect_length(cols, 759L)   # 758 variables + pumf_row_id
 
   # Documented names, not the AB../AC.. collection names the dataset ships.
   expect_true(all(c("B1", "C28AA", "D8A") %in% cols))
@@ -225,11 +225,11 @@ test_that("PALS: eng/fra bilingual parity", {
 })
 
 test_that("PALS: both editions resolve to their catalogue download", {
-  # Curated in list_canpumf_collection() rather than crawled: both editions hang
+  # Curated in list_pumf_catalogue() rather than crawled: both editions hang
   # off the single 2009001 publication page, which carries no edition token the
   # crawl could use to tell them apart.  Present on the scraped and the offline
   # fallback path alike, so this needs no network.
-  coll <- suppressWarnings(list_canpumf_collection())
+  coll <- suppressWarnings(list_pumf_catalogue())
 
   hits <- coll[coll$Acronym == "PALS", , drop = FALSE]
   expect_setequal(hits$Version, c("2001", "2006"))

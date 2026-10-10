@@ -24,6 +24,8 @@ remotes::install_github("mountainmath/canpumf")
 ## Documentation
 Please consult the [documentation and example articles](https://mountainmath.github.io/canpumf/) for further information.
 
+Version 0.7.0 consolidated the exported functions: the catalogue listings are now `list_pumf_catalogue(source)`, the LFS timeline is `get_pumf("LFS_TIMELINE")`, and the label lookups and PDF cross-check reports are `pumf_dictionary()` and `pumf_pdf_crosscheck()`. The old names still work with a deprecation warning; `NEWS.md` lists each replacement.
+
 StatCan publishes an [official guide to the Labour Force Survey](https://www150.statcan.gc.ca/n1/en/catalogue/71-543-G) for different vintages of the [LFS](https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&SDDS=3701).
 
 ## Cache path
@@ -38,6 +40,13 @@ On first use PUMF data is imported into DuckDB. By default a PUMF DuckDB connect
 options("canpumf.register_connection" = TRUE)
 ```
 
+Every table carries a permanent `pumf_row_id` column, the record's 1-based position in the data file, which links it to its sidecar tables. Statistics Canada codes non-responses in numeric variables as sentinel values (a Census income of `9999999` means "not applicable", `8888888` "not available"). canpumf converts them to `NA` so that sums and means are right, and keeps the reason in a sidecar table: `pumf_sidecar(tbl, "sentinels")` returns it, with one labelled column per affected variable, and `pumf_sidecar(tbl, "sentinels", join = TRUE)` joins it onto the data as `<VAR>_sentinel` columns. `pumf_sidecar(tbl)` lists the sidecar tables a survey has. A variable whose only labels sit on a top code ("75 and more" hours) is kept numeric with the label dropped; `pumf_dictionary(tbl, what = "topcodes")` lists such values, so a mean or a range can be read with the ceiling in mind.
+
+```r
+census <- get_pumf("Census", "2011 (individuals)")
+pumf_sidecar(census, "sentinels") |> count(TOTINC)    # "Not available" vs "Not applicable"
+```
+
 ## Basic usage
 
 Some PUMF data is available from StatCan via direct download and can be accessed directly via `get_pumf()`. In other cases, PUMF data must be ordered via EFT and deposited in the cache directory so `get_pumf()` can find it.
@@ -45,7 +54,7 @@ Some PUMF data is available from StatCan via direct download and can be accessed
 PUMF data can also be loaded from the [Borealis](https://borealisdata.ca) Dataverse, which hosts the ODESI collection of Statistics Canada PUMFs. Statistics Canada stays the primary source; Borealis is used automatically for vintages StatCan does not post (the 1971–1986 Census PUMFs), and any other Borealis PUMF dataset can be loaded by its DOI:
 
 ```r
-cat <- list_borealis_pumf_catalogue()                 # browse the Borealis PUMF collection
+cat <- list_pumf_catalogue("borealis")             # browse the Borealis PUMF collection
 list_borealis_pumf_files("doi:10.5683/SP3/EZXFNL")   # inspect a dataset's files
 shs_1997 <- get_pumf("SHS", "1997", borealis = "doi:10.5683/SP3/EZXFNL")
 ```
@@ -56,7 +65,7 @@ No account is needed. If the `BOREALIS_DATAVERSE_KEY` environment variable is se
 
 `get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
 
-Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
+Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). When several codes of one variable carry the same label and at least two of them occur in the data, every one of them gets its code appended (`"Other (3)"`, `"Other (6)"`), so no two codes share a level. Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
 
 ```r
 tbl <- get_pumf("LFS", "2022") |>
@@ -64,6 +73,20 @@ tbl <- get_pumf("LFS", "2022") |>
 ```
 
 When done querying, release the DuckDB connection with `close_pumf(tbl)`.
+
+### Reporting in the other language
+
+An analysis is usually carried out in one language, but results are sometimes needed in both. Every survey's metadata is bilingual, so a finished result can be relabelled without a second build. `pumf_dictionary()` returns the variable and value labels in both languages, and `pumf_translate()` applies them to a collected data frame: factor levels, values of survey variables and labelled column names are translated, everything else is left alone.
+
+```r
+sfs <- get_pumf("SFS", "2019")
+res <- sfs |>
+  count(PREGION, wt = PWEIGHT) |>
+  collect()
+pumf_translate(res, "fra", dict = sfs)     # "Atlantique", "Québec", ...
+```
+
+Levels the analysis introduced (`fct_collapse()`, a `case_when()` recode) are kept and reported once. Add their translations with `custom = c(West = "Ouest")`, or as a data frame with `label_en` and `label_fr` columns.
 
 ## Label repair
 
@@ -75,11 +98,11 @@ For surveys whose user guide includes a data-dictionary appendix, `canpumf` pars
 gss <- get_pumf("GSS", "Cycle 16 (2002)")
 
 # per-variable: did the guide's frequencies reconcile with the data?
-table(pumf_freq_validation(gss)$status)
+table(pumf_pdf_crosscheck(gss, "validation")$status)
 
 # every divergence found, repaired or not
-pumf_label_repairs(gss, action = "repaired")
-pumf_label_repairs(gss, action = "flagged")
+pumf_pdf_crosscheck(gss, action = "repaired")
+pumf_pdf_crosscheck(gss, action = "flagged")
 ```
 
 `flagged` rows are divergences that were recorded but *not* acted on — most usefully, places where the guide and the command file genuinely disagree rather than one being a truncation of the other. Nothing is repaired silently. Set `options(canpumf.pdf_crosscheck = FALSE)` to turn the whole step off.
@@ -118,10 +141,10 @@ ODESI labelled the same codes differently in different years ("Unemployed, tempo
 
 ### One LFS timeline, 1976 onward
 
-`get_lfs_timeline()` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. `get_lfs_timeline(refresh = "auto")` first loads any newly released months, so an analysis script built on it stays up to date.
+`get_pumf("LFS_TIMELINE")` stacks whatever is loaded of `"LFS_HIST"` and `"LFS"` into one lazy table with a curated set of common variables. It attaches both databases read-only. By default it loads nothing itself. `get_pumf("LFS_TIMELINE", refresh = "auto")` first loads any newly released months, so an analysis script built on it stays up to date.
 
 ```r
-tl <- get_lfs_timeline()
+tl <- get_pumf("LFS_TIMELINE")
 tl |>
   dplyr::filter(SURVMNTH == 6L) |>
   dplyr::summarise(employed = sum(FINALWT[LFSSTAT %in% c("Employed, at work",
@@ -168,6 +191,33 @@ By default the package loads the *individuals* file. Available variants by year:
 pumf_h_2016 <- get_pumf("Census", "2016 (hierarchical)")
 ```
 
+### The 1881 Census, complete count
+
+The complete-count microdata of the 1881 Census of Canada, published by The Canadian Peoples / Les populations canadiennes (TCP) project [on Borealis](https://doi.org/10.5683/SP3/FXZEVO), is available as series `"TCP"`. It is not a Statistics Canada PUMF: it holds every enumerated person (4.3 million records, a 1.1 GB file that is downloaded and kept compressed, at 88 MB), with the transcribed names, places and occupations next to the project's coded variables. Variable labels are available in English and French, value labels in English only.
+
+```r
+census_1881 <- get_pumf("TCP", "1881")
+
+# the 1,137 records the project flags for removal (crossed-out rows and the
+# like) are kept out of the table, in a sidecar
+pumf_sidecar(census_1881, "removed")
+```
+
+### The 1911 Census, 5% sample (CCRI)
+
+The Canadian Century Research Infrastructure (CCRI) project's 5% sample of the 1911 Census is available as series `"CCRI"`, from the ODESI deposit [on Borealis](https://doi.org/10.5683/SP3/MDTWGJ): 371,373 persons in a sample of dwellings, with the transcribed names, places and occupations next to the project's coded variables and census geography. It is the only CCRI vintage with an openly downloadable file (1921 to 1951 require access through CCRI). The documentation describes each variable with a sentence; it is kept as the variable's description, and the short labels are supplied in both languages.
+
+```r
+census_1911 <- get_pumf("CCRI", "1911")
+
+# labels and descriptions
+pumf_dictionary(census_1911, what = "variables")
+
+# the enumerator's "Blank", "Illegible", ... entries are kept out of the data,
+# in the sentinel sidecar
+pumf_sidecar(census_1911, "sentinels")
+```
+
 ## Verified datasets
 
 The following datasets have been end-to-end tested (metadata parsed, data imported, DuckDB built) without errors or unexpected warnings. Known, benign warnings (e.g. no French translation for the 2021 Census individuals file) are documented in `tests/TEST_COVERAGE.md`. Versions marked **direct download** can be fetched automatically by `get_pumf()` (from Statistics Canada, or from Borealis where marked); others must be placed in the cache directory via Statistics Canada's EFT portal.
@@ -179,6 +229,8 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | Census of Population | Census | 2021 (individuals, hierarchical), 2016 (individuals, hierarchical), 2011 (individuals, hierarchical), 2006 (individuals, hierarchical), 2001 (individuals, households, families), 1996 (individuals, households, families), 1991 (individuals, households, families) | ✓ |
 | Census of Population (EFT) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — prov and cma variants) | — |
 | Census of Population (Borealis) | Census | 1986 (individuals, households, families), 1981 (individuals, households), 1976 (individuals, households, families), 1971 (individuals, households, families — provincial and CMA variants) | ✓ (Borealis) |
+| Census of Canada 1881, complete count (The Canadian Peoples) | TCP | 1881 | ✓ (Borealis) |
+| Census of Canada 1911, 5% sample (CCRI) | CCRI | 1911 | ✓ (Borealis) |
 | General Social Survey — Caregiving | GSS | Cycle 11 (1996), Cycle 21 (2007), Cycle 26 (2012), Cycle 32 (2018) | ✓ |
 | General Social Survey — Caregiving (Aging and Social Support) | GSS | Cycle 16 (2002) — MAIN + CG4 + CG6 + CR modules joinable on RECID | ✓ |
 | General Social Survey — Safety | GSS | Cycle 8 (1993), Cycle 13 (1999), Cycle 28 (2014), Cycle 34 (2019) | ✓ |
@@ -191,6 +243,7 @@ The following datasets have been end-to-end tested (metadata parsed, data import
 | International Travel Survey | ITS | 2018, 2019 | ✓ |
 | Canadian Housing Survey | CHS | 2018, 2021, 2022 | ✓ |
 | Canadian Health Survey on Seniors | CHSS | 2019-2020 | ✓ |
+| Canadian Internet Use Survey | CIUS | 2005, 2007, 2009, 2018, 2020, 2022 | ✓ |
 | Participation and Activity Limitation Survey | PALS | 2001, 2006 | ✓ |
 | Survey of Financial Security | SFS | 1999, 2005, 2012, 2016, 2019, 2023 | ✓ |
 | Canadian Perspectives Survey Series | CPSS | 1–6 | ✓ |
@@ -221,7 +274,7 @@ The [**cancensus** package](https://mountainmath.github.io/cancensus/index.html)
 
 If you wish to cite the `canpumf` package in your work:
 
-  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.6.0. DOI 	10.32614/CRAN.package.canpumf
+  von Bergmann, J. (2026), canpumf: Import StatCan PUMF data into R. v0.7.0. DOI 	10.32614/CRAN.package.canpumf
 
 A BibTeX entry for LaTeX users is
 ```
@@ -230,7 +283,7 @@ A BibTeX entry for LaTeX users is
     title = {canpumf: Import StatCan PUMF data into R},
     year = {2026},
     doi = {10.32614/CRAN.package.canpumf},
-    note = {R package version 0.6.0},
+    note = {R package version 0.7.0},
     url = {https://mountainmath.github.io/canpumf/},
   }
 ```

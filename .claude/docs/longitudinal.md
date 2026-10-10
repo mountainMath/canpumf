@@ -5,8 +5,8 @@ years) that have the same, or nearly the same, variables and codes. Every
 loaded slice is appended to **one DuckDB per series**, so the whole history
 can be queried as a single table. `LFS` (2006 onwards, StatCan) and
 `LFS_HIST` (1976–2005, Borealis) are the two instances. Code:
-`R/longitudinal.R` (engine), `R/lfs_pipeline.R` (LFS spec + append helpers),
-`R/lfs_hist.R` (LFS_HIST spec).
+`R/longitudinal.R` (engine, versions-table and append helpers),
+`R/lfs_pipeline.R` (LFS spec), `R/lfs_hist.R` (LFS_HIST spec).
 
 ## The spec
 
@@ -15,19 +15,23 @@ can be queried as a single table. `LFS` (2006 onwards, StatCan) and
 
 | Field | LFS | LFS_HIST |
 |---|---|---|
-| `db_file` | `LFS.duckdb` | `LFS_HIST.duckdb` |
-| `table_prefix` → tables | `lfs_eng`, `lfs_fra` | `lfs_hist_eng`, `lfs_hist_fra` |
-| `versions_table` | `lfs_versions` | `lfs_hist_versions` |
+| `series`, `entry` | `"LFS"` + its `.pumf_longitudinal_entry()` | `"LFS_HIST"` + its entry |
+| derived from `series` (`.long_db_path()`, `.long_table_name()`, `.long_versions_table()`) | `LFS.duckdb`, `lfs_eng`/`lfs_fra`, `lfs_versions` | `LFS_HIST.duckdb`, `lfs_hist_eng`/`lfs_hist_fra`, `lfs_hist_versions` |
 | `annual_files` | `TRUE`: "YYYY" is one annual release that supersedes the year's monthly loads | `FALSE`: "YYYY" means the twelve months, loaded one by one |
 | `validate(v)` | "annual"/"monthly", or `stop()` | 1976-01..2005-12 only; 2006+ points to `"LFS"` |
 | `available()` | `list_available_lfs_pumf_versions()` | all 360 months |
 | `prepare()` | Stages 1+2 of the standard pipeline | Borealis download + canonical metadata |
-| `build()` | `.lfs_build_version()` | `.lfs_hist_build()` |
-| `variables()` | merge of every loaded version's `variables.csv`, newest wins | the shipped canonical `variables.csv` |
+| `build()` | `.lfs_build_version()` | `.lfs_hist_build()` (both label through `.long_label_frame()`) |
+| `finalize(tbl)` (optional, applied by `.long_open_tbl()`) | `.lfs_relocate_gender()`: `SEX` next to `GENDER` | — |
+| `variables()` | merge of every loaded version's `variables.csv`, newest wins (`.lfs_merged_metadata(…, "variables")`) | the shipped canonical `variables.csv` |
+| `codes()` | every distinct (`name`, `val`, `label_en`, `label_fr`) across the loaded versions' `codes.csv`, since each version was labelled from its own (`.lfs_merged_metadata(…, "codes")`) | the canonical `codes.csv` plus the era-specific lists (`.lfs_hist_all_codes()`) |
+| `timeline` | `col`, `scale`, `from` (and optional `codes()`) used by `get_lfs_timeline()` | idem |
 
-To add a series: write a spec, add it to `.pumf_longitudinal_specs()` and
-`.pumf_longitudinal_series`, and give it a shared registry entry in
-`.pumf_longitudinal_entry()`. Everything that used to test `series == "LFS"`
+To add a series: write a spec constructor, name it in
+`.pumf_longitudinal_spec_fns` (`.pumf_longitudinal_series` is derived from
+it), and give it a shared registry entry in `.pumf_longitudinal_entry()`.
+Shipped reference CSVs are read through `.pumf_extdata_csv(dir, which)`
+(`.lfs_hist_ref()`, `.lfs_timeline_ref()` are thin wrappers). Everything that used to test `series == "LFS"`
 (`get_pumf()`, `pumf_metadata()`, `label_pumf_columns()`, the cache
 functions, `open_pumf_documentation()`, `.pumf_db_path()`,
 `.pumf_table_name()`) now dispatches on `.is_longitudinal(series)`.
@@ -36,15 +40,23 @@ functions, `open_pumf_documentation()`, `.pumf_db_path()`,
 
 - Data tables carry integer `SURVYEAR` / `SURVMNTH` (registry
   `force_integer`). A version filter is a filter on these columns.
-- Schema drift is absorbed by `.lfs_append()` (`ADD COLUMN`, widening types,
-  extending ENUM levels). Any series whose ENUM levels come from a *fixed*
-  code list avoids level churn entirely (LFS_HIST does).
-- The versions-table helpers in `R/lfs_pipeline.R` take the table name as a
-  trailing `vt` argument.
-- Issue #18 holds: a cache hit opens read-only only. A build opens read-write
-  after `.assert_duckdb_writable()`. `.long_get_year_of_months()` loads each
-  missing month with its own nested write connection, closes it, then returns
-  a read-only year filter.
+- Schema drift is absorbed by `.long_append()` (`ADD COLUMN`, widening types,
+  extending ENUM levels; current types and levels come from
+  `.duckdb_column_types()` / `.duckdb_enum_levels()`). Any series whose ENUM
+  levels come from a *fixed* code list avoids level churn entirely (LFS_HIST
+  does).
+- The versions-table helpers (`.long_read_versions()`, `.long_version_exists()`,
+  `.long_has_annual()`, `.long_monthly_versions()`, `.long_is_loaded()`,
+  `.long_record_version()`, `.long_delete_slice()`) take `(con, spec, ...)`.
+  Readers never create the tracking table (they return empty/FALSE when it is
+  missing); only the write phase calls `.long_ensure_versions_table()`.
+- Issue #18 holds: a cache hit opens read-only only. Transient read-only
+  probes go through `.long_with_readonly_con(spec, cache_path, fn)` and
+  disconnect with `shutdown = FALSE`. A build opens read-write after
+  `.assert_duckdb_writable()`. `.long_get_year_of_months()` and the
+  rebuild/auto-refresh paths load each missing slice through
+  `.long_load_each()` (own nested write connection, closed afterwards), then
+  return a read-only tbl.
 - A month that is present in the data table but has no tracking row (an
   interrupted earlier build) is deleted before being appended again.
 - The status message shows complete years as `YYYY-01..YYYY-12`
@@ -60,11 +72,15 @@ French DOIs and its rebasing era (`.lfs_hist_rebased()`: 1976–86 original,
 Titles are not reliable for the era (the French January 2001 title says
 "Remanié Recensement 2016"), so it is derived from the year.
 
-**Per-month cache.** `<cache>/LFS_HIST/YYYY-MM/` holds the English CSV,
-`.sas`, codebook PDF, `lfs-epa-eng.htm` and record-layout text; `fra/` holds
-the French `.sas`; `borealis_manifest.csv` records DOI, file id, md5 and role.
-The download loop is explicit (`.lfs_hist_download()`) because the `files`
-override of `.borealis_download_dataset()` would mark the `.sas` as data.
+**Per-month cache.** `<cache>/LFS_HIST/YYYY-MM/` holds the English CSV
+(compressed, `.csv.gz`, like every Borealis CSV; a plain `.csv` from an
+older cache is still picked up by `.lfs_hist_data_file()`), `.sas`, codebook
+PDF, `lfs-epa-eng.htm` and record-layout text; `fra/` holds the French
+`.sas`; `borealis_manifest.csv` records DOI, file id, md5 and role. The file
+selection is explicit (`.lfs_hist_download()`) because the `files` override
+of `.borealis_download_dataset()` would mark the `.sas` as data; the
+download, extraction and manifest are the shared
+`.borealis_fetch_selected()`.
 
 **Canonical dictionary.** ODESI relabelled the same codes in every era
 ("Unemployed, temporary layoff" / "Unemploy,temp layoff"). Taking labels
@@ -154,7 +170,7 @@ common schema. It never writes to either series database: an in-memory DuckDB
 them in the view `lfs_timeline` with `UNION ALL BY NAME`. Other readers of the
 files are not blocked. A file locked by a writer (an import in progress) gives
 an actionable error. Provenance is registered as series `"LFS_TIMELINE"`, which
-`.pumf_read_variables_from_prov()` and `.pumf_tbl_module()` special-case, so
+`.pumf_label_source()` and `.pumf_tbl_module()` special-case, so
 `label_pumf_columns()` and `pumf_var_labels()` work.
 
 **Reference tables** live in `inst/extdata/lfs_timeline/` and are built by
