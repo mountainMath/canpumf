@@ -322,12 +322,20 @@ pumf_locate_or_download <- function(series,
       if (!is.null(url) && startsWith(url, BOREALIS_SERVER)) url <- "(EFT)"
       if (is.null(url) || identical(url, "(EFT)")) {
         bor_doi <- bor$doi
-        if (is.null(bor_doi) && is.null(url))
+        if (is.null(bor_doi) && is.null(url)) {
+          list_name <- if (series %in% c("GSS", "SGVP")) "GSS/SGVP" else series
+          unreachable <- list_name %in% attr(row, "statcan_unreachable")
           stop(series, " version '", version, "' was not found in the canpumf ",
-               "collection. Check available versions with ",
+               "collection. ",
+               if (unreachable)
+                 paste0("Statistics Canada is currently unreachable, so the ",
+                        series, " version list is hard-coded and may be ",
+                        "incomplete; try again later. "),
+               "Check available versions with ",
                "list_pumf_catalogue(), or load a Borealis copy with ",
                "get_pumf(..., borealis = <doi>) (see ",
-               "list_pumf_catalogue(\"borealis\")).")
+               "list_pumf_catalogue(\"borealis\")).", call. = FALSE)
+        }
         if (is.null(bor_doi))
           stop(series, " ", version, " is distributed via Statistics Canada's ",
                "Electronic File Transfer (EFT) and cannot be downloaded automatically.\n",

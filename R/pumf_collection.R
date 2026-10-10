@@ -366,9 +366,14 @@ list_pumf_catalogue <- function(source = c("canpumf", "statcan", "borealis",
 
   # Version from the download URL ("..._2024-01-CSV.zip" -> "2024-01",
   # "..._2024-CSV.zip" -> "2024").
+  # StatCan unreachable: the annual files, whose URLs are stable (the monthly
+  # ones rotate off the page and are left out).
   lfs_links <- .lfs_scrape_csv_links()
   lfs_versions <- if (is.null(lfs_links)) {
-    tibble::tibble(Acronym = character(), url = character(), Version = character())
+    tibble::tibble(Acronym = "LFS",
+                   url = paste0(.lfs_pumf_page_base, "2021001/hist/",
+                                .lfs_annual_fallback_years, "-CSV.zip"),
+                   Version = as.character(.lfs_annual_fallback_years))
   } else {
     tibble::tibble(Acronym = "LFS", url = lfs_links$url) |>
       mutate(Version = stringr::str_match(.data$url, "\\d{4}-\\d{2}")[, 1L]) |>
@@ -422,7 +427,7 @@ list_pumf_catalogue <- function(source = c("canpumf", "statcan", "borealis",
   )
 
   census_download   <- list_census_collection()
-  scrape_failed_lfs <- nrow(lfs_versions) == 0L
+  scrape_failed_lfs <- is.null(lfs_links)
   scrape_failed_cen <- identical(census_download, .census_collection_fallback())
   scrape_failed_gss <- identical(gss_all, .gss_collection_fallback())
 
@@ -435,6 +440,10 @@ list_pumf_catalogue <- function(source = c("canpumf", "statcan", "borealis",
             " version list(s) are hard-coded and may be incomplete.",
             call. = FALSE)
   }
+
+  unreachable <- c(if (scrape_failed_cen) "Census",
+                   if (scrape_failed_lfs) "LFS",
+                   if (scrape_failed_gss) "GSS/SGVP")
 
   first_year <- census_download$Version |> str_extract("\\d{4}") |> as.integer()
   first_year <- if (any(!is.na(first_year))) min(first_year, na.rm = TRUE) else 1991L
@@ -454,7 +463,8 @@ list_pumf_catalogue <- function(source = c("canpumf", "statcan", "borealis",
               census_eft(paste0(seq(1971, last_eft_year, 5), " (households)")),
               census_eft(paste0(c(1971L, 1976L, seq(1986L, pmin(1996L, last_eft_year), 5L)),
                                 " (families)"))) |>
-    bind_rows(census_download, .borealis_registry_collection())
+    bind_rows(census_download, .borealis_registry_collection()) |>
+    structure(statcan_unreachable = unreachable)
 }
 
 # Collection rows for registry entries sourced from Borealis (the 1971-1986
@@ -518,6 +528,11 @@ list_pumf_catalogue <- function(source = c("canpumf", "statcan", "borealis",
 # the URL and .lfs_pumf_versions() from the title; the two
 # agree for the links StatCan posts, and each keeps its own derivation.
 .lfs_pumf_page_base <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
+
+# The annual LFS PUMFs listed by .canpumf_collection() when StatCan is
+# unreachable (at <base>2021001/hist/YYYY-CSV.zip).  Extend by one year when
+# StatCan posts the next annual file.
+.lfs_annual_fallback_years <- 2006:2025
 .lfs_scrape_csv_links <- function() {
   a <- tryCatch(
     rvest::read_html(paste0(.lfs_pumf_page_base, "71m0001x2021001-eng.htm")) |>

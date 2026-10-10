@@ -990,6 +990,26 @@ test_that("list_pumf_catalogue: warns and returns fallback when StatCan unreacha
   )
 })
 
+test_that("StatCan unreachable: annual LFS versions are hard-coded, a miss says so", {
+  with_mocked_bindings(
+    read_html = function(...) stop("simulated network error"),
+    .package  = "rvest",
+    {
+      coll <- suppressWarnings(canpumf:::.canpumf_collection())
+      expect_true("LFS" %in% attr(coll, "statcan_unreachable"))
+      lfs <- coll[coll$Acronym == "LFS" & coll$url != "(EFT)", ]
+      expect_setequal(lfs$Version,
+                      as.character(canpumf:::.lfs_annual_fallback_years))
+      expect_equal(unname(lfs$url[lfs$Version == "2023"]),
+                   "https://www150.statcan.gc.ca/n1/pub/71m0001x/2021001/hist/2023-CSV.zip")
+      expect_error(
+        suppressWarnings(pumf_locate_or_download("LFS", "2099",
+                                                 cache_path = withr::local_tempdir())),
+        "Statistics Canada is currently unreachable, so the LFS version list")
+    }
+  )
+})
+
 test_that("list_pumf_catalogue(\"lfs\"): returns tibble with date/version/url", {
   skip_if_offline()
   tryCatch({

@@ -76,6 +76,10 @@ in a later release.
 
 * **`remove_pumf_cache()` gained a `lang` argument** that drops one language from a bilingual build and gives the space back. `remove_pumf_cache("SFS", "2019", lang = "fra")` drops the French table, its sidecar tables, the bootstrap-weight views 0.6.0 made for it and its build-stamp row, keeps the English tables, the shared bootstrap-weight tables, the metadata and the raw files, and then compacts the DuckDB file by copying what remains into a fresh file, since DuckDB does not truncate a file when a table is dropped. Dropping the last language deletes the file. It needs the write lock, so open tbls have to be closed first; the longitudinal series are not supported.
 
+## StatCan unreachable
+
+* **The annual LFS files 2006–2025 can be downloaded when the StatCan website is down.** The LFS version list is scraped from StatCan's LFS page; when that page could not be read, the collection's hard-coded fallback listed no LFS versions, so `get_pumf("LFS", "2023")` reported that the version does not exist. The fallback now lists the annual files, whose URLs are stable (the monthly files rotate off the page and are not included), and a version missing from a hard-coded list says that StatCan is currently unreachable and the list may be incomplete.
+
 ## duckdb 1.5.6
 
 * **canpumf works with duckdb 1.5.6**, which no longer ignores `read_only` when the R session already has the database file open in the other mode and fails in `dbConnect()` instead. A write attempted while a `get_pumf()` tbl holds the file (`remove_pumf_cache(lang = )`, a build of the other language) reported duckdb's error instead of the instruction to `close_pumf()` the tbl; it reports the instruction again, and so does `get_pumf(read_only = FALSE)`, which earlier duckdb versions answered with a connection that could not write. A read while the session holds the file read-write (`get_pumf(read_only = FALSE)`) failed, and `list_pumf_cache()` lost its `built_with` value; reads share that connection's database instance again, as they did before.

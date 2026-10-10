@@ -502,7 +502,10 @@
   if (is.null(coll))
     return(tibble::tibble(Acronym = character(), Version = character(),
                           url = character()))
-  coll[coll$Acronym == series & coll$Version == version, , drop = FALSE]
+  # The series whose version list fell back to the hard-coded one ride along
+  # so that a miss can say StatCan was unreachable.
+  structure(coll[coll$Acronym == series & coll$Version == version, , drop = FALSE],
+            statcan_unreachable = attr(coll, "statcan_unreachable"))
 }
 
 # --- Persistent catalogue cache --------------------------------------------
