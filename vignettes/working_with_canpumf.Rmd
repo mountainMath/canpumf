@@ -33,8 +33,17 @@ chs_pumf |>
   head(10)
 ```
 
-The data comes automatically labelled, but column names are left as coded in the data. That makes it easier to work with the data if one is very familiar with the particular survey, but can also be a barrier. In that case one can apply column labels on the fly.
+The data comes automatically labelled, but column names are left as coded in the data. That makes it easier to work with the data if one is very familiar with the particular survey, but can also be a barrier. When loading data into memory, `collect_pumf()` keeps the coded names and attaches the variable label to each column as its `label` attribute, where the RStudio viewer, `labelled::look_for()` and table packages find it.
 
+```{r}
+chs_pumf |>
+  select(1:5) |>
+  head(10) |>
+  collect_pumf() |>
+  sapply(attr, "label")
+```
+
+Alternatively one can apply column labels on the fly.
 
 ```{r}
 chs_pumf <- chs_pumf |>
@@ -127,7 +136,7 @@ plot_data <- renter_chs_pumf |>
   summarise(across(matches("CPBSW\\d+|Household weight"),\(x) sum(x, na.rm=TRUE)),
             .by=c(`Previous accommodations - when move to current dwelling occurred`,
                   `Previous accommodations - forced to move`)) |>
-  collect() |>
+  collect_pumf() |>
   pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(weights) |>
   mutate(share=value/sum(value)) |>
@@ -156,7 +165,7 @@ plot_data <- renter_chs_pumf |>
             .by=c(`Previous accommodations - when move to current dwelling occurred`,
                   `Previous accommodations - location of previous dwelling`,
                   `Previous accommodations - forced to move`)) |>
-  collect() |>
+  collect_pumf() |>
   pivot_longer(matches("CPBSW\\d+|Household weight"),names_to="weights") |>
   group_by(`Previous accommodations - location of previous dwelling`,
            weights) |>
@@ -184,7 +193,7 @@ One way to contextualize this is to compare it to other Canadian CMAs.
 
 ```{r fig-renters-forced-moves, fig.alt="Renters forced to move"}
 plot_data <- renter_chs_pumf |>
-  collect() |>
+  collect_pumf() |>
   filter(`Geographic grouping` %in% c("Vancouver","Toronto","Montréal","Calgary","Ottawa-Gatineau","Winnipeg")) |>
   group_by(`Previous accommodations - when move to current dwelling occurred`,
            `Previous accommodations - location of previous dwelling`,

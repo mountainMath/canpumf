@@ -121,10 +121,11 @@
     return(list(series = series, version = version, cache_path = cache_path,
                 module = module))
   }
-  if (!inherits(x, "tbl_sql"))
-    stop("'x' must be a lazy tbl from get_pumf() or a series name.",
-         call. = FALSE)
-  .pumf_tbl_prov(x, what = "'x'")
+  if (!inherits(x, "tbl_sql") &&
+      !(is.data.frame(x) && !is.null(attr(x, "pumf_provenance", exact = TRUE))))
+    stop("'x' must be a lazy tbl from get_pumf(), a data frame from ",
+         "collect_pumf() or a series name.", call. = FALSE)
+  .pumf_data_prov(x, what = "'x'")
 }
 
 # variables + codes (both languages) for a provenance record, module-aware.
@@ -255,7 +256,8 @@
 #' an error for them.
 #'
 #' @param x A lazy `dplyr::tbl()` returned by [get_pumf()] or
-#'   `get_pumf("LFS_TIMELINE")` ([lfs_timeline]), or a series name (`"SFS"`).
+#'   `get_pumf("LFS_TIMELINE")` ([lfs_timeline]), a data frame returned by
+#'   [collect_pumf()], or a series name (`"SFS"`).
 #' @param version The version, when `x` is a series name; the aliases
 #'   [get_pumf()] accepts work here too (`"2021"` for the Census individuals
 #'   file, `"Cycle 31"` or `"2017"` for a GSS cycle).  Ignored for a tbl.
@@ -350,10 +352,17 @@ pumf_dictionary <- function(x, version = NULL, module = NULL,
     label_fr = as.character(custom$label_fr))
 }
 
-# Resolve `dict` (a dictionary tibble or a get_pumf() tbl) to a tibble.
-.pumf_translate_dict <- function(dict) {
-  if (is.null(dict)) return(NULL)
-  if (inherits(dict, "tbl_lazy")) return(pumf_dictionary(dict))
+# Resolve `dict` (a dictionary tibble, a get_pumf() tbl or a collect_pumf()
+# data frame) to a tibble.  Without `dict`, the dictionary of `x` is used when
+# `x` carries provenance (collect_pumf()).
+.pumf_translate_dict <- function(dict, x = NULL) {
+  has_prov <- function(d) is.data.frame(d) &&
+    !is.null(attr(d, "pumf_provenance", exact = TRUE))
+  if (is.null(dict)) {
+    if (has_prov(x)) return(pumf_dictionary(x))
+    return(NULL)
+  }
+  if (inherits(dict, "tbl_lazy") || has_prov(dict)) return(pumf_dictionary(dict))
   if (!is.data.frame(dict) ||
       !all(c("name", "val", "label_en", "label_fr") %in% names(dict)))
     stop("'dict' must be a dictionary from pumf_dictionary() or a lazy tbl ",
@@ -383,12 +392,15 @@ pumf_dictionary <- function(x, version = NULL, module = NULL,
 #' levels that translate to the same label are merged into one level.
 #'
 #' @param x A data frame.  Grouped tibbles keep their grouping.  A lazy tbl is
-#'   rejected: `collect()` it first.
+#'   rejected: `collect()` it first.  A frame from [collect_pumf()] needs no
+#'   `dict`, and its `label` (and `description`) column attributes are
+#'   translated along with the rest.
 #' @param to Target language, `"fra"` (default) or `"eng"`.  The source
 #'   language is the other one.
 #' @param dict The survey dictionary from [pumf_dictionary()], or the lazy tbl
-#'   from [get_pumf()] the result was computed from (its dictionary is looked
-#'   up).  May be `NULL` when `custom` covers every label.
+#'   from [get_pumf()] (or data frame from [collect_pumf()]) the result was
+#'   computed from (its dictionary is looked up).  May be `NULL` when `x` is a
+#'   [collect_pumf()] frame or `custom` covers every label.
 #' @param custom Translations for labels the dictionary does not know.  Either
 #'   a named character vector read in the direction of the translation
 #'   (`c("Young" = "Jeune")`), or a data frame with columns `label_en` and
@@ -432,11 +444,12 @@ pumf_translate <- function(x, to = c("fra", "eng"), dict = NULL,
   from_col <- if (to == "fra") "label_en" else "label_fr"
   to_col   <- if (to == "fra") "label_fr" else "label_en"
 
-  dict   <- .pumf_translate_dict(dict)
+  dict   <- .pumf_translate_dict(dict, x)
   custom <- .pumf_custom_rows(custom, from_col, to_col)
   if (is.null(dict) && nrow(custom) == 0L)
     stop("Supply 'dict' (from pumf_dictionary() or the get_pumf() tbl) ",
-         "and/or 'custom'.", call. = FALSE)
+         "and/or 'custom', or translate a collect_pumf() data frame.",
+         call. = FALSE)
   if (is.null(dict))
     dict <- custom[0L, ]
 
@@ -487,6 +500,20 @@ pumf_translate <- function(x, to = c("fra", "eng"), dict = NULL,
     if (nrow(cust_col) > 0L) new_names[i] <- cust_col$to[1L]
 
     col <- out[[i]]
+    # The label (and description) attributes of a collect_pumf() frame follow
+    # the variable into the other language.
+    if (!is.na(var_name) && !is.null(attr(col, "label", exact = TRUE))) {
+      j <- match(var_name, var_rows$name)
+      if (!is.na(j)) {
+        if (!is.na(var_rows[[to_col]][j]))
+          attr(col, "label") <- var_rows[[to_col]][j]
+        desc_to <- paste0("description_", substr(to, 1L, 2L))
+        if (!is.null(attr(col, "description", exact = TRUE)) &&
+            desc_to %in% names(var_rows) && !is.na(var_rows[[desc_to]][j]))
+          attr(col, "description") <- var_rows[[desc_to]][j]
+        out[[i]] <- col
+      }
+    }
     is_fct <- is.factor(col)
     if (!is_fct && !is.character(col)) next
     # Character columns are only translated when they belong to a survey
@@ -546,6 +573,12 @@ pumf_translate <- function(x, to = c("fra", "eng"), dict = NULL,
                                 to = character(), status = character())
   report <- report[report$status != "kept", , drop = FALSE]
   attr(out, "pumf_translation") <- report
+  # A collect_pumf() frame now reads in the target language.
+  prov <- attr(out, "pumf_provenance", exact = TRUE)
+  if (!is.null(prov)) {
+    prov$lang <- to
+    attr(out, "pumf_provenance") <- prov
+  }
 
   if (isTRUE(warn)) {
     miss <- report[report$status == "untranslated", , drop = FALSE]

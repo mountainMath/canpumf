@@ -75,7 +75,7 @@ The clustering at round ages is interesting and also quite visible when just loo
 census_1881 |>
   count(AGE,SEX) |>
   mutate(n=if_else(SEX=="Female",-n,n)) |>
-  collect() |>
+  collect_pumf() |>
   filter(!is.na(AGE), SEX %in% c("Male","Female")) |>
   ggplot(aes(y=factor(AGE),x=n,fill=as.character(SEX))) +
   geom_col() +
@@ -112,7 +112,7 @@ census_1911 |>
   count(AGE,SEX) |>
   filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
   mutate(n=if_else(SEX=="Female",-n,n)) |>
-  collect() |>
+  collect_pumf() |>
   ggplot(aes(y=factor(AGE),x=n*20,fill=SEX)) +
   geom_col() +
   scale_y_discrete(breaks=seq(0,150,5)) +
@@ -139,7 +139,7 @@ census_1911 |>
   count(AGE,SEX,Immigrant) |>
   filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
   mutate(n=if_else(SEX=="Female",-n,n)) |>
-  collect() |>
+  collect_pumf() |>
   ggplot(aes(y=factor(AGE),x=n*20,fill=SEX)) +
   geom_col() +
   facet_wrap(~Immigrant) +
@@ -174,7 +174,7 @@ census_1911 |>
   count(AGE,SEX,INDIVIDUAL_BIRTH_COUNTRY) |>
   filter(!is.na(AGE), AGE != 1911L, SEX %in% c("Male","Female")) |>
   mutate(n=if_else(SEX=="Female",-n,n)) |>
-  collect() |>
+  collect_pumf() |>
   mutate(INDIVIDUAL_BIRTH_COUNTRY=factor(INDIVIDUAL_BIRTH_COUNTRY,
                                          levels=top_births)) |>
   ggplot(aes(y=factor(AGE),x=n*20,fill=SEX)) +

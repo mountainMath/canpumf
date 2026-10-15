@@ -1,6 +1,7 @@
 # R/api.R -- Public entry points for the canpumf package.
 #
 # get_pumf()            -- download, parse, label, and return a lazy DuckDB tbl
+# collect_pumf()        -- collect a tbl, with variable labels as column attributes
 # label_pumf_columns()  -- rename tbl columns to human-readable variable labels
 # pumf_metadata()       -- download and parse metadata only; return canonical list
 
@@ -94,6 +95,31 @@
   prov$lang   <- prov$lang %||% "eng"
   prov$module <- .pumf_tbl_module(tbl, prov)
   prov
+}
+
+# The provenance record behind a lazy tbl from get_pumf() or a data frame from
+# collect_pumf(), which carries one in its "pumf_provenance" attribute (series,
+# version, cache_path, lang, module; no connection).  The label readers
+# (label_pumf_columns(), pumf_dictionary(), pumf_translate()) accept both;
+# everything that needs the connection (pumf_sidecar(), the bootstrap weights,
+# pumf_pdf_crosscheck()) keeps .pumf_tbl_prov().
+.pumf_data_prov <- function(x, what = "'tbl'") {
+  if (inherits(x, "tbl_sql") || !is.data.frame(x))
+    return(.pumf_tbl_prov(x, what = what))
+  prov <- attr(x, "pumf_provenance", exact = TRUE)
+  if (is.null(prov))
+    stop(what, " must be a lazy tbl returned by get_pumf() or a data frame ",
+         "returned by collect_pumf().", call. = FALSE)
+  prov$lang <- prov$lang %||% "eng"
+  prov
+}
+
+# The provenance attribute collect_pumf() attaches: the record without the
+# connection, so a collected frame can be used after close_pumf().
+.pumf_prov_attr <- function(prov) {
+  list(series = prov$series, version = prov$version,
+       cache_path = prov$cache_path, lang = prov$lang %||% "eng",
+       module = prov$module)
 }
 
 # The arguments get_pumf() and the deprecated get_pumf_connection() validate
@@ -682,6 +708,38 @@ pumf_module <- function(tbl, module) {
 }
 
 
+# ---- variable labels of a table's columns ------------------------------------
+
+# The variable labels of the columns `cols` of a table with provenance `prov`,
+# in the table's language: `name`, `label` (disambiguated as "Label (NAME)"
+# where two variables share a label, as column names must be unique),
+# `plain` (the label as documented) and `description` (the longer text of
+# variables.csv, NA for most surveys).  The derived LFS helper columns of
+# add_lfs_columns() are included.  label_pumf_columns() renames by `label`;
+# collect_pumf() attaches `plain` and `description` as column attributes.
+.pumf_tbl_var_labels <- function(prov, cols) {
+  label_col <- .pumf_label_col(prov$lang)
+  desc_col  <- if (prov$lang == "eng") "description_en" else "description_fr"
+  variables <- .pumf_label_source(prov)
+  map <- .pumf_var_label_map(variables, label_col)
+  idx <- match(map$name, variables$name)
+  map$plain       <- variables[[label_col]][idx]
+  map$description <- if (desc_col %in% names(variables))
+    as.character(variables[[desc_col]][idx]) else rep(NA_character_, nrow(map))
+  map <- map[map$name %in% cols, , drop = FALSE]
+
+  derived <- .pumf_derived_var_rows(map$name, only = cols)
+  if (nrow(derived) > 0L)
+    map <- rbind(map, data.frame(name = derived$name,
+                                 label = derived[[label_col]],
+                                 plain = derived[[label_col]],
+                                 description = NA_character_,
+                                 stringsAsFactors = FALSE))
+  rownames(map) <- NULL
+  map
+}
+
+
 # ---- label_pumf_columns -----------------------------------------------------
 
 #' Rename PUMF table columns to human-readable variable labels
@@ -689,19 +747,26 @@ pumf_module <- function(tbl, module) {
 #' Takes a lazy `dplyr::tbl()` returned by [get_pumf()] and returns the same
 #' lazy table with column names replaced by the variable labels from the survey
 #' metadata (e.g. `PHHSIZE` becomes `"Household size"`).  Duplicate labels are
-#' disambiguated by appending ` (VAR_NAME)`.
+#' disambiguated by appending ` (VAR_NAME)`.  A data frame returned by
+#' [collect_pumf()] is renamed the same way.
+#'
+#' Renaming makes a table readable but trades away the coded names that
+#' analysis code and the metadata use.  [collect_pumf()] keeps the names and
+#' attaches each label as the column's `label` attribute instead.
 #'
 #' The `tbl` must have been produced by [get_pumf()]; the function reads survey
 #' provenance (series, version, cache path, language) from the underlying
-#' DuckDB connection.  Use `pumf_dictionary(tbl, what = "variables")` to
-#' inspect the name-to-label mapping without renaming.
+#' DuckDB connection, or from the `pumf_provenance` attribute of a
+#' [collect_pumf()] data frame.  Use `pumf_dictionary(tbl, what = "variables")`
+#' to inspect the name-to-label mapping without renaming.
 #'
-#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()].
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()], or a data frame
+#'   returned by [collect_pumf()].
 #'
-#' @return A lazy `dplyr::tbl()` with column names replaced by human-readable
-#'   variable labels.  Columns with no metadata label are left unchanged.
+#' @return `tbl` with column names replaced by human-readable variable labels.
+#'   Columns with no metadata label are left unchanged.
 #'
-#' @seealso [pumf_dictionary()], [get_pumf()]
+#' @seealso [collect_pumf()], [pumf_dictionary()], [get_pumf()]
 #'
 #' @examples
 #' \donttest{
@@ -714,28 +779,100 @@ pumf_module <- function(tbl, module) {
 #' }
 #' @export
 label_pumf_columns <- function(tbl) {
-  prov      <- .pumf_tbl_prov(tbl)
-  label_col <- .pumf_label_col(prov$lang)
-  variables <- .pumf_label_source(prov)
-
-  var_labels <- .pumf_var_label_map(variables, label_col)
-
-  # Only rename columns present in the tbl
-  tbl_cols   <- colnames(tbl)
-  var_labels <- var_labels[var_labels$name %in% tbl_cols, , drop = FALSE]
-
-  # Inject labels for derived LFS helper columns that are not in the metadata.
-  derived <- .pumf_derived_var_rows(var_labels$name, only = tbl_cols)
-  if (nrow(derived) > 0L)
-    var_labels <- rbind(var_labels,
-                        data.frame(name  = derived$name,
-                                   label = derived[[label_col]],
-                                   stringsAsFactors = FALSE))
-
-  if (nrow(var_labels) == 0L) return(tbl)
-
-  rename_map <- stats::setNames(var_labels$name, var_labels$label)
+  prov <- .pumf_data_prov(tbl)
+  map  <- .pumf_tbl_var_labels(prov, colnames(tbl))
+  if (nrow(map) == 0L) return(tbl)
+  rename_map <- stats::setNames(map$name, map$label)
   rename(tbl, !!!rename_map)
+}
+
+
+# ---- collect_pumf -----------------------------------------------------------
+
+#' Collect a PUMF table with its variable labels
+#'
+#' Loads a lazy table from [get_pumf()] into memory, like `dplyr::collect()`,
+#' and attaches the survey's variable labels to the result.  By default the
+#' column names stay as coded (`PROV`, `PUMFID`), so code written against the
+#' metadata keeps working, and each column carries its label (`"Province"`)
+#' as its `label` attribute, the convention of haven, labelled, and the RStudio
+#' data viewer: `attr(df$PROV, "label")`, `labelled::var_label(df)` and
+#' `labelled::look_for(df)` read it, and gt, gtsummary and ggplot helpers use
+#' it for headings and axis titles.  Where the metadata has a longer
+#' description of a variable (the `description_en`/`description_fr` columns of
+#' `variables.csv`), it is attached as the `description` attribute.
+#'
+#' The data frame also carries the table's provenance (series, version,
+#' language, module, cache path) in its `pumf_provenance` attribute, so
+#' [pumf_dictionary()], [pumf_translate()] and [label_pumf_columns()] work on
+#' it after the connection is closed.  Column attributes survive `filter()`,
+#' `select()`, `arrange()`, `mutate()` and joins on the left table, and
+#' arithmetic on a column carries them along as in base R; a column
+#' `summarise()` computes starts without one, as with any labelled data.
+#' `r2parquet::data_to_parquet()` writes the `label` attributes into the
+#' parquet column metadata.
+#'
+#' @param tbl A lazy `dplyr::tbl()` returned by [get_pumf()], after any dplyr
+#'   verbs.
+#' @param labels How to attach the variable labels: `"attribute"` (default)
+#'   sets each column's `label` attribute and keeps the coded names;
+#'   `"name"` renames the columns to their labels, as [label_pumf_columns()]
+#'   does; `"none"` collects without labels (the provenance attribute is
+#'   still set).
+#' @param close If `TRUE`, the DuckDB connection behind `tbl` is closed with
+#'   [close_pumf()] after collecting.  Every tbl and module opened from the
+#'   same [get_pumf()] call shares that connection, so only do this when the
+#'   collected frame is all you need from it.
+#' @param ... Passed on to `dplyr::collect()` (`n = ` to collect the first
+#'   rows only).
+#'
+#' @return A tibble.  With `labels = "attribute"`, each column that is a
+#'   survey variable has a `label` attribute (and a `description` attribute
+#'   where the metadata has one); the tibble has a `pumf_provenance`
+#'   attribute.
+#'
+#' @seealso [label_pumf_columns()] to rename a lazy table instead,
+#'   [pumf_dictionary()] for the full dictionary, [pumf_translate()] to switch
+#'   the labels to the other language.
+#'
+#' @examples
+#' \donttest{
+#' sfs <- get_pumf("SFS", "2019")
+#' if (!is.null(sfs)) {
+#'   df <- sfs |>
+#'     dplyr::select(PREGION, PWEIGHT, PWNETWP) |>
+#'     collect_pumf(close = TRUE)
+#'   attr(df$PWNETWP, "label")
+#'   sapply(df, attr, "label")
+#'   pumf_dictionary(df, what = "variables")   # from the provenance attribute
+#' }
+#' }
+#' @export
+collect_pumf <- function(tbl, labels = c("attribute", "name", "none"),
+                         close = FALSE, ...) {
+  labels <- match.arg(labels)
+  if (!inherits(tbl, "tbl_sql"))
+    stop("'tbl' must be a lazy tbl returned by get_pumf().", call. = FALSE)
+  prov <- .pumf_tbl_prov(tbl)
+  map  <- if (labels == "none") NULL
+          else .pumf_tbl_var_labels(prov, colnames(tbl))
+
+  out <- dplyr::collect(tbl, ...)
+  if (isTRUE(close)) close_pumf(tbl)
+  attr(out, "pumf_provenance") <- .pumf_prov_attr(prov)
+
+  if (is.null(map) || nrow(map) == 0L) return(out)
+  if (labels == "name")
+    return(rename(out, !!!stats::setNames(map$name, map$label)))
+  for (i in seq_len(nrow(map))) {
+    v   <- map$name[i]
+    col <- out[[v]]
+    attr(col, "label") <- map$plain[i]
+    if (!is.na(map$description[i]))
+      attr(col, "description") <- map$description[i]
+    out[[v]] <- col
+  }
+  out
 }
 
 

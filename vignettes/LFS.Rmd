@@ -44,7 +44,7 @@ lfs_2022 |>
 
 By default the data is stored in the temporary session path, generally we want to make sure that the `canpumf.cache_path` option is set to a path to permanently cache the data.
 
-Values come labelled, but columns are not. People working regularly with the LFS data will likely want to keep the short default column names, they can be converted to human readable column labels using `label_pumf_columns` function.
+Values come labelled, but columns are not. People working regularly with the LFS data will likely want to keep the short default column names, they can be converted to human readable column labels using `label_pumf_columns` function. (`collect_pumf()` is the alternative when loading into memory: it keeps the coded names and attaches the labels as column attributes.)
 
 ```{r}
 lfs_2022 <- lfs_2022 |> label_pumf_columns()
@@ -55,7 +55,7 @@ With this we can do some simple descriptive analysis. We could use the `add_boot
 ```{r}
 lfs_2022_02_data <- lfs_2022 |> 
   filter(`Survey month`==2) |>
-  collect() |>
+  collect_pumf() |>
   add_bootstrap_weights(weight_col = "Standard final weight", seed = 42)
 ```
 
@@ -188,7 +188,7 @@ unemployment_stats |>
        caption="StatCan LFS (PUMF)")
 ```
 
-Before plotting we could call `collect`, but this does not need to be done explicitly. 
+Before plotting we could call `collect_pumf()`, but this does not need to be done explicitly. 
 
 Because the data is efficiently organised in DuckDB, this query runs quite fast despite no explicit indexing of the database, taking less than half a second.
 
@@ -229,7 +229,7 @@ Statistics Canada posts the LFS PUMF for 2006 onward. The monthly files for Janu
 lfs_hist_1995_06 <- get_pumf("LFS_HIST", "1995-06")  # one month
 lfs_hist_1995_06 |> 
   count(LFSSTAT, wt = FWEIGHT) |>
-  collect()
+  collect_pumf()
 ```
 
 A year (`"1995"`) loads all twelve months, and `refresh = "auto"` loads every month that is not yet in the database. The first full load downloads all 360 monthly files and takes a couple of hours. After that everything is read from the cache.
@@ -267,7 +267,7 @@ lf_monthly <- lfs_tl |>
             unemployed = sum(FINALWT[LFSSTAT == "Unemployed"], na.rm = TRUE),
             .by = c(SURVDATE, GENDER_SEX)) |>
   mutate(rate = unemployed / labour_force) |>
-  collect()
+  collect_pumf()
 
 lf_monthly |>
   ggplot(aes(x = SURVDATE, y = rate, colour = GENDER_SEX)) +
@@ -295,7 +295,7 @@ participation <- lfs_tl |>
             labour_force = sum(FINALWT[LFSSTAT != "Not in labour force"], na.rm = TRUE),
             .by = c(SURVYEAR, GENDER_SEX)) |>
   mutate(rate = labour_force / population) |>
-  collect()
+  collect_pumf()
 
 participation |>
   ggplot(aes(x = SURVYEAR, y = rate, colour = GENDER_SEX)) +
@@ -315,7 +315,7 @@ lfs_tl |>
          !is.na(HRLYEARN)) |>
   summarise(wage = sum(HRLYEARN * FINALWT) / sum(FINALWT),
             .by = c(SURVYEAR, CMA)) |>
-  collect() |>
+  collect_pumf() |>
   ggplot(aes(x = SURVYEAR, y = wage, colour = CMA)) +
   geom_line() +
   scale_y_continuous(labels = scales::dollar) +

@@ -14,14 +14,17 @@ pumf_translate(
 }
 \arguments{
 \item{x}{A data frame.  Grouped tibbles keep their grouping.  A lazy tbl is
-rejected: `collect()` it first.}
+rejected: `collect()` it first.  A frame from [collect_pumf()] needs no
+`dict`, and its `label` (and `description`) column attributes are
+translated along with the rest.}
 
 \item{to}{Target language, `"fra"` (default) or `"eng"`.  The source
 language is the other one.}
 
 \item{dict}{The survey dictionary from [pumf_dictionary()], or the lazy tbl
-from [get_pumf()] the result was computed from (its dictionary is looked
-up).  May be `NULL` when `custom` covers every label.}
+from [get_pumf()] (or data frame from [collect_pumf()]) the result was
+computed from (its dictionary is looked up).  May be `NULL` when `x` is a
+[collect_pumf()] frame or `custom` covers every label.}
 
 \item{custom}{Translations for labels the dictionary does not know.  Either
 a named character vector read in the direction of the translation

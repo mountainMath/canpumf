@@ -72,7 +72,7 @@ for each:
   table is stored in the DuckDB file or is temporary depends on how the survey
   table was opened (next section). Stored weights are **reused by subsequent
   calls** instead of being recomputed.
-* **An in-memory `data.frame` / `tibble`** (e.g. after `collect()`). The
+* **An in-memory `data.frame` / `tibble`** (e.g. after `collect_pumf()`). The
   weights are generated in memory and the augmented data frame is returned.
   Nothing is persisted.
 
@@ -134,7 +134,7 @@ The weights always cover the complete survey table. For a temporary table that
 is rows x replicates x 8 bytes, which is small for most surveys and several
 gigabytes for the Census or the full LFS; `add_bootstrap_weights()` warns
 before it builds a temporary table of more than about 2 GB. Store such weights
-through a write connection, or `collect()` the rows of interest and add the
+through a write connection, or `collect_pumf()` the rows of interest and add the
 weights to the data frame.
 
 ## Identifying rows
@@ -189,7 +189,7 @@ applies to any weighted statistic — replace `sum(.x)` with your estimator
 ```{r}
 est <- cis_bsw |>
   summarise(across(c(FWEIGHT, matches("^CPBSW[0-9]+$")), ~ sum(.x))) |>
-  collect()
+  collect_pumf()
 
 point_estimate      <- est$FWEIGHT
 replicate_estimates <- est |> select(matches("^CPBSW[0-9]+$")) |> unlist()

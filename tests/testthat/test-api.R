@@ -234,6 +234,124 @@ test_that("label_pumf_columns: renames columns using variable labels", {
   expect_equal(nrow(result), 3L)
 })
 
+# ---- collect_pumf -----------------------------------------------------------
+
+test_that("collect_pumf: keeps coded names and attaches label attributes", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
+  on.exit(close_pumf(tbl))
+
+  df <- collect_pumf(tbl)
+  expect_s3_class(df, "tbl_df")
+  expect_named(df, c("pumf_row_id", "PROV", "WEIGHT"))
+  expect_equal(nrow(df), 3L)
+  expect_equal(attr(df$PROV, "label"), "Province")
+  expect_equal(attr(df$WEIGHT, "label"), "Survey weight")
+  expect_null(attr(df$pumf_row_id, "label"))      # not a survey variable
+  expect_null(attr(df$PROV, "description"))       # none documented
+  expect_s3_class(df$PROV, "factor")               # ENUM levels kept
+  expect_equal(levels(df$PROV), c("Newfoundland", "Ontario"))
+
+  prov <- attr(df, "pumf_provenance")
+  expect_equal(prov[c("series", "version", "lang")],
+               list(series = "FAKE", version = "2099", lang = "eng"))
+  expect_null(prov$con)
+  expect_true(DBI::dbIsValid(tbl$src$con))         # close = FALSE
+})
+
+test_that("collect_pumf: labels follow dplyr verbs, French build, n =", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", lang = "fra", cache_path = tmp))
+  on.exit(close_pumf(tbl))
+
+  df <- tbl |> dplyr::select(PROV, WEIGHT) |> collect_pumf(n = 2)
+  expect_equal(nrow(df), 2L)
+  expect_equal(attr(df$WEIGHT, "label"), "Poids")
+  expect_equal(attr(df, "pumf_provenance")$lang, "fra")
+
+  # Column attributes survive filter/arrange/select and a mutate of another
+  # column.  Arithmetic carries them (base R), a fresh column has none.
+  kept <- df |> dplyr::filter(!is.na(WEIGHT)) |> dplyr::arrange(WEIGHT) |>
+    dplyr::mutate(w2 = WEIGHT * 2, n = dplyr::row_number()) |>
+    dplyr::select(PROV, WEIGHT, w2, n)
+  expect_equal(attr(kept$PROV, "label"), "Province")
+  expect_equal(attr(kept$WEIGHT, "label"), "Poids")
+  expect_equal(attr(kept$w2, "label"), "Poids")
+  expect_null(attr(kept$n, "label"))
+  expect_null(attr(dplyr::count(df, PROV)$n, "label"))
+  expect_equal(attr(kept, "pumf_provenance")$series, "FAKE")
+})
+
+test_that("collect_pumf: labels = \"name\" renames, \"none\" only collects", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
+  on.exit(close_pumf(tbl))
+
+  named <- collect_pumf(tbl, labels = "name")
+  expect_named(named, c("pumf_row_id", "Province", "Survey weight"))
+  attr(named, "pumf_provenance") <- NULL
+  expect_equal(named, label_pumf_columns(tbl) |> dplyr::collect())
+
+  bare <- collect_pumf(tbl, labels = "none")
+  expect_named(bare, c("pumf_row_id", "PROV", "WEIGHT"))
+  expect_null(attr(bare$PROV, "label"))
+  expect_equal(attr(bare, "pumf_provenance")$version, "2099")
+
+  expect_error(collect_pumf(tbl, labels = "both"), "arg")
+  expect_error(collect_pumf(data.frame(x = 1)), "lazy tbl")
+})
+
+test_that("collect_pumf: close = TRUE releases the connection; the frame keeps working", {
+  tmp <- withr::local_tempdir()
+  make_e2e_version_dir(tmp)
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
+  con <- tbl$src$con
+
+  df <- tbl |> dplyr::filter(!is.na(WEIGHT)) |> collect_pumf(close = TRUE)
+  expect_false(DBI::dbIsValid(con))
+  expect_equal(nrow(df), 2L)
+  expect_equal(attr(df$PROV, "label"), "Province")
+
+  # Provenance travels with the frame: dictionary, renaming and translation
+  # work after the connection is gone.
+  vars <- pumf_dictionary(df, what = "variables")
+  expect_setequal(vars$name, c("PROV", "WEIGHT"))
+  expect_named(label_pumf_columns(df), c("pumf_row_id", "Province", "Survey weight"))
+  fr <- pumf_translate(df, "fra", warn = FALSE)
+  expect_equal(levels(fr$PROV), c("Terre-Neuve", "Ontario"))
+  expect_equal(attr(fr$WEIGHT, "label"), "Poids")
+
+  # A frame that never came from collect_pumf() is still refused.
+  plain <- as.data.frame(df)
+  attr(plain, "pumf_provenance") <- NULL
+  expect_error(label_pumf_columns(plain), "collect_pumf")
+  expect_error(pumf_dictionary(plain), "series name")
+})
+
+test_that("collect_pumf: attaches the description attribute where documented", {
+  tmp <- withr::local_tempdir()
+  vdir <- make_e2e_version_dir(tmp)
+  vars <- readr::read_csv(file.path(vdir, "metadata", "variables.csv"),
+                          show_col_types = FALSE)
+  vars$description_en <- c("Province of residence of the respondent", NA)
+  vars$description_fr <- c("Province de r\u00e9sidence du r\u00e9pondant", NA)
+  readr::write_csv(vars, file.path(vdir, "metadata", "variables.csv"))
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
+  on.exit(close_pumf(tbl))
+
+  df <- collect_pumf(tbl)
+  expect_equal(attr(df$PROV, "description"),
+               "Province of residence of the respondent")
+  expect_null(attr(df$WEIGHT, "description"))
+  fr <- pumf_translate(df, "fra", warn = FALSE)
+  expect_equal(attr(fr$PROV, "description"),
+               "Province de r\u00e9sidence du r\u00e9pondant")
+  expect_equal(attr(fr$PROV, "label"), "Province")
+})
+
 test_that("get_pumf: lang=fra returns French labels", {
   tmp <- withr::local_tempdir()
   make_e2e_version_dir(tmp)

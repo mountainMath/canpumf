@@ -14,7 +14,8 @@ pumf_dictionary(
 }
 \arguments{
 \item{x}{A lazy `dplyr::tbl()` returned by [get_pumf()] or
-`get_pumf("LFS_TIMELINE")` ([lfs_timeline]), or a series name (`"SFS"`).}
+`get_pumf("LFS_TIMELINE")` ([lfs_timeline]), a data frame returned by
+[collect_pumf()], or a series name (`"SFS"`).}
 
 \item{version}{The version, when `x` is a series name; the aliases
 [get_pumf()] accepts work here too (`"2021"` for the Census individuals

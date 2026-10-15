@@ -63,7 +63,7 @@ The `version` names the cache directory, and later calls to `get_pumf("SHS", "19
 
 No account is needed. If the `BOREALIS_DATAVERSE_KEY` environment variable is set, it is sent to Borealis as the API key, which gives access to restricted files the key's owner is entitled to.
 
-`get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `dplyr::collect()` to load into memory.
+`get_pumf()` downloads (if needed), parses metadata, applies value labels automatically, and returns a lazy `dplyr::tbl()` backed by a local DuckDB database. Call `collect_pumf()` (or `dplyr::collect()`) to load into memory.
 
 Column values are labeled automatically (e.g. province codes become factor levels like `"British Columbia"`). When several codes of one variable carry the same label and at least two of them occur in the data, every one of them gets its code appended (`"Other (3)"`, `"Other (6)"`), so no two codes share a level. Column *names* remain as short coded names by default (e.g. `PROV`, `LFSSTAT`). To rename columns to human-readable variable labels, pipe through `label_pumf_columns()`:
 
@@ -74,16 +74,26 @@ tbl <- get_pumf("LFS", "2022") |>
 
 When done querying, release the DuckDB connection with `close_pumf(tbl)`.
 
+Renaming is handy for display but trades away the coded names that code written against the metadata uses. `collect_pumf()` keeps both: it collects the table like `dplyr::collect()`, leaves the names alone and attaches each variable label as the column's `label` attribute, the convention haven, labelled and the RStudio data viewer share (`labelled::look_for()`, gt and ggplot helpers pick it up). The collected frame also carries its provenance, so `pumf_dictionary()`, `pumf_translate()` and `label_pumf_columns()` work on it after the connection is closed:
+
+```r
+df <- get_pumf("SFS", "2019") |>
+  select(PREGION, PWEIGHT, PWNETWP) |>
+  collect_pumf(close = TRUE)        # close = TRUE releases the connection
+attr(df$PWNETWP, "label")           # "Net worth (assets less debts)"
+pumf_translate(df, "fra")           # levels and label attributes in French
+```
+
 ### Reporting in the other language
 
-An analysis is usually carried out in one language, but results are sometimes needed in both. Every survey's metadata is bilingual, so a finished result can be relabelled without a second build. `pumf_dictionary()` returns the variable and value labels in both languages, and `pumf_translate()` applies them to a collected data frame: factor levels, values of survey variables and labelled column names are translated, everything else is left alone.
+An analysis is usually carried out in one language, but results are sometimes needed in both. Every survey's metadata is bilingual, so a finished result can be relabelled without a second build. `pumf_dictionary()` returns the variable and value labels in both languages, and `pumf_translate()` applies them to a collected data frame: factor levels, values of survey variables, labelled column names and the `label` attributes of a `collect_pumf()` frame are translated, everything else is left alone. A `collect_pumf()` frame knows its survey, so no `dict` is needed; pass `dict = sfs` for a plain `collect()` result.
 
 ```r
 sfs <- get_pumf("SFS", "2019")
 res <- sfs |>
   count(PREGION, wt = PWEIGHT) |>
-  collect()
-pumf_translate(res, "fra", dict = sfs)     # "Atlantique", "Québec", ...
+  collect_pumf()
+pumf_translate(res, "fra")                 # "Atlantique", "Québec", ...
 ```
 
 Levels the analysis introduced (`fct_collapse()`, a `case_when()` recode) are kept and reported once. Add their translations with `custom = c(West = "Ouest")`, or as a data frame with `label_en` and `label_fr` columns.
@@ -150,7 +160,7 @@ tl |>
   dplyr::summarise(employed = sum(FINALWT[LFSSTAT %in% c("Employed, at work",
                                                          "Employed, absent from work")]),
                    .by = SURVYEAR) |>
-  dplyr::collect()
+  collect_pumf()
 close_pumf(tl)
 ```
 

@@ -136,7 +136,7 @@ So the first thing to try with any new bare-year release is simply:
 
 ```{r try-it, eval = FALSE}
 tbl <- get_pumf("CHS", "2025")
-tbl |> label_pumf_columns() |> head() |> collect()
+tbl |> head() |> collect_pumf(labels = "name")
 ```
 
 If the columns look right and the labels resolve, you are done — go to
@@ -260,8 +260,8 @@ When the metadata is clean and the fixups are in place, do the full build:
 ```{r build, eval = FALSE}
 tbl <- get_pumf("NEWSURVEY", "2025", registry = entry, refresh = TRUE)
 
-tbl |> label_pumf_columns() |> head() |> collect()   # spot-check labels
-tbl |> count() |> collect()                           # row count sanity check
+tbl |> head() |> collect_pumf(labels = "name")     # spot-check labels
+tbl |> count() |> collect_pumf()                      # row count sanity check
 bsw_info(tbl)                                         # source = "survey": the replicate weights were joined
 ```
 

@@ -7,23 +7,30 @@
 label_pumf_columns(tbl)
 }
 \arguments{
-\item{tbl}{A lazy `dplyr::tbl()` returned by [get_pumf()].}
+\item{tbl}{A lazy `dplyr::tbl()` returned by [get_pumf()], or a data frame
+returned by [collect_pumf()].}
 }
 \value{
-A lazy `dplyr::tbl()` with column names replaced by human-readable
-  variable labels.  Columns with no metadata label are left unchanged.
+`tbl` with column names replaced by human-readable variable labels.
+  Columns with no metadata label are left unchanged.
 }
 \description{
 Takes a lazy `dplyr::tbl()` returned by [get_pumf()] and returns the same
 lazy table with column names replaced by the variable labels from the survey
 metadata (e.g. `PHHSIZE` becomes `"Household size"`).  Duplicate labels are
-disambiguated by appending ` (VAR_NAME)`.
+disambiguated by appending ` (VAR_NAME)`.  A data frame returned by
+[collect_pumf()] is renamed the same way.
 }
 \details{
+Renaming makes a table readable but trades away the coded names that
+analysis code and the metadata use.  [collect_pumf()] keeps the names and
+attaches each label as the column's `label` attribute instead.
+
 The `tbl` must have been produced by [get_pumf()]; the function reads survey
 provenance (series, version, cache path, language) from the underlying
-DuckDB connection.  Use `pumf_dictionary(tbl, what = "variables")` to
-inspect the name-to-label mapping without renaming.
+DuckDB connection, or from the `pumf_provenance` attribute of a
+[collect_pumf()] data frame.  Use `pumf_dictionary(tbl, what = "variables")`
+to inspect the name-to-label mapping without renaming.
 }
 \examples{
 \donttest{
@@ -36,5 +43,5 @@ if (!is.null(sfs)) {
 }
 }
 \seealso{
-[pumf_dictionary()], [get_pumf()]
+[collect_pumf()], [pumf_dictionary()], [get_pumf()]
 }

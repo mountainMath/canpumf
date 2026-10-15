@@ -64,6 +64,19 @@ in a later release.
 * **New `pumf_dictionary()` returns the survey's variable and value labels in both languages** as one tibble (`name`, `val`, `label_en`, `label_fr`), from a `get_pumf()` tbl or a series/version pair. It is the lookup `pumf_translate()` uses, module-aware, merged across every loaded version for `"LFS"` and `"LFS_HIST"`, and available for `get_pumf("LFS_TIMELINE")`. It also carries the registry's labels for Census sentinel codes. The longitudinal spec gained a `codes()` accessor beside `variables()`.
 * `pumf_registry_entry()` now recognises `sentinel_labels` as a `data_fixups` field instead of warning about it.
 
+## Variable labels as column attributes (#33)
+
+* **`collect_pumf(tbl, labels, close)`** collects a `get_pumf()` table and
+  keeps its coded column names, attaching each variable label as the column's
+  `label` attribute (the haven/labelled convention the RStudio viewer, gt and
+  `labelled::look_for()` read), plus a `description` attribute where the
+  metadata has one.  `labels = "name"` renames instead, as
+  `label_pumf_columns()` does; `close = TRUE` closes the connection after
+  collecting.  The frame carries a `pumf_provenance` attribute, so
+  `pumf_dictionary()`, `label_pumf_columns()` and `pumf_translate()` (which
+  then needs no `dict`, and translates the attributes too) work on it after
+  `close_pumf()`.
+
 ## Unique value labels
 
 * **Codes of one variable that share a label are now kept apart.** The command files give several codes the same label more often than one would hope: genuinely shared categories (Census 1986 `HHMOTG` "Other" on 3 and 6, ITS 2018 `VSTRC01` "Northern" on the region codes 0635 and 0730, PALS 2001 `NAICSPALS` "Not applicable" on 01 and 93), scale points printed as `|`, `???` or `...` across a whole code range (CHSS `PSC_075`, GSS 31 `SLM_01`, GSS 17 `LS_Q110`), and truncated labels that collide. The factor built from such labels merged the categories and lost the code. The build now checks the data: when at least two codes sharing a label occur, every member of the group gets its code appended, per language: `"Other (3)"`, `"Other (6)"`. A label whose other codes never occur stays as documented (CHS 2018 `PITM_05` declares 5 and 8 both "Do not know" but only 8 appears), so 100 variables in 22 survey versions of the verified datasets gain a suffix and 22 more keep their label. A collision in English alone leaves the French labels untouched. The same rule applies to the sentinel sidecar (two sentinel codes labelled `NA` by the registry become `NA (99)` and `NA (999)`) and to the source labels the LFS timeline maps; none of the LFS or LFS_HIST variables is affected. Stage 3 records the labels it applied in `metadata/codes_applied.csv`, which `pumf_dictionary()` (and therefore `pumf_translate()`) reads, so the dictionary matches the table by construction; for a cache built before 0.7.0 it returns the documented labels, which is what such a table shows. Existing caches keep the merged levels until they are rebuilt with `refresh = TRUE`.

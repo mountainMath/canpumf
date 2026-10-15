@@ -33,13 +33,13 @@ Statistics Canada codes non-responses in the dollar variables as sentinel values
 ```{r}
 pumf_sidecar(census_2021, "sentinels") |>
   count(TOTINC) |>
-  collect()
+  collect_pumf()
 
 census_2021 |>
   pumf_sidecar("sentinels", join = TRUE) |>
   filter(is.na(TOTINC)) |>
   count(AGEGRP, TOTINC_sentinel) |>
-  collect()
+  collect_pumf()
 ```
 
 
@@ -72,7 +72,7 @@ census_2021 |>
   filter(AGEGRP!="Not available") |>
   summarise(across(matches("WEIGHT|WT\\d+"),sum),
             .by=c(CMA,AGEGRP,PRIHM)) |>
-  collect() |>
+  collect_pumf() |>
   tidyr::pivot_longer(matches("WT\\d+"),names_to="Weights") |>
   mutate(Share=WEIGHT/sum(WEIGHT),
          Share_bsw=value/sum(value),
@@ -99,7 +99,7 @@ census_2021 |>
   add_bootstrap_weights("WEIGHT") |>
   summarise(across(matches("WEIGHT|WT\\d+|CPBSW\\d+"),sum),
             .by=c(CMA,AGEGRP,PRIHM)) |>
-  collect() |>
+  collect_pumf() |>
   tidyr::pivot_longer(matches("CPBSW\\d+"),names_to="Weights") |>
   mutate(Share=WEIGHT/sum(WEIGHT),
          Share_bsw=value/sum(value),

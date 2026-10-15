@@ -110,6 +110,35 @@ test_that("pumf_translate: labelled column names are translated too", {
   expect_equal(levels(fr$Province), c("Terre-Neuve", "Ontario"))
 })
 
+test_that("pumf_translate: a collect_pumf() frame needs no dict and keeps its attributes current", {
+  tmp <- withr::local_tempdir()
+  tbl <- .fake_tbl(tmp)
+  on.exit(close_pumf(tbl))
+  df <- collect_pumf(tbl)
+
+  fr <- pumf_translate(df, "fra", warn = FALSE)
+  expect_named(fr, c("pumf_row_id", "PROV", "WEIGHT"))   # coded names stay
+  expect_equal(levels(fr$PROV), c("Terre-Neuve", "Ontario"))
+  expect_equal(attr(fr$WEIGHT, "label"), "Poids")
+  expect_equal(attr(fr$PROV, "label"), "Province")
+  expect_equal(attr(fr, "pumf_provenance")$lang, "fra")
+  # The frame now reads as French: renaming and the dictionary follow.
+  expect_named(label_pumf_columns(fr), c("pumf_row_id", "Province", "Poids"))
+
+  back <- pumf_translate(fr, "eng", warn = FALSE)
+  expect_equal(attr(back$WEIGHT, "label"), "Survey weight")
+  expect_equal(levels(back$PROV), c("Newfoundland", "Ontario"))
+  expect_equal(attr(back, "pumf_provenance")$lang, "eng")
+
+  # An explicit dict still works, and so does the frame as the dict of a
+  # summary computed from it.
+  expect_equal(pumf_translate(df, "fra", dict = tbl, warn = FALSE)$PROV, fr$PROV)
+  res <- dplyr::count(df, PROV)
+  res_fr <- pumf_translate(res, "fra", dict = df, warn = FALSE)
+  expect_equal(levels(res_fr$PROV), c("Terre-Neuve", "Ontario"))
+  expect_equal(attr(res_fr$PROV, "label"), "Province")
+})
+
 test_that("pumf_translate: an unknown level is kept and warned about once", {
   tmp <- withr::local_tempdir()
   tbl <- .fake_tbl(tmp)
