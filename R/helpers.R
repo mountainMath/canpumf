@@ -42,8 +42,7 @@ find_unique_layout_file <- function(layout_path, pattern, path_or_pattern = NULL
   # "invalid multibyte string" (Windows) or silently fails to translate the
   # name to a wide string and drops the file (Linux).  zip::unzip() extracts
   # the stored bytes verbatim and is locale-agnostic on all platforms.
-  if (requireNamespace("zip", quietly = TRUE) &&
-      tryCatch({ zip::unzip(path, exdir = exdir); TRUE },
+  if (tryCatch({ zip::unzip(path, exdir = exdir); TRUE },
                error = function(e) FALSE))
     return(invisible(NULL))
 
@@ -131,7 +130,14 @@ robust_unzip <- function(path, exdir) {
 
 # download.file() wrapper that converts any failure -- unreachable host, HTTP
 # error, or a truncated/empty result -- into a canpumf_network_error condition.
-.pumf_download <- function(url, destfile, ..., source = "Statistics Canada") {
+# The download runs with getOption("timeout") raised to at least `timeout`
+# seconds (StatCan zips and Borealis bundles are large); the option is restored
+# on exit.
+.pumf_download <- function(url, destfile, ..., source = "Statistics Canada",
+                           timeout = 600L) {
+  old_timeout <- getOption("timeout")
+  options(timeout = max(timeout, old_timeout))
+  on.exit(options(timeout = old_timeout), add = TRUE)
   status <- tryCatch(utils::download.file(url, destfile, ...),
                      error = function(e) 1L)
   ok <- identical(as.integer(status), 0L) &&
@@ -149,14 +155,14 @@ robust_unzip <- function(path, exdir) {
 # Open a DuckDB connection that never registers in the RStudio Connections pane.
 #
 # Used for the many short-lived internal connections (status checks, write
-# phases, BSW edits, lock probes) that are opened and disconnected within a
+# phases, lock probes) that are opened and disconnected within a
 # single call.  Registering these in the pane — and tearing them down moments
 # later, often while another connection to the *same* database file is still
 # open — is what triggers RStudio's "Error in dbSendQuery(conn, statement, ...)"
 # pane popups: the pane observer enumerates objects on a handle that has already
 # been shut down, or on a duplicate entry for the same database file.  Only the
-# final connection returned to the user (via pumf_open_duckdb() / .lfs_open_tbl(),
-# and the BSW read-only reopen) should ever appear in the pane; those honour
+# final connection returned to the user (via pumf_open_duckdb() / .long_open_tbl())
+# should ever appear in the pane; those honour
 # getOption("canpumf.register_connection") via the option block in get_pumf().
 #
 # duckdb registers the connection synchronously inside dbConnect() when these
@@ -167,9 +173,126 @@ robust_unzip <- function(path, exdir) {
   old <- options(duckdb.enable_rstudio_connection_pane = FALSE,
                  duckdb.force_rstudio_connection_pane  = FALSE)
   on.exit(options(old), add = TRUE)
-  DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = read_only, ...)
+  .duckdb_connect(dbdir, read_only = read_only, ...)
 }
 
+# Open a DuckDB file, whatever in-process instance of it already exists.
+#
+# duckdb keeps one instance per file and process, read-only or read-write as
+# first opened.  Up to 1.5.5 a dbConnect() asking for the other mode was handed
+# that instance and its read_only argument was ignored; from 1.5.6 it fails.
+#   - read_only = TRUE while the process holds the file read-write (a
+#     get_pumf_connection(), a get_pumf(read_only = FALSE) tbl): share that
+#     instance, as before.  No lock is taken, the instance already exists.
+#   - read_only = FALSE while it holds the file read-only (a get_pumf() tbl):
+#     no write is possible until that tbl is closed, so say so.  Earlier duckdb
+#     versions return a connection here that fails on its first write, which
+#     .assert_duckdb_writable() detects.
+# Registers in the RStudio Connections pane as a plain dbConnect() does; the
+# internal short-lived connections use .duckdb_connect_quiet().
+#
+# Disconnecting: a transient read-only probe (a versions-table read, an
+# existence check; .long_with_readonly_con(), .duckdb_table_exists()) ends
+# with dbDisconnect(shutdown = FALSE), so that it never shuts down an
+# instance the session shares with a user's open tbl; its own read-only
+# instance is released with the connection and does not block a later
+# read-write open.  A write phase and the connection handed back to the user
+# (.long_close_tbl(), close_pumf()) shut down with shutdown = TRUE, which
+# releases the file lock.
+.duckdb_connect <- function(dbdir, read_only = FALSE, ...) {
+  tryCatch(
+    DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = read_only, ...),
+    error = function(e) {
+      if (!.is_duckdb_read_only_mismatch(e)) stop(e)
+      if (!isTRUE(read_only)) .stop_duckdb_read_only_held(dbdir)
+      DBI::dbConnect(duckdb::duckdb(), dbdir = dbdir, read_only = FALSE, ...)
+    })
+}
+
+# TRUE when `e` is duckdb's (>= 1.5.6) refusal to open a file whose in-process
+# instance was created with the other read_only setting.
+.is_duckdb_read_only_mismatch <- function(e) {
+  grepl("`read_only`.*can.t be applied to the database instance",
+        conditionMessage(e))
+}
+
+# The error for a write attempted on a file the process holds open read-only.
+.stop_duckdb_read_only_held <- function(db_path) {
+  stop(structure(
+    class = c("canpumf_read_only_held", "error", "condition"),
+    list(message = paste0(
+           "'", basename(db_path), "' is held open by a read-only connection ",
+           "(e.g. a tbl from get_pumf()).\n",
+           "Close it first with close_pumf(tbl) and then retry."),
+         call = NULL)))
+}
+
+
+# ---- Small shared helpers ----------------------------------------------------
+
+# SQL identifier / string literal quoting, vectorised, as plain character so
+# the result can go through sprintf()/paste().  Every hand-built '"%s"' in a
+# statement should be one of these.
+.qid  <- function(con, x) as.character(DBI::dbQuoteIdentifier(con, x))
+.qstr <- function(con, x) as.character(DBI::dbQuoteString(con, x))
+
+# The label column of variables.csv / codes.csv for a language.
+.pumf_label_col <- function(lang) if (lang == "eng") "label_en" else "label_fr"
+
+# First element of `x` as a string, NA for NULL (JSON field extraction).
+.chr1 <- function(x) if (is.null(x)) NA_character_ else as.character(x)[[1L]]
+
+# Evaluate `expr`; when it raises the classed `canpumf_network_error` (offline,
+# StatCan unreachable), print the message and return NULL so the caller can
+# return invisibly instead of erroring.
+.pumf_offline_null <- function(expr) {
+  tryCatch(expr, canpumf_network_error = function(e) {
+    message(conditionMessage(e)); NULL
+  })
+}
+
+# TRUE for the series whose tables live in a shared, multi-version database:
+# the longitudinal series and the LFS_TIMELINE view over them.  These have no
+# per-version metadata directory, sidecars or build stamp.
+.is_shared_series <- function(series) {
+  .is_longitudinal(series) || identical(series, "LFS_TIMELINE")
+}
+
+# Read a data file with every column as character: fixed-width when `layout`
+# (a data frame with name/start/end) is given, CSV otherwise.  CSV column
+# names are upper-cased so they match the metadata; a fixed-width file takes
+# its names from the layout.
+.pumf_read_chr <- function(path, encoding, layout = NULL) {
+  loc <- readr::locale(encoding = encoding)
+  if (!is.null(layout)) {
+    return(readr::read_fwf(
+      path,
+      col_positions  = readr::fwf_positions(layout$start, layout$end,
+                                             col_names = layout$name),
+      col_types      = readr::cols(.default = "c"),
+      trim_ws        = TRUE,
+      locale         = loc,
+      show_col_types = FALSE))
+  }
+  data <- readr::read_csv(path, col_types = readr::cols(.default = "c"),
+                          locale = loc, show_col_types = FALSE)
+  names(data) <- toupper(names(data))
+  data
+}
+
+# Non-empty version directories of a series in the cache (the directory names),
+# optionally restricted to `pattern`.
+.pumf_version_dirs <- function(cache_path, series, pattern = NULL,
+                               non_empty = TRUE) {
+  dir <- file.path(cache_path, series)
+  if (!dir.exists(dir)) return(character(0L))
+  dirs <- list.dirs(dir, full.names = FALSE, recursive = FALSE)
+  if (!is.null(pattern)) dirs <- dirs[grepl(pattern, dirs)]
+  if (non_empty)
+    dirs <- dirs[vapply(dirs, function(d)
+      length(list.files(file.path(dir, d))) > 0L, logical(1L))]
+  dirs[nchar(dirs) > 0L]
+}
 
 #' @import dplyr
 #' @importFrom stats setNames na.omit
@@ -184,3 +307,66 @@ NULL
 ## quiets concerns of R CMD check re: NSE column names
 if (getRversion() >= "4.1")
   utils::globalVariables(c(".", "SURVMNTH", "SURVYEAR", "SEX", "GENDER"))
+
+# ---- Compressed data files ---------------------------------------------------
+# A downloaded data file stays compressed in the cache: readr, readLines() and
+# DuckDB's read_csv() all read a gzip file directly, so nothing ever needs the
+# uncompressed copy on disk.  .borealis_download_dataset() therefore stores a
+# CSV data file as `<name>.csv.gz` (see .borealis_download_csv_gz()).
+
+# TRUE for a CSV path, plain or gzip-compressed.
+.is_csv_path <- function(path) {
+  grepl("\\.csv(\\.gz)?$", path, ignore.case = TRUE)
+}
+
+# Copy the binary connection `inp` into the gzip file `dest` and close it.
+# Streams in chunks, so the memory use does not depend on the size.  Returns
+# the number of (uncompressed) bytes copied; a failed copy leaves no `dest`.
+.stream_to_gzip <- function(inp, dest, chunk = 16e6) {
+  done <- FALSE
+  out  <- gzfile(dest, "wb", compression = 6L)
+  on.exit({
+    close(inp)
+    close(out)
+    if (!done) unlink(dest)
+  }, add = TRUE)
+  n <- 0
+  repeat {
+    buf <- readBin(inp, "raw", n = chunk)
+    if (length(buf) == 0L) break
+    writeBin(buf, out)
+    n <- n + length(buf)
+  }
+  done <- TRUE
+  n
+}
+
+# Compress `path` to `<path>.gz` and remove the original.  Returns the new path.
+.gzip_file <- function(path, chunk = 16e6) {
+  dest <- paste0(path, ".gz")
+  .stream_to_gzip(file(path, "rb"), dest, chunk = chunk)
+  unlink(path)
+  dest
+}
+
+# Recompress the entry `entry` of the archive `zip` as the gzip file `dest`,
+# without the uncompressed file ever being on disk.  Returns the number of
+# uncompressed bytes, which the caller compares with the expected size (R's
+# unz() truncates an entry of 4 GB or more).
+.zip_entry_to_gzip <- function(zip, entry, dest, chunk = 16e6) {
+  .stream_to_gzip(unz(zip, entry, "rb"), dest, chunk = chunk)
+}
+
+# Size in bytes of the data a file holds: for a gzip file the uncompressed
+# size recorded in its last four bytes (modulo 4 GB, which is what gzip
+# stores), otherwise the file size.
+.pumf_data_file_size <- function(path) {
+  size <- file.size(path)
+  if (!grepl("\\.gz$", path, ignore.case = TRUE) || is.na(size) || size < 18)
+    return(size)
+  con <- file(path, "rb")
+  on.exit(close(con), add = TRUE)
+  seek(con, size - 4)
+  b <- as.numeric(readBin(con, "raw", n = 4L))
+  sum(b * 256^(0:3))
+}

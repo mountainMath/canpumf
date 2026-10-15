@@ -23,6 +23,68 @@ test_that("open_pumf_documentation: returns NULL with message when dir missing",
   expect_null(result)
 })
 
+test_that("open_pumf_documentation: a missing version names the cached ones", {
+  cache <- file.path(tempdir(), "doc_cached_versions")
+  on.exit(unlink(cache, recursive = TRUE), add = TRUE)
+  dir.create(file.path(cache, "TCP", "1881"), recursive = TRUE)
+  writeLines("x", file.path(cache, "TCP", "1881", "guide.pdf"))
+  dir.create(file.path(cache, "TCP", "empty"))
+  expect_message(
+    result <- open_pumf_documentation("TCP", "1981", cache_path = cache),
+    regexp = 'No data found for TCP 1981.*Cached TCP versions: "1881"\\.')
+  expect_null(result)
+  # Nothing was created for the unknown version.
+  expect_false(dir.exists(file.path(cache, "TCP", "1981")))
+})
+
+test_that(".pumf_emit_override_message: lists the record-level fixups (TCP 1881)", {
+  expect_message(canpumf:::.pumf_emit_override_message("TCP", "1881"),
+                 "Forced numeric: AGE, AGEMONTH")
+  msg <- tryCatch(canpumf:::.pumf_emit_override_message("TCP", "1881"),
+                  message = function(m) conditionMessage(m))
+  expect_match(msg, "Mis-encoded accented text")
+  expect_match(msg, 'REMOVE_TCP = 1 are set aside; see pumf_sidecar(tbl, "removed")',
+               fixed = TRUE)
+  expect_match(msg, "Codes without a documented label are kept under the code itself.",
+               fixed = TRUE)
+  expect_match(msg, "Variable labels supplied by canpumf where the source metadata has none: 52 variables.",
+               fixed = TRUE)
+})
+
+test_that(".pumf_fixup_notes: every data_fixups field has a note", {
+  notes <- canpumf:::.pumf_fixup_notes
+  expect_length(setdiff(canpumf:::.pumf_fixup_fields, names(notes)), 0L)
+  expect_length(setdiff(names(notes), canpumf:::.pumf_fixup_fields), 0L)
+  expect_true(all(vapply(notes, is.function, logical(1L))))
+  # A FALSE flag or an empty vector says nothing.
+  expect_length(notes$fix_mojibake(FALSE), 0L)
+  expect_length(notes$na_values(character(0L)), 0L)
+  # The notes for the storage and sentinel fixups.
+  expect_match(notes$force_integer(c("SURVYEAR", "SURVMNTH")),
+               "Stored as INTEGER: SURVYEAR, SURVMNTH.", fixed = TRUE)
+  expect_match(notes$force_bigint("ID"), "BIGINT: ID", fixed = TRUE)
+  expect_match(notes$force_character("PUMFID"), "Kept as text", fixed = TRUE)
+  expect_match(notes$missing_codes(list(AUDE_Q02 = c(-5, 998))), "for: AUDE_Q02.", fixed = TRUE)
+  expect_match(notes$sentinel_labels(list("99" = c(label_en = "Not applicable"))),
+               "sentinel codes (99)", fixed = TRUE)
+  expect_match(notes$str_pad(list(list(cols = c("A", "B"), width = 3L, side = "left", pad = "0"))),
+               "A, B (3).", fixed = TRUE)
+  expect_match(notes$missing_supplement(list(X = c(90000001, 999999999))),
+               "Missing-range overrides applied to: X.", fixed = TRUE)
+})
+
+test_that(".pumf_emit_override_message: takes the entry it is given", {
+  reg <- canpumf:::.make_entry("FAKE", "1",
+    data_fixups = list(force_integer = "REC_NUM", missing_codes = list(HRS = 99)))
+  msg <- tryCatch(canpumf:::.pumf_emit_override_message("FAKE", "1", reg),
+                  message = function(m) conditionMessage(m))
+  expect_match(msg, "^Data import notes for FAKE 1:\n")
+  expect_match(msg, "Stored as INTEGER: REC_NUM.", fixed = TRUE)
+  expect_match(msg, "discrete codes (not a range) for: HRS.", fixed = TRUE)
+  expect_silent(canpumf:::.pumf_emit_override_message("FAKE", "1", NULL))
+  expect_silent(canpumf:::.pumf_emit_override_message("FAKE", NULL, reg))
+})
+
 test_that("open_pumf_documentation: errors on invalid lang", {
   expect_error(
     open_pumf_documentation("SFS", "2019", lang = "deu"),
@@ -44,6 +106,33 @@ test_that("open_pumf_documentation: deprecated params warn", {
     ),
     regexp = "deprecated"
   )
+})
+
+
+# ---- Version aliases ---------------------------------------------------------
+
+test_that("open_pumf_documentation: resolves the version aliases of get_pumf()", {
+  tmp <- tempfile()
+  on.exit(unlink(tmp, recursive = TRUE))
+  open_doc <- function(series, version) with_mocked_bindings(
+    browseURL = function(url, ...) invisible(url), .package = "utils",
+    suppressMessages(open_pumf_documentation(series, version, cache_path = tmp))
+  )
+  docs <- c("Census/2021 (individuals)" = "census_2021_guide.pdf",
+            "Census/1986 (families)"    = "census_1986_families.pdf",
+            "GSS/Cycle 31 (2017)"       = "gss_31_guide.pdf")
+  for (key in names(docs)) {
+    dir.create(file.path(tmp, key), recursive = TRUE)
+    writeLines("x", file.path(tmp, key, docs[[key]]))
+  }
+  expect_equal(basename(open_doc("Census", "2021")), "census_2021_guide.pdf")
+  expect_equal(basename(open_doc("Census", "2021 (individuals)")),
+               "census_2021_guide.pdf")
+  # No EFT bundle in this cache, so the loose key goes to the Borealis entry.
+  expect_equal(basename(open_doc("Census", "1986 families")),
+               "census_1986_families.pdf")
+  expect_equal(basename(open_doc("GSS", "2017")), "gss_31_guide.pdf")
+  expect_equal(basename(open_doc("GSS", "Cycle 31")), "gss_31_guide.pdf")
 })
 
 

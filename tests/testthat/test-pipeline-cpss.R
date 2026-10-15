@@ -52,10 +52,14 @@ test_that("CPSS v1: pumf_parse_metadata produces canonical CSV files", {
   meta <- canpumf:::read_metadata(meta_dir)
   expect_gt(nrow(meta$variables), 5L)
   expect_gt(nrow(meta$codes),     5L)
+  # read_metadata() adds the optional description pair as NA when the file
+  # has none (CPSS documents a label only).
   expect_named(meta$variables,
                c("name","label_en","label_fr","type","decimals",
-                 "missing_low","missing_high"),
+                 "missing_low","missing_high",
+                 "description_en","description_fr"),
                ignore.order = TRUE)
+  expect_true(all(is.na(meta$variables$description_en)))
 })
 
 test_that("CPSS v1: PDF codebook supplies bilingual variable and code labels", {

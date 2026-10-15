@@ -21,6 +21,8 @@ tbl or connection is supplied, `version`, `cache_path`, and `lang` are
 read from the connection provenance; explicit arguments take precedence.}
 
 \item{version}{Version string (e.g. `"2019"`, `"2021 (individuals)"`).
+The aliases [get_pumf()] accepts work here too (`"2021"` for the Census
+individuals file, `"Cycle 31"` or `"2017"` for a GSS cycle).
 For LFS, omit to open documentation for the most recently downloaded
 version.  Ignored when `series` is a tbl or connection.}
 

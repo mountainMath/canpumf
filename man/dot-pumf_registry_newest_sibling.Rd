@@ -13,6 +13,7 @@ the chosen sibling version string, or `NULL` if no year-keyed sibling
 Considers only plain four-digit-year keys (`series/2023`) so multi-part
 versions (Census `1971/individuals_prov`) never inherit across types.
 Prefers the newest sibling not later than `version`; if the requested year
-predates every entry, falls back to the oldest registered sibling.
+predates every entry, falls back to the oldest registered sibling.  Entries
+with a registry `borealis` source are never inherited from.
 }
 \keyword{internal}

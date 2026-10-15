@@ -16,6 +16,8 @@
 #'   tbl or connection is supplied, `version`, `cache_path`, and `lang` are
 #'   read from the connection provenance; explicit arguments take precedence.
 #' @param version Version string (e.g. `"2019"`, `"2021 (individuals)"`).
+#'   The aliases [get_pumf()] accepts work here too (`"2021"` for the Census
+#'   individuals file, `"Cycle 31"` or `"2017"` for a GSS cycle).
 #'   For LFS, omit to open documentation for the most recently downloaded
 #'   version.  Ignored when `series` is a tbl or connection.
 #' @param lang `"eng"` (default) or `"fra"`.  Documentation files whose names
@@ -87,6 +89,8 @@ open_pumf_documentation <- function(series          = NULL,
   if (is.null(lang)) lang <- "eng"
   stopifnot(lang %in% c("eng", "fra"))
   if (is.null(series)) stop("'series' must be specified.")
+  # Same aliases as get_pumf() ("2021" -> "2021 (individuals)", GSS cycles).
+  version <- pumf_resolve_version(series, version, cache_path)
 
   # --- Longitudinal series: most recently downloaded slice --------------------
   # With no version, the latest slice in the cache; LFS_HIST keeps months
@@ -108,89 +112,57 @@ open_pumf_documentation <- function(series          = NULL,
                  else                  file.path(cache_path, series, version)
 
   if (!dir.exists(version_dir)) {
+    cached <- .pumf_cached_versions(cache_path, series)
     message("No data found for ", series,
             if (!is.null(version)) paste0(" ", version), ". ",
-            "Use get_pumf() or pumf_metadata() to download first.")
+            "Use get_pumf() or pumf_metadata() to download first.",
+            if (!is.null(version) && length(cached) > 0L)
+              paste0("\nCached ", series, " versions: ",
+                     paste0('"', cached, '"', collapse = ", "), "."))
     return(invisible(NULL))
   }
 
-  title    <- paste0(series, if (!is.null(version)) paste0(" ", version))
-  reg      <- tryCatch(pumf_registry_lookup(series, version), error = function(e) NULL)
-  doc_mask <- reg$doc_mask
+  title <- paste0(series, if (!is.null(version)) paste0(" ", version))
+  reg   <- tryCatch(pumf_registry_lookup(series, version), error = function(e) NULL)
 
-  # --- Collect PDFs -----------------------------------------------------------
-  docs <- .pumf_find_docs(version_dir, "\\.pdf$")
+  # PDFs first; with none, the small text files (the size cap excludes FWF
+  # data files).  Each kind is looked for in the version directory, then in
+  # the retained zip.
+  kinds <- list(pdf = list(ext = "\\.pdf$",       max_size = NULL),
+                txt = list(ext = "\\.(txt|rtf)$", max_size = 5e6))
+  for (kind in names(kinds)) {
+    k    <- kinds[[kind]]
+    docs <- .pumf_find_docs(version_dir, k$ext, max_size = k$max_size)
+    if (length(docs) == 0L)
+      docs <- .pumf_extract_zip_docs(version_dir, k$ext, max_size = k$max_size)
 
-  if (length(docs) == 0L) {
-    zip_path <- .find_version_zip(version_dir)
-    if (!is.null(zip_path)) {
-      zip_list <- tryCatch(utils::unzip(zip_path, list = TRUE), error = function(e) NULL)
-      if (!is.null(zip_list)) {
-        pdf_names <- zip_list$Name[grepl("\\.pdf$", zip_list$Name, ignore.case = TRUE)]
-        if (length(pdf_names) > 0L) {
-          docs_dir <- file.path(version_dir, "docs_extracted")
-          dir.create(docs_dir, showWarnings = FALSE)
-          utils::unzip(zip_path, files = pdf_names, exdir = docs_dir)
-          docs <- .pumf_find_docs(docs_dir, "\\.pdf$")
+    if (kind == "pdf") {
+      # Walk up to the year-level parent when the version dir has no PDFs.
+      # Used by EFT Census vintages whose documentation sits in a shared
+      # FMGD/ subdirectory one level above the version directories.
+      if (length(docs) == 0L && !is.null(version)) {
+        parent_dir <- dirname(version_dir)
+        if (dir.exists(parent_dir) && parent_dir != cache_path) {
+          parent_docs <- .pumf_find_docs(parent_dir, k$ext)
+          # Drop files inside sibling version dirs (identified by having metadata/).
+          if (length(parent_docs) > 0L)
+            docs <- .pumf_drop_version_sibling_docs(parent_docs, parent_dir, version_dir)
         }
       }
-    }
-  }
-
-  # Walk up to the year-level parent when the version dir has no PDFs.
-  # Used by EFT Census vintages whose documentation sits in a shared
-  # FMGD/ subdirectory one level above the version directories.
-  if (length(docs) == 0L && !is.null(version)) {
-    parent_dir <- dirname(version_dir)
-    if (dir.exists(parent_dir) && parent_dir != cache_path) {
-      parent_docs <- .pumf_find_docs(parent_dir, "\\.pdf$")
-      # Drop files inside sibling version dirs (identified by having metadata/).
-      if (length(parent_docs) > 0L)
-        docs <- .pumf_drop_version_sibling_docs(parent_docs, parent_dir, version_dir)
-    }
-  }
-
-  # Apply registry doc_mask to narrow to the relevant file-type docs
-  # (e.g., families vs households vs individuals for 1986 Census).
-  if (!is.null(doc_mask) && length(docs) > 0L) {
-    filtered <- docs[grepl(doc_mask, basename(docs), ignore.case = TRUE)]
-    if (length(filtered) > 0L) docs <- filtered
-  }
-
-  if (length(docs) > 0L) {
-    docs <- .pumf_sort_by_lang(docs, lang)
-    result <- .pumf_open_with_menu(docs, title)
-    .pumf_emit_override_message(series, version)
-    return(invisible(result))
-  }
-
-  # --- No PDFs: fall back to small text files ---------------------------------
-  docs <- .pumf_find_docs(version_dir, "\\.(txt|rtf)$", max_size = 5e6)
-
-  if (length(docs) == 0L) {
-    zip_path <- .find_version_zip(version_dir)
-    if (!is.null(zip_path)) {
-      zip_list <- tryCatch(utils::unzip(zip_path, list = TRUE), error = function(e) NULL)
-      if (!is.null(zip_list)) {
-        txt_names <- zip_list$Name[
-          grepl("\\.(txt|rtf)$", zip_list$Name, ignore.case = TRUE) &
-          zip_list$Length < 5e6
-        ]
-        if (length(txt_names) > 0L) {
-          docs_dir <- file.path(version_dir, "docs_extracted")
-          dir.create(docs_dir, showWarnings = FALSE)
-          utils::unzip(zip_path, files = txt_names, exdir = docs_dir)
-          docs <- .pumf_find_docs(docs_dir, "\\.(txt|rtf)$", max_size = 5e6)
-        }
+      # Apply registry doc_mask to narrow to the relevant file-type docs
+      # (e.g., families vs households vs individuals for 1986 Census).
+      if (!is.null(reg$doc_mask) && length(docs) > 0L) {
+        filtered <- docs[grepl(reg$doc_mask, basename(docs), ignore.case = TRUE)]
+        if (length(filtered) > 0L) docs <- filtered
       }
     }
-  }
 
-  if (length(docs) > 0L) {
-    docs <- .pumf_sort_by_lang(docs, lang)
-    result <- .pumf_open_with_menu(docs, title)
-    .pumf_emit_override_message(series, version)
-    return(invisible(result))
+    if (length(docs) > 0L) {
+      docs <- .pumf_sort_by_lang(docs, lang)
+      result <- .pumf_open_with_menu(docs, title)
+      .pumf_emit_override_message(series, version, reg)
+      return(invisible(result))
+    }
   }
 
   message("No documentation files found for ", title, ".")
@@ -198,23 +170,41 @@ open_pumf_documentation <- function(series          = NULL,
 }
 
 
+# Extract the documentation files matching `ext_pat` (and, with `max_size`,
+# smaller than that many bytes) from the version's retained zip into
+# docs_extracted/, and return their paths; character(0) when there is no zip
+# or no such file.
+.pumf_extract_zip_docs <- function(version_dir, ext_pat, max_size = NULL) {
+  zip_path <- .find_version_zip(version_dir)
+  if (is.null(zip_path)) return(character(0L))
+  zip_list <- tryCatch(utils::unzip(zip_path, list = TRUE), error = function(e) NULL)
+  if (is.null(zip_list)) return(character(0L))
+  keep <- grepl(ext_pat, zip_list$Name, ignore.case = TRUE)
+  if (!is.null(max_size)) keep <- keep & zip_list$Length < max_size
+  names <- zip_list$Name[keep]
+  if (length(names) == 0L) return(character(0L))
+  docs_dir <- file.path(version_dir, "docs_extracted")
+  dir.create(docs_dir, showWarnings = FALSE)
+  utils::unzip(zip_path, files = names, exdir = docs_dir)
+  .pumf_find_docs(docs_dir, ext_pat, max_size = max_size)
+}
+
+
+# Versions of a series with content in the cache, for the hint given when the
+# requested version is not there.
+.pumf_cached_versions <- function(cache_path, series) {
+  sort(.pumf_version_dirs(cache_path, series))
+}
+
+
 # Find the most recently downloaded version of a longitudinal series in the
-# cache, optionally among those starting with `prefix` (a year).
+# cache ("YYYY" or "YYYY-MM" directories with content), optionally among those
+# starting with `prefix` (a year).  Sorting descending puts an annual version
+# before the months of the same year.
 .pumf_lfs_latest_cached <- function(cache_path, series = "LFS", prefix = NULL) {
-  lfs_dir <- file.path(cache_path, series)
-  if (!dir.exists(lfs_dir)) return(NULL)
-  subdirs <- list.dirs(lfs_dir, recursive = FALSE, full.names = FALSE)
-  # Keep only version-like names: "YYYY" or "YYYY-MM"
-  versions <- subdirs[grepl("^\\d{4}(-\\d{2})?$", subdirs)]
+  versions <- .pumf_version_dirs(cache_path, series, pattern = "^\\d{4}(-\\d{2})?$")
   if (!is.null(prefix)) versions <- versions[startsWith(versions, prefix)]
   if (length(versions) == 0L) return(NULL)
-  # Only those that actually have extracted content
-  versions <- versions[sapply(versions, function(v) {
-    vd <- file.path(lfs_dir, v)
-    length(list.files(vd)) > 0L
-  })]
-  if (length(versions) == 0L) return(NULL)
-  # Sort: annual before monthly for same year; descending
   sort(versions, decreasing = TRUE)[[1L]]
 }
 
@@ -311,62 +301,92 @@ open_pumf_documentation <- function(series          = NULL,
 }
 
 
+# One human-readable note per data_fixups field, in the order the import notes
+# list them.  Each function receives the fixup's value (never NULL) and returns
+# the line, or character(0) when the value says nothing (FALSE, empty).  Every
+# field of .pumf_fixup_fields has a note (test-pumf-documentation.R).
+.pumf_fixup_notes <- list(
+  na_values = function(v) if (length(v) > 0L) paste0(
+    "  NA values: raw values ", paste(v, collapse = ", "),
+    " are treated as missing in all numeric columns."),
+  force_numeric = function(v) if (length(v) > 0L) paste0(
+    "  Forced numeric: ", paste(v, collapse = ", "),
+    " \u2014 boundary/top-code labels dropped; sentinel codes become NA ranges."),
+  force_character = function(v) if (length(v) > 0L) paste0(
+    "  Kept as text (leading zeros preserved, no labels): ",
+    paste(v, collapse = ", "), "."),
+  force_integer = function(v) if (length(v) > 0L) paste0(
+    "  Stored as INTEGER: ", paste(v, collapse = ", "), "."),
+  force_bigint = function(v) if (length(v) > 0L) paste0(
+    "  Stored as BIGINT: ", paste(v, collapse = ", "), "."),
+  cols_swap = function(v) if (length(v) > 0L) paste0(
+    "  Column name swap: ", paste(paste0(names(v), "\u2194", v), collapse = ", "),
+    " (command-file labels were transposed relative to data)."),
+  rename = function(v) if (length(v) > 0L) paste0(
+    "  Renamed columns: ", paste(paste0(names(v), "\u2192", v), collapse = ", "), "."),
+  rename_regex = function(v) if (length(v) > 0L) paste0(
+    "  Column names rewritten by pattern: ",
+    paste(paste0(names(v), "\u2192", v), collapse = ", "),
+    " (applied only where the result is a documented variable name)."),
+  str_pad = function(v) if (length(v) > 0L) paste0(
+    "  Raw values padded to a fixed width: ",
+    paste(vapply(v, function(s)
+      paste0(paste(s$cols, collapse = ", "), " (", s$width, ")"), ""),
+      collapse = "; "), "."),
+  codes_supplement = function(v) if (length(v) > 0L) paste0(
+    "  Extra codes injected for: ", paste(names(v), collapse = ", "), "."),
+  codes_override = function(v) if (length(v) > 0L) paste0(
+    "  Code labels replaced from the user guide for: ",
+    paste(names(v), collapse = ", "), "."),
+  missing_supplement = function(v) if (length(v) > 0L) paste0(
+    "  Missing-range overrides applied to: ", paste(names(v), collapse = ", "), "."),
+  missing_codes = function(v) if (length(v) > 0L) paste0(
+    "  Missing values declared as discrete codes (not a range) for: ",
+    paste(names(v), collapse = ", "), "."),
+  sentinel_labels = function(v) if (length(v) > 0L) paste0(
+    "  Labels supplied for unlabelled sentinel codes (",
+    paste(names(v), collapse = ", "), "); see pumf_sidecar(tbl, \"sentinels\")."),
+  fix_mojibake = function(v) if (isTRUE(v))
+    "  Mis-encoded accented text (\"Qu\u00c3\u00a9bec\") repaired in the character columns.",
+  removed_records = function(v) paste0(
+    "  Records with ", v$var, " = ", paste(v$values, collapse = ", "),
+    " are set aside; see pumf_sidecar(tbl, \"removed\")."),
+  keep_unlabelled_codes = function(v) if (isTRUE(v) || length(v) > 0L) paste0(
+    "  Codes without a documented label are kept under the code itself",
+    if (is.character(v)) paste0(" for: ", paste(v, collapse = ", ")), "."),
+  rejoin_split_records = function(v) if (isTRUE(v))
+    "  Records split over two lines by a line break inside a field are rejoined.",
+  column_encoding = function(v) if (length(v) > 0L) paste0(
+    "  Columns decoded with their own code page: ",
+    paste(vapply(names(v), function(e)
+      paste0(paste(v[[e]], collapse = ", "), " (", e, ")"), ""), collapse = "; "), "."),
+  text_missing_codes = function(v) if (length(v) > 0L) paste0(
+    "  Missing codes in text columns (", paste(v, collapse = ", "),
+    ") become NA; see pumf_sidecar(tbl, \"sentinels\")."),
+  labels_as_description = function(v) if (isTRUE(v)) paste0(
+    "  The source's variable labels are sentences; they are kept as the ",
+    "variable descriptions (pumf_dictionary(tbl, what = \"variables\"))."),
+  labels_supplement = function(v) if (length(v) > 0L) paste0(
+    "  Variable labels supplied by canpumf where the source metadata has none: ",
+    length(v), " variable", if (length(v) != 1L) "s", ".")
+)
+
 # Emit a human-readable message describing registry overrides for the survey.
-.pumf_emit_override_message <- function(series, version) {
+# `reg` is the entry open_pumf_documentation() already looked up; by default
+# it is looked up here.
+.pumf_emit_override_message <- function(series, version,
+                                        reg = tryCatch(pumf_registry_lookup(series, version),
+                                                       error = function(e) NULL)) {
   if (is.null(version)) return(invisible(NULL))
-  reg <- tryCatch(pumf_registry_lookup(series, version), error = function(e) NULL)
   if (is.null(reg)) return(invisible(NULL))
 
-  lines <- character(0L)
   fx    <- reg$data_fixups
-
-  if (length(fx$na_values) > 0L)
-    lines <- c(lines, paste0(
-      "  NA values: raw values ",
-      paste(fx$na_values, collapse = ", "),
-      " are treated as missing in all numeric columns."
-    ))
-
-  if (length(fx$force_numeric) > 0L)
-    lines <- c(lines, paste0(
-      "  Forced numeric: ",
-      paste(fx$force_numeric, collapse = ", "),
-      " \u2014 boundary/top-code labels dropped; sentinel codes become NA ranges."
-    ))
-
-  if (length(fx$cols_swap) > 0L) {
-    pairs <- paste0(names(fx$cols_swap), "\u2194", fx$cols_swap)
-    lines <- c(lines, paste0(
-      "  Column name swap: ", paste(pairs, collapse = ", "),
-      " (command-file labels were transposed relative to data)."
-    ))
-  }
-
-  # [["rename"]]: `$` would partial-match rename_regex on entries that declare
-  # only the regex form.
-  if (length(fx[["rename"]]) > 0L) {
-    pairs <- paste0(names(fx[["rename"]]), "\u2192", fx[["rename"]])
-    lines <- c(lines, paste0("  Renamed columns: ", paste(pairs, collapse = ", "), "."))
-  }
-
-  if (length(fx$rename_regex) > 0L) {
-    pairs <- paste0(names(fx$rename_regex), "\u2192", fx$rename_regex)
-    lines <- c(lines, paste0(
-      "  Column names rewritten by pattern: ", paste(pairs, collapse = ", "),
-      " (applied only where the result is a documented variable name)."))
-  }
-
-  if (length(fx$codes_supplement) > 0L)
-    lines <- c(lines, paste0(
-      "  Extra codes injected for: ",
-      paste(names(fx$codes_supplement), collapse = ", "), "."
-    ))
-
-  if (length(reg$missing_supplement) > 0L)
-    lines <- c(lines, paste0(
-      "  Missing-range overrides applied to: ",
-      paste(names(reg$missing_supplement), collapse = ", "), "."
-    ))
+  lines <- unlist(lapply(names(.pumf_fixup_notes), function(f) {
+    # [[f]]: `$` would partial-match rename_regex on entries that declare
+    # only the regex form.
+    v <- fx[[f]]
+    if (is.null(v)) character(0L) else .pumf_fixup_notes[[f]](v)
+  }))
 
   if (length(lines) == 0L) return(invisible(NULL))
 

@@ -34,7 +34,7 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ---- 1. Dataset index -------------------------------------------------------
 
-cat_b <- list_borealis_pumf_catalogue()
+cat_b <- list_pumf_catalogue("borealis")
 idx   <- canpumf:::.lfs_hist_index_from_catalogue(cat_b)
 # The rebasing era follows from the year; titles only confirm it (the English
 # 1987-2000 titles say "[Rebased]" without a Census year).

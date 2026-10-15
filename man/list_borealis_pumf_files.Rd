@@ -9,7 +9,7 @@ list_borealis_pumf_files(doi)
 \arguments{
 \item{doi}{The dataset DOI, e.g. `"doi:10.5683/SP3/LG7WKC"` (the `doi:`
 prefix, a bare `10.5683/...` or a doi.org URL all work), or a one-row
-tibble from [list_borealis_pumf_catalogue()].}
+tibble from `list_pumf_catalogue("borealis")`.}
 }
 \value{
 A tibble with one row per file: `file_id`, `filename`, `directory`,
@@ -30,5 +30,5 @@ tryCatch(list_borealis_pumf_files("doi:10.5683/SP3/LG7WKC"),
 }
 }
 \seealso{
-[list_borealis_pumf_catalogue()], [get_pumf()]
+[list_pumf_catalogue()], [get_pumf()]
 }

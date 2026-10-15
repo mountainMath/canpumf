@@ -15,7 +15,9 @@ parse_sas_odesi(eng_path, fra_path = NULL, encoding = "CP1252")
 }
 \value{
 `list(variables, codes, layout)` in the canonical schema. Variables
-  with a value format are typed `"character"`, the rest `"numeric"`.
+  read with `$` or carrying a value label are typed `"character"`, the rest
+  (including those whose format labels special missing values only)
+  `"numeric"`.
 }
 \description{
 The Borealis/ODESI deposits of older StatCan PUMFs (e.g. the monthly Labour
@@ -39,5 +41,22 @@ DATA OUT.x; INFILE 'x.txt' LRECL = 134;
 Formats are tied to variables by the `FORMAT var fmt.` statements, so a
 French program (same format names, same variables) supplies `label_fr` by
 position-independent `(name, val)` matching.
+
+A program may also declare missing values the SAS way (the CCRI census
+samples): the format labels special missing values (`.D='Blank'`) and the
+DATA step recodes the data value to them:
+
+```
+  Value  V37_F
+    1='Male'
+    .D='Blank'
+  ;
+  IF  SEX = 99999001  THEN  SEX = .D ;
+```
+
+Each recode becomes a code row under the data value (`99999001`, "Blank"),
+and the span of a variable's recoded values its missing range.  A recode
+whose target has no label (a variable without a format) contributes to the
+range only.
 }
 \keyword{internal}

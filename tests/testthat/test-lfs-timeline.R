@@ -1,4 +1,4 @@
-# Tests for get_lfs_timeline() (R/lfs_timeline.R).  Offline: small LFS_HIST
+# Tests for get_pumf("LFS_TIMELINE") (R/lfs_timeline.R).  Offline: small LFS_HIST
 # and LFS databases are written to a temporary cache with the same table
 # layout the longitudinal engine produces (labelled ENUM columns, a versions
 # table), plus the per-version LFS metadata the timeline reads its codes from.
@@ -84,12 +84,12 @@ make_timeline_cache <- function(dir) {
 }
 
 collect_timeline <- function(...) {
-  tl <- suppressMessages(get_lfs_timeline(...))
+  tl <- suppressMessages(get_pumf("LFS_TIMELINE", ...))
   on.exit(close_pumf(tl))
   dplyr::arrange(dplyr::collect(tl), SURVYEAR)
 }
 
-test_that("get_lfs_timeline stacks and harmonises both series", {
+test_that("LFS_TIMELINE stacks and harmonises both series", {
   tmp <- make_timeline_cache(withr::local_tempdir())
   d <- collect_timeline(cache_path = tmp)
   expect_equal(d$SOURCE, c(rep("LFS_HIST", 3L), "LFS", "LFS"))
@@ -121,24 +121,24 @@ test_that("get_lfs_timeline stacks and harmonises both series", {
   expect_setequal(colnames(d), canpumf:::.lfs_timeline_ref("variables")$name)
 })
 
-test_that("get_lfs_timeline: sources, French labels, column labels", {
+test_that("LFS_TIMELINE: sources, French labels, column labels", {
   tmp <- make_timeline_cache(withr::local_tempdir())
   d <- collect_timeline(sources = "LFS", cache_path = tmp)
   expect_equal(unique(d$SOURCE), "LFS")
 
-  tl <- suppressMessages(get_lfs_timeline(cache_path = tmp))
+  tl <- suppressMessages(get_pumf("LFS_TIMELINE", cache_path = tmp))
   on.exit(close_pumf(tl))
   expect_true("Labour force status" %in% colnames(label_pumf_columns(tl)))
-  expect_equal(pumf_var_labels(tl)$name[1:3], c("SOURCE", "SURVYEAR", "SURVMNTH"))
+  expect_equal(pumf_dictionary(tl, what = "variables")$name[1:3], c("SOURCE", "SURVYEAR", "SURVMNTH"))
 
-  expect_message(r <- get_lfs_timeline(lang = "fra", cache_path = tmp),
+  expect_message(r <- get_pumf("LFS_TIMELINE", lang = "fra", cache_path = tmp),
                  "no fra data")
   expect_null(r)
-  expect_message(get_lfs_timeline(cache_path = withr::local_tempdir()),
+  expect_message(get_pumf("LFS_TIMELINE", cache_path = withr::local_tempdir()),
                  "nothing loaded")
 })
 
-test_that("get_lfs_timeline refresh = \"auto\" updates each source first", {
+test_that("LFS_TIMELINE refresh = \"auto\" updates each source first", {
   tmp <- make_timeline_cache(withr::local_tempdir())
   calls <- list()
   local_mocked_bindings(get_pumf = function(series, version = NULL, lang = "eng",
@@ -147,6 +147,12 @@ test_that("get_lfs_timeline refresh = \"auto\" updates each source first", {
                                          refresh = refresh, cache_path = cache_path)
     NULL
   })
+  # get_pumf() is mocked here, so open the timeline through its internal opener
+  collect_timeline <- function(...) {
+    tl <- suppressMessages(canpumf:::.lfs_timeline_open(...))
+    on.exit(close_pumf(tl))
+    dplyr::arrange(dplyr::collect(tl), SURVYEAR)
+  }
   d <- collect_timeline(refresh = "auto", cache_path = tmp)
   expect_equal(vapply(calls, `[[`, "", "series"), c("LFS_HIST", "LFS"))
   expect_true(all(vapply(calls, function(x) identical(x$refresh, "auto"), NA)))
@@ -159,13 +165,14 @@ test_that("get_lfs_timeline refresh = \"auto\" updates each source first", {
   calls <- list()
   collect_timeline(cache_path = tmp)            # default: no update
   expect_length(calls, 0L)
-  expect_error(get_lfs_timeline(refresh = TRUE, cache_path = tmp), "FALSE or")
+  expect_error(canpumf:::.lfs_timeline_open(refresh = TRUE, cache_path = tmp),
+               "FALSE or")
 })
 
-test_that("get_lfs_timeline attaches read-only and reports unmapped values", {
+test_that("LFS_TIMELINE attaches read-only and reports unmapped values", {
   tmp <- make_timeline_cache(withr::local_tempdir())
   hist_db <- file.path(tmp, "LFS_HIST", "LFS_HIST.duckdb")
-  tl <- suppressMessages(get_lfs_timeline(cache_path = tmp))
+  tl <- suppressMessages(get_pumf("LFS_TIMELINE", cache_path = tmp))
   # another process-level reader can still open the file
   con2 <- DBI::dbConnect(duckdb::duckdb(), hist_db, read_only = TRUE)
   expect_equal(DBI::dbGetQuery(con2, "SELECT count(*) AS n FROM lfs_hist_eng")$n, 3)
@@ -176,7 +183,7 @@ test_that("get_lfs_timeline attaches read-only and reports unmapped values", {
   DBI::dbExecute(con, "ALTER TABLE lfs_eng ALTER CMA TYPE VARCHAR")
   DBI::dbExecute(con, "ALTER TABLE lfs_eng ALTER CMA TYPE ENUM('Calgary', 'Vancouver', 'Atlantis')")
   DBI::dbDisconnect(con, shutdown = TRUE)
-  expect_warning(tl <- suppressMessages(get_lfs_timeline(cache_path = tmp)),
+  expect_warning(tl <- suppressMessages(get_pumf("LFS_TIMELINE", cache_path = tmp)),
                  "CMA: Atlantis")
   close_pumf(tl)
 })
@@ -202,4 +209,14 @@ test_that("timeline reference tables are consistent", {
     got <- rc$source_val[rc$name == v$name[i] & rc$source == "LFS_HIST"]
     expect_true(all(as.character(as.integer(sc)) %in% got), info = v$name[i])
   }
+})
+
+test_that("get_pumf(\"LFS_TIMELINE\") rejects arguments the timeline has no use for", {
+  tmp <- make_timeline_cache(withr::local_tempdir())
+  expect_error(get_pumf("LFS_TIMELINE", "2020", cache_path = tmp), "version")
+  expect_error(get_pumf("LFS_TIMELINE", cache_path = tmp, read_only = FALSE),
+               "read_only")
+  expect_error(get_pumf("LFS_TIMELINE", cache_path = tmp, foo = 1), "foo")
+  expect_error(get_pumf("LFS_TIMELINE", refresh = TRUE, cache_path = tmp),
+               "FALSE or")
 })

@@ -183,6 +183,61 @@ test_that("merge_metadata: warns when layout names not in variable table", {
   )
 })
 
+# ---- Layout-only numeric columns --------------------------------------------
+
+test_that("merge_metadata: layout-only columns read with decimals become numeric variables", {
+  a <- make_parsed("A")
+  b <- make_parsed("B", with_layout = TRUE)
+  # WTPG and WRPG1 are declared by the DATA LIST alone, with implied decimals
+  # (CIUS 2022); PUMFID is declared without decimals
+  b$layout <- tibble::tibble(name = c("B", "PUMFID", "WTPG", "WRPG1"),
+                             start = 1:4, end = 1:4,
+                             decimals = c(NA, NA, 9L, 9L))
+
+  m <- expect_warning(
+    canpumf:::merge_metadata(list(spss_split = a, cpss_csv = b)),
+    "Variables in layout but not in variable labels: PUMFID$")
+  v <- m$variables
+  expect_setequal(v$name, c("A", "B", "WTPG", "WRPG1"))
+  w <- v[v$name %in% c("WTPG", "WRPG1"), ]
+  expect_true(all(w$type == "numeric"))
+  expect_true(all(is.na(w$label_en) & is.na(w$label_fr)))
+  expect_equal(w$decimals, c(9L, 9L))
+  expect_false("PUMFID" %in% v$name)
+  expect_equal(names(v), c("name", "label_en", "label_fr", "type", "decimals",
+                           "missing_low", "missing_high"))
+})
+
+test_that("merge_metadata: a single source also has its layout-only columns promoted", {
+  a <- make_parsed("A", with_layout = TRUE)
+  a$layout <- tibble::tibble(name = c("A", "ID", "WT"), start = 1:3, end = 1:3,
+                             decimals = c(NA, 0L, 2L))
+  m <- expect_no_warning(canpumf:::merge_metadata(list(spss_split = a)))
+  expect_equal(m$variables$name, c("A", "WT"))
+  expect_equal(m$variables$type[m$variables$name == "WT"], "numeric")
+  # a layout without a decimals column promotes nothing
+  a$layout$decimals <- NULL
+  m <- canpumf:::merge_metadata(list(spss_split = a))
+  expect_equal(m$variables$name, "A")
+})
+
+test_that(".layout_promoted_vars: names the promoted rows only", {
+  v <- make_vars(c("A", "WT", "ID"), label_en = c("a", NA, NA))
+  v$type[v$name == "WT"] <- "numeric"
+  lay <- tibble::tibble(name = c("A", "WT", "ID"), start = 1:3, end = 1:3,
+                        decimals = c(NA, 2L, NA))
+  expect_equal(canpumf:::.layout_promoted_vars(v, lay), "WT")
+  expect_equal(canpumf:::.layout_promoted_vars(v, NULL), character(0L))
+})
+
+test_that("check_bilingual_coverage ignores unlabelled promoted columns", {
+  v <- make_vars(c("A", "B", "C", "D"), label_fr = c("a", "b", "c", "d"))
+  wt <- make_vars(paste0("W", 1:8), label_en = rep(NA_character_, 8L))
+  wt$type <- "numeric"
+  meta <- list(variables = rbind(v, wt), codes = canpumf:::empty_codes(), layout = NULL)
+  expect_no_warning(canpumf:::check_bilingual_coverage(meta))
+})
+
 
 # ---- Canonical output schema ------------------------------------------
 
@@ -342,4 +397,64 @@ test_that(".fix_label_escapes decodes HTML entities and doubled apostrophes", {
                  "Person 1's spouse", "Plain", NA))
   # "&amp;lt;" is decoded once, not twice
   expect_equal(fix("&amp;lt;"), "&lt;")
+})
+
+
+# ---- layout_override / .pumf_layout_from_file() ------------------------
+
+# A registry `layout_file` replaces the merged layout with the named card's
+# (GSS Cycle 36 Episode, whose SPSS DATA LIST disagrees with the SAS card, #29).
+
+test_that("merge_metadata: layout_override replaces the layout on both paths", {
+  ovr <- tibble::tibble(name = c("B", "A"), start = c(1L, 3L), end = c(2L, 4L),
+                        decimals = c(NA_integer_, 2L))
+  one <- make_parsed(c("A", "B"), with_layout = TRUE)
+  m1  <- canpumf:::merge_metadata(list(spss_split = one), layout_override = ovr)
+  expect_identical(m1$layout, ovr)
+
+  two <- make_parsed(c("A", "B"), with_layout = TRUE)
+  m2  <- canpumf:::merge_metadata(list(spss_split = one, sas_cards = two),
+                                  layout_override = ovr)
+  expect_identical(m2$layout, ovr)
+  # without the override the first source's layout is kept
+  m3  <- canpumf:::merge_metadata(list(spss_split = one, sas_cards = two))
+  expect_identical(m3$layout$start, c(1L, 2L))
+})
+
+test_that(".pumf_layout_from_file: reads one card, keeps the first of a duplicated name", {
+  dir <- withr::local_tempdir()
+  dir.create(file.path(dir, "Layout", "SAS"), recursive = TRUE)
+  dir.create(file.path(dir, "metadata"))
+  card <- c(
+    "DATA EPISODE;",
+    "   INFILE IN LRECL=23;",
+    "   INPUT",
+    "    @         1     PUMFID          6.  /*      1 -      6 */",
+    "    @         7     INSTANCE        3.  /*      7 -      9 */",
+    "    @        10     WGHT_EPI       10.4 /*     10 -     19 */",
+    "    @        20     INSTANCE        3.  /*     20 -     22 */",
+    "    @        23     FLAG           $1.  /*     23 -     23 */",
+    "   ;",
+    "RUN;")
+  writeLines(card, file.path(dir, "Layout", "SAS", "Episode_i.SAS"))
+  # a copy under metadata/ is a side-car, never a candidate
+  writeLines(card, file.path(dir, "metadata", "Episode_i.SAS"))
+
+  expect_message(
+    lay <- canpumf:::.pumf_layout_from_file(dir, "^episode_i\\.sas$"),
+    "declares INSTANCE more than once")
+  expect_named(lay, c("name", "start", "end", "decimals"))
+  expect_equal(lay$name,     c("PUMFID", "INSTANCE", "WGHT_EPI", "FLAG"))
+  expect_equal(lay$start,    c(1L, 7L, 10L, 23L))
+  expect_equal(lay$end,      c(6L, 9L, 19L, 23L))
+  expect_equal(lay$decimals, c(NA_integer_, NA_integer_, 4L, NA_integer_))
+
+  expect_error(canpumf:::.pumf_layout_from_file(dir, "^nothing$"),
+               "matches 0 files")
+  writeLines(card, file.path(dir, "Layout", "Episode_i.SAS"))
+  expect_error(canpumf:::.pumf_layout_from_file(dir, "^Episode_i\\.SAS$"),
+               "matches 2 files")
+  writeLines(c("DATA X;", "RUN;"), file.path(dir, "Layout", "SAS", "empty_i.SAS"))
+  expect_error(canpumf:::.pumf_layout_from_file(dir, "^empty_i\\.SAS$"),
+               "declares no record layout")
 })

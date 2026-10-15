@@ -15,7 +15,8 @@ pumf_build_duckdb(
   db_path = NULL,
   meta_subdir = NULL,
   data_fixups = NULL,
-  bsw_override = NULL
+  bsw_override = NULL,
+  module = NULL
 )
 }
 \arguments{
@@ -52,6 +53,9 @@ fixups.}
 Each module of a multi-module survey joins its own bootstrap weights (or
 none), so the caller passes that module's BSW config; an override whose
 fields are all `NULL` means "this module has no bootstrap weights".}
+
+\item{module}{The module id of a multi-module survey's table (recorded in
+the build stamp); `NULL` for a single-table survey.}
 }
 \value{
 Invisibly, a named list with `db_path` and `table_name`.

@@ -392,8 +392,8 @@ test_that("SFS 1999: table has expected row and column counts", {
 
   expect_equal(nrow(result), 15933L,
     label = "SFS 1999 should have 15933 respondents")
-  expect_equal(ncol(result), 80L,
-    label = "SFS 1999 should have 80 variables")
+  expect_equal(ncol(result), 81L,
+    label = "SFS 1999 should have 80 variables plus pumf_row_id")
   expect_true("ECFKEY" %in% names(result),
     label = "ECFKEY (family identifier) expected in SFS 1999")
   expect_true("WEIGHT" %in% names(result),

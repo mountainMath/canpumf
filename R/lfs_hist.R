@@ -17,22 +17,8 @@
 .lfs_hist_first <- "1976-01"
 .lfs_hist_last  <- "2005-12"
 
-.lfs_hist_ref_cache <- new.env(parent = emptyenv())
-
 # Read one of the shipped reference CSVs (datasets / variables / codes).
-.lfs_hist_ref <- function(which) {
-  if (is.null(.lfs_hist_ref_cache[[which]])) {
-    path <- system.file("extdata", "lfs_hist", paste0(which, ".csv"),
-                        package = "canpumf")
-    if (!nzchar(path))
-      stop("LFS_HIST reference file '", which, ".csv' is missing from the ",
-           "installed package.", call. = FALSE)
-    .lfs_hist_ref_cache[[which]] <- readr::read_csv(
-      path, col_types = readr::cols(.default = "c"), na = "",
-      locale = readr::locale(encoding = "UTF-8"), progress = FALSE)
-  }
-  .lfs_hist_ref_cache[[which]]
-}
+.lfs_hist_ref <- function(which) .pumf_extdata_csv("lfs_hist", which)
 
 # Canonical variables table in the metadata schema.
 .lfs_hist_variables <- function() {
@@ -180,9 +166,11 @@
 
 # ---- Stages 1 + 2 -----------------------------------------------------------
 
-# The CSV data file of a month's directory, or NULL.
+# The CSV data file of a month's directory, or NULL.  Stored compressed
+# (`.csv.gz`, see .borealis_fetch_selected()); a plain `.csv` from an earlier
+# cache still counts.  readr reads both.
 .lfs_hist_data_file <- function(version_dir) {
-  f <- list.files(version_dir, pattern = "\\.csv$", ignore.case = TRUE,
+  f <- list.files(version_dir, pattern = "\\.csv(\\.gz)?$", ignore.case = TRUE,
                   full.names = TRUE)
   if (length(f) == 0L) NULL else f[which.max(file.size(f))]
 }
@@ -221,23 +209,11 @@
   .pumf_warn_cache_path_on_download()
   message("Downloading LFS_HIST ", version, " from Borealis (",
           format(sum(sel$size, na.rm = TRUE) / 1e6, digits = 3), " MB) ...")
-  old_timeout <- getOption("timeout")
-  options(timeout = max(1800L, old_timeout))
-  on.exit(options(timeout = old_timeout), add = TRUE)
-  for (i in seq_len(nrow(sel)))
-    .borealis_download_file(sel$file_id[[i]], file.path(version_dir, sel$dest[[i]]))
-
-  readr::write_csv(tibble::tibble(
-    doi       = ifelse(startsWith(sel$dest, "fra/"), dois$fra %||% NA, dois$eng),
-    title     = NA_character_,
-    file_id   = sel$file_id,
-    filename  = sel$dest,
-    role      = sel$role,
-    md5       = sel$md5,
-    data_file = ifelse(sel$role == "data", sel$dest, NA_character_),
-    fetched   = format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
-    file.path(version_dir, .borealis_manifest_file), na = "")
-  invisible(version_dir)
+  # Shared with .borealis_download_dataset(): the CSV arrives compressed and
+  # stays `.csv.gz` in the cache.
+  .borealis_fetch_selected(
+    sel, version_dir,
+    doi = ifelse(startsWith(sel$dest, "fra/"), dois$fra %||% NA, dois$eng))
 }
 
 # Stage 2: the month's metadata is the canonical dictionary restricted to the
@@ -301,45 +277,62 @@
 
 # ---- Stage 3 ----------------------------------------------------------------
 
-.lfs_hist_build <- function(version_dir, label_col, version = NULL) {
+# Build the labelled data frame for one month (the spec's `build`).  The
+# canonical dictionary declares the missing codes of the numeric variables,
+# so they are blanked through `missing_codes`; see .long_label_frame().
+.lfs_hist_build <- function(version_dir, label_col, version = NULL,
+                            int_cols = .pumf_longitudinal_entry("LFS_HIST")$data_fixups$force_integer) {
   meta      <- read_metadata(file.path(version_dir, "metadata"))
-  variables <- meta$variables
-  int_cols  <- .pumf_lfs_hist_entry$data_fixups$force_integer
-  variables$type[variables$name %in% int_cols] <- "numeric"
-  codes     <- meta$codes[!meta$codes$name %in% int_cols, ]
-
   data_file <- .lfs_hist_data_file(version_dir)
   message("  data file: ", basename(data_file))
   data <- readr::read_csv(data_file, col_types = readr::cols(.default = "c"),
                           locale = readr::locale(encoding = "CP1252"),
                           na = "", progress = FALSE)
   names(data) <- .lfs_hist_canonical_names(names(data))
-  missing_cols <- setdiff(c("SURVYEAR", "SURVMNTH"), names(data))
-  if (length(missing_cols) > 0L)
-    stop("LFS_HIST data is missing required columns: ",
-         paste(missing_cols, collapse = ", "), " (", data_file, ").",
-         call. = FALSE)
-  data <- .apply_numeric_conversion(data, variables,
-                                    missing_codes = .label_missing_codes(meta$codes))
-  for (col in intersect(int_cols, names(data)))
-    data[[col]] <- as.integer(data[[col]])
-  .apply_code_labels(data, codes, label_col)
+  .long_label_frame(data, meta, label_col, int_cols, series = "LFS_HIST",
+                    where = paste0(" (", data_file, ")."),
+                    missing_codes = .label_missing_codes(meta$codes))
 }
 
 
 # ---- Longitudinal spec ------------------------------------------------------
 
+# Both the era-free canonical dictionary and the era-specific code lists (the
+# four-category MARSTAT era), since the shared table holds them all.  With
+# `sources = TRUE` a `source` column tells them apart ("LFS_HIST" /
+# "LFS_HIST_ERA"), as recodes.csv of get_pumf("LFS_TIMELINE") needs.
+.lfs_hist_all_codes <- function(sources = FALSE) {
+  cols <- c("name", "val", "label_en", "label_fr")
+  h <- .pumf_unique_code_labels(as.data.frame(.lfs_hist_ref("codes"))[, cols])
+  e <- .pumf_unique_code_labels(as.data.frame(.lfs_hist_code_eras())[, cols])
+  if (sources) {
+    h$source <- "LFS_HIST"
+    e$source <- "LFS_HIST_ERA"
+  }
+  unique(rbind(h, e))
+}
+
+# Database, table and versions-table names are the defaults derived from the
+# series name (LFS_HIST.duckdb, lfs_hist_eng/lfs_hist_fra, lfs_hist_versions).
 .lfs_hist_spec <- function() {
+  entry <- .pumf_longitudinal_entry("LFS_HIST")
   list(
-    series         = "LFS_HIST",
-    db_file        = "LFS_HIST.duckdb",
-    table_prefix   = "lfs_hist",
-    versions_table = "lfs_hist_versions",
-    annual_files   = FALSE,
-    example        = "1995",
-    validate       = .lfs_hist_validate,
-    available      = .lfs_hist_all_versions,
-    prepare        = .lfs_hist_prepare,
-    build          = .lfs_hist_build,
-    variables      = function(cache_path, versions) .lfs_hist_variables())
+    series       = "LFS_HIST",
+    entry        = entry,
+    annual_files = FALSE,
+    example      = "1995",
+    validate     = .lfs_hist_validate,
+    available    = .lfs_hist_all_versions,
+    prepare      = .lfs_hist_prepare,
+    build        = function(version_dir, label_col, version)
+      .lfs_hist_build(version_dir, label_col, version,
+                      int_cols = entry$data_fixups$force_integer),
+    variables    = function(cache_path, versions) .lfs_hist_variables(),
+    codes        = function(cache_path, versions) .lfs_hist_all_codes(),
+    # get_pumf("LFS_TIMELINE"): the recodes.csv sources, the column of the
+    # harmonisation tables holding this series' variable names, and the
+    # column with the first version a harmonised variable exists from.
+    timeline     = list(col = "lfs_hist", scale = NULL, from = "hist_from",
+                        codes = function(cache_path, versions)
+                          .lfs_hist_all_codes(sources = TRUE)))
 }

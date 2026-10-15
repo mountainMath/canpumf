@@ -8,7 +8,7 @@ close_pumf(x)
 }
 \arguments{
 \item{x}{A lazy `dplyr::tbl()` returned by [get_pumf()], or a DuckDB
-connection returned by [get_pumf_connection()].  `NULL` is accepted and is
+connection.  `NULL` is accepted and is
 a no-op, so `close_pumf()` can be called unconditionally on a [get_pumf()]
 result that may be `NULL` (e.g. when Statistics Canada was unreachable).}
 }
@@ -18,8 +18,8 @@ Invisibly `NULL`.
 \description{
 Disconnects the DuckDB connection associated with `x`.  `x` may be either a
 lazy `dplyr::tbl()` returned by [get_pumf()] (the connection embedded in the
-tbl is closed) or a DuckDB connection object returned by
-[get_pumf_connection()] (closed directly).  After calling this function the
+tbl is closed) or a DuckDB connection object, for instance
+`dbplyr::remote_con()` of such a tbl (closed directly).  After calling this function the
 table or connection can no longer be queried.
 }
 \details{
@@ -39,14 +39,15 @@ if (!is.null(sfs)) {
   close_pumf(sfs)
 }
 
-# Also accepts a raw connection from get_pumf_connection()
-con <- get_pumf_connection("SHS", "2017")
-if (!is.null(con)) {
+# Also accepts the connection itself
+shs <- get_pumf("SHS", "2017", read_only = FALSE)
+if (!is.null(shs)) {
+  con <- dbplyr::remote_con(shs)
   DBI::dbListTables(con)
   close_pumf(con)
 }
 }
 }
 \seealso{
-[get_pumf()], [get_pumf_connection()]
+[get_pumf()]
 }

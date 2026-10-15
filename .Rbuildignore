@@ -12,7 +12,7 @@ test_data/*
 ^pkgdown$
 ^\.positai$
 ^\.claude$
-^documentation/
+^documentation$
 ^tools$
 ^\.github$
 ^canpumf-logo\.png$

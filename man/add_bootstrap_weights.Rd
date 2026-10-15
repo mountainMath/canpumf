@@ -23,9 +23,9 @@ in-memory `data.frame` / `tibble`.}
 \item{weight_col}{Name of the column holding the survey weights (string,
 e.g. `"PWEIGHT"`).}
 
-\item{id_col}{Optional name of a column that uniquely identifies each row
-(DuckDB path only).  If `NULL` (default), the registry `bsw_join_key` is
-used when available; otherwise `pumf_row_id` is added to the main table.}
+\item{id_col}{Optional name(s) of the column(s) that uniquely identify each
+row (DuckDB path only).  If `NULL` (default), the registry `bsw_join_key`,
+`pumf_row_id` or the longitudinal record key is used (see *ID column*).}
 
 \item{strata_cols}{Optional character vector of column names to stratify on.
 Resampling is performed independently within each unique combination of
@@ -44,18 +44,19 @@ Columns are named `prefix1`, `prefix2`, ...}
 \item{bsw_table}{Name of the DuckDB table that stores the replicate weights
 (DuckDB path only).  Defaults to `NULL`, which auto-names it
 `paste0("pumf_bsw_", tolower(weight_col))` so separate calls with
-different weight columns do not overwrite each other.}
+different weight columns do not overwrite each other.  The temporary
+table of a read-only connection has the same name prefixed with `tmp_`.}
 
 \item{seed}{Optional integer seed for reproducibility.}
 
-\item{overwrite}{If the `bsw_table` already exists in the DuckDB file,
-regenerate and overwrite it when `TRUE`.  When `FALSE` (default) the
-existing table is reused silently -- no computation is performed.}
+\item{overwrite}{If weights for `weight_col` exist already, regenerate them
+from scratch when `TRUE`: the stored table on a write connection, the
+temporary one on a read-only connection.  When `FALSE` (default) existing
+weights are reused.}
 }
 \value{
-* **DuckDB path:** a lazy `dplyr::tbl()` backed by a persistent DuckDB
-    VIEW that contains all original survey columns plus the `n_replicates`
-    bootstrap weight columns, with any input `filter()` operations re-applied.
+* **DuckDB path:** `tbl` inner-joined with the `n_replicates` bootstrap
+    weight columns, a lazy `dplyr::tbl()` on the same connection.
   * **In-memory path:** the input `data.frame` / `tibble` with bootstrap
     weight columns appended so that `n_replicates` replicates are present.
     If the input already carries replicate columns for `prefix`, only the
@@ -63,13 +64,25 @@ existing table is reused silently -- no computation is performed.}
     already has at least `n_replicates`, the data frame is returned unchanged.
 }
 \description{
-For a **DuckDB-backed lazy table** (the typical case), bootstrap replicate
-weights are written directly into the DuckDB file as a separate table and
-exposed through a persistent VIEW that joins the main survey table with the
-BSW columns.  The returned `tbl` references this view, so all downstream
-dplyr operations have access to every replicate.
+For a **DuckDB-backed lazy table** (the typical case), the bootstrap
+replicate weights go into a table of their own, keyed like the survey table,
+and the function returns `tbl` joined with it.  What was applied to `tbl`
+before (`filter()`, `select()`, [label_pumf_columns()], ...) is kept; only
+the column(s) that identify the rows (see *ID column*) must still be
+present.  Where the weights live depends on the connection of `tbl`:
+  * **Write connection** (`get_pumf(..., read_only = FALSE)`): the weights
+    are stored in the DuckDB file, and every later call reuses them, in this
+    session or another.
+  * **Read-only connection** (the [get_pumf()] default): stored weights are
+    used when they cover the request.  Otherwise the weights are generated
+    into a temporary table that lasts until the connection is closed.
+    Nothing is written to the file, and a message says so.  Pass `seed` to
+    get the same weights in every session.
 }
 \details{
+The function never closes or reopens a connection: `tbl`, and every other
+table on the same connection, stays valid.
+
 For an **in-memory `data.frame` or `tibble`**, bootstrap weights are
 generated entirely in memory and the augmented data frame is returned.
 
@@ -78,9 +91,10 @@ a sample of \eqn{n} rows is drawn with replacement; the bootstrap weight for
 row \eqn{i} in replicate \eqn{b} is `original_weight[i] * count[i,b]`, where
 `count[i,b]` is the number of times row \eqn{i} appeared in draw \eqn{b}.
 
-**Incremental re-runs (DuckDB path):** when a BSW table already exists the
-call only does the work needed to satisfy the request:
-  * **More replicates** than stored (and no new rows): the additional
+**Incremental re-runs (DuckDB path):** when weights exist already (stored
+ones, or the temporary ones of this connection) the call only does the work
+needed to satisfy the request:
+  * **More replicates** than exist (and no new rows): the additional
     replicate columns are appended; existing columns are kept.
   * **New rows** in the main table (some rows have no weights yet): because a
     bootstrap replicate resamples the full population, added rows invalidate
@@ -88,43 +102,55 @@ call only does the work needed to satisfy the request:
     deleted and regenerated.  Unstratified, this regenerates every row; when
     `strata_cols` are in effect, only the strata that gained rows are
     regenerated and complete strata keep their existing weights.
-  * **Neither:** the stored weights are reused without recomputation.
-Pass `overwrite = TRUE` to force a full fresh regeneration regardless.
+  * **Neither:** the existing weights are reused without recomputation.
+On a read-only connection the result of the first two cases goes to the
+temporary table (stored replicates are copied into it, so they keep their
+values), and the stored weights stay as they are.  Pass `overwrite = TRUE`
+to force a full fresh regeneration regardless.
 
 **Multiple weight columns (hierarchical data):** by default `bsw_table` is
 named after `weight_col` (e.g. `"pumf_bsw_wstpwgt"`), so calling the
 function twice with different weight columns (e.g. household weight and
-person weight) produces two independent BSW tables and two separate views
-without any conflict.
+person weight) produces two independent BSW tables without any conflict.
+Give the second call its own `prefix` to have both sets of replicate
+columns in one result: replicate columns of the same `prefix` already in
+`tbl` are replaced.  A weights table holds the replicates of one `prefix`.
 
-**Connection note (DuckDB path):** calling this function fully shuts down the
-DuckDB in-process instance held by `tbl` (because a write connection requires
-exclusive access).  The input `tbl` and any other lazy tables backed by the
-same DuckDB file become invalid after the call.  Use the returned tbl instead.
+**The weights cover the whole survey table**, whatever rows `tbl` is
+filtered to, so that every subset is weighted from the same replicates.  For
+a small subset of a very large table (one month of the LFS) on a read-only
+connection it is cheaper to `collect()` the subset and add the weights to
+the data frame.
 
-**Filtered input tbls (DuckDB path):** bootstrap weights always cover the
-complete physical survey table.  If `tbl` has dplyr `filter()` operations
-applied, they are captured and automatically re-applied to the returned VIEW
-tbl so the visible rows match the original subset.  Other operations
-(`select()`, `mutate()`, etc.) are not replayed -- they would interfere with
-the BSW columns -- so apply them manually to the returned tbl if needed.
-
-**ID column (DuckDB path):** a stable row identifier is needed to link the
-main table to the BSW table.  If `id_col` is `NULL` (the default):
+**ID column (DuckDB path):** the weights are linked to the survey rows by a
+key that identifies each row.  If `id_col` is `NULL` (the default):
   * The survey registry `bsw_join_key` is used when available (e.g.
-    `"PEFAMID"` for SFS 2016-2023) -- no table modification needed.
-  * Otherwise a `pumf_row_id` column (DuckDB `rowid`) is added to the main
-    survey table.  The `ALTER TABLE ADD COLUMN` is O(1); the `UPDATE` that
-    fills the values is O(n).
+    `"PEFAMID"` for SFS 2016-2023).
+  * Otherwise the `pumf_row_id` column that every table built by canpumf
+    0.7.0 or later carries (see [pumf_sidecar()]) is used.
+  * The longitudinal series (`"LFS"`, `"LFS_HIST"`) use `SURVYEAR`,
+    `SURVMNTH` and `REC_NUM` together.
+A table built by an earlier version that has none of these needs a rebuild
+(`get_pumf(..., refresh = TRUE)`) or an explicit `id_col`.
 }
 \examples{
 \donttest{
+# read-only connection (the default): the weights are temporary
 sfs <- get_pumf("SFS", "2019")
 if (!is.null(sfs)) {
   sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
                                    n_replicates = 200L, seed = 42L)
   bsw_info(sfs_bsw)
-  close_pumf(sfs_bsw)
+  close_pumf(sfs)
+}
+
+# write connection: the weights are stored in the database and reused
+sfs <- get_pumf("SFS", "2019", read_only = FALSE)
+if (!is.null(sfs)) {
+  sfs_bsw <- add_bootstrap_weights(sfs, weight_col = "PWEIGHT",
+                                   n_replicates = 200L, seed = 42L)
+  sfs <- remove_bootstrap_weights(sfs_bsw)
+  close_pumf(sfs)
 }
 }
 }

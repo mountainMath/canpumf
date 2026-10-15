@@ -1,31 +1,11 @@
 # canpumf collection
 
-
-
-
-
+# Census download rows.  The 98m0001x index page this once scraped is gone
+# (404 since 2026); the StatCan catalogue crawl (session cache, persisted copy
+# or shipped snapshot) lists every Census download, with the hard-coded list
+# as the last resort.
 list_census_collection <- function() {
-  base_url  <- "https://www150.statcan.gc.ca/n1/pub/98m0001x/index-eng.htm"
-  pumf_data <- tryCatch(
-    rvest::read_html(base_url) |> rvest::html_nodes("main div ul li a"),
-    error = function(e) NULL
-  )
-  if (!is.null(pumf_data) && length(pumf_data) > 0L) {
-    tibble::tibble(Title = "Census of population",
-           Acronym = "Census",
-           Version = pumf_data |> rvest::html_text(),
-           `Survey Number` = "3901",
-           url = paste0("https://www150.statcan.gc.ca/n1/pub/98m0001x/",
-                        pumf_data |> rvest::html_attr("href"))) |>
-      mutate(Year    = stringr::str_extract(.data$Version, "\\d{4}")) |>
-      mutate(type    = gsub(" .+", "", .data$Version)) |>
-      mutate(Version = paste0(.data$Year, " (", tolower(.data$type), ")")) |>
-      select(-"Year", -"type")
-  } else {
-    # The 98m0001x index page has moved (404 since 2026); the StatCan catalogue
-    # crawl (persisted or shipped snapshot) still lists every Census download.
-    .census_collection_from_catalogue() %||% .census_collection_fallback()
-  }
+  .census_collection_from_catalogue() %||% .census_collection_fallback()
 }
 
 # Census rows from the StatCan catalogue (98M0001X), or NULL if unavailable.
@@ -113,11 +93,6 @@ list_census_collection <- function() {
   )
 }
 
-list_pumf_collection <- function(){
-  tibble::tibble(Title=NA,Acronym=NA, `Survey Number`=NA) |>
-    stats::na.omit()
-}
-
 # Scrape all GSS PUMF downloads from the shared catalogue index.
 # Returns a tibble with Title, Acronym, Survey Number, Version, url.
 #
@@ -175,40 +150,170 @@ list_gss_collection <- function() {
 
 
 
-#' List Statistics Canada PUMF datasets supported by canpumf
+#' List the PUMF datasets available to canpumf
 #'
-#' Returns a tibble of all survey series and versions for which canpumf has
-#' download wrappers.  Scrapes the StatCan website to discover Census versions;
-#' other series are hard-coded.  Requires an internet connection.
+#' One entry point for the catalogues canpumf knows: the curated collection it
+#' has tested download wrappers for, the live Statistics Canada PUMF listing,
+#' the Borealis Dataverse collection, and the Labour Force Survey releases.
+#' Each source returns its own columns (below); pass the series and version a
+#' row names to [get_pumf()].  All of them need an internet connection, and
+#' each degrades gracefully when its site is unreachable.
 #'
-#' @return A tibble with columns `Title`, `Acronym`, `Version`,
-#'   `Survey Number`, and `url`.  The `url` column contains the download URL,
-#'   `"(EFT)"` for versions distributed via the Research Data Centre (EFT only),
-#'   or the Borealis dataset page for versions canpumf loads from Borealis
-#'   (see [list_borealis_pumf_catalogue()]).
-#'   Pass `Acronym` and `Version` to [get_pumf()] to download a dataset.
+#' @section `source = "canpumf"`:
+#' The series and versions canpumf has download wrappers for.  Census versions
+#' are scraped from the StatCan website; the other series are hard-coded.
+#' Columns: `Title`, `Acronym`, `Version`, `Survey Number` and `url`.  The
+#' `url` column holds the download URL, `"(EFT)"` for versions distributed via
+#' the Research Data Centre (EFT only), or the Borealis dataset page for
+#' versions canpumf loads from Borealis.  Pass `Acronym` and `Version` to
+#' [get_pumf()].
 #'
-#' @seealso [get_pumf()], [list_available_lfs_pumf_versions()]
+#' @section `source = "statcan"` (experimental):
+#' Crawls the live StatCan "Public use microdata" listing and follows each
+#' survey to its product page to discover every PUMF series, its editions, and
+#' direct-download URLs, including surveys canpumf has not tested.  The StatCan
+#' markup is irregular and the crawler is best-effort: surveys distributed only
+#' by Electronic File Transfer (EFT) report `url = "(EFT)"`, and some products
+#' may not be parsed.  When an edition is offered in several formats the one
+#' highest in `prefer` is kept (CSV/flat-text first).
+#'
+#' A full crawl issues a few hundred requests, so its result is cached: in
+#' memory for the session, and (for a full crawl, no `max_surveys`/`surveys`)
+#' persisted to `<cache_path>/pumf_catalogue.rds`.  A persisted catalogue older
+#' than `getOption("canpumf.catalogue_max_age_days", 30)` days triggers a
+#' staleness warning.  If StatCan is unreachable the last persisted copy (or
+#' the snapshot shipped with the package) is returned with a warning.
+#'
+#' Columns, one row per discovered edition: `catalogue_id`, `Acronym`,
+#' `SeriesTitle`, `Title`, `survey_url`, `edition`, `format`, `url`, and
+#' `product_url`. `SeriesTitle` is the plain-language series name matching the
+#' acronym (the catalogue title with the edition-specific tail and "Public Use
+#' Microdata File" boilerplate stripped). `Title` is edition-specific:
+#' StatCan's own per-edition catalogue title where it carries one, otherwise --
+#' for *umbrella* products whose catalogue title is only the series name (e.g.
+#' the consolidated General Social Survey, or a census year's
+#' individuals/hierarchical pair) -- a synthesised `"<series> -- <edition>"`,
+#' where the structural edition descriptor disambiguates colliding years (GSS
+#' `"Cycle 16 (2002)"`, census `"2021 (individuals)"`). `edition` remains the
+#' reference period/variant. `survey_url` is the survey's catalogue overview
+#' page; `url`/`product_url` point at the individual edition's download and
+#' product page. `Acronym` and `SeriesTitle` are derived from the title since
+#' StatCan exposes no such field; they match the `"canpumf"` values for most
+#' surveys but are best-effort (Census `Acronym` is hard-coded to `"Census"`).
+#' Surveys with no downloadable file get a single row with `url = "(EFT)"`.
+#'
+#' @section `source = "borealis"`:
+#' The Statistics Canada PUMF datasets held in the
+#' [Borealis](https://borealisdata.ca) Dataverse (the ODESI PUMF collection
+#' and the Census PUMFs), together with the census microdata Statistics Canada
+#' has never published: the historical census samples deposited by ODESI
+#' (1871, 1881, 1891, 1901 and the CCRI 1911 sample) and the open
+#' complete-count censuses of The Canadian Peoples project (dataverse
+#' `TCPCensusData`; 1881 at the time of writing, the other years are
+#' restricted and left out). Borealis also carries vintages that Statistics
+#' Canada no longer posts, such as the 1971--1986 Census PUMFs. Any dataset
+#' listed here can be loaded with
+#' `get_pumf(series, version, borealis = <doi or row>)`; see
+#' [list_borealis_pumf_files()] to inspect a dataset's files first.
+#'
+#' Where Statistics Canada also posts a dataset for direct download, the
+#' `statcan` column is `TRUE`. Prefer StatCan's copy in that case (via
+#' `get_pumf(series, version)` without `borealis =`): the Borealis files are
+#' re-deposits and can carry transcription errors. `get_pumf()` warns when an
+#' explicitly requested Borealis dataset is flagged this way. The flag is a
+#' heuristic match on catalogue number, series title, years and cycle number
+#' against the `"statcan"` catalogue, so check `statcan_title` before relying
+#' on it.
+#'
+#' The catalogue is fetched from the public Dataverse search API. There are
+#' several thousand datasets and Borealis renders them slowly, so pages are
+#' requested concurrently (`getOption("canpumf.borealis_parallel", 8)`), and a
+#' full fetch takes about a minute. The result is cached for the session and
+#' persisted to `<cache_path>/borealis_catalogue.rds`, with the same staleness
+#' warning and offline fallback as the `"statcan"` catalogue.
+#'
+#' Columns, one row per dataset: `title`, `year` (the first year in the
+#' title), `language` (`"eng"`/`"fra"`, guessed from the title), `statcan`
+#' (logical, the dataset is also available from Statistics Canada),
+#' `statcan_series` and `statcan_title` (the matching StatCan catalogue entry,
+#' `NA` when none), `series` (the Borealis series name), `doi`, `dataverse`,
+#' `file_count`, `published_at` and `url`. English and French versions of a
+#' PUMF are separate datasets.
+#'
+#' @section `source = "lfs"`:
+#' The annual and monthly Labour Force Survey PUMF releases on the StatCan LFS
+#' publication page.  Columns: `Date` (the label on the StatCan page),
+#' `version` (`"YYYY"` for annual versions, `"YYYY-MM"` for monthly ones) and
+#' `url` (direct download link).  If the StatCan website is unreachable the
+#' result is an empty tibble with a warning.
+#'
+#' @param source Which catalogue: `"canpumf"` (default), `"statcan"`,
+#'   `"borealis"` or `"lfs"`.
+#' @param refresh For `"statcan"` and `"borealis"`: re-fetch the catalogue
+#'   instead of using the session or persisted copy.
+#' @param verbose For `"statcan"` and `"borealis"`: report crawl progress.
+#' @param cache_path For `"statcan"` and `"borealis"`: directory for the
+#'   persisted catalogue.  Defaults to `getOption("canpumf.cache_path")`; when
+#'   unset only the in-session cache is used.
+#' @param ... For `"statcan"` only: `prefer` (format tokens in order of
+#'   preference; the default puts CSV / flat text ahead of statistical-package
+#'   formats), `max_surveys` (crawl only the first N surveys, for a quick look)
+#'   and `surveys` (catalogue ids to restrict the crawl to).
+#'
+#' @return A tibble; its columns depend on `source` (see the sections above).
+#'
+#' @seealso [get_pumf()], [list_borealis_pumf_files()], [pumf_registry()]
 #'
 #' @examples
 #' \donttest{
-#' collection <- list_canpumf_collection()
+#' collection <- list_pumf_catalogue()
 #' # Show all SFS versions
 #' collection[collection$Acronym == "SFS", c("Acronym", "Version")]
+#'
+#' tail(list_pumf_catalogue("lfs"))
+#'
+#' # Quick look at the first 5 surveys of the live StatCan listing
+#' tryCatch(head(list_pumf_catalogue("statcan", max_surveys = 5)),
+#'          error = function(e) message(conditionMessage(e)))
+#'
+#' # needs internet access; fails gracefully when Borealis is unreachable
+#' bor <- tryCatch(list_pumf_catalogue("borealis"), error = function(e) NULL)
+#' if (!is.null(bor)) dplyr::filter(bor, grepl("1971 Census", title))
 #' }
 #' @export
-list_canpumf_collection <- function(){
-  canpumf_conveninence_series <- c("LFS","ITS","CPSS","SFS","SHS","GSS")
-  pumf_surveys<-list_pumf_collection() %>%
-    filter(.data$Acronym %in% canpumf_conveninence_series)
+list_pumf_catalogue <- function(source = c("canpumf", "statcan", "borealis",
+                                           "lfs"),
+                                refresh    = FALSE,
+                                verbose    = TRUE,
+                                cache_path = getOption("canpumf.cache_path"),
+                                ...) {
+  source <- match.arg(source)
+  dots   <- list(...)
+  if (length(dots) && source != "statcan")
+    stop("Argument(s) ", paste0("'", names(dots), "'", collapse = ", "),
+         " apply to source = \"statcan\" only.", call. = FALSE)
+  switch(source,
+    canpumf  = .canpumf_collection(),
+    lfs      = .lfs_pumf_versions(),
+    borealis = .borealis_pumf_catalogue(refresh = refresh, verbose = verbose,
+                                        cache_path = cache_path),
+    statcan  = do.call(.statcan_pumf_catalogue,
+                       c(dots, list(verbose = verbose, refresh = refresh,
+                                    cache_path = cache_path))))
+}
 
-  ccahs <- tibble(Title = "Canadian COVID-19 Antibody and Health Survey",
+
+# The curated collection behind list_pumf_catalogue("canpumf"): every series
+# and version canpumf has download wrappers for (Census versions scraped,
+# the rest hard-coded).
+.canpumf_collection <- function(){
+  ccahs <- tibble::tibble(Title = "Canadian COVID-19 Antibody and Health Survey",
                   Acronym = "CCAHS",
                   Version=c("1"),
                   `Survey Number`="5339",
                   url="https://www150.statcan.gc.ca/n1/en/pub/13-25-0007/2022001/CCAHS_ECSAC.zip?st=BPMowORM")
 
-  chss <- tibble(Title = "Canadian Health Survey on Seniors",
+  chss <- tibble::tibble(Title = "Canadian Health Survey on Seniors",
                  Acronym = "CHSS",
                  Version = c("2019-2020"),
                  `Survey Number` = "5267",
@@ -220,14 +325,14 @@ list_canpumf_collection <- function(){
   # Both PALS editions hang off the single 2009001 publication page of catalogue
   # 82M0023X (the 2004001 edition page is gone), so the pair is curated here
   # rather than left to the crawl, which has no edition token to tell them apart.
-  pals <- tibble(Title = "Participation and Activity Limitation Survey",
+  pals <- tibble::tibble(Title = "Participation and Activity Limitation Survey",
                  Acronym = "PALS",
                  Version = c("2001", "2006"),
                  `Survey Number` = "3251",
                  url = paste0("https://www150.statcan.gc.ca/n1/pub/82m0023x/",
                               "2009001/PALS_EPLA_", c("2001", "2006"), ".zip"))
 
-  cpss <- tibble(Title="Canadian Perspectives Survey Series",
+  cpss <- tibble::tibble(Title="Canadian Perspectives Survey Series",
                  Acronym="CPSS",
                  Version=c("1","2","3","4","5","6"),
                  `Survey Number`="5311",
@@ -237,7 +342,7 @@ list_canpumf_collection <- function(){
                        "https://www150.statcan.gc.ca/n1/en/pub/45-25-0009/2020001/CSV.zip",
                        "https://www150.statcan.gc.ca/n1/pub/45-25-0010/2021001/CSV-eng.zip",
                        "https://www150.statcan.gc.ca/n1/en/pub/45-25-0012/2021001/CSV.zip"))
-  chs <- tibble(Title="Canadian Housing Survey",
+  chs <- tibble::tibble(Title="Canadian Housing Survey",
                 Acronym="CHS",
                 Version=c("2018","2021","2022"),
                 `Survey Number`="5269",
@@ -245,7 +350,7 @@ list_canpumf_collection <- function(){
                       "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2021.zip",
                       "https://www150.statcan.gc.ca/n1/en/pub/46-25-0001/2021001/2022.zip"))
 
-  shs <- tibble(Title="Survey of Household Spending",
+  shs <- tibble::tibble(Title="Survey of Household Spending",
                 Acronym="SHS",
                 Version=c("2017","2019","2021","2023"),
                 `Survey Number`="3508",
@@ -254,23 +359,27 @@ list_canpumf_collection <- function(){
                       "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2021.zip",
                       "https://www150.statcan.gc.ca/n1/pub/62m0004x/2017001/SHS_EDM_2023.zip"))
 
-  its_versions <- tibble("Acronym"="ITS",
+  its_versions <- tibble::tibble(Acronym="ITS",
                          Version=c("2019","2018"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2019/SPSS.zip",
                                "https://www150.statcan.gc.ca/n1/pub/24-25-0002/2021001/2018/SPSS.zip"))
 
-  lfs_version_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/71m0001x2021001-eng.htm"
-  lfs_versions <- tryCatch({
-    d <- rvest::read_html(lfs_version_url) %>% rvest::html_nodes(xpath="//a")
-    d <- d[rvest::html_text(d)=="CSV"]
-    tibble(Acronym="LFS", url=rvest::html_attr(d,"href")) %>%
-      mutate(url=ifelse(substr(.data$url,1,4)=="http", url,
-                        paste0("https://www150.statcan.gc.ca/n1/pub/71m0001x/", .data$url))) %>%
-      mutate(Version=stringr::str_match(.data$url,"\\d{4}-\\d{2}") %>% lapply(first) %>% unlist) %>%
-      mutate(Version=coalesce(.data$Version, stringr::str_match(.data$url,"(\\d{4})-CSV")[,2]))
-  }, error = function(e) {
-    tibble(Acronym=character(), url=character(), Version=character())
-  })
+  # Version from the download URL ("..._2024-01-CSV.zip" -> "2024-01",
+  # "..._2024-CSV.zip" -> "2024").
+  # StatCan unreachable: the annual files, whose URLs are stable (the monthly
+  # ones rotate off the page and are left out).
+  lfs_links <- .lfs_scrape_csv_links()
+  lfs_versions <- if (is.null(lfs_links)) {
+    tibble::tibble(Acronym = "LFS",
+                   url = paste0(.lfs_pumf_page_base, "2021001/hist/",
+                                .lfs_annual_fallback_years, "-CSV.zip"),
+                   Version = as.character(.lfs_annual_fallback_years))
+  } else {
+    tibble::tibble(Acronym = "LFS", url = lfs_links$url) |>
+      mutate(Version = stringr::str_match(.data$url, "\\d{4}-\\d{2}")[, 1L]) |>
+      mutate(Version = coalesce(.data$Version,
+                                stringr::str_match(.data$url, "(\\d{4})-CSV")[, 2L]))
+  }
 
   # Pre-2006 LFS PUMF monthly releases are EFT-only.  Scrape the catalogue
   # index to discover which year/month combinations StatCan has published.
@@ -295,7 +404,7 @@ list_canpumf_collection <- function(){
   })
   lfs_versions <- bind_rows(lfs_versions, lfs_eft_versions)
 
-  sfs_versions <- tibble(Acronym="SFS",
+  sfs_versions <- tibble::tibble(Acronym="SFS",
                          Version=c("1999","2005","2012","2016","2019","2023"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS1999-eng.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2005-eng.zip",
@@ -303,7 +412,7 @@ list_canpumf_collection <- function(){
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2016-eng.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2019__PUMF_E.zip",
                                "https://www150.statcan.gc.ca/n1/pub/13m0006x/2021001/SFS2023-eng.zip"))
-  cis_versions <- tibble(Acronym="CIS",
+  cis_versions <- tibble::tibble(Acronym="CIS",
                          Version=c("2022", "2021", "2020", "2019", "2018", "2017"),
                          url=c("https://www150.statcan.gc.ca/n1/pub/72m0003x/2024001/2022.zip",
                                "https://www150.statcan.gc.ca/n1/en/pub/72m0003x/2024001/2021.zip",
@@ -318,7 +427,7 @@ list_canpumf_collection <- function(){
   )
 
   census_download   <- list_census_collection()
-  scrape_failed_lfs <- nrow(lfs_versions) == 0L
+  scrape_failed_lfs <- is.null(lfs_links)
   scrape_failed_cen <- identical(census_download, .census_collection_fallback())
   scrape_failed_gss <- identical(gss_all, .gss_collection_fallback())
 
@@ -332,49 +441,46 @@ list_canpumf_collection <- function(){
             call. = FALSE)
   }
 
+  unreachable <- c(if (scrape_failed_cen) "Census",
+                   if (scrape_failed_lfs) "LFS",
+                   if (scrape_failed_gss) "GSS/SGVP")
+
   first_year <- census_download$Version |> str_extract("\\d{4}") |> as.integer()
   first_year <- if (any(!is.na(first_year))) min(first_year, na.rm = TRUE) else 1991L
   last_eft_year <- first_year - 5
 
-  if (nrow(pumf_surveys)>0) {
-    result <- pumf_surveys %>%
-      left_join(bind_rows(lfs_versions,its_versions,sfs_versions,gss_all),
-                by="Acronym") %>%
-      bind_rows(chs,cpss,shs,chss,pals)
-  } else {
-    result <- bind_rows(chs,cpss,shs,ccahs,chss,pals) |>
-      bind_rows(lfs_versions |> mutate(Title="Labour Force Survey",`Survey Number`="3701"),
-                its_versions |> mutate(Title="International Travel Survey",`Survey Number`='3152'),
-                sfs_versions |> mutate(Title="Survey of Financial Securities",`Survey Number`='2620'),
-                cis_versions |> mutate(Title="Canadian Income Survey",`Survey Number`='5200'),
-                gss_all,
-                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(1971,last_eft_year,5)," (individuals)"),
-                       url="(EFT)"),
-                # tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                #        Version=paste0(seq(2006,last_eft_year,5)," (hierarchical)"),
-                #        url="(EFT)"),
-                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(seq(1971,last_eft_year,5)," (households)"),
-                       url="(EFT)"),
-                tibble(Title="Census of population",Acronym="Census",`Survey Number`="3901",
-                       Version=paste0(c(1971L, 1976L, seq(1986L, pmin(1996L, last_eft_year), 5L)), " (families)"),
-                       url="(EFT)"))
-  }
-  result |>
-    bind_rows(census_download, .borealis_registry_collection())
+  census_eft <- function(versions)
+    tibble::tibble(Title = "Census of population", Acronym = "Census",
+                   `Survey Number` = "3901", Version = versions, url = "(EFT)")
+
+  bind_rows(chs, cpss, shs, ccahs, chss, pals) |>
+    bind_rows(lfs_versions |> mutate(Title = "Labour Force Survey", `Survey Number` = "3701"),
+              its_versions |> mutate(Title = "International Travel Survey", `Survey Number` = "3152"),
+              sfs_versions |> mutate(Title = "Survey of Financial Securities", `Survey Number` = "2620"),
+              cis_versions |> mutate(Title = "Canadian Income Survey", `Survey Number` = "5200"),
+              gss_all,
+              census_eft(paste0(seq(1971, last_eft_year, 5), " (individuals)")),
+              census_eft(paste0(seq(1971, last_eft_year, 5), " (households)")),
+              census_eft(paste0(c(1971L, 1976L, seq(1986L, pmin(1996L, last_eft_year), 5L)),
+                                " (families)"))) |>
+    bind_rows(census_download, .borealis_registry_collection()) |>
+    structure(statcan_unreachable = unreachable)
 }
 
 # Collection rows for registry entries sourced from Borealis (the 1971-1986
-# Census PUMFs); `url` is the Borealis dataset page.
+# Census PUMFs, the TCP complete-count census of 1881 and the CCRI census
+# samples); `url` is the Borealis dataset page.
 .borealis_registry_collection <- function() {
-  keys <- names(.pumf_registry)[vapply(.pumf_registry, function(e)
-    !is.null(e$borealis), logical(1L))]
+  keys <- .pumf_registry_borealis_keys()
   if (length(keys) == 0L) return(NULL)
   ents <- .pumf_registry[keys]
   series <- vapply(ents, function(e) e$series, character(1L))
-  tibble(
-    Title           = ifelse(series == "Census", "Census of population", series),
+  tibble::tibble(
+    Title           = dplyr::case_when(
+      series == "Census" ~ "Census of population",
+      series == "TCP"    ~ "The Canadian Peoples complete-count census",
+      series == "CCRI"   ~ "Canadian Century Research Infrastructure census sample",
+      TRUE               ~ series),
     Acronym         = series,
     Version         = vapply(ents, function(e) e$version, character(1L)),
     `Survey Number` = ifelse(series == "Census", "3901", NA_character_),
@@ -383,57 +489,58 @@ list_canpumf_collection <- function(){
 }
 
 
-#' List available LFS PUMF versions
-#'
-#' Scrapes the Statistics Canada LFS PUMF publication page and returns a
-#' tibble of all available annual and monthly versions with their download
-#' URLs.  Requires an internet connection.  For the broader collection of all
-#' supported surveys see [list_canpumf_collection()].
-#'
-#' @return A tibble with columns `Date` (human-readable label from the StatCan
-#'   page), `version` (a string of the form `"YYYY"` for annual versions or
-#'   `"YYYY-MM"` for monthly versions), and `url` (direct download link).  If
-#'   the StatCan website is unreachable the function returns an empty tibble
-#'   (with those columns) and a warning rather than erroring.
-#'
-#' @seealso [get_pumf()], [list_canpumf_collection()]
-#'
-#' @examples
-#' \donttest{
-#' lfs_versions <- list_available_lfs_pumf_versions()
-#' tail(lfs_versions)
-#' }
-#' @export
-list_available_lfs_pumf_versions <- function(){
-  base_url <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
-  url <- paste0(base_url,"71m0001x2021001-eng.htm")
-
+# The LFS versions StatCan posts, behind list_pumf_catalogue("lfs"): Date,
+# version ("YYYY" or "YYYY-MM") and url; an empty tibble with a warning
+# when StatCan is unreachable.
+.lfs_pumf_versions <- function(){
   empty <- tibble::tibble(Date = character(0L), version = character(0L),
                           url = character(0L))
 
   # Fail gracefully when StatCan is unreachable: return whatever was scraped
   # (an empty tibble if nothing) with a warning, rather than erroring -- mirrors
-  # list_canpumf_collection() / list_statcan_pumf_catalogue().
-  ts <- tryCatch(
-    rvest::read_html(url) %>% rvest::html_elements("a"),
-    error = function(e) NULL)
-  if (is.null(ts)) {
+  # the other list_pumf_catalogue() sources.
+  links <- .lfs_scrape_csv_links()
+  if (is.null(links)) {
     warning("Statistics Canada website unreachable; no LFS PUMF versions ",
             "could be retrieved.", call. = FALSE)
     return(empty)
   }
-  ts <- ts[rvest::html_text(ts)=="CSV"]
-  if (length(ts) == 0L) return(empty)
+  if (nrow(links) == 0L) return(empty)
 
   lct <- Sys.getlocale("LC_TIME")
   Sys.setlocale("LC_TIME", "C")
   on.exit(Sys.setlocale("LC_TIME", lct), add = TRUE)
 
+  # Version from the link's title ("January 2024 | PUMF: CSV" -> "2024-01",
+  # "2024 | PUMF: CSV" -> "2024").
   tibble::tibble(
-    url  = paste0(base_url, rvest::html_attr(ts,"href")),
-    Date = gsub(" \\| PUMF: CSV","", rvest::html_attr(ts,"title"))) |>
+    url  = links$url,
+    Date = gsub(" \\| PUMF: CSV","", links$title)) |>
     mutate(version = case_when(
       grepl("^\\d{4}$",.data$Date) ~ .data$Date,
       TRUE ~ strftime(as.Date(paste0("01 ",.data$Date),format="%d %B %Y"),"%Y-%m"))) |>
     select("Date", "version", "url")
+}
+
+# The "CSV" download links of the LFS PUMF publication page, as a tibble with
+# `url` (absolute) and `title` (the anchor's title attribute), or NULL when
+# StatCan is unreachable.  .canpumf_collection() derives the version from
+# the URL and .lfs_pumf_versions() from the title; the two
+# agree for the links StatCan posts, and each keeps its own derivation.
+.lfs_pumf_page_base <- "https://www150.statcan.gc.ca/n1/pub/71m0001x/"
+
+# The annual LFS PUMFs listed by .canpumf_collection() when StatCan is
+# unreachable (at <base>2021001/hist/YYYY-CSV.zip).  Extend by one year when
+# StatCan posts the next annual file.
+.lfs_annual_fallback_years <- 2006:2025
+.lfs_scrape_csv_links <- function() {
+  a <- tryCatch(
+    rvest::read_html(paste0(.lfs_pumf_page_base, "71m0001x2021001-eng.htm")) |>
+      rvest::html_elements("a"),
+    error = function(e) NULL)
+  if (is.null(a)) return(NULL)
+  a <- a[rvest::html_text(a) == "CSV"]
+  tibble::tibble(
+    url   = .statcan_abs_url(rvest::html_attr(a, "href"), base = .lfs_pumf_page_base),
+    title = rvest::html_attr(a, "title"))
 }

@@ -4,7 +4,7 @@
 \alias{merge_metadata}
 \title{Merge metadata from multiple parser outputs}
 \usage{
-merge_metadata(parsed_list)
+merge_metadata(parsed_list, layout_override = NULL)
 }
 \arguments{
 \item{parsed_list}{Named list of parser outputs (each a list with elements
