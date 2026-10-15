@@ -449,6 +449,10 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
   d   <- .borealis_api("/api/datasets/:persistentId/", list(persistentId = doi))
   v   <- d$latestVersion
   title <- .chr1(.borealis_citation_field(v, "title"))
+  # The licence the deposit declares (name and URI), when it declares one;
+  # recorded in the manifest and the build stamp.
+  licence     <- .chr1(v$license$name)
+  licence_url <- .chr1(v$license$uri)
   files <- v$files
   out <- tibble::tibble(
     file_id      = vapply(files, function(f) as.integer(f$dataFile$id), integer(1L)),
@@ -460,8 +464,10 @@ BOREALIS_SERVER <- "https://borealisdata.ca"
     content_type = vapply(files, function(f) .chr1(f$dataFile$contentType), character(1L)),
     original     = vapply(files, function(f) .chr1(f$dataFile$originalFileName), character(1L)),
     restricted   = vapply(files, function(f) isTRUE(f$restricted), logical(1L)))
-  attr(out, "doi")   <- doi
-  attr(out, "title") <- title
+  attr(out, "doi")         <- doi
+  attr(out, "title")       <- title
+  attr(out, "licence")     <- licence
+  attr(out, "licence_url") <- licence_url
   out
 }
 
@@ -734,7 +740,9 @@ list_borealis_pumf_files <- function(doi) {
           if (!is.na(title %||% NA)) title else doi,
           " (", format(sum(sel$size, na.rm = TRUE) / 1e6, digits = 3), " MB, ",
           nrow(sel), " files) ...")
-  .borealis_fetch_selected(sel, version_dir, doi, title %||% NA_character_)
+  .borealis_fetch_selected(sel, version_dir, doi, title %||% NA_character_,
+                           licence     = attr(listing, "licence") %||% NA_character_,
+                           licence_url = attr(listing, "licence_url") %||% NA_character_)
 }
 
 # Download the selected files `sel` (rows of .borealis_dataset_files() with a
@@ -745,9 +753,13 @@ list_borealis_pumf_files <- function(doi) {
 # relative to `version_dir` (LFS_HIST keeps the French SAS program in fra/).
 # A CSV data file is kept compressed in the cache (every reader takes
 # `.csv.gz`); the manifest's md5 stays the one Borealis publishes, i.e. that
-# of the uncompressed file.  `doi` is one DOI or one per row of `sel`.
+# of the uncompressed file.  `doi` is one DOI or one per row of `sel`;
+# `title`, `licence` and `licence_url` describe the dataset (NA when unknown)
+# and go into the build stamp through .pumf_source_info().
 .borealis_fetch_selected <- function(sel, version_dir, doi,
-                                     title = NA_character_) {
+                                     title = NA_character_,
+                                     licence = NA_character_,
+                                     licence_url = NA_character_) {
   dir.create(version_dir, recursive = TRUE, showWarnings = FALSE)
   if (!"dest" %in% names(sel)) sel$dest <- NA_character_
   sel$local     <- NA_character_
@@ -793,9 +805,11 @@ list_borealis_pumf_files <- function(doi) {
   .extract_inner_zips(version_dir)
 
   manifest <- tibble::tibble(
-    doi       = doi,
-    title     = title,
-    file_id   = sel$file_id,
+    doi         = doi,
+    title       = title,
+    licence     = licence,
+    licence_url = licence_url,
+    file_id     = sel$file_id,
     filename  = sel$local,
     role      = sel$role,
     md5       = sel$md5,

@@ -2,15 +2,16 @@
 % Please edit documentation in R/api.R
 \name{pumf_sidecar}
 \alias{pumf_sidecar}
-\title{Sidecar tables of a PUMF: sentinel codes, removed records}
+\title{Sidecar tables of a PUMF: sentinel codes, removed records, provenance}
 \usage{
 pumf_sidecar(tbl, sidecar = NULL, join = FALSE)
 }
 \arguments{
 \item{tbl}{A lazy `dplyr::tbl()` returned by [get_pumf()].}
 
-\item{sidecar}{The sidecar's name: `"sentinels"` or `"removed"`.  `NULL`
-(the default) lists the sidecars the table has instead.}
+\item{sidecar}{The sidecar's name: `"sentinels"`, `"removed"` or
+`"provenance"`.  `NULL` (the default) lists the sidecars the table has
+instead.}
 
 \item{join}{If `TRUE`, return `tbl` combined with the sidecar instead of
 the sidecar: for `"sentinels"` a left join on `pumf_row_id` with the
@@ -28,13 +29,14 @@ With a `sidecar` name: a lazy `dplyr::tbl()` on the same
   With `sidecar = NULL`: a tibble with one row per sidecar the table has
   and the columns `sidecar` (the name to pass as `sidecar`),
   `table` (the DuckDB table), `kind` (`"values"`: columns annotating the
-  survey table's records; `"records"`: records left out of it), `n_rows`
-  and `description`.
+  survey table's records; `"records"`: records left out of it; `"info"`:
+  rows describing the table), `n_rows` and `description`.
 }
 \description{
 Besides the survey table that [get_pumf()] returns, a database holds
-record-level tables that belong to it, each linked by the permanent
-`pumf_row_id` column (the record's 1-based position in the data file).
+tables that belong to it: record-level tables linked by the permanent
+`pumf_row_id` column (the record's 1-based position in the data file),
+and the table's own provenance.
 `pumf_sidecar(tbl)` says which ones a table has, and
 `pumf_sidecar(tbl, sidecar)` returns one of them as a lazy tbl, or the
 survey table combined with it.
@@ -74,11 +76,46 @@ survey table combined with it.
     (`UNION ALL`), which gives the file as published.  Only datasets whose
     registry entry declares `removed_records` have this sidecar (see
     [pumf_registry_entry()]).}
+  \item{`"provenance"`}{One row describing the table itself, from the
+    build stamp the build writes into the database (table
+    `pumf_build_info`): the canpumf and duckdb versions that built it and
+    when (`built`, UTC); the survey (`series`, `version`, `lang`,
+    `module`); where the data came from (`source`: `"statcan"`,
+    `"borealis"` or `"deposit"` for a file placed in the cache by hand;
+    `source_url`, `source_doi`, `source_title`, `downloaded`); the data
+    file read (`data_file`); the licence the data are distributed under
+    (`licence`, `licence_url`: the Statistics Canada Open Licence, or the
+    licence a Borealis dataset declares); a `citation` and a `note`; the
+    names of the registry data fixups that applied (`fixups`); and
+    `user_fields`, the fields that were stated by hand.  Any of the
+    provenance fields (`source` through `note`) can be set or corrected in
+    a file `pumf_provenance.csv` (columns `field`, `value`) placed beside
+    the raw data in the version directory, or in the registry entry's
+    `provenance` list (see [pumf_registry_entry()]); the file wins, and
+    both win over what the download recorded.  That is how a dataset
+    deposited in the cache by hand gets its source, licence and citation.
+    The file is read when the database is built, so a change needs
+    `get_pumf(..., refresh = TRUE)`; `redownload = TRUE` deletes it with
+    the version directory.  The sidecar cannot be joined.  Every table
+    built by canpumf 0.7.0 or later has it; a table built earlier has no
+    stamp.}
 }
 
 Sidecars are not available for the longitudinal series (`"LFS"`,
 `"LFS_HIST"`), whose shared databases are appended month by month:
 `pumf_sidecar(tbl)` returns no rows for them.
+}
+
+\section{Self-describing databases}{
+
+A DuckDB file built by canpumf 0.7.0 or later carries everything needed
+to read it without the package or the cached `metadata/` directory: the
+`pumf_build_info` stamp above, the bilingual dictionary of every table
+([pumf_dictionary()] reads it from the table `pumf_dictionary`) and, as
+DuckDB comments, the variable label of every column and a one-line
+description of every table (`duckdb_columns()`, `duckdb_tables()`).
+[label_pumf_columns()], [pumf_dictionary()] and this function therefore
+also work on a tbl opened on the file with [DBI::dbConnect()] directly.
 }
 
 \examples{
@@ -98,5 +135,8 @@ census |>
 # the records the 1881 census file flags for removal, by reason
 tcp <- get_pumf("TCP", "1881")
 pumf_sidecar(tcp, "removed") |> dplyr::count(REMOVE_WHY_TCP)
+
+# where the data came from, and under which licence
+pumf_sidecar(tcp, "provenance") |> dplyr::collect() |> t()
 }
 }

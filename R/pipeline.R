@@ -152,8 +152,12 @@
   if (any(are_dirs & items != "metadata", na.rm = TRUE)) return(TRUE)
   # Among regular files, exclude zip archives and duckdb files (metadata/ is
   # a directory, so it is already out).
+  # A download manifest (statcan_manifest.csv, borealis_manifest.csv) and
+  # the user's pumf_provenance.csv sit beside the raw files and are not
+  # content either.
   other_files <- items[!are_dirs &
-                        !grepl("\\.zip$|\\.duckdb$", items, ignore.case = TRUE)]
+                        !grepl("\\.zip$|\\.duckdb$|_manifest\\.csv$|^pumf_provenance\\.csv$",
+                               items, ignore.case = TRUE)]
   length(other_files) > 0L
 }
 
@@ -263,6 +267,8 @@ pumf_locate_or_download <- function(series,
         .pumf_warn_cache_path_on_download()
         message("Downloading shared bundle for ", series, " ", bundle_year, " ...")
         .pumf_download(src_url, bzip, mode = "wb", quiet = FALSE)
+        .write_statcan_manifest(source_dir, src_url, basename(bzip), series,
+                                bundle_year)
       }
       message("Extracting ", basename(bzip), " ...")
       robust_unzip(bzip, exdir = source_dir)
@@ -354,6 +360,8 @@ pumf_locate_or_download <- function(series,
       .pumf_warn_cache_path_on_download()
       message("Downloading ", series, " ", version, " ...")
       .pumf_download(url, zip_path, mode = "wb", quiet = FALSE)
+      # Where it came from, for the build stamp (.pumf_source_info()).
+      .write_statcan_manifest(version_dir, url, zip_name, series, version)
       is_extracted <- FALSE  # need extraction after download
     }
   }
@@ -458,7 +466,7 @@ pumf_locate_or_download <- function(series,
 
   if (isTRUE(grepl("\\.csv", ext_pat, fixed = TRUE))) {
     candidates <- candidates[!grepl(
-      "codebook|variables|layout|readme|lisezmoi|dictionary",
+      "codebook|variables|layout|readme|lisezmoi|dictionary|_manifest|^pumf_provenance",
       basename(candidates), ignore.case = TRUE)]
   }
 
@@ -853,46 +861,8 @@ pumf_locate_or_download <- function(series,
 # Companion table name for a data table ("eng" -> "pumf_sentinels_eng").
 .sentinel_table_name <- function(table_name) paste0("pumf_sentinels_", table_name)
 
-# ---- Build stamp -------------------------------------------------------------
-#
-# Stage 3 records, per table it writes, which canpumf version built it and
-# when, in the small table `pumf_build_info` (columns `table`,
-# `canpumf_version`, `duckdb_version`, `built`).  A table without a row there
-# was built before the stamp existed (canpumf < 0.7.0), and so also lacks the
-# pumf_row_id key and the sentinel companion.  get_pumf() says so once per
-# session (.pumf_check_build_stamp()), and list_pumf_cache() reports the
-# version in its `built_with` column.  The longitudinal series keep their own
-# `*_versions` tables and are not stamped.
-.build_info_table <- "pumf_build_info"
-
-.write_build_info <- function(con, table_name) {
-  info <- data.frame(
-    table           = table_name,
-    canpumf_version = as.character(utils::packageVersion("canpumf")),
-    duckdb_version  = as.character(utils::packageVersion("duckdb")),
-    built           = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
-    stringsAsFactors = FALSE)
-  if (DBI::dbExistsTable(con, .build_info_table)) {
-    DBI::dbExecute(con, sprintf(
-      'DELETE FROM "%s" WHERE "table" = ?', .build_info_table),
-      params = list(table_name))
-    DBI::dbAppendTable(con, .build_info_table, info)
-  } else {
-    DBI::dbWriteTable(con, .build_info_table, info)
-  }
-  invisible(info)
-}
-
-# The build stamp of one table (a one-row data.frame), or NULL when the
-# database has no stamp for it.
-.read_build_info <- function(con, table_name = NULL) {
-  if (!isTRUE(tryCatch(DBI::dbExistsTable(con, .build_info_table),
-                       error = function(e) FALSE)))
-    return(NULL)
-  info <- DBI::dbReadTable(con, .build_info_table)
-  if (!is.null(table_name)) info <- info[info$table == table_name, , drop = FALSE]
-  if (nrow(info) == 0L) NULL else info
-}
+# The build stamp (.write_build_info(), .read_build_info()) and the other
+# self-describing tables live in R/db_metadata.R.
 
 # Build the sentinel companion tibble from the "pumf_sentinels" attributes
 # collected in Stage 3: pumf_row_id plus one numeric column per variable in
@@ -1827,6 +1797,8 @@ pumf_locate_or_download <- function(series,
 #'   entry's for this build.  Used by secondary modules, which supply their own
 #'   complete fixup set (e.g. `force_numeric`), replacing the entry's primary
 #'   fixups.
+#' @param module The module id of a multi-module survey's table (recorded in
+#'   the build stamp); `NULL` for a single-table survey.
 #' @param bsw_override Optional list of bootstrap-weight config
 #'   (`bsw_mask`, `bsw_file_mask`, `bsw_join_key`, `bsw_drop_cols`,
 #'   `bsw_strata`) overriding the registry entry's BSW config for this build.
@@ -1846,7 +1818,8 @@ pumf_build_duckdb <- function(version_dir,
                                db_path      = NULL,
                                meta_subdir  = NULL,
                                data_fixups  = NULL,
-                               bsw_override = NULL) {
+                               bsw_override = NULL,
+                               module       = NULL) {
   stopifnot(lang %in% c("eng", "fra"))
 
   # Step 1: DuckDB path and table name
@@ -2285,8 +2258,16 @@ pumf_build_duckdb <- function(version_dir,
     message(format(n_removed, big.mark = ","), " record(s) flagged by ",
             fx$removed_records$var, " set aside in '", rm_table,
             "' (pumf_sidecar(tbl, \"removed\")).")
-  # The build stamp: which canpumf built this table, and when.
-  .write_build_info(con, table_name)
+  # The build stamp: which canpumf built this table, when, from which file
+  # and source (R/db_metadata.R), and the dictionary the table was labelled
+  # with, so that the database describes itself without metadata/.
+  src_info <- .pumf_source_info(version_dir, data_path, source_dir,
+                                provenance = reg$provenance)
+  .write_build_info(con, table_name,
+                    .pumf_stamp_info(series, version, lang, module, src_info, fx))
+  dict <- .pumf_dictionary_assemble(
+    variables, applied, .pumf_sentinel_label_rows(fx$sentinel_labels), series)
+  .write_dictionary(con, table_name, dict)
 
   # Step 8: verify / enforce ENUM on factor columns
   factor_cols <- names(data)[vapply(data, is.factor, logical(1L))]
@@ -2315,6 +2296,12 @@ pumf_build_duckdb <- function(version_dir,
       for (col in intersect(force_big, tbl_fields)) set_type(col, "BIGINT")
     }
   }
+
+  # Step 8c: the variable labels as column comments and a one-line table
+  # comment, readable from any DuckDB client.
+  .pumf_comment_tables(
+    con, c(table_name, if (!is.na(n_removed)) rm_table), dict, lang,
+    comment = .pumf_table_comment(series, version, lang, module, src_info))
 
   # Step 10: disconnect writer — no lingering connections so the next
   # pumf_build_duckdb call (e.g. for lang="fra") can open the file read-write.
@@ -2433,7 +2420,8 @@ pumf_run_pipeline <- function(series,
                             refresh      = eff_refresh,
                             meta_subdir  = m$meta_subdir,
                             data_fixups  = m$data_fixups,
-                            bsw_override = m$bsw_override)
+                            bsw_override = m$bsw_override,
+                            module       = m$id)
     if (isTRUE(m$is_primary)) result <- r
   }
 

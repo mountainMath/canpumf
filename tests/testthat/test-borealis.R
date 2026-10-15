@@ -223,6 +223,8 @@ test_that("an explicit Borealis load warns when StatCan has the data", {
   listing$size <- c(8, 100, 100)          # "a,b\n1,2\n"
   attr(listing, "doi")   <- "doi:10.5683/SP3/FAKE01"
   attr(listing, "title") <- "Fake survey"
+  attr(listing, "licence")     <- "CC0 1.0"
+  attr(listing, "licence_url") <- "http://creativecommons.org/publicdomain/zero/1.0"
   listing
 }
 
@@ -254,6 +256,10 @@ test_that(".borealis_download_dataset: a CSV data file arrives and stays compres
   expect_equal(m$data_file[m$role == "data"], "survey.csv.gz")
   # the md5 stays the one Borealis publishes (of the uncompressed file)
   expect_equal(m$md5[m$role == "data"], "aaa")
+  # the dataset's licence travels with the manifest, into the build stamp
+  expect_equal(unique(m$licence), "CC0 1.0")
+  expect_match(unique(m$licence_url), "creativecommons")
+  expect_equal(canpumf:::.pumf_source_info(vdir)$licence, "CC0 1.0")
   expect_equal(canpumf:::.borealis_manifest_file_mask(vdir),
                "^survey\\.csv\\.gz$")
   expect_equal(basename(canpumf:::.find_pumf_data_file(

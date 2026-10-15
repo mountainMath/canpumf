@@ -58,9 +58,9 @@ parquet column metadata.
 sfs <- get_pumf("SFS", "2019")
 if (!is.null(sfs)) {
   df <- sfs |>
-    dplyr::select(PREGION, PWEIGHT, PWNETWP) |>
+    dplyr::select(PREGION, PWEIGHT, PWNETWPG) |>
     collect_pumf(close = TRUE)
-  attr(df$PWNETWP, "label")
+  attr(df$PWNETWPG, "label")
   sapply(df, attr, "label")
   pumf_dictionary(df, what = "variables")   # from the provenance attribute
 }

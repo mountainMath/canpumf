@@ -397,7 +397,16 @@ test_that("pumf_dictionary: resolves the version aliases of get_pumf()", {
 test_that("pumf_dictionary topcodes: asks for a rebuild when the side-car predates it", {
   tmp <- withr::local_tempdir()
   tbl <- .fake_tbl(tmp)
+  # a database built before the stored dictionary: the metadata side-car is
+  # the only record of how the labels were applied
+  db <- tbl$src$con@driver@dbdir
+  close_pumf(tbl)
+  wcon <- DBI::dbConnect(duckdb::duckdb(), dbdir = db)
+  DBI::dbRemoveTable(wcon, "pumf_dictionary")
+  DBI::dbDisconnect(wcon, shutdown = TRUE)
+  tbl <- suppressMessages(get_pumf("FAKE", "2099", cache_path = tmp))
   on.exit(close_pumf(tbl))
+  expect_equal(nrow(pumf_dictionary(tbl, what = "topcodes")), 0L)
   f  <- file.path(tmp, "FAKE", "2099", "metadata", "codes_applied.csv")
   ca <- readr::read_csv(f, col_types = readr::cols(.default = "c"))
   readr::write_csv(ca[, c("name", "val", "label_en", "label_fr")], f)

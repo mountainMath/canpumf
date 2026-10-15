@@ -701,10 +701,18 @@ gaps where they were).  `pumf_sidecar(tbl, "removed")` returns them and
 sidecar tables a survey has, with their row counts.
 
 Stage 3 finally stamps the table: `pumf_build_info` records, per table, the
-canpumf and duckdb versions that built it and when.  `list_pumf_cache()`
-shows the stamp in its `built_with` column, and `get_pumf()` says once per
-session when it opens a table that has none (a build from before 0.7.0),
-pointing to `refresh = TRUE`.
+canpumf and duckdb versions that built it and when, the survey it holds, and
+the data's provenance (`source`, download URL or Borealis DOI, download date,
+data file, licence) from the download manifest Stage 1 left beside the raw
+files (`statcan_manifest.csv` or `borealis_manifest.csv`), overlaid with the
+user's `pumf_provenance.csv` and the registry entry's `provenance` list (see
+the onboarding vignette); `pumf_sidecar(tbl, "provenance")` returns the row.
+The dictionary of the table goes into `pumf_dictionary`, and every labelled
+column gets its variable label as a DuckDB column comment, so that the file
+can be read and cited without the package.  `list_pumf_cache()` shows the
+stamp in its `built_with`, `source` and `licence` columns, and `get_pumf()`
+says once per session when it opens a table that has none (a build from
+before 0.7.0), pointing to `refresh = TRUE`.
 
 ### Code labels → factors
 

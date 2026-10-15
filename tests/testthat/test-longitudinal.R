@@ -57,6 +57,18 @@ test_that(".long_get_pumf loads a month and records it", {
   expect_s3_class(d$PROV, "factor")
   expect_equal(canpumf:::.long_loaded_versions(spec, tmp), "1990-03")
   expect_true(file.exists(file.path(tmp, "FAKE", "FAKE.duckdb")))
+  # the shared table is described inside the file: stamp (no version),
+  # dictionary and column comments
+  con  <- t$src$con
+  info <- DBI::dbReadTable(con, "pumf_build_info")
+  expect_equal(info$table, "fake_eng")
+  expect_equal(c(info$series, info$lang, info$source), c("FAKE", "eng", "statcan"))
+  expect_true(is.na(info$version))
+  dict <- DBI::dbReadTable(con, "pumf_dictionary")
+  expect_equal(unique(dict$table), "fake_eng")
+  expect_true(all(c("PROV", "FWEIGHT") %in% dict$name))
+  expect_equal(canpumf:::.pumf_column_comments(con, "fake_eng")[["PROV"]], "Province")
+  expect_equal(canpumf:::.pumf_table_comment_of(con, "fake_eng"), "FAKE [eng]")
 })
 
 test_that("a year of a series without annual files loads its twelve months", {

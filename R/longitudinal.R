@@ -644,11 +644,68 @@
   if (!.long_version_exists(con, spec, version))
     .long_record_version(con, spec, version, vtype, survyear, survmnth, n)
 
+  # The table describes itself (R/db_metadata.R): stamp, the merged
+  # dictionary of every loaded version, column comments.
+  .long_describe_table(con, spec, data_tbl, lang, cache_path)
+
   DBI::dbDisconnect(con, shutdown = TRUE)
   message(s, " ", version, ": ", n, " rows appended to ", data_tbl, ".")
 
   .long_open_tbl(spec, db_path, data_tbl, survyear, survmnth,
                  read_only = read_only)
+}
+
+# Write what a longitudinal table says about itself after an append, on the
+# write connection: its build stamp (version NA, the series' source and
+# licence from the spec's entry), its dictionary (the spec's merged
+# variables and codes of every loaded version, as pumf_dictionary() reads
+# them, plus the derived LFS helper columns) and the variable labels as
+# column comments.  A spec without a codes() accessor (a test spec) stores
+# the variable rows only.
+.long_describe_table <- function(con, spec, data_tbl, lang, cache_path) {
+  series   <- spec$series
+  versions <- .long_read_versions(con, spec)$version
+  src <- .long_source_info(spec)
+  .write_build_info(con, data_tbl, .pumf_stamp_info(
+    series, NA_character_, lang, NULL, src,
+    spec$entry$data_fixups %||% list()))
+  variables <- as.data.frame(spec$variables(cache_path, versions))
+  codes <- if (is.null(spec$codes))
+    data.frame(name = character(), val = character(),
+               label_en = character(), label_fr = character(),
+               stringsAsFactors = FALSE)
+  else as.data.frame(spec$codes(cache_path, versions))
+  dict <- .pumf_dictionary_assemble(variables, codes, NULL, series)
+  .write_dictionary(con, data_tbl, dict)
+  .pumf_comment_tables(
+    con, data_tbl, dict, lang,
+    comment = .pumf_table_comment(series, NA_character_, lang, NULL, src))
+  invisible(NULL)
+}
+
+# The source of a longitudinal series for its stamp: the Borealis DOI of a
+# series that is fetched from Borealis (LFS_HIST), else Statistics Canada,
+# with the entry's `provenance` fields laid over it (no per-version file
+# here: the shared database has no single version directory).
+.long_source_info <- function(spec) {
+  .pumf_apply_user_provenance(.long_default_source_info(spec),
+                              registry = spec$entry$provenance)
+}
+
+.long_default_source_info <- function(spec) {
+  b <- spec$entry$borealis
+  if (is.character(b)) b <- list(doi = b)
+  doi <- if (!is.null(b$doi)) .borealis_normalize_doi(b$doi) else NA_character_
+  if (!is.na(doi))
+    list(source = "borealis", source_url = .borealis_doi_url(doi),
+         source_doi = doi, source_title = NA_character_,
+         downloaded = NA_character_, data_file = NA_character_,
+         licence = NA_character_, licence_url = NA_character_)
+  else
+    list(source = "statcan", source_url = NA_character_,
+         source_doi = NA_character_, source_title = NA_character_,
+         downloaded = NA_character_, data_file = NA_character_,
+         licence = .statcan_licence, licence_url = .statcan_licence_url)
 }
 
 # "YYYY" for a series without annual files: load the missing months of the

@@ -58,7 +58,9 @@ that is.  Applied only when a build actually happens -- on an
 already-imported survey it has no effect unless `refresh = TRUE` is also
 passed (a message is emitted in that case).  Not supported for LFS.  For a
 survey not in [list_pumf_catalogue()], deposit the raw files under
-`<cache_path>/<series>/<version>/` first (there is no download URL).}
+`<cache_path>/<series>/<version>/` first (there is no download URL); a
+`pumf_provenance.csv` beside them records where they came from (see
+[pumf_sidecar()]).}
 
 \item{module}{For multi-module surveys (several linked files in one DuckDB,
 e.g. GSS cycle 16 / "Aging and Social Support" 2002, whose `MAIN`, `CG4`,

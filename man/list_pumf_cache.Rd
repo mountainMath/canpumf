@@ -25,9 +25,21 @@ A tibble with columns:
       from the build stamp Stage 3 writes since 0.7.0.  `NA` when there is
       no DuckDB, when it was built before 0.7.0 (no stamp: no `pumf_row_id`
       key and no sentinel companion, so `pumf_sidecar()` needs a rebuild
-      with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
-      and when the file is locked by a writer.  Tables built by different
-      versions are listed together, oldest first.}
+      with `get_pumf(..., refresh = TRUE)`), for a longitudinal database
+      last appended to before the stamp, and when the file is locked by a
+      writer.  Tables built by different versions are listed together,
+      oldest first.}
+    \item{`source`}{Where the data came from, from the same stamp:
+      `"statcan"` (downloaded from Statistics Canada), `"borealis"` (the
+      Borealis Dataverse) or `"deposit"` (a file placed in the cache by
+      hand).  `NA` where `built_with` is, and for a stamp written before
+      the provenance was recorded.}
+    \item{`licence`}{The licence the data are distributed under, from the
+      stamp: the Statistics Canada Open Licence for a StatCan download or
+      deposit, the licence a Borealis dataset declares.  `NA` as for
+      `source`.  The full provenance of a table (URL or DOI, download
+      date, data file, licence URL, registry fixups) is its
+      `"provenance"` sidecar, [pumf_sidecar()].}
   }
   Returns a zero-row tibble with the same column structure if the cache
   directory does not exist or is empty.

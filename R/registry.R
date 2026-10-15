@@ -38,7 +38,8 @@
                         modules           = NULL,
                         primary_module    = NULL,
                         module_key        = NULL,
-                        borealis          = NULL) {
+                        borealis          = NULL,
+                        provenance        = NULL) {
   # Multi-module surveys (e.g. GSS cycle 16) ship several related files that
   # share a respondent key (RECID) and must be linked for analysis because the
   # survey weight lives only in the primary file.  `modules` is a named list
@@ -93,7 +94,8 @@
     modules           = modules,
     primary_module    = primary_module,
     module_key        = module_key,
-    borealis          = borealis
+    borealis          = borealis,
+    provenance        = provenance
   )
 }
 
@@ -2525,6 +2527,8 @@ pumf_registry_keys <- function() {
            ". Recognised: doi, files.", call. = FALSE)
     .borealis_normalize_doi(b$doi)
   }
+  if (!is.null(x$provenance))
+    .pumf_check_user_provenance(x$provenance, what = "registry 'provenance'")
   if (!is.null(x$data_fixups)) {
     if (!is.list(x$data_fixups))
       stop("Registry field 'data_fixups' must be a list.", call. = FALSE)
@@ -2641,6 +2645,18 @@ pumf_registry_keys <- function() {
 #'   overrides canpumf's automatic choice of data and command files. A
 #'   registry `borealis` source is used only when Statistics Canada has no
 #'   download for the version; pass `get_pumf(..., borealis =)` to force it.
+#' @param provenance A named list stating or correcting the provenance the
+#'   build records in the database (see the `"provenance"` sidecar in
+#'   [pumf_sidecar()]): `source`, `source_url`, `source_doi`, `source_title`,
+#'   `downloaded`, `licence`, `licence_url`, `citation`, `note`, each a single
+#'   string. Meant for data deposited in the cache by hand, which has no
+#'   download manifest, and for a licence or title the automatic record gets
+#'   wrong. The same fields can be given in a file `pumf_provenance.csv`
+#'   (columns `field`, `value`) placed beside the raw data in the version
+#'   directory, which wins over this list; both win over what the download
+#'   recorded. The stamp names the fields set this way in `user_fields`. A
+#'   built database is not updated in place: rebuild it with
+#'   `get_pumf(..., refresh = TRUE)` to apply a change.
 #' @param ... Reserved; passing any unrecognised field name raises an error.
 #'
 #' @return A classed `"pumf_registry_entry"` list containing only the supplied
@@ -2675,6 +2691,7 @@ pumf_registry_entry <- function(layout_mask       = NULL,
                                 download_format   = NULL,
                                 csv_reader        = NULL,
                                 borealis          = NULL,
+                                provenance        = NULL,
                                 ...) {
   dots <- names(list(...))
   if (length(dots) > 0L)
@@ -2759,7 +2776,10 @@ print.pumf_registry_entry <- function(x, ...) {
   # Every scalar/vector field in .make_entry() order; a Borealis source shows
   # its DOI and the data_fixups follow as a block.
   for (f in setdiff(.pumf_registry_fields, "data_fixups")) {
-    v <- if (f == "borealis") x$borealis$doi else x[[f]]
+    v <- if (f == "borealis") x$borealis$doi
+         else if (f == "provenance" && length(x$provenance) > 0L)
+           paste0(names(x$provenance), " = ", unlist(x$provenance))
+         else x[[f]]
     if (!is.null(v) && length(v) > 0L)
       cat(sprintf("  %-18s %s\n", paste0(f, ":"), paste(v, collapse = ", ")))
   }

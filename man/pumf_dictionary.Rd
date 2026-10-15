@@ -53,12 +53,16 @@ frame: it stays usable after [close_pumf()] and can be extended with
 custom rows.
 }
 \details{
-The dictionary comes from the survey's cached `metadata/` files
+The dictionary is stored in the survey's DuckDB file (table
+`pumf_dictionary`, written by the build that labelled the table, so the two
+agree), and is available as soon as the survey has been built in either
+language.  A database built by an earlier canpumf version has no such
+table; its dictionary is then read from the cached `metadata/` files
 (`variables.csv`, `codes.csv`, plus labels the registry supplies for
-sentinel codes), so it is available as soon as the survey has been built in
-either language.  For the longitudinal series (`"LFS"`, `"LFS_HIST"`) it
-merges the metadata of every loaded version, keeping every distinct wording,
-since each version was labelled from its own metadata when it was appended.
+sentinel codes).  For the longitudinal series (`"LFS"`, `"LFS_HIST"`) the
+stored dictionary merges the metadata of every loaded version, keeping
+every distinct wording, since each version was labelled from its own
+metadata when it was appended.
 
 Where the source documents a label in one language only, that label is
 repeated in the other column, which is what the built table shows.
@@ -75,9 +79,10 @@ and `what = "topcodes"` returns just them, so that a mean or a range can be
 read with the ceiling in mind.  Sentinel codes of the same variables ("Not
 stated", "Don't know") have `applied_as` `"sentinel"`: they become `NA` in
 the table and are reported, with their labels, by [pumf_sidecar()].
-`applied_as` is read from `metadata/codes_applied.csv`, which the build
-writes; for a database built by an earlier canpumf version it is `NA`, and
-`what = "topcodes"` asks for a rebuild with `get_pumf(..., refresh = TRUE)`.
+`applied_as` is recorded by the build (in the database and in
+`metadata/codes_applied.csv`); for a database built by an earlier canpumf
+version it is `NA`, and `what = "topcodes"` asks for a rebuild with
+`get_pumf(..., refresh = TRUE)`.
 The longitudinal series have no such variables, and `what = "topcodes"` is
 an error for them.
 }

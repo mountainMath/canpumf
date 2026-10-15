@@ -8,7 +8,8 @@ test_that("list_pumf_cache: empty cache returns empty tibble", {
   expect_s3_class(result, "data.frame")
   expect_equal(nrow(result), 0L)
   expect_named(result, c("series","version","has_raw","has_metadata",
-                          "has_duckdb","raw_mb","duckdb_mb","built_with"),
+                          "has_duckdb","raw_mb","duckdb_mb","built_with",
+                          "source","licence"),
                ignore.order = TRUE)
 })
 
@@ -86,6 +87,8 @@ test_that("list_pumf_cache: built_with is NA for a DuckDB without a build stamp"
   result <- list_pumf_cache(cache_path = tmp)
   expect_true(result$has_duckdb)
   expect_true(is.na(result$built_with))
+  expect_true(is.na(result$source))
+  expect_true(is.na(result$licence))
   # and lists every building version when tables differ, oldest first
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = file.path(vdir, "OLD_2001.duckdb"))
   DBI::dbWriteTable(con, "pumf_build_info", data.frame(
@@ -171,6 +174,11 @@ test_that("remove_pumf_cache: lang drops one language's tables and compacts", {
   expect_true(all(c("eng", "pumf_sentinels_eng", "pumf_build_info") %in% tabs))
   expect_false(any(c("fra", "pumf_sentinels_fra") %in% tabs))
   expect_equal(DBI::dbReadTable(con, "pumf_build_info")$table, "eng")
+  # the dictionary rows of the dropped table go with it
+  expect_equal(unique(DBI::dbReadTable(con, "pumf_dictionary")$table), "eng")
+  # the comments survive the copy
+  expect_equal(canpumf:::.pumf_column_comments(con, "eng")[["PROV"]], "Province")
+  expect_equal(canpumf:::.pumf_table_comment_of(con, "eng"), "FAKE 2099 [eng]")
   # the ENUM levels survive the copy
   prov <- DBI::dbGetQuery(con, "SELECT PROV FROM eng ORDER BY pumf_row_id")$PROV
   expect_true(is.factor(prov))

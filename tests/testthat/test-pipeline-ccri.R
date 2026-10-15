@@ -79,7 +79,7 @@ test_that("CCRI 1911: full pipeline, both languages", {
 
   expect_setequal(DBI::dbListTables(con),
                   c("eng", "fra", "pumf_sentinels_eng", "pumf_sentinels_fra",
-                    "pumf_build_info"))
+                    "pumf_build_info", "pumf_dictionary"))
 
   # ---- Metadata: 101 variables; short labels from the registry, the ODESI
   # sentences as descriptions (English only) ---------------------------------

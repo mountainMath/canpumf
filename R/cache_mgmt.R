@@ -12,26 +12,39 @@
     has_duckdb   = logical(),
     raw_mb       = double(),
     duckdb_mb    = double(),
-    built_with   = character()
+    built_with   = character(),
+    source       = character(),
+    licence      = character()
   )
 }
 
-# The canpumf version(s) that built the tables of one DuckDB file, read from
-# its `pumf_build_info` stamp: one string ("0.7.0", or "0.7.0, 0.6.2" when
-# tables were built by different versions), or NA when the file has no stamp
-# (built before 0.7.0) or cannot be opened (e.g. locked by a writer).  The
-# connection is read-only and released without shutting the instance down, so
-# a tbl the user holds open on the same file is unaffected.
-.duckdb_built_with <- function(db_path) {
-  if (!file.exists(db_path)) return(NA_character_)
+# What one DuckDB file says about itself, read from its `pumf_build_info`
+# stamp: `built_with`, the canpumf version(s) that built its tables ("0.7.0",
+# or "0.7.0, 0.6.2" when tables were built by different versions), and the
+# `source` and `licence` of the data (one string each, distinct values
+# joined with ", ").  Every value is NA when the file has no stamp (built
+# before 0.7.0), the stamp predates the provenance columns, or the file
+# cannot be opened (e.g. locked by a writer).  The connection is read-only
+# and released without shutting the instance down, so a tbl the user holds
+# open on the same file is unaffected.
+.duckdb_stamp_summary <- function(db_path) {
+  none <- list(built_with = NA_character_, source = NA_character_,
+               licence = NA_character_)
+  if (!file.exists(db_path)) return(none)
   con <- tryCatch(.duckdb_connect_quiet(db_path, read_only = TRUE),
                   error = function(e) NULL)
-  if (is.null(con)) return(NA_character_)
+  if (is.null(con)) return(none)
   on.exit(DBI::dbDisconnect(con, shutdown = FALSE))
   info <- tryCatch(.read_build_info(con), error = function(e) NULL)
-  if (is.null(info)) return(NA_character_)
+  if (is.null(info)) return(none)
   v <- unique(info$canpumf_version)
-  paste(v[order(package_version(v))], collapse = ", ")
+  distinct <- function(col) {
+    if (!col %in% names(info)) return(NA_character_)
+    x <- unique(info[[col]][!is.na(info[[col]])])
+    if (length(x) == 0L) NA_character_ else paste(x, collapse = ", ")
+  }
+  list(built_with = paste(v[order(package_version(v))], collapse = ", "),
+       source = distinct("source"), licence = distinct("licence"))
 }
 
 # Size in MB of all files under path matching the (optional) include pattern,
@@ -62,6 +75,7 @@
   d          <- .describe_dir_files(version_dir)
   db_file    <- file.path(version_dir, .pumf_db_file(series, version))
   has_duckdb <- file.exists(db_file)
+  stamp      <- .duckdb_stamp_summary(db_file)
 
   tibble::tibble(
     series       = series,
@@ -71,7 +85,9 @@
     has_duckdb   = has_duckdb,
     raw_mb       = d$raw_mb,
     duckdb_mb    = if (has_duckdb) file.info(db_file)$size / 1e6 else NA_real_,
-    built_with   = if (has_duckdb) .duckdb_built_with(db_file) else NA_character_
+    built_with   = stamp$built_with,
+    source       = stamp$source,
+    licence      = stamp$licence
   )
 }
 
@@ -82,6 +98,9 @@
   cache_path <- dirname(lfs_dir)
   db_path    <- .long_db_path(spec, cache_path)
   db_mb      <- if (file.exists(db_path)) file.info(db_path)$size / 1e6 else NA_real_
+  # The shared tables are stamped on every append (version NA), so the stamp
+  # describes the whole file: the same values in every row.
+  stamp      <- .duckdb_stamp_summary(db_path)
 
   # Loaded versions from the shared DuckDB tracking table (none when the
   # database is missing or locked).
@@ -105,9 +124,9 @@
       raw_mb       = d$raw_mb,
       # Shared DuckDB: same file backs all versions; show total size in every row.
       duckdb_mb    = db_mb,
-      # The longitudinal databases track their versions in their own table
-      # and carry no per-table build stamp.
-      built_with   = NA_character_
+      built_with   = stamp$built_with,
+      source       = stamp$source,
+      licence      = stamp$licence
     )
   })
 
@@ -144,9 +163,21 @@
 #'       from the build stamp Stage 3 writes since 0.7.0.  `NA` when there is
 #'       no DuckDB, when it was built before 0.7.0 (no stamp: no `pumf_row_id`
 #'       key and no sentinel companion, so `pumf_sidecar()` needs a rebuild
-#'       with `get_pumf(..., refresh = TRUE)`), for the longitudinal series,
-#'       and when the file is locked by a writer.  Tables built by different
-#'       versions are listed together, oldest first.}
+#'       with `get_pumf(..., refresh = TRUE)`), for a longitudinal database
+#'       last appended to before the stamp, and when the file is locked by a
+#'       writer.  Tables built by different versions are listed together,
+#'       oldest first.}
+#'     \item{`source`}{Where the data came from, from the same stamp:
+#'       `"statcan"` (downloaded from Statistics Canada), `"borealis"` (the
+#'       Borealis Dataverse) or `"deposit"` (a file placed in the cache by
+#'       hand).  `NA` where `built_with` is, and for a stamp written before
+#'       the provenance was recorded.}
+#'     \item{`licence`}{The licence the data are distributed under, from the
+#'       stamp: the Statistics Canada Open Licence for a StatCan download or
+#'       deposit, the licence a Borealis dataset declares.  `NA` as for
+#'       `source`.  The full provenance of a table (URL or DOI, download
+#'       date, data file, licence URL, registry fixups) is its
+#'       `"provenance"` sidecar, [pumf_sidecar()].}
 #'   }
 #'   Returns a zero-row tibble with the same column structure if the cache
 #'   directory does not exist or is empty.
@@ -280,7 +311,7 @@ remove_pumf_cache <- function(series,
 # file.  The language's objects are its main table(s) (one per module),
 # their sidecar tables (pumf_sentinels_, pumf_removed_), the
 # <table>_bsw_* views that 0.6.0 made for bootstrap weights and their
-# pumf_build_info rows; the pumf_bsw_* weight tables are shared between the
+# pumf_build_info and pumf_dictionary rows; the pumf_bsw_* weight tables are shared between the
 # languages (they join on pumf_row_id) and stay while the other language
 # does.  A dropped table's blocks are marked free inside the file but the
 # file is not truncated, so the remaining content is copied into a fresh
@@ -332,11 +363,12 @@ remove_pumf_cache <- function(series,
     DBI::dbExecute(con, paste0("DROP VIEW IF EXISTS ", .qid(con, v)))
   for (t in c(mains, intersect(.pumf_sidecar_tables(mains), objs)))
     DBI::dbExecute(con, paste0("DROP TABLE IF EXISTS ", .qid(con, t)))
-  if (DBI::dbExistsTable(con, .build_info_table))
-    for (t in mains)
-      DBI::dbExecute(con, paste0(
-        "DELETE FROM ", .qid(con, .build_info_table), ' WHERE "table" = ?'),
-        params = list(t))
+  for (shared in c(.build_info_table, .dictionary_table))
+    if (DBI::dbExistsTable(con, shared))
+      for (t in mains)
+        DBI::dbExecute(con, paste0(
+          "DELETE FROM ", .qid(con, shared), ' WHERE "table" = ?'),
+          params = list(t))
 
   # Compact: copy what is left into a new file beside the old one, then swap.
   tmp_path <- paste0(db_path, ".compact")

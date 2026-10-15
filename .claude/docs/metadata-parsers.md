@@ -7,7 +7,7 @@ Ten parsers converge on three canonical CSV files in `<version_dir>/metadata/`:
 - `codes.csv`: one row per code value (name, val, label_en, label_fr)
 - `layout.csv`: one row per fixed-width column (name, start, end). Absent for CSV-format data.
 
-Stage 3 adds `codes_applied.csv` next to them: `codes.csv` after the registry's `codes_supplement`/`codes_override` rows, the French fallback and the code suffix for labels several present codes share (see `R/pipeline.R`, "Unique value labels"). It is not parser output; `pumf_dictionary()` reads it.
+Stage 3 adds `codes_applied.csv` next to them: `codes.csv` after the registry's `codes_supplement`/`codes_override` rows, the French fallback and the code suffix for labels several present codes share (see `R/pipeline.R`, "Unique value labels"). It is not parser output; the same rows go into the DuckDB table `pumf_dictionary`, which `pumf_dictionary()` reads first, with the CSV as the fallback for a file built before 0.7.0 (see `R/db_metadata.R`).
 
 Several parsers can fire for the same survey (e.g. split-SPSS for layout/codes and SAS cards for BSW weights). `merge_metadata()` consolidates the results: labels by parser priority, the layout from the highest-priority parser that has one, unless the registry's `layout_file` names the authoritative reading card (`merge_metadata(layout_override =)`, resolved by `.pumf_layout_from_file()`; see [registry.md](registry.md#registry-entries)). `pumf_parse_metadata()` then runs `.fix_metadata_mojibake()` and finally the PDF cross-check.
 

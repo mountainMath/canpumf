@@ -23,6 +23,7 @@ pumf_registry_entry(
   download_format = NULL,
   csv_reader = NULL,
   borealis = NULL,
+  provenance = NULL,
   ...
 )
 }
@@ -106,6 +107,19 @@ optional `files` (file ids or names from [list_borealis_pumf_files()])
 overrides canpumf's automatic choice of data and command files. A
 registry `borealis` source is used only when Statistics Canada has no
 download for the version; pass `get_pumf(..., borealis =)` to force it.}
+
+\item{provenance}{A named list stating or correcting the provenance the
+build records in the database (see the `"provenance"` sidecar in
+[pumf_sidecar()]): `source`, `source_url`, `source_doi`, `source_title`,
+`downloaded`, `licence`, `licence_url`, `citation`, `note`, each a single
+string. Meant for data deposited in the cache by hand, which has no
+download manifest, and for a licence or title the automatic record gets
+wrong. The same fields can be given in a file `pumf_provenance.csv`
+(columns `field`, `value`) placed beside the raw data in the version
+directory, which wins over this list; both win over what the download
+recorded. The stamp names the fields set this way in `user_fields`. A
+built database is not updated in place: rebuild it with
+`get_pumf(..., refresh = TRUE)` to apply a change.}
 
 \item{...}{Reserved; passing any unrecognised field name raises an error.}
 }

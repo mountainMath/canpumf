@@ -77,7 +77,8 @@
   r <- canpumf:::pumf_build_duckdb(vdir, "FAKE", "2099", lang = lang, refresh = TRUE)
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = r$db_path, read_only = TRUE)
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-  tabs <- setdiff(sort(DBI::dbListTables(con)), "pumf_build_info")
+  tabs <- setdiff(sort(DBI::dbListTables(con)),
+                  c("pumf_build_info", "pumf_dictionary"))
   out  <- lapply(stats::setNames(tabs, tabs), function(t) list(
     data  = DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s" ORDER BY pumf_row_id', t)),
     types = DBI::dbGetQuery(con, sprintf("PRAGMA table_info('%s')", t))[, c("name", "type")]))

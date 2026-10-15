@@ -87,6 +87,55 @@ entirely and let `get_pumf()` fetch the zip (see
 the case where the file is brand-new, EFT-only, or otherwise not yet wired into
 the collection table.
 
+### Record where the files came from
+
+Every DuckDB file `canpumf` builds is self-contained in that it carries the
+relevant metadata: beside the data it holds the bilingual dictionary and a
+build stamp with the data's provenance (where it
+was downloaded from and when, the data file read, the licence it is distributed
+under), which `pumf_sidecar(tbl, "provenance")` returns. For a download the
+package fills that in itself. A deposited file has no download to record, so
+the stamp says `source = "deposit"` and assumes the Statistics Canada Open
+Licence. State what you know in a file `pumf_provenance.csv` beside the raw
+files, with two columns, `field` and `value`, and one row per field:
+
+```{r provenance-file, eval = FALSE}
+writeLines(c(
+  "field,value",
+  "source,statcan",
+  "source_url,https://www150.statcan.gc.ca/n1/pub/46-25-0001/2025001/CSV.zip",
+  "source_title,\"Canadian Housing Survey, 2025: Public Use Microdata File\"",
+  "downloaded,2026-10-15",
+  "licence,Statistics Canada Open Licence",
+  "citation,\"Statistics Canada. (2026). Canadian Housing Survey, 2025 [PUMF].\"",
+  "note,Received by EFT before the public release"
+), "~/data/pumf.data/CHS/2025/pumf_provenance.csv")
+```
+
+The recognised fields are `source`, `source_url`, `source_doi`, `source_title`,
+`downloaded`, `licence`, `licence_url`, `citation` and `note`; any subset is
+fine, an unknown field is reported and ignored. The values go into the stamp
+as given, over whatever the package recorded, so the file also corrects a
+licence or title the automatic record got wrong, and the stamp's `user_fields`
+column names the fields that came from it. The same fields can be given as the
+`provenance = list(...)` field of a registry entry (below); the file wins where
+both set a field.
+
+The file is read when the table is built. It survives `refresh = TRUE`, which
+rebuilds the table from it, and is deleted with the version directory by
+`redownload = TRUE`, like a deposited data file. A change to it therefore takes
+`get_pumf(..., refresh = TRUE)`:
+
+```{r provenance-check, eval = FALSE}
+tbl <- get_pumf("CHS", "2025")
+pumf_sidecar(tbl, "provenance") |> dplyr::collect() |> t()
+```
+
+The file is not only for deposits. Placed beside the raw files of a PUMF the
+package downloaded itself, it enriches or overrides the provenance the download
+recorded in the same way; rebuilding with `refresh = TRUE` writes the changes
+into the DuckDB file.
+
 ---
 
 ## Smart defaults and the newest-sibling fallback
@@ -282,8 +331,16 @@ works for everyone and making a pull request to merge this into the official pac
 newsurvey.2025  = .make_entry("NEWSURVEY", "2025",
   file_mask     = "PUMF_NEWSURVEY_\\d{4}\\.txt",   # keep the generic year
   bsw_file_mask = "bsw_flatfile\\.txt",
-  bsw_join_key  = "CASEID")
+  bsw_join_key  = "CASEID",
+  provenance    = list(                       # only where the automatic
+    source_title = "New Survey, 2025: PUMF",  # record is wrong or incomplete
+    citation     = "Statistics Canada. (2026). New Survey, 2025 [PUMF]."))
 ```
+
+The `provenance` field is optional. It carries the same fields as the
+`pumf_provenance.csv` described above, for a title, licence or citation the
+download manifest cannot supply; a user's file in the version directory still
+overrides it.
 
 Alternatively [open an issue](https://github.com/mountainMath/canpumf/issues) and document your successful registry modification and the package maintainers will add it to the package.
 
@@ -304,7 +361,8 @@ each step in its own header comments.
 ## Summary
 
 * Put the PUMF at `<cache_path>/<series>/<version>/`, using the survey acronym
-  and a bare four-digit year.
+  and a bare four-digit year, with a `pumf_provenance.csv` beside it saying
+  where the files came from and how to cite them.
 * Try `get_pumf(series, version)` first — generic year masks plus newest-sibling
   inheritance often handle a new year with no code change (watch for the
   inheritance message).

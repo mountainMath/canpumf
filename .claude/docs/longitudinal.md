@@ -50,6 +50,7 @@ functions, `open_pumf_documentation()`, `.pumf_db_path()`,
   `.long_record_version()`, `.long_delete_slice()`) take `(con, spec, ...)`.
   Readers never create the tracking table (they return empty/FALSE when it is
   missing); only the write phase calls `.long_ensure_versions_table()`.
+- After each append the write phase calls `.long_describe_table(con, spec, data_tbl, lang, cache_path)`, which stamps the shared table in `pumf_build_info` (version `NA`, source from `spec$entry$borealis` or StatCan, see `R/db_metadata.R`), rewrites its `pumf_dictionary` rows from `spec$variables`/`spec$codes` and comments the columns, so `LFS.duckdb` and `LFS_HIST.duckdb` are self-describing too (issue #34).
 - Issue #18 holds: a cache hit opens read-only only. Transient read-only
   probes go through `.long_with_readonly_con(spec, cache_path, fn)` and
   disconnect with `shutdown = FALSE`. A build opens read-write after

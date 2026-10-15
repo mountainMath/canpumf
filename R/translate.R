@@ -129,21 +129,36 @@
 }
 
 # variables + codes (both languages) for a provenance record, module-aware.
+# A self-describing database (built by canpumf 0.7.0 or later) stores the
+# rows in its pumf_dictionary table, which is read first; a database built
+# before that is described from its metadata/ directory (or, for a
+# longitudinal series, the spec's accessors) as the build read it.  The
+# attribute "applied_recorded" says whether the value rows carry how the
+# build applied each label (`applied_as`), which what = "topcodes" needs.
 .pumf_dictionary_from_prov <- function(prov) {
   series   <- prov$series
-  meta     <- NULL
-  versions <- NULL
   if (identical(series, "LFS_TIMELINE")) {
     codes <- as.data.frame(.lfs_timeline_ref("codes"))
-    sent  <- NULL
-  } else if (.is_longitudinal(series)) {
+    out <- .pumf_dictionary_assemble(.pumf_label_source(prov), codes, NULL,
+                                     series)
+    attr(out, "applied_recorded") <- FALSE
+    return(out)
+  }
+  stored <- .pumf_stored_dictionary(prov)
+  if (!is.null(stored)) {
+    attr(stored, "applied_recorded") <- !.is_longitudinal(series)
+    return(stored)
+  }
+  if (.is_longitudinal(series)) {
     spec     <- .pumf_longitudinal_spec(series)
     versions <- .long_versions_from_prov(prov)
     if (is.null(spec$codes))
       stop("The ", series, " longitudinal spec has no 'codes' accessor.",
            call. = FALSE)
-    codes <- as.data.frame(spec$codes(prov$cache_path, versions))
-    sent  <- NULL
+    codes    <- as.data.frame(spec$codes(prov$cache_path, versions))
+    sent     <- NULL
+    recorded <- FALSE
+    variables <- .pumf_label_source(prov, versions = versions)
   } else {
     pm       <- .pumf_prov_meta(prov)
     meta_dir <- pm$meta_dir
@@ -153,61 +168,27 @@
     # fallback, the code suffix where the data hold several codes of one
     # label).  A cache built before 0.7.0 has no codes_applied.csv; its
     # table shows the documented labels, so those are returned.
-    codes <- .read_codes_applied(meta_dir) %||%
+    applied  <- .read_codes_applied(meta_dir)
+    recorded <- !is.null(applied) && "applied_as" %in% names(applied)
+    codes <- applied %||%
       as.data.frame(.pumf_unique_code_labels(
         .pumf_apply_code_fixups(meta$codes, fix), present = list()))
     sent  <- .pumf_sentinel_label_rows(fix$sentinel_labels)
+    # The variable labels as label_pumf_columns() reads them (the same
+    # source, so the two agree).
+    variables <- .pumf_label_source(prov, meta = meta)
   }
-  # The variable labels as label_pumf_columns() reads them (the same source,
-  # so the two agree), plus the derived LFS helper columns for the shared
-  # series.
-  variables  <- .pumf_label_source(prov, meta = meta, versions = versions)
-  for (d in setdiff(.metadata_description_cols, names(variables)))
-    variables[[d]] <- rep(NA_character_, nrow(variables))
-  codes$name <- toupper(codes$name)
-  if (.is_shared_series(series)) {
-    derived <- .pumf_derived_var_rows(variables$name)
-    for (d in .metadata_description_cols)
-      derived[[d]] <- rep(NA_character_, nrow(derived))
-    variables <- rbind(variables[, c("name", "label_en", "label_fr",
-                                     .metadata_description_cols)], derived)
-  }
-  vars <- data.frame(name = variables$name, val = NA_character_,
-                     label_en = variables$label_en, label_fr = variables$label_fr,
-                     description_en = variables$description_en,
-                     description_fr = variables$description_fr,
-                     applied_as = NA_character_, stringsAsFactors = FALSE)
-  cds  <- data.frame(name = codes$name, val = as.character(codes$val),
-                     label_en = codes$label_en, label_fr = codes$label_fr,
-                     description_en = rep(NA_character_, nrow(codes)),
-                     description_fr = rep(NA_character_, nrow(codes)),
-                     applied_as = if ("applied_as" %in% names(codes))
-                       as.character(codes$applied_as)
-                     else rep(NA_character_, nrow(codes)),
-                     stringsAsFactors = FALSE)
-  if (!is.null(sent)) {
-    sent$description_en <- rep(NA_character_, nrow(sent))
-    sent$description_fr <- rep(NA_character_, nrow(sent))
-    sent$applied_as     <- rep(NA_character_, nrow(sent))
-  }
-  out <- rbind(vars, cds, sent)
-  # The build falls back to label_en where label_fr is missing (and to the
-  # digits where neither exists), so the dictionary says what the table shows.
-  na_fr <- is.na(out$label_fr)
-  out$label_fr[na_fr] <- out$label_en[na_fr]
-  na_en <- is.na(out$label_en)
-  out$label_en[na_en] <- out$label_fr[na_en]
-  out <- out[!is.na(out$label_en), , drop = FALSE]
-  rownames(out) <- NULL
-  tibble::as_tibble(out)
+  out <- .pumf_dictionary_assemble(variables, codes, sent, series)
+  attr(out, "applied_recorded") <- recorded
+  out
 }
 
 # The labelled values a non-longitudinal table keeps as numbers (top codes,
 # bottom codes, labelled zeros): the dictionary's value rows applied as
-# "value", which Stage 3 records in metadata/codes_applied.csv.
+# "value", which Stage 3 records in the database's pumf_dictionary table
+# (and in metadata/codes_applied.csv).
 .pumf_dictionary_topcodes <- function(prov, dict) {
-  codes <- .read_codes_applied(.pumf_prov_meta(prov)$meta_dir)
-  if (is.null(codes) || !"applied_as" %in% names(codes))
+  if (!isTRUE(attr(dict, "applied_recorded", exact = TRUE)))
     stop(prov$series, " ", prov$version, " was built by a canpumf version ",
          "that did not record how it applied the value labels. Rebuild it ",
          "with get_pumf(\"", prov$series, "\", \"", prov$version,
@@ -228,12 +209,16 @@
 #' frame: it stays usable after [close_pumf()] and can be extended with
 #' custom rows.
 #'
-#' The dictionary comes from the survey's cached `metadata/` files
+#' The dictionary is stored in the survey's DuckDB file (table
+#' `pumf_dictionary`, written by the build that labelled the table, so the two
+#' agree), and is available as soon as the survey has been built in either
+#' language.  A database built by an earlier canpumf version has no such
+#' table; its dictionary is then read from the cached `metadata/` files
 #' (`variables.csv`, `codes.csv`, plus labels the registry supplies for
-#' sentinel codes), so it is available as soon as the survey has been built in
-#' either language.  For the longitudinal series (`"LFS"`, `"LFS_HIST"`) it
-#' merges the metadata of every loaded version, keeping every distinct wording,
-#' since each version was labelled from its own metadata when it was appended.
+#' sentinel codes).  For the longitudinal series (`"LFS"`, `"LFS_HIST"`) the
+#' stored dictionary merges the metadata of every loaded version, keeping
+#' every distinct wording, since each version was labelled from its own
+#' metadata when it was appended.
 #'
 #' Where the source documents a label in one language only, that label is
 #' repeated in the other column, which is what the built table shows.
@@ -249,9 +234,10 @@
 #' read with the ceiling in mind.  Sentinel codes of the same variables ("Not
 #' stated", "Don't know") have `applied_as` `"sentinel"`: they become `NA` in
 #' the table and are reported, with their labels, by [pumf_sidecar()].
-#' `applied_as` is read from `metadata/codes_applied.csv`, which the build
-#' writes; for a database built by an earlier canpumf version it is `NA`, and
-#' `what = "topcodes"` asks for a rebuild with `get_pumf(..., refresh = TRUE)`.
+#' `applied_as` is recorded by the build (in the database and in
+#' `metadata/codes_applied.csv`); for a database built by an earlier canpumf
+#' version it is `NA`, and `what = "topcodes"` asks for a rebuild with
+#' `get_pumf(..., refresh = TRUE)`.
 #' The longitudinal series have no such variables, and `what = "topcodes"` is
 #' an error for them.
 #'
